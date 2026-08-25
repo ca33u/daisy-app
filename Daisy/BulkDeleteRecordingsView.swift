@@ -27,6 +27,12 @@
 import SwiftUI
 
 struct BulkDeleteRecordingsView: View {
+    /// Called once a bulk delete has finished. The host Settings screen
+    /// uses it to re-measure the "Space used" row — this control is the
+    /// biggest single mover of that number, and nothing else would tell
+    /// the row it changed while the window stays open.
+    var onDeleted: (@MainActor () -> Void)?
+
     /// Bind to the singletons so the count + folder list re-render
     /// reactively as sessions are added/removed and folders change.
     @Bindable private var store = SessionStore.shared
@@ -187,6 +193,7 @@ struct BulkDeleteRecordingsView: View {
                 await store.deleteSessions(inFolder: slug)
             }
             deleting = false
+            onDeleted?()
         }
     }
 }

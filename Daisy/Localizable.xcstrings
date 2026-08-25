@@ -1,6 +1,66 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Space used" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Занято на диске"
+          }
+        }
+      }
+    },
+    "Recordings: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Записи: %@"
+          }
+        }
+      }
+    },
+    "Models: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Модели: %@"
+          }
+        }
+      }
+    },
+    "Measuring…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Считаем…"
+          }
+        }
+      }
+    },
+    "The chosen folder isn’t available right now." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбранная папка сейчас недоступна."
+          }
+        }
+      }
+    },
+    "Daisy can’t reach the recordings folder right now." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сейчас Daisy не может открыть папку записей."
+          }
+        }
+      }
+    },
     "Record the other side with Core Audio taps" : {
       "localizations" : {
         "ru" : {

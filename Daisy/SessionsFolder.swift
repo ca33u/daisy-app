@@ -84,11 +84,12 @@ enum SessionsFolder {
         }
     }
 
-    /// Display path for Settings UI. Returns nil when nothing is
-    /// stored (caller shows `defaultContainerLabel` instead).
-    static func userFolderDisplayPath() -> String? {
-        resolveUserFolder()?.path
-    }
+    // (`userFolderDisplayPath()` removed 2026-08-25: Settings now shows
+    // the EFFECTIVE recordings directory — base + `Daisy/Sessions`, and
+    // the same one for the default container — via
+    // `StorageUsage.recordingsDisplayPath()`. Two functions producing
+    // two different "the path" strings is how the row and the Reveal
+    // button drift apart.)
 
     /// Whether a user folder is currently configured (regardless of
     /// whether it resolves right now — UI uses this to decide

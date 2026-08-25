@@ -154,13 +154,29 @@ struct SettingsView: View {
     /// progress + can't be double-clicked.
     @State private var clearingAudioCache = false
 
+    /// Disk footprint of recordings + models, shown in Storage. nil
+    /// until the first scan lands ("Measuring…"). `storageUsageTick`
+    /// re-runs the `.task`; call `StorageUsage.invalidate()` alongside
+    /// the bump so the re-run actually re-walks instead of handing back
+    /// the cached figure.
+    @State private var storageUsage: StorageUsageSnapshot?
+    @State private var storageUsageTick: Int = 0
+
     /// Cached `ByteCountFormatter` for the cache-size row. Building
     /// one per body recompute is wasteful; this one stays alive for
     /// the view lifetime.
+    ///
+    /// `.useKB` is in the list so a fresh install reads "812 KB"
+    /// instead of "0 MB", and `allowsNonnumericFormatting = false`
+    /// turns the empty case into "0 KB" rather than Foundation's
+    /// "Zero KB", which reads like a bug. Shared with the models-cache
+    /// row and the "Freed …" toast, so those pick up the same two
+    /// changes — deliberately: they had the same two problems.
     private let byteFormatter: ByteCountFormatter = {
         let f = ByteCountFormatter()
-        f.allowedUnits = [.useMB, .useGB]
+        f.allowedUnits = [.useKB, .useMB, .useGB]
         f.countStyle = .file
+        f.allowsNonnumericFormatting = false
         return f
     }()
 
@@ -535,6 +551,18 @@ struct SettingsView: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 4) {
+                // Reveal for the ROOT, next to the path it opens. The
+                // Library and the session detail already reveal a single
+                // recording; what was missing was "take me to where they
+                // all live" — the first thing anyone asks after "my
+                // recording is gone".
+                Button("Reveal in Finder") {
+                    revealRecordingsFolder()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .tint(Color.daisyTextPrimary)
+                .disabled(storageChangeInProgress)
                 Button("Choose folder…") {
                     chooseRecordingsFolder()
                 }
@@ -603,9 +631,91 @@ struct SettingsView: View {
         }
     }
 
+    /// The path recordings ACTUALLY land in — base + `Daisy/Sessions`,
+    /// tilde-abbreviated. Previously this row showed the chosen base
+    /// folder, and "Inside Daisy's container (default)" for everyone who
+    /// never chose one: neither could be pasted into Finder's "Go to
+    /// Folder", which is what someone hunting a missing recording needs.
+    /// One place, one path — the same one `Reveal in Finder` opens and
+    /// the same one the size below is measured from.
+    ///
+    /// No path at all means one of two different things, and they must
+    /// not print the same sentence: a folder was chosen and isn't
+    /// reachable (unplugged disk — say so), or none was ever chosen and
+    /// even Application Support wouldn't resolve (fall back to the
+    /// default-container label).
     private var storageDisplayPath: String {
-        SessionsFolder.userFolderDisplayPath()
-            ?? SessionsFolder.defaultContainerLabel
+        if let path = StorageUsage.recordingsDisplayPath() { return path }
+        if SessionsFolder.hasUserFolder {
+            return String(localized: "The chosen folder isn’t available right now.")
+        }
+        return SessionsFolder.defaultContainerLabel
+    }
+
+    /// Size of recordings + models, one line each. Kept apart on
+    /// purpose: recordings are the user's data (only they can decide
+    /// what goes), models are reclaimable cache (Transcription →
+    /// "Remove unused" reclaims it). One merged number would invite
+    /// exactly the wrong deletion.
+    @ViewBuilder
+    private var storageUsageRow: some View {
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Space used")
+                    .font(.callout.weight(.medium))
+                if let usage = storageUsage {
+                    if usage.recordingsReachable {
+                        Text("Recordings: \(byteFormatter.string(fromByteCount: usage.recordingBytes))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    } else {
+                        // Not "0 bytes" — an unplugged external disk must
+                        // not read as "your recordings are gone".
+                        Text("Daisy can’t reach the recordings folder right now.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("Models: \(byteFormatter.string(fromByteCount: usage.modelBytes))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                } else {
+                    Text("Measuring…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+        }
+        // Re-measured when the section appears and after anything that
+        // moves the numbers (folder change, audio purge). The scan
+        // itself runs off the main actor and reuses a result younger
+        // than a minute — see StorageUsage.
+        .task(id: storageUsageTick) {
+            let measured = await StorageUsage.snapshot()
+            // A tick bump cancels this task and starts a fresh one; the
+            // cancelled walk still resumes (Task.value ignores
+            // cancellation), and without this guard it would overwrite
+            // the newer figure with the pre-change one.
+            guard !Task.isCancelled else { return }
+            storageUsage = measured
+        }
+    }
+
+    /// Open the recordings root in Finder. Selects `Daisy/Sessions`
+    /// once it exists, the folder that will contain it before the first
+    /// recording; toasts rather than doing nothing if the configured
+    /// folder can't be reached at all (unplugged external disk).
+    private func revealRecordingsFolder() {
+        guard let url = StorageUsage.revealTarget() else {
+            ToastCenter.shared.show(
+                String(localized: "Daisy can’t reach the recordings folder right now."),
+                style: .warning
+            )
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     private func chooseRecordingsFolder() {
@@ -631,6 +741,7 @@ struct SettingsView: View {
                 do {
                     try await SessionsFolderChange.reauthorize(request)
                     storageRefreshTick &+= 1
+                    refreshStorageUsage()
                     ToastCenter.shared.show(
                         String(localized: "Recordings folder access restored."),
                         style: .success
@@ -665,6 +776,7 @@ struct SettingsView: View {
                 let report = try await SessionsFolderChange.apply(action, request: request)
                 storageRefreshTick &+= 1
                 audioCacheRefreshTick &+= 1
+                refreshStorageUsage()
                 if !report.isComplete, action != .keep {
                     let format = String(localized: "%lld recording folders could not be processed. They remain in the previous location and are still visible in the Library.")
                     ToastCenter.shared.show(
@@ -686,9 +798,18 @@ struct SettingsView: View {
                 }
             } catch {
                 storageRefreshTick &+= 1
+                refreshStorageUsage()
                 ToastCenter.shared.show(error.localizedDescription, style: .error, duration: .seconds(8))
             }
         }
+    }
+
+    /// Force the next Storage measurement to re-walk instead of reusing
+    /// the cached figure. Both halves matter: `invalidate()` drops the
+    /// cache, the tick re-fires the row's `.task`.
+    private func refreshStorageUsage() {
+        StorageUsage.invalidate()
+        storageUsageTick &+= 1
     }
 
     // MARK: - Notion destination (under Storage)
@@ -818,6 +939,7 @@ struct SettingsView: View {
                     )
                     clearingAudioCache = false
                     audioCacheRefreshTick += 1
+                    refreshStorageUsage()
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -953,8 +1075,13 @@ struct SettingsView: View {
             // choice, and the optional Notion export.
             Section {
                 storageRow
+                storageUsageRow
                 clearAudioCacheRow
-                BulkDeleteRecordingsView()
+                // The bulk delete is the biggest single mover of the
+                // "Space used" figure sitting two rows above it, so it
+                // reports back rather than leaving a stale number on
+                // screen for as long as Settings stays open.
+                BulkDeleteRecordingsView(onDeleted: { refreshStorageUsage() })
             } header: {
                 Text("Storage")
             }
@@ -1348,11 +1475,13 @@ struct SettingsView: View {
                     // Re-scan models on disk now so the "Models" row and
                     // "Remove unused" reflect the new engine immediately.
                     cacheRefreshTick &+= 1
+                    refreshStorageUsage()
                 }
                 .onChange(of: parakeet.isReady) { _, _ in
                     // Parakeet finished downloading/loading → refresh the
                     // models size + count without waiting for a reopen.
                     cacheRefreshTick &+= 1
+                    refreshStorageUsage()
                 }
                 .onAppear {
                     if settings.dictationEngine == .parakeet, !parakeet.isReady {
@@ -1706,6 +1835,7 @@ struct SettingsView: View {
         }
         await DiarizationEngine.shared.ensureLoaded()
         cacheRefreshTick &+= 1
+        refreshStorageUsage()
         let ok = whisper.isReady
         ToastCenter.shared.show(
             ok ? String(localized: "Models ready.")
@@ -1733,6 +1863,7 @@ struct SettingsView: View {
                         freed += ParakeetEngine.removeCachedModel()
                     }
                     cacheRefreshTick &+= 1
+                    refreshStorageUsage()
                     if freed > 0 {
                         ToastCenter.shared.show(
                             String(localized: "Freed \(byteFormatter.string(fromByteCount: freed)) of model cache."),
