@@ -49,6 +49,7 @@ Benchmarks/reports/*.json
 Benchmarks/reports/*.md
 !Benchmarks/reports/.gitkeep
 Benchmarks/__pycache__/
+__pycache__/
 
 # Local holding pen for files relocated to the Obsidian vault (sandbox
 # can't unlink; Egor deletes this dir manually)

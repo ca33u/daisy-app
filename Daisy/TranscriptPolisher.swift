@@ -23,13 +23,20 @@
 //       can corrupt them.
 //    2. **Every chunk is checked before it is believed.** The reply
 //       must return every line, same count, same numbers, with nothing
-//       trailing it; each line must stay within a tight length band and
-//       change no more than half its own word tokens; and the chunk as
-//       a whole gets a 15% token budget, counting insertions as dearly
-//       as deletions. A chunk that fails any of these is dropped whole
-//       and the original text stands. So: paraphrase, condensation,
-//       invented clauses, swapped lines, and the model's own sign-off
-//       all end the same way — with the transcript unchanged.
+//       trailing it; each line must stay within a tight length band,
+//       keep its negations, and change no more than half its own word
+//       tokens; and the chunk as a whole gets a 15% token budget,
+//       counting insertions as dearly as deletions. A chunk that fails
+//       any of these is dropped whole and the original text stands. So:
+//       paraphrase, condensation, invented clauses, swapped lines, and
+//       the model's own sign-off all end the same way — with the
+//       transcript unchanged.
+//
+//       What that budget MEASURES was recalibrated on 2026-08-25. The
+//       thresholds are unchanged; the arithmetic under them stopped
+//       charging Russian for corrections English got for free. See
+//       `fold` for the asymmetry and `scripts/polish-corpus` for the
+//       regression corpus that pins both halves of the trade.
 //    3. **The raw transcript survives on disk** as `transcript.raw.md`,
 //       so the polish is a re-creatable layer rather than a
 //       destructive edit.
@@ -88,6 +95,11 @@ nonisolated enum TranscriptPolisher {
     /// exactly what this pass must never ship. Learned from the
     /// Apple-Intelligence × TaskLocal bug, where a polish pass quietly
     /// replaced the user's dictation with an invented letter.
+    ///
+    /// Held at 0.15 through the 2026-08-25 Russian calibration. The
+    /// ceiling was never the problem — what was counted underneath it
+    /// was (`correctionCost`). Loosening it would have bought Russian
+    /// chunks a pass by giving every language more room to paraphrase.
     static let maxChangedTokenRatio = 0.15
 
     /// Same idea, per line, for lines long enough for the ratio to mean
@@ -97,6 +109,42 @@ nonisolated enum TranscriptPolisher {
     /// one speaker saying another's words under their own timestamp.
     static let maxChangedTokenRatioPerLine = 0.5
     static let perLineRatioMinimumTokens = 4
+
+    /// A Cyrillic token shorter than this is not transliterated for
+    /// comparison. Three-letter words collide across languages far too
+    /// easily («но» → "no", «он» → "on", «мы» → "my"), and forgiving one
+    /// of those is forgiving a real edit. Long tokens — which is what
+    /// names and product words are — carry enough signal to be safe.
+    static let minimumTransliterationLength = 4
+
+    /// Ceiling on how many substitutions one line may have forgiven as
+    /// "a term we told the model to restore", as a fraction of the
+    /// line's tokens. Without it, a model could replace an utterance
+    /// with a soup of vocabulary words and pay nothing: each individual
+    /// swap looks exactly like the correction we asked for. One in three
+    /// is far above any honest line (real corrections are one or two
+    /// words) and far below a rewrite.
+    static let sanctionedCreditDivisor = 3
+
+    /// Longest run of consecutive original tokens that may collapse into
+    /// one restored term. Covers the real shape — «виспер кит» →
+    /// "WhisperKit", «эй пи ай» → "API" — without letting a whole clause
+    /// be swallowed by one word.
+    static let maximumMergeWindow = 3
+
+    /// Below this length, `plausible` refuses to pair two tokens at all.
+    /// One edit on a three-letter word reaches half the dictionary, and
+    /// pairing is what buys a substitution its discount.
+    static let minimumPlausibleLength = 3
+
+    /// How far from where a correction LANDED we will look for the
+    /// mangled original it replaced, in tokens. Without a locality rule
+    /// the search spans the whole line, and "delete a word at the start,
+    /// invent a mention at the end" reads as a restoration: a model
+    /// appending "on Slack" would be paid for by an unrelated deletion
+    /// ten words earlier. Slack of a few tokens is needed because merges
+    /// shift every later index by one.
+    static let maximumCreditDistance = 4
 
     // MARK: - Prompt context
 
@@ -120,6 +168,43 @@ nonisolated enum TranscriptPolisher {
         var isEmpty: Bool {
             attendees.isEmpty && vocabulary.isEmpty && (meetingApp?.isEmpty ?? true)
         }
+    }
+
+    /// The words the model was ASKED to put in — attendee names, the
+    /// user's vocabulary, and the built-in brand table — reduced to
+    /// comparison keys.
+    ///
+    /// A change into one of these is the job, not a deviation, so it can
+    /// be forgiven — but only when it replaces something that plausibly
+    /// WAS it (see `plausible`), and only up to a per-line cap. Membership
+    /// alone buys nothing: "invent a mention of Figma" and "write down
+    /// Figma where the speaker clearly said it" differ precisely in
+    /// whether there is a mangled original standing where the correction
+    /// landed.
+    struct SanctionedTerms: Sendable {
+        let folds: Set<String>
+
+        /// Brands only — what the pass knows without being told anything
+        /// about the meeting. The default for `validate`.
+        static let builtIn = SanctionedTerms(
+            folds: Set(BrandCorrections.canonicalFolds.values)
+        )
+
+        init(folds: Set<String>) {
+            self.folds = folds
+        }
+
+        init(context: PromptContext) {
+            var folds = SanctionedTerms.builtIn.folds
+            for phrase in context.attendees + context.vocabulary {
+                for token in TranscriptPolisher.tokenize(phrase) {
+                    folds.insert(TranscriptPolisher.fold(token))
+                }
+            }
+            self.folds = folds
+        }
+
+        func contains(_ fold: String) -> Bool { folds.contains(fold) }
     }
 
     // MARK: - Result
@@ -164,6 +249,11 @@ nonisolated enum TranscriptPolisher {
         let chunks = makeChunks(candidates)
         guard !chunks.isEmpty else { return .empty }
 
+        // Built once: the attendee/vocabulary side is small, but the
+        // brand table underneath it is a few thousand entries and this
+        // runs per chunk.
+        let sanctioned = SanctionedTerms(context: context)
+
         let budget = min(max(deadlineSeconds, minTotalDeadlineSeconds), maxTotalDeadlineSeconds)
         let start = Date()
         var replacements: [UUID: String] = [:]
@@ -201,7 +291,7 @@ nonisolated enum TranscriptPolisher {
                 continue
             }
 
-            guard let accepted = validate(reply: reply, chunk: chunk) else {
+            guard let accepted = validate(reply: reply, chunk: chunk, sanctioned: sanctioned) else {
                 continue
             }
             for (id, text) in accepted { replacements[id] = text }
@@ -277,7 +367,11 @@ nonisolated enum TranscriptPolisher {
     /// paraphrase — is a property of the whole reply, not of individual
     /// lines. Salvaging "the lines that happen to look fine" out of a
     /// reply that broke its contract is how a paraphrase slips through.
-    static func validate(reply: String, chunk: Chunk) -> [UUID: String]? {
+    static func validate(
+        reply: String,
+        chunk: Chunk,
+        sanctioned: SanctionedTerms = .builtIn
+    ) -> [UUID: String]? {
         // `1...0` would trap. `makeChunks` never produces an empty
         // chunk, but this is internal and directly unit-tested, so a
         // future caller should get a dropped chunk, not a crash.
@@ -346,7 +440,43 @@ nonisolated enum TranscriptPolisher {
                 }
             }
 
-            let lineChanged = changedTokenCount(from: before, to: after)
+            // Polarity is structural, not statistical. A dropped «не» —
+            // or an added "not" — inverts what a participant said while
+            // moving exactly one token, which every ratio in this
+            // function is by construction blind to. There is no polish
+            // that legitimately adds or removes a negation, so a
+            // mismatch is never a false alarm. (Contractions are counted
+            // through their stray "t", so "don't" and "do not" agree.)
+            //
+            // Two honest limits. A dropped «не» is itself a common ASR
+            // error, so this makes that one error permanently
+            // uncorrectable — the trade is deliberate, because a polish
+            // pass guessing at negation is far worse than one that never
+            // touches it. And it does NOT make the pass safe against
+            // single-token meaning changes in general: swap a number
+            // inside a 400-token chunk and no budget here will notice.
+            // That is what `transcript.raw.md` on disk is for — the
+            // polish is a layer, and the unedited record survives
+            // underneath it.
+            guard negationCount(before) == negationCount(after) else {
+                log.warning("Polish changed a line's polarity — chunk dropped")
+                return nil
+            }
+
+            let diff = correctionDiff(from: before, to: after, sanctioned: sanctioned)
+
+            // A name or a product the pass RECOGNIZED, standing in the
+            // original and gone from the reply. Structural for the same
+            // reason polarity is: «гитхабе» → "GitLab" and "Priya" →
+            // "Alex" move one token each, which no ratio notices, and
+            // both change what the record says happened rather than how
+            // it is spelled.
+            guard !diff.droppedSanctionedTerm else {
+                log.warning("Polish dropped a known name or product from a line — chunk dropped")
+                return nil
+            }
+
+            let lineChanged = diff.cost
             if before.count >= perLineRatioMinimumTokens {
                 guard Double(lineChanged) <= maxChangedTokenRatioPerLine * Double(before.count) else {
                     log.warning("Polish rewrote a single line (\(lineChanged, privacy: .public)/\(before.count, privacy: .public) tokens) — chunk dropped")
@@ -497,10 +627,359 @@ nonisolated enum TranscriptPolisher {
         }
     }
 
+    // MARK: - Folding
+
+    /// Comparison key for one token: what it is, ignoring the script it
+    /// was written in.
+    ///
+    /// The problem this solves, in one line: restoring a brand costs
+    /// NOTHING in English and a whole token in Russian. "figma" → "Figma"
+    /// is free because `tokenize` folds case; «фигма» → "Figma" is a
+    /// completely different string. Every Russian chunk therefore spent
+    /// budget on exactly the corrections this pass exists to make, and a
+    /// standup with four brands in it blew a 15% ceiling that an
+    /// identical English standup never came near. Measured on the
+    /// regression corpus (`scripts/polish-corpus`): Russian chunks
+    /// passed 68% of the time, English 100%.
+    ///
+    /// Two steps, most specific first:
+    ///  1. The curated brand table, which knows «фигму» (inflected!),
+    ///     «гитхаб» and «зуме» are Figma, GitHub and Zoom. Curation is
+    ///     the point — generic transliteration gets «джира» → "dzhira".
+    ///  2. Plain transliteration for longer Cyrillic tokens, which
+    ///     catches the names no table can hold («прия» → "priya").
+    ///
+    /// Applied to BOTH sides, so an untouched word still matches itself.
+    /// A false match here forgives a change we might not have wanted; the
+    /// length floor in step 2 is what keeps that from happening to short
+    /// function words.
+    static func fold(_ token: String) -> String {
+        if let brand = BrandCorrections.canonicalFolds[token] { return brand }
+        if token.count >= minimumTransliterationLength, isCyrillic(token) {
+            return transliterate(token)
+        }
+        return token
+    }
+
+    private static func isCyrillic(_ token: String) -> Bool {
+        var sawLetter = false
+        for character in token where character.isLetter {
+            sawLetter = true
+            guard let scalar = character.unicodeScalars.first?.value,
+                  (0x0400...0x04FF).contains(scalar) else { return false }
+        }
+        return sawLetter
+    }
+
+    /// Practical Cyrillic → Latin, tuned for MATCHING rather than for
+    /// reading: the goal is that a Russian rendering and its English
+    /// original land close enough for `plausible` to pair them, not that
+    /// the output is a correct romanization of anything.
+    private static let transliterationTable: [Character: String] = [
+        "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e",
+        "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
+        "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+        "ф": "f", "х": "h", "ц": "c", "ч": "ch", "ш": "sh", "щ": "sch",
+        "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+    ]
+
+    private static func transliterate(_ token: String) -> String {
+        var result = ""
+        for character in token {
+            result += transliterationTable[character] ?? String(character)
+        }
+        return result
+    }
+
+    // MARK: - Plausible substitutions
+
+    /// Could `source` be what the engine heard where the speaker actually
+    /// said `target`?
+    ///
+    /// This is the gate on the sanctioned-term credit, and the whole
+    /// reason the credit is safe. "Alex" is a name we told the model
+    /// about, so writing it is sanctioned — but only over «алекс», not
+    /// over "he". Without this test, "and then HE said" politely becomes
+    /// "and then ALEX said" for free, which is the single worst thing a
+    /// transcript can do: attribute words to a named person who never
+    /// said them.
+    ///
+    /// Edit distance on the transliterated forms, with the tolerance
+    /// scaled to length. Short tokens are refused outright — at two or
+    /// three characters, one edit reaches half the dictionary.
+    static func plausible(_ source: String, _ target: String) -> Bool {
+        // Transliterate unconditionally, per character: `source` can be
+        // a RUN of tokens joined together («виспер» + «кит»), and a run
+        // is routinely half-Latin already — the short-token floor in
+        // `fold` leaves «кит» alone but «виспер» comes back as "visper".
+        // Requiring the whole string to be Cyrillic would refuse exactly
+        // the merges this function exists to approve. Non-Cyrillic
+        // characters pass through untouched.
+        let a = transliterate(source)
+        let b = transliterate(target)
+        guard !a.isEmpty, !b.isEmpty else { return false }
+        if a == b { return true }
+        guard min(a.count, b.count) >= minimumPlausibleLength else { return false }
+        // 40% of the longer form. Transliteration is approximate by
+        // nature — «алекс» comes back as "aleks", two edits from "Alex"
+        // on a five-letter word — so a third is too tight to pair the
+        // very cases this is for. It stays a narrow window in absolute
+        // terms (two edits at five characters, four at ten), and a wrong
+        // pairing costs one token of budget, never a chunk: the token
+        // still has to BE a term the model was told about, the credit is
+        // capped per line, and both ratio guards run afterwards.
+        let tolerance = max(1, 2 * max(a.count, b.count) / 5)
+        guard abs(a.count - b.count) <= tolerance else { return false }
+        return editDistance(a, b) <= tolerance
+    }
+
+    /// Levenshtein, two rows. Inputs are single tokens (or a short run of
+    /// them), so the quadratic shape is not worth optimizing away.
+    private static func editDistance(_ a: String, _ b: String) -> Int {
+        let x = Array(a), y = Array(b)
+        if x.isEmpty { return y.count }
+        if y.isEmpty { return x.count }
+        var previous = Array(0...y.count)
+        var current = [Int](repeating: 0, count: y.count + 1)
+        for i in 1...x.count {
+            current[0] = i
+            for j in 1...y.count {
+                current[j] = min(
+                    previous[j] + 1,
+                    current[j - 1] + 1,
+                    previous[j - 1] + (x[i - 1] == y[j - 1] ? 0 : 1)
+                )
+            }
+            swap(&previous, &current)
+        }
+        return previous[y.count]
+    }
+
+    // MARK: - Correction cost
+
+    /// What `validate` needs to know about one line.
+    struct CorrectionDiff {
+        /// Tokens changed, after the discount.
+        let cost: Int
+        /// A term the pass KNOWS — a brand, an attendee, a vocabulary
+        /// word — that stood in the original and is simply gone, with
+        /// nothing plausible put in its place.
+        ///
+        /// Structural, like polarity, and for the same reason: swapping
+        /// «гитхабе» for "GitLab" or "Priya" for "Alex" moves one token,
+        /// which no ratio can see, and is a change of FACT rather than of
+        /// spelling. A genuine restoration always leaves the term
+        /// present — «фигме» → "Figma" keeps Figma — and a merge that
+        /// consumed one («виспер кит» → "WhisperKit") has already been
+        /// credited by the time this is computed.
+        let droppedSanctionedTerm: Bool
+    }
+
+    /// Just the number, for callers that don't care why.
+    static func correctionCost(
+        from before: [String],
+        to after: [String],
+        sanctioned: SanctionedTerms = .builtIn
+    ) -> Int {
+        correctionDiff(from: before, to: after, sanctioned: sanctioned).cost
+    }
+
+    /// The diff budget's real measure: how much of this line the model
+    /// changed, AFTER discounting the changes it was asked to make.
+    ///
+    /// Three things happen, in order:
+    ///  1. Both sides are folded (`fold`), so a brand or a name restored
+    ///     across scripts compares equal and costs nothing at all. This
+    ///     alone is most of the Russian fix.
+    ///  2. What is left is diffed as multisets, exactly as before —
+    ///     insertions still cost as much as deletions.
+    ///  3. A leftover NEW token that is a sanctioned term (attendee,
+    ///     vocabulary, brand) is forgiven if a nearby run of leftover
+    ///     ORIGINAL tokens plausibly WAS it (`mergeWindow`). That covers
+    ///     what folding can't: «алекс» → "Alex" (transliteration lands a
+    ///     letter off) and «виспер кит» → "WhisperKit" (two tokens
+    ///     becoming one).
+    ///
+    /// The credit is capped per line, so a wholesale rewrite cannot buy
+    /// itself through one sanctioned word at a time.
+    static func correctionDiff(
+        from before: [String],
+        to after: [String],
+        sanctioned: SanctionedTerms = .builtIn
+    ) -> CorrectionDiff {
+        let foldedBefore = before.map(fold)
+        let foldedAfter = after.map(fold)
+        // Positions, not tokens: deciding whether a substitution is
+        // credible needs the ORIGINAL spelling (folding has already
+        // turned «алекс» into Latin "aleks") and where in the line each
+        // side sat.
+        var lost = unmatchedPositions(of: foldedBefore, against: foldedAfter)
+        let gained = unmatchedPositions(of: foldedAfter, against: foldedBefore)
+
+        let raw = max(lost.count, gained.count)
+        let cap = max(1, before.count / sanctionedCreditDivisor)
+
+        // Nothing below can lower the cost by more than `cap`, so when
+        // even a full refund leaves the line over its own ceiling the
+        // answer is already known. Skipping the search here is what
+        // keeps a wholesale rewrite of a 350-token utterance from
+        // running a quadratic window scan on the main actor to produce a
+        // verdict it was always going to reach.
+        if before.count >= perLineRatioMinimumTokens,
+           Double(raw - cap) > maxChangedTokenRatioPerLine * Double(before.count) {
+            return CorrectionDiff(cost: raw, droppedSanctionedTerm: false)
+        }
+
+        var credits = 0
+        for gainedIndex in gained {
+            // Stop scanning the moment the line's allowance is spent.
+            if credits >= cap { break }
+            let term = foldedAfter[gainedIndex]
+            guard sanctioned.contains(term),
+                  let window = mergeWindow(
+                      in: lost,
+                      near: gainedIndex,
+                      restoring: term,
+                      originals: before,
+                      folded: foldedBefore,
+                      sanctioned: sanctioned
+                  )
+            else { continue }
+            lost.removeSubrange(window)
+            credits += 1
+        }
+
+        // Anything still on the lost side that we RECOGNIZED is a term
+        // the model deleted or replaced with something else entirely.
+        let droppedKnown = lost.contains { sanctioned.contains(foldedBefore[$0]) }
+
+        return CorrectionDiff(
+            cost: max(lost.count, gained.count - credits),
+            droppedSanctionedTerm: droppedKnown
+        )
+    }
+
+    /// The run of original tokens that `term` plausibly replaced, as a
+    /// range into `lost`. Nil when nothing on the original side
+    /// qualifies — the "the model invented this mention" case, which
+    /// stays fully charged.
+    ///
+    /// Four conditions, and each one is a hole that was open without it:
+    ///
+    ///  • **Adjacent in the original line, and near where the correction
+    ///    landed.** Otherwise a deletion at the start of a sentence pays
+    ///    for an invented clause at the end — "The black box test failed"
+    ///    → "The box test failed … on Slack" for free.
+    ///  • **Cross-script, or a genuine multi-token merge.** This credit
+    ///    exists to make a Latin name recoverable from a Cyrillic
+    ///    rendering. English never needed it — "figma" → "Figma" is
+    ///    already free under case folding — but granting it anyway made
+    ///    every brand in the table a free substitute for its nearest
+    ///    English word: team → Steam, until → Intel, looking → Booking,
+    ///    cloud → Claude. The exception is a run of tokens that
+    ///    transliterates EXACTLY onto the term, which is the real shape
+    ///    of "whisper kit" → "WhisperKit".
+    ///  • **The original is not itself a term we know.** Both sides being
+    ///    sanctioned means the model swapped one known thing for another
+    ///    — «гитхабе» → "GitLab" — and that is a factual change, not a
+    ///    spelling one.
+    ///
+    /// LONGEST run first: «виспер»+«кит» transliterates to exactly
+    /// "whisperkit", while «виспер» alone is merely close enough to pass,
+    /// and taking the shorter match would credit the substitution and
+    /// then charge for the leftover half of the same word.
+    private static func mergeWindow(
+        in lost: [Int],
+        near gainedIndex: Int,
+        restoring term: String,
+        originals: [String],
+        folded: [String],
+        sanctioned: SanctionedTerms
+    ) -> Range<Int>? {
+        guard !lost.isEmpty else { return nil }
+        let termKey = transliterate(term)
+        for length in stride(from: min(maximumMergeWindow, lost.count), through: 1, by: -1) {
+            for start in 0...(lost.count - length) {
+                let positions = Array(lost[start..<(start + length)])
+                guard let first = positions.first else { continue }
+                guard isRun(positions) else { continue }
+                guard abs(first - gainedIndex) <= maximumCreditDistance else { continue }
+
+                let originalRun = positions.map { originals[$0] }.joined()
+                let foldedRun = positions.map { folded[$0] }.joined()
+
+                if sanctioned.contains(foldedRun), foldedRun != term { continue }
+
+                let crossScript = containsCyrillic(originalRun)
+                let exactMerge = length > 1 && transliterate(foldedRun) == termKey
+                guard crossScript || exactMerge else { continue }
+
+                if plausible(foldedRun, term) { return start..<(start + length) }
+            }
+        }
+        return nil
+    }
+
+    /// True when the positions are consecutive in the original line. A
+    /// window has to be a contiguous piece of what was said — joining
+    /// two words with a surviving word between them is not a merge, it
+    /// is two separate deletions being billed as one.
+    private static func isRun(_ positions: [Int]) -> Bool {
+        guard positions.count > 1 else { return true }
+        for index in 1..<positions.count where positions[index] != positions[index - 1] + 1 {
+            return false
+        }
+        return true
+    }
+
+    private static func containsCyrillic(_ text: String) -> Bool {
+        text.unicodeScalars.contains { (0x0400...0x04FF).contains($0.value) }
+    }
+
+    // MARK: - Polarity
+
+    /// Words whose presence flips the meaning of a sentence.
+    private static let negations: Set<String> = [
+        "не", "нет", "ни", "никогда", "нельзя", "никак", "без",
+        "not", "no", "never", "none", "nor", "without", "cannot",
+    ]
+
+    /// Words that leave a stray `"t"` behind when `tokenize` strips the
+    /// apostrophe out of a contraction. `"don't"` becomes `["don", "t"]`,
+    /// and counting that `"t"` is what keeps a contraction equal to its
+    /// expansion — so a model writing "do not" for "don't" isn't accused
+    /// of inverting a sentence.
+    ///
+    /// The preceding word has to be one of THESE, not any word at all: a
+    /// bare `"t"` also falls out of "T-Bank", "T-shirt" and "model T",
+    /// and counting those made Daisy's own «Т-Банк» normalization look
+    /// like a polarity flip and drop the chunk.
+    private static let contractionStems: Set<String> = [
+        "don", "doesn", "didn", "won", "can", "couldn", "shouldn", "wouldn",
+        "isn", "aren", "wasn", "weren", "hasn", "haven", "hadn", "ain",
+        "mustn", "needn", "shan",
+    ]
+
+    static func negationCount(_ tokens: [String]) -> Int {
+        var count = 0
+        for (index, token) in tokens.enumerated() {
+            if negations.contains(token) {
+                count += 1
+            } else if token == "t", index > 0, contractionStems.contains(tokens[index - 1]) {
+                count += 1
+            }
+        }
+        return count
+    }
+
     /// Distance between two token multisets, in tokens. Comparing as
     /// multisets means a repeated word isn't matched twice; taking the
     /// larger of the two directions means an INSERTION costs as much as
     /// a deletion.
+    ///
+    /// The raw measure, kept as-is: `correctionCost` is what `validate`
+    /// spends its budget on, and this is what that one is built from
+    /// before any discount is applied.
     ///
     /// That symmetry is the point. Counting only what disappeared makes
     /// pure additions free, and "leave every word alone but append an
@@ -515,14 +994,22 @@ nonisolated enum TranscriptPolisher {
 
     /// How many of `tokens` have no partner left in `pool`.
     private static func unmatchedCount(of tokens: [String], against pool: [String]) -> Int {
+        unmatchedPositions(of: tokens, against: pool).count
+    }
+
+    /// WHERE in `tokens` the unpartnered ones sit, ascending.
+    /// `correctionCost` needs positions, not just a count: whether a
+    /// substitution is credible depends on the original spelling and on
+    /// how far the replacement landed from it.
+    private static func unmatchedPositions(of tokens: [String], against pool: [String]) -> [Int] {
         var available: [String: Int] = [:]
         for token in pool { available[token, default: 0] += 1 }
-        var missing = 0
-        for token in tokens {
+        var missing: [Int] = []
+        for (index, token) in tokens.enumerated() {
             if let count = available[token], count > 0 {
                 available[token] = count - 1
             } else {
-                missing += 1
+                missing.append(index)
             }
         }
         return missing

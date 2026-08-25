@@ -1,0 +1,965 @@
+{
+  "note": "Regression corpus for TranscriptPolisher.validate. Single source of truth: read by DaisyTests/TranscriptPolisherCorpusTests.swift (authoritative) and by check_corpus.py (tuning harness). Each case is one chunk. `expect` is `accept` for a polish the pass MUST ship and `drop` for a trap it MUST refuse. `reply` overrides the numbered rendering of `polished` when the trap is in the reply's SHAPE.",
+  "cases": [
+    {
+      "id": "ru-standup-brands",
+      "lang": "ru",
+      "expect": "accept",
+      "why": "Four transliterated brands and a name restored, punctuation added, filler left alone. The canonical case this whole pass exists for.",
+      "raw": [
+        "так вот фигма это наш основной инструмент дизайна сейчас",
+        "прия скинет макеты в четверг наверное",
+        "да мы всё положили в гитхаб на прошлой неделе",
+        "ну и там ещё зум записывал всю встречу",
+        "окей тогда договорились до встречи",
+        "эм ну да наверное так и сделаем"
+      ],
+      "polished": [
+        "Так вот, Figma — это наш основной инструмент дизайна сейчас.",
+        "Priya скинет макеты в четверг, наверное.",
+        "Да, мы всё положили в GitHub на прошлой неделе.",
+        "Ну и там ещё Zoom записывал всю встречу.",
+        "Окей, тогда договорились. До встречи.",
+        "Эм, ну да, наверное, так и сделаем."
+      ]
+    },
+    {
+      "id": "ru-short-utterances-dense-brands",
+      "lang": "ru",
+      "expect": "accept",
+      "why": "The shape the 15% budget was blind to: rapid-fire short lines where a brand IS most of the line. Under a raw token diff this chunk changes ~30% of its tokens while doing nothing but restoring Latin spellings.",
+      "raw": [
+        "джира или трелло",
+        "джира",
+        "а слак тогда",
+        "слак да",
+        "ноушн тоже нужен",
+        "ага ноушн"
+      ],
+      "polished": [
+        "Jira или Trello?",
+        "Jira.",
+        "А Slack тогда?",
+        "Slack, да.",
+        "Notion тоже нужен.",
+        "Ага, Notion."
+      ]
+    },
+    {
+      "id": "ru-inflected-brands",
+      "lang": "ru",
+      "expect": "accept",
+      "why": "Russian inflects the transliteration («в фигме», «из джиры»), so the before-token never equals the Latin name even after a naive transliteration. This is the case that made every real Russian chunk expensive.",
+      "raw": [
+        "посмотри в фигме последний макет пожалуйста",
+        "я перенёс задачу из джиры в линеар вчера вечером",
+        "напиши в слаке когда закончишь с этим",
+        "в ноушене лежит вся документация по проекту"
+      ],
+      "polished": [
+        "Посмотри в Figma последний макет, пожалуйста.",
+        "Я перенёс задачу из Jira в Linear вчера вечером.",
+        "Напиши в Slack, когда закончишь с этим.",
+        "В Notion лежит вся документация по проекту."
+      ]
+    },
+    {
+      "id": "ru-attendee-names",
+      "lang": "ru",
+      "expect": "accept",
+      "context": {
+        "attendees": [
+          "Priya Raman",
+          "Alex Novak",
+          "Mei Chen"
+        ],
+        "vocabulary": []
+      },
+      "why": "Names from the calendar invite, heard in Russian and written in Cyrillic. The highest-value correction the pass makes, and the one the user notices first.",
+      "raw": [
+        "прия сказала что дизайн будет готов к пятнице",
+        "алекс проверит бэкенд после обеда сегодня",
+        "мэй присоединится ко второй половине встречи"
+      ],
+      "polished": [
+        "Priya сказала, что дизайн будет готов к пятнице.",
+        "Alex проверит бэкенд после обеда сегодня.",
+        "Mei присоединится ко второй половине встречи."
+      ]
+    },
+    {
+      "id": "ru-vocabulary-terms",
+      "lang": "ru",
+      "expect": "accept",
+      "context": {
+        "attendees": [],
+        "vocabulary": [
+          "Parakeet",
+          "WhisperKit",
+          "Daisy",
+          "FluidAudio"
+        ]
+      },
+      "why": "The user's own jargon from their dictation vocabulary. Not in any built-in table, so only the vocabulary credit can make these free.",
+      "raw": [
+        "паракит работает быстрее чем виспер кит примерно вдвое",
+        "флюид аудио обновился до новой версии на той неделе",
+        "дейзи теперь пишет обе стороны разговора нормально"
+      ],
+      "polished": [
+        "Parakeet работает быстрее, чем WhisperKit, примерно вдвое.",
+        "FluidAudio обновился до новой версии на той неделе.",
+        "Daisy теперь пишет обе стороны разговора нормально."
+      ]
+    },
+    {
+      "id": "ru-punctuation-only",
+      "lang": "ru",
+      "expect": "accept",
+      "why": "Punctuation and capitalization are inside the remit and must cost nothing at all.",
+      "raw": [
+        "привет как дела у вас там с релизом",
+        "нормально всё идёт по плану пока что",
+        "хорошо тогда до завтра созвонимся утром"
+      ],
+      "polished": [
+        "Привет! Как дела у вас там с релизом?",
+        "Нормально, всё идёт по плану пока что.",
+        "Хорошо, тогда до завтра — созвонимся утром."
+      ]
+    },
+    {
+      "id": "ru-unchanged",
+      "lang": "ru",
+      "expect": "accept",
+      "why": "A clean chunk the model correctly leaves alone. Must not be mistaken for a failure.",
+      "raw": [
+        "Мы обсудили сроки и решили сдвинуть релиз на неделю.",
+        "Хорошо, я обновлю план и пришлю его вечером."
+      ],
+      "polished": [
+        "Мы обсудили сроки и решили сдвинуть релиз на неделю.",
+        "Хорошо, я обновлю план и пришлю его вечером."
+      ]
+    },
+    {
+      "id": "ru-mixed-latin-terms",
+      "lang": "ru",
+      "expect": "accept",
+      "context": {
+        "attendees": [],
+        "vocabulary": [
+          "Kubernetes",
+          "Postgres",
+          "Docker"
+        ]
+      },
+      "why": "Mixed-script speech: Russian grammar around English technical nouns, which is how Russian engineers actually talk.",
+      "raw": [
+        "я запушил ветку и собрал докер образ локально",
+        "постгрес упал ночью пришлось перезапускать кубернетес",
+        "потом посмотрим логи в графане вместе"
+      ],
+      "polished": [
+        "Я запушил ветку и собрал Docker-образ локально.",
+        "Postgres упал ночью, пришлось перезапускать Kubernetes.",
+        "Потом посмотрим логи в Grafana вместе."
+      ]
+    },
+    {
+      "id": "ru-russian-brand-casing",
+      "lang": "ru",
+      "expect": "accept",
+      "why": "For Russian brands the fix is casing, not Latin script — «сбербанк» → «Сбербанк». Free under a case-folding tokenizer, and this case is here to keep it that way.",
+      "raw": [
+        "сбербанк подтвердил интеграцию на следующий квартал",
+        "яндекс присылает документы через авито почему-то",
+        "мтс тоже хочет пилот но позже"
+      ],
+      "polished": [
+        "Сбербанк подтвердил интеграцию на следующий квартал.",
+        "Яндекс присылает документы через Авито почему-то.",
+        "МТС тоже хочет пилот, но позже."
+      ]
+    },
+    {
+      "id": "ru-long-line-two-brands",
+      "lang": "ru",
+      "expect": "accept",
+      "why": "A single long utterance — Whisper emits these constantly for Russian — with two brands inside it.",
+      "raw": [
+        "ну смотри если мы выкатим это через версел то дизайнеры смогут смотреть превью прямо из фигмы и не придётся каждый раз собирать локально что сильно ускорит ревью"
+      ],
+      "polished": [
+        "Ну смотри, если мы выкатим это через Vercel, то дизайнеры смогут смотреть превью прямо из Figma и не придётся каждый раз собирать локально, что сильно ускорит ревью."
+      ]
+    },
+    {
+      "id": "ru-fillers-preserved",
+      "lang": "ru",
+      "expect": "accept",
+      "why": "Fillers are part of the record. A polish that keeps every «ну» and «как бы» while fixing one name is exactly right.",
+      "raw": [
+        "ну как бы это самое мы с приёй вчера обсуждали",
+        "и вот эм я думаю что надо ещё раз посмотреть",
+        "да ну то есть в целом согласен наверное"
+      ],
+      "polished": [
+        "Ну, как бы, это самое — мы с Priya вчера обсуждали.",
+        "И вот, эм, я думаю, что надо ещё раз посмотреть.",
+        "Да, ну, то есть в целом согласен, наверное."
+      ],
+      "context": {
+        "attendees": [
+          "Priya Raman"
+        ],
+        "vocabulary": []
+      }
+    },
+    {
+      "id": "ru-ai-tools",
+      "lang": "ru",
+      "expect": "accept",
+      "why": "Model and vendor names, the densest brand cluster in a 2026 engineering call.",
+      "raw": [
+        "клод справляется с этим лучше чем чатгпт по-моему",
+        "антропик выпустил новую модель на той неделе",
+        "дипсик тоже неплох но медленнее заметно"
+      ],
+      "polished": [
+        "Claude справляется с этим лучше, чем ChatGPT, по-моему.",
+        "Anthropic выпустил новую модель на той неделе.",
+        "DeepSeek тоже неплох, но медленнее заметно."
+      ]
+    },
+    {
+      "id": "ru-two-brands-one-short-line",
+      "lang": "ru",
+      "expect": "accept",
+      "why": "Worst ratio case that is still honest: a four-token line where half the tokens are brands.",
+      "raw": [
+        "гитхаб или гитлаб",
+        "давай посмотрим оба варианта и решим на следующей встрече",
+        "окей"
+      ],
+      "polished": [
+        "GitHub или GitLab?",
+        "Давай посмотрим оба варианта и решим на следующей встрече.",
+        "Окей."
+      ]
+    },
+    {
+      "id": "ru-dictation-note",
+      "lang": "ru",
+      "expect": "accept",
+      "context": {
+        "attendees": [],
+        "vocabulary": [
+          "Daisy",
+          "Sparkle"
+        ]
+      },
+      "why": "A dictated note rather than a dialogue — one long line, several product names.",
+      "raw": [
+        "надо не забыть обновить дейзи до последней версии и проверить что спаркл нормально подхватывает бету а потом написать в телеграм что всё готово"
+      ],
+      "polished": [
+        "Надо не забыть обновить Daisy до последней версии и проверить, что Sparkle нормально подхватывает бету, а потом написать в Telegram, что всё готово."
+      ]
+    },
+    {
+      "id": "ru-hyphenated-compound",
+      "lang": "ru",
+      "expect": "accept",
+      "why": "Latin brand glued to a Russian suffix — the tokenizer splits on the hyphen, so both sides have to line up token for token.",
+      "raw": [
+        "мы залили это в гитхаб репозиторий ещё в понедельник утром",
+        "и зум ссылка лежит в календаре у всех участников"
+      ],
+      "polished": [
+        "Мы залили это в GitHub-репозиторий ещё в понедельник утром.",
+        "И Zoom-ссылка лежит в календаре у всех участников."
+      ]
+    },
+    {
+      "id": "en-casing-only",
+      "lang": "en",
+      "expect": "accept",
+      "why": "The English baseline: a lowercase brand only needs casing, which case-folding already makes free. Here to prove the Russian path is not being given something English never had.",
+      "raw": [
+        "so figma is basically where all the design work happens now",
+        "and we push everything to github on fridays",
+        "yeah zoom recorded the whole thing anyway"
+      ],
+      "polished": [
+        "So, Figma is basically where all the design work happens now.",
+        "And we push everything to GitHub on Fridays.",
+        "Yeah, Zoom recorded the whole thing anyway."
+      ]
+    },
+    {
+      "id": "en-name-restoration",
+      "lang": "en",
+      "expect": "accept",
+      "context": {
+        "attendees": [
+          "Priya Raman",
+          "Siobhan Doyle"
+        ],
+        "vocabulary": []
+      },
+      "why": "English ASR mangles unfamiliar names phonetically. Restoring them from the invite is the same job as the Cyrillic case.",
+      "raw": [
+        "preeya said the designs would be ready by friday afternoon",
+        "shevon is going to take the backend part of this one",
+        "okay let us sync again on monday morning then"
+      ],
+      "polished": [
+        "Priya said the designs would be ready by Friday afternoon.",
+        "Siobhan is going to take the backend part of this one.",
+        "Okay, let us sync again on Monday morning then."
+      ]
+    },
+    {
+      "id": "en-fillers-preserved",
+      "lang": "en",
+      "expect": "accept",
+      "why": "Same contract as Russian: the ums stay.",
+      "raw": [
+        "um so i think we should probably just ship it and see",
+        "yeah i mean like that is basically what i was saying",
+        "right okay so friday then"
+      ],
+      "polished": [
+        "Um, so I think we should probably just ship it and see.",
+        "Yeah, I mean, like, that is basically what I was saying.",
+        "Right, okay — so Friday then."
+      ]
+    },
+    {
+      "id": "en-unchanged",
+      "lang": "en",
+      "expect": "accept",
+      "why": "Nothing to fix, nothing changed.",
+      "raw": [
+        "We agreed to move the launch to the last week of the month.",
+        "I will update the tracker and send it around this evening."
+      ],
+      "polished": [
+        "We agreed to move the launch to the last week of the month.",
+        "I will update the tracker and send it around this evening."
+      ]
+    },
+    {
+      "id": "en-vocabulary-terms",
+      "lang": "en",
+      "expect": "accept",
+      "context": {
+        "attendees": [],
+        "vocabulary": [
+          "Parakeet",
+          "WhisperKit",
+          "FluidAudio"
+        ]
+      },
+      "why": "English ASR mangles jargon too, and the vocabulary credit has to work in both directions.",
+      "raw": [
+        "parakeet is roughly twice as fast as whisper kit on this machine",
+        "fluid audio shipped a new diarizer last week sometime",
+        "we should benchmark both before deciding anything"
+      ],
+      "polished": [
+        "Parakeet is roughly twice as fast as WhisperKit on this machine.",
+        "FluidAudio shipped a new diarizer last week sometime.",
+        "We should benchmark both before deciding anything."
+      ]
+    },
+    {
+      "id": "mixed-ru-en-code-review",
+      "lang": "mixed",
+      "expect": "accept",
+      "context": {
+        "attendees": [],
+        "vocabulary": [
+          "Swift",
+          "SwiftUI",
+          "Xcode"
+        ]
+      },
+      "why": "Code-review speech: Russian sentence frames around English identifiers, which is where mixed-script polish earns its keep.",
+      "raw": [
+        "в свифт юай это делается через модификатор а не через враппер",
+        "икскод ругается на изоляцию в этом файле почему-то",
+        "давай тогда вынесем это в отдельный свифт файл"
+      ],
+      "polished": [
+        "В SwiftUI это делается через модификатор, а не через враппер.",
+        "Xcode ругается на изоляцию в этом файле почему-то.",
+        "Давай тогда вынесем это в отдельный Swift-файл."
+      ]
+    },
+    {
+      "id": "mixed-meeting-platform-chatter",
+      "lang": "mixed",
+      "expect": "accept",
+      "why": "Platform chatter («ты на мьюте») is speech, not something to fix — it must survive untouched while the brand next to it is corrected.",
+      "raw": [
+        "ты на мьюте кажется тебя не слышно совсем",
+        "а сейчас слышно да зум опять что-то химичит",
+        "ага теперь нормально всё продолжаем"
+      ],
+      "polished": [
+        "Ты на мьюте, кажется — тебя не слышно совсем.",
+        "А сейчас слышно? Да, Zoom опять что-то химичит.",
+        "Ага, теперь нормально всё, продолжаем."
+      ]
+    },
+    {
+      "id": "mixed-wordless-lines-kept",
+      "lang": "mixed",
+      "expect": "accept",
+      "why": "Whisper's silence artefacts must be allowed to stay exactly as they are, in a chunk that is otherwise corrected.",
+      "raw": [
+        "...",
+        "так вот про фигму я хотел сказать отдельно",
+        "♪"
+      ],
+      "polished": [
+        "...",
+        "Так вот, про Figma я хотел сказать отдельно.",
+        "♪"
+      ]
+    },
+    {
+      "id": "ja-brand-restoration",
+      "lang": "ja",
+      "expect": "accept",
+      "why": "Unspaced scripts tokenize per character, so a one-word Latin restoration inside Japanese must stay cheap.",
+      "raw": [
+        "今日はズームで会議をしました",
+        "資料は事前に共有しておきます"
+      ],
+      "polished": [
+        "今日はZoomで会議をしました",
+        "資料は事前に共有しておきます"
+      ]
+    },
+    {
+      "id": "trap-ru-paraphrase",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "Same meaning, most of the words gone. The failure this pass must never ship.",
+      "raw": [
+        "ну то есть мы вроде как договорились что сделаем это на следующей неделе"
+      ],
+      "polished": [
+        "Мы договорились сделать это на следующей неделе."
+      ]
+    },
+    {
+      "id": "trap-ru-paraphrase-with-brand",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "The dangerous version of the previous one: a paraphrase that ALSO restores a brand, so any rule that forgives brand corrections wholesale would wave it through.",
+      "raw": [
+        "ну короче я там в фигме поправил немножко эти экраны которые мы вчера смотрели вместе"
+      ],
+      "polished": [
+        "Я поправил в Figma экраны, которые мы вчера смотрели."
+      ]
+    },
+    {
+      "id": "trap-ru-vocabulary-soup",
+      "lang": "ru",
+      "expect": "drop",
+      "context": {
+        "attendees": [
+          "Priya Raman"
+        ],
+        "vocabulary": [
+          "Parakeet",
+          "WhisperKit"
+        ]
+      },
+      "why": "Direct attack on the vocabulary credit: replace a real utterance with nothing but sanctioned terms. The credit is capped precisely so this stays expensive.",
+      "raw": [
+        "ну там надо ещё раз посмотреть на эти цифры перед тем как отправлять"
+      ],
+      "polished": [
+        "Priya, Parakeet, WhisperKit, Figma, Zoom."
+      ]
+    },
+    {
+      "id": "trap-ru-invented-clause",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "The cheapest way to corrupt a transcript: leave every word alone and add new ones.",
+      "raw": [
+        "ну и там по срокам мы вроде решили"
+      ],
+      "polished": [
+        "Ну и там по срокам мы вроде решили — запуск двадцатого марта."
+      ]
+    },
+    {
+      "id": "trap-ru-appended-translation",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "A helpful model finishing the job nobody asked for.",
+      "raw": [
+        "ну давайте тогда так и договоримся на этом"
+      ],
+      "polished": [
+        "Ну давайте тогда так и договоримся на этом (let's agree on that)"
+      ]
+    },
+    {
+      "id": "trap-ru-signoff",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "Well-formed right up to the sign-off, which has the same shape as a wrapped final line. Folding it in writes the model's words into a participant's mouth.",
+      "raw": [
+        "первая строка нашего разговора про сроки проекта",
+        "вторая строка нашего разговора про бюджет команды"
+      ],
+      "reply": "1. Первая строка нашего разговора про сроки проекта.\n2. Вторая строка нашего разговора про бюджет команды.\n\nLet me know if you need anything else."
+    },
+    {
+      "id": "trap-ru-editorial-note",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "The model explaining its own correction, in Russian, as if it were speech.",
+      "raw": [
+        "так вот фигма это наш основной инструмент",
+        "да мы всё положили в гитхаб на прошлой неделе"
+      ],
+      "reply": "1. Так вот, Figma — это наш основной инструмент.\n2. Да, мы всё положили в GitHub на прошлой неделе.\nПрим.: исправлено «фигма» → Figma, «гитхаб» → GitHub."
+    },
+    {
+      "id": "trap-ru-condensation",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "Two utterances merged into one — the 1:1 mapping the patch relies on is gone.",
+      "raw": [
+        "первая строка разговора здесь",
+        "вторая строка разговора здесь"
+      ],
+      "reply": "1. Первая строка разговора здесь. Вторая строка разговора здесь."
+    },
+    {
+      "id": "trap-ru-summary-line",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "The model summarising a line instead of correcting it. Short output, so the length floor is the guard that has to hold.",
+      "raw": [
+        "ну там значит по бюджету мы решили что пока оставляем как есть и вернёмся к этому в следующем квартале когда будут цифры",
+        "хорошо тогда так и запишем"
+      ],
+      "polished": [
+        "Итог: бюджет пока не меняем.",
+        "Хорошо, тогда так и запишем."
+      ]
+    },
+    {
+      "id": "trap-ru-filler-strip",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "Wholesale filler removal is condensation wearing a tidy hat. The record is what was said, not the clean version of it.",
+      "raw": [
+        "ну вот эм как бы я думаю что нам надо это самое ещё раз посмотреть",
+        "да ну то есть в целом наверное согласен как бы",
+        "ага ну ладно вот так вот тогда"
+      ],
+      "polished": [
+        "Я думаю, нам надо ещё раз посмотреть.",
+        "В целом согласен.",
+        "Ладно, тогда так."
+      ]
+    },
+    {
+      "id": "trap-ru-swapped-lines",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "Cheap chunk-wide, catastrophic per line: the patch is applied by segment id, so a swap leaves one speaker saying another's words under their own timestamp.",
+      "raw": [
+        "мы обсудили бюджет на следующий квартал и решили его увеличить",
+        "давайте вернёмся к этому вопросу на следующей встрече в понедельник"
+      ],
+      "polished": [
+        "давайте вернёмся к этому вопросу на следующей встрече в понедельник",
+        "мы обсудили бюджет на следующий квартал и решили его увеличить"
+      ]
+    },
+    {
+      "id": "trap-ru-emptied-line",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "An emptied line is a deletion, not a correction — and filler is exactly what a model decides to delete.",
+      "raw": [
+        "эм ну да",
+        "вторая строка разговора здесь"
+      ],
+      "reply": "1.\n2. Вторая строка разговора здесь."
+    },
+    {
+      "id": "trap-ru-ballooned-line",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "A one-word grunt turned into a sentence the participant never said.",
+      "raw": [
+        "ага"
+      ],
+      "polished": [
+        "Да, я полностью согласен с этим предложением и поддерживаю его."
+      ]
+    },
+    {
+      "id": "trap-ru-extra-line",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "An invented utterance appended as its own numbered line.",
+      "raw": [
+        "первая строка разговора здесь"
+      ],
+      "polished": [
+        "Первая строка разговора здесь.",
+        "И ещё одна придуманная."
+      ]
+    },
+    {
+      "id": "trap-ru-renumbered",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "The count matches but the numbering does not — the mapping is off by one and every line would land on the wrong segment.",
+      "raw": [
+        "первая строка разговора здесь",
+        "вторая строка разговора здесь"
+      ],
+      "reply": "2. Первая строка разговора здесь.\n3. Вторая строка разговора здесь."
+    },
+    {
+      "id": "trap-ru-unnumbered",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "A refusal, or free prose. Either way there is no mapping to apply.",
+      "raw": [
+        "привет как дела"
+      ],
+      "reply": "Извините, я не могу помочь с этим запросом."
+    },
+    {
+      "id": "trap-ru-wordless-gains-words",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "With no tokens on the left there is nothing for the budget to charge against, so the rule has to be structural.",
+      "raw": [
+        "...",
+        "вторая строка нашего разговора про бюджет"
+      ],
+      "polished": [
+        "Мы согласовали бюджет.",
+        "вторая строка нашего разговора про бюджет"
+      ]
+    },
+    {
+      "id": "trap-ru-translated-to-english",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "Translation is the most complete rewrite there is, and a model that reads an English system prompt reaches for it.",
+      "raw": [
+        "мы обсудили сроки и решили сдвинуть релиз на неделю",
+        "хорошо я обновлю план и пришлю его вечером"
+      ],
+      "polished": [
+        "We discussed the timeline and decided to push the release by a week.",
+        "Fine, I will update the plan and send it this evening."
+      ]
+    },
+    {
+      "id": "trap-ru-one-bad-line-in-a-good-chunk",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "A reply that broke its contract on one line is not trustworthy on the others. All-or-nothing per chunk is what keeps a paraphrase from riding in behind four honest fixes.",
+      "raw": [
+        "так вот фигма это наш основной инструмент дизайна сейчас",
+        "да мы всё положили в гитхаб на прошлой неделе",
+        "ну и там ещё зум записывал всю встречу",
+        "ну то есть мы вроде как договорились что сделаем это на следующей неделе"
+      ],
+      "polished": [
+        "Так вот, Figma — это наш основной инструмент дизайна сейчас.",
+        "Да, мы всё положили в GitHub на прошлой неделе.",
+        "Ну и там ещё Zoom записывал всю встречу.",
+        "Мы договорились сделать это на следующей неделе."
+      ]
+    },
+    {
+      "id": "trap-en-paraphrase",
+      "lang": "en",
+      "expect": "drop",
+      "why": "The English twin of the Russian paraphrase — the budget must not have loosened for anyone.",
+      "raw": [
+        "so i mean we kind of agreed that we would do this thing next week probably"
+      ],
+      "polished": [
+        "We agreed to do it next week."
+      ]
+    },
+    {
+      "id": "trap-en-invented-detail",
+      "lang": "en",
+      "expect": "drop",
+      "why": "An invented specific — a date, a number, a name — is the most damaging thing a transcript can gain.",
+      "raw": [
+        "and on timing we sort of landed on something"
+      ],
+      "polished": [
+        "And on timing we sort of landed on something — launch is March the twentieth."
+      ]
+    },
+    {
+      "id": "trap-en-attendee-substitution",
+      "lang": "en",
+      "expect": "drop",
+      "context": {
+        "attendees": [
+          "Priya Raman",
+          "Alex Novak"
+        ],
+        "vocabulary": []
+      },
+      "why": "Attendee names are sanctioned, so a rule that forgives them unconditionally would let the model put a different person in the sentence.",
+      "raw": [
+        "and then he said he would take care of the deployment himself tonight"
+      ],
+      "polished": [
+        "And then Alex said Priya would take care of the deployment herself tonight."
+      ]
+    },
+    {
+      "id": "trap-mixed-brand-insertion",
+      "lang": "mixed",
+      "expect": "drop",
+      "why": "Brand corrections are free by design, which makes INVENTING a brand mention the natural way to abuse that. Nothing on the left resembles the brand on the right.",
+      "raw": [
+        "ну там надо будет посмотреть ещё раз перед тем как отправлять"
+      ],
+      "polished": [
+        "Ну там надо будет посмотреть в Figma ещё раз, перед тем как отправлять в Slack."
+      ]
+    },
+    {
+      "id": "trap-ja-rewritten-clause",
+      "lang": "ja",
+      "expect": "drop",
+      "why": "Per-character tokenization is what makes a rewritten Japanese clause cost its characters instead of one token.",
+      "raw": [
+        "今日は会議の予定について話しました",
+        "来週の水曜日に集まることにしましょう",
+        "資料は事前に共有しておきます"
+      ],
+      "polished": [
+        "今日は会議の予定について話しました",
+        "来週の水曜日に集まることにしましょう",
+        "予算はすべて承認されました"
+      ]
+    },
+    {
+      "id": "ru-latin-terms-left-alone",
+      "lang": "ru",
+      "expect": "accept",
+      "why": "Terms the engine already wrote in Latin. The model correctly leaves them alone, and so must the guards — a no-op line is a success, not a suspicious one.",
+      "raw": [
+        "мы переписали endpoint на новый API вчера вечером",
+        "PR уже висит на ревью со вторника",
+        "CI зелёный можно мержить"
+      ],
+      "polished": [
+        "Мы переписали endpoint на новый API вчера вечером.",
+        "PR уже висит на ревью со вторника.",
+        "CI зелёный, можно мержить."
+      ]
+    },
+    {
+      "id": "ru-numbers-left-alone",
+      "lang": "ru",
+      "expect": "accept",
+      "why": "Spoken numbers are part of the record. The polish is punctuation only; the figures stay spelled out exactly as they were said.",
+      "raw": [
+        "у нас сейчас примерно пятьсот активных пользователей в неделю",
+        "а конверсия где-то три с половиной процента",
+        "ну то есть примерно как в прошлом квартале"
+      ],
+      "polished": [
+        "У нас сейчас примерно пятьсот активных пользователей в неделю.",
+        "А конверсия где-то три с половиной процента.",
+        "Ну то есть примерно как в прошлом квартале."
+      ]
+    },
+    {
+      "id": "trap-ru-number-tampering",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "A figure quietly rewritten. Nothing else on the line moves, which is what makes it the most damaging small edit there is — and why a spoken number must never be 'normalised'.",
+      "raw": [
+        "у нас сейчас примерно пятьсот активных пользователей",
+        "а конверсия где-то три процента"
+      ],
+      "polished": [
+        "У нас сейчас примерно 5000 активных пользователей.",
+        "А конверсия где-то 3%."
+      ]
+    },
+    {
+      "id": "trap-ru-negation-dropped",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "A dropped «не» inverts the meaning of the sentence while touching one token. Ratio guards catch it here because the chunk is small; inside a 400-token chunk a single-token flip is below ANY budget, which is why transcript.raw.md stays on disk as the answer of record.",
+      "raw": [
+        "мы не будем это делать в этом квартале",
+        "окей понял"
+      ],
+      "polished": [
+        "Мы будем это делать в этом квартале.",
+        "Окей, понял."
+      ]
+    },
+    {
+      "id": "trap-ru-systematic-name-substitution",
+      "lang": "ru",
+      "expect": "drop",
+      "context": {
+        "attendees": [
+          "Priya Raman",
+          "Alex Novak"
+        ],
+        "vocabulary": [
+          "Parakeet"
+        ]
+      },
+      "why": "Direct attack on the substitution credit: a paraphrase wearing two legitimate name restorations as cover. Forgiving the names is correct; forgiving the rewrite around them is not, and the per-line cap plus the surviving ratio guards are what separate the two.",
+      "raw": [
+        "ну там прия и алекс вчера смотрели эти цифры вместе и вроде всё сходится"
+      ],
+      "polished": [
+        "Priya и Alex пересчитали цифры, и всё сошлось."
+      ]
+    },
+    {
+      "id": "trap-ru-brand-swapped-for-another",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "Both sides are brands, so brand-folding alone would call this free. It is not: the participant said one tool and the transcript would claim another.",
+      "raw": [
+        "мы всё это держим в джире а дизайн в фигме",
+        "и созваниваемся в зуме по вторникам"
+      ],
+      "polished": [
+        "Мы всё это держим в Linear, а дизайн в Sketch.",
+        "И созваниваемся в Teams по вторникам."
+      ]
+    },
+    {
+      "id": "trap-en-brand-lookalike-substitution",
+      "lang": "en",
+      "expect": "drop",
+      "why": "Half the built-in brand table is an ordinary English word one or two edits away from another («team»/Steam, «until»/Intel, «looking»/Booking). Sanctioning brands unconditionally made every one of those a free substitution — in the language that never needed the credit in the first place, since case-folding already makes figma → Figma free.",
+      "raw": [
+        "I was looking at the team dashboard and it works until Friday"
+      ],
+      "polished": [
+        "I was Booking at the Steam dashboard and it works Intel Friday."
+      ]
+    },
+    {
+      "id": "trap-ru-brand-edit-distance-neighbour",
+      "lang": "ru",
+      "expect": "drop",
+      "why": "The nastier form of a brand swap: GitHub/GitLab and Figma/FigJam are edit-distance neighbours, so a rule that forgives any change INTO a known brand would call this a spelling fix. Both sides being known is what proves it isn't one.",
+      "raw": [
+        "мы всё это держим в гитхабе а созвоны в зуме",
+        "и дизайн лежит в фигме уже вторую неделю"
+      ],
+      "polished": [
+        "Мы всё это держим в GitLab, а созвоны в Zoom.",
+        "И дизайн лежит в FigJam уже вторую неделю."
+      ]
+    },
+    {
+      "id": "trap-en-deletion-pays-for-insertion",
+      "lang": "en",
+      "expect": "drop",
+      "why": "A word dropped at the start of the line paying for a clause invented at the end. Nothing about the two is related except that «black» happens to be two edits from «Slack» — which is why a credit has to look where the correction actually landed.",
+      "raw": [
+        "the black box test failed so we escalated to Dmitry"
+      ],
+      "polished": [
+        "The box test failed so we escalated to Dmitry on Slack."
+      ]
+    },
+    {
+      "id": "trap-en-merge-swallows-a-word",
+      "lang": "en",
+      "expect": "drop",
+      "why": "A multi-token window forgives one gained token while consuming up to three original ones, so an inexact merge is a free deletion wearing a correction's clothes. Only an EXACT transliteration merge («виспер кит» → WhisperKit) is the real shape.",
+      "raw": [
+        "we are looking at the vendor contract this week"
+      ],
+      "polished": [
+        "We are Booking the vendor contract this week."
+      ]
+    },
+    {
+      "id": "ru-latin-t-brand-normalized",
+      "lang": "ru",
+      "expect": "accept",
+      "why": "«T-Bank» tokenizes to [t, bank]. Counting a bare «t» as a contraction made Daisy's own brand normalization look like a polarity flip and threw the chunk away — with a real negation sitting on the same line, unharmed.",
+      "raw": [
+        "мы обсудили T-Bank и решили ничего не менять до мая",
+        "хорошо тогда так и оставим"
+      ],
+      "polished": [
+        "Мы обсудили Т-Банк и решили ничего не менять до мая.",
+        "Хорошо, тогда так и оставим."
+      ]
+    },
+    {
+      "id": "en-contraction-preserved",
+      "lang": "en",
+      "expect": "accept",
+      "why": "A contraction left alone while a brand is cased. The bare «t» the tokenizer leaves behind must not read as a stray negation appearing or vanishing — and expanding «don't» into «do not» is NOT what we want either: it adds a word, and the token budget charges it as one.",
+      "raw": [
+        "we don't ship on friday and slack is down anyway",
+        "right that's understood"
+      ],
+      "polished": [
+        "We don't ship on Friday, and Slack is down anyway.",
+        "Right, that's understood."
+      ]
+    },
+    {
+      "id": "ru-oblique-attendee-names",
+      "lang": "ru",
+      "expect": "accept",
+      "context": {
+        "attendees": [
+          "Priya Raman",
+          "Maria Ivanova",
+          "Alex Novak"
+        ],
+        "vocabulary": []
+      },
+      "why": "Russian almost never says a name in the nominative mid-sentence. «марии» pairs with Maria and is free; «алексом» is three edits away and still costs its token — a known limit of the credit, recorded here so the chunk-level budget is what absorbs it rather than a guard nobody measured.",
+      "raw": [
+        "я вчера говорил с алексом про эти правки довольно долго",
+        "марии я тоже написал но она пока не ответила",
+        "прия обещала посмотреть макеты сегодня вечером"
+      ],
+      "polished": [
+        "Я вчера говорил с Alex про эти правки довольно долго.",
+        "Maria я тоже написал, но она пока не ответила.",
+        "Priya обещала посмотреть макеты сегодня вечером."
+      ]
+    }
+  ]
+}

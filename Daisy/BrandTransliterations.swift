@@ -213,8 +213,60 @@ nonisolated enum BrandCorrections {
     /// Russian case endings we accept after a stem. A WHITELIST, not a
     /// greedy wildcard — «зуммер» (зум + мер) and «телеграмма»
     /// (телеграм + ма) must NOT match.
-    private static let endings =
-        "(?:а|е|у|ы|и|я|ю|ой|ом|ем|ов|ам|ами|ах|ях)?"
+    private static let caseEndings = [
+        "а", "е", "у", "ы", "и", "я", "ю", "ой", "ом", "ем", "ов", "ам",
+        "ами", "ах", "ях",
+    ]
+    private static let endings = "(?:" + caseEndings.joined(separator: "|") + ")?"
+
+    /// Single-token lookup: every Cyrillic rendering we know (a stem plus
+    /// one accepted case ending) AND the canonical spelling itself map to
+    /// the SAME key.
+    ///
+    /// Built for `TranscriptPolisher`, which needs «фигму» and "Figma" to
+    /// compare equal rather than as two unrelated words. Measuring a
+    /// Russian transcript's polish without this table charged a token for
+    /// every brand the model spelled correctly, while the identical fix in
+    /// English ("figma" → "Figma") was free under case-folding — an
+    /// asymmetry that made real Russian chunks fail a budget English ones
+    /// sailed through.
+    ///
+    /// Only single-token KEYS participate — multi-word stems («т банк»,
+    /// «альфа банк») can never equal one token. A hyphenated canonical
+    /// still earns an entry through its punctuation-stripped form:
+    /// «вайфай» → "wifi" and «тбанк» → "тбанк" are the single tokens a
+    /// transcript actually contains, and dropping the whole brand for
+    /// the sake of its dash would leave exactly the Russian asymmetry
+    /// this table exists to remove.
+    static let canonicalFolds: [String: String] = {
+        func singleToken(_ s: String) -> Bool {
+            !s.isEmpty && s.allSatisfy { $0.isLetter || $0.isNumber }
+        }
+        func key(for latin: String) -> String? {
+            // The canonical may carry a dash; it may not carry a space,
+            // since a two-word name is two tokens no matter what.
+            guard !latin.contains(" ") else { return nil }
+            let stripped = latin.lowercased().filter { $0.isLetter || $0.isNumber }
+            return stripped.isEmpty ? nil : stripped
+        }
+        var folds: [String: String] = [:]
+        for entry in entries {
+            guard let canonical = key(for: entry.latin) else { continue }
+            for stem in entry.stems where singleToken(stem) {
+                folds[stem] = canonical
+                for ending in caseEndings {
+                    folds[stem + ending] = canonical
+                }
+            }
+        }
+        // Canonicals last so a stem of one brand can never shadow another
+        // brand's own name.
+        for entry in entries {
+            guard let canonical = key(for: entry.latin) else { continue }
+            folds[canonical] = canonical
+        }
+        return folds
+    }()
 
     /// One compiled regex per entry (all stems alternated), built once.
     /// Bounded by "no Cyrillic letter" on both sides so stems can't
