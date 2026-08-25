@@ -222,23 +222,12 @@ struct DaisyWidget: View {
         }
     }
 
-    /// Confirmation for the destructive discard. A plain NSAlert on
-    /// purpose: SwiftUI presentation (sheet / confirmationDialog) from a
-    /// 60 pt borderless non-activating panel is exactly the surface that
-    /// produced three invisible bubbles in a row (2026-08-21) — the
-    /// alert runs as its own app-modal window and cannot fail to appear.
+    /// Confirmation for the destructive discard. The alert itself moved
+    /// to `DiscardRecordingPrompt` when the sidebar grew its own
+    /// "Stop & discard" button — one wording, one default button, one
+    /// path into deleting a live recording.
     private func confirmAndDiscard() {
-        let alert = NSAlert()
-        alert.messageText = String(localized: "Discard this recording?")
-        alert.informativeText = String(localized: "Audio, transcript and screenshots from this session will not be saved.")
-        alert.alertStyle = .warning
-        let discard = alert.addButton(withTitle: String(localized: "Discard recording"))
-        discard.hasDestructiveAction = true
-        alert.addButton(withTitle: String(localized: "Keep recording"))
-        NSApp.activate(ignoringOtherApps: true)
-        if alert.runModal() == .alertFirstButtonReturn {
-            Task { await session.discard() }
-        }
+        DiscardRecordingPrompt.confirmAndDiscard(session)
     }
 
     // MARK: - Right-click context menu

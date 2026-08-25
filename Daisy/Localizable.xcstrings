@@ -1,6 +1,26 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Stop & discard" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Стоп и удалить"
+          }
+        }
+      }
+    },
+    "Stop recording and delete it — audio, transcript and screenshots. Asks first." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остановить запись и удалить её — аудио, транскрипт и скриншоты. Сначала спросим."
+          }
+        }
+      }
+    },
     "%@ was switched off — turned it back on." : {
       "localizations" : {
         "ru" : {

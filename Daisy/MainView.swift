@@ -365,9 +365,10 @@ struct MainView: View {
                     .listRowInsets(EdgeInsets(top: 14, leading: -8, bottom: 4, trailing: -8))
                     .listRowBackground(Color.clear)
 
-                // Stop & save lives next to the toggle capsule so a
-                // user mid-session can finalise without hunting in
-                // the kebab menu. Only shows during recording / paused.
+                // Stop & save (and, below it, Stop & discard) live next
+                // to the toggle capsule so a user mid-session can
+                // finalise — or bin a mistake — without hunting in the
+                // kebab menu. Only during recording / paused.
                 if session.status == .recording || session.status == .paused {
                     Button {
                         Task { await session.stop() }
@@ -406,6 +407,42 @@ struct MainView: View {
                     // row chips above) instead of sitting indented.
                     .listRowInsets(EdgeInsets(top: 0, leading: -8, bottom: 4, trailing: -8))
                     .listRowBackground(Color.clear)
+
+                    // Stop & discard — third and last, because it's the
+                    // one that destroys. Same capsule recipe as Stop &
+                    // save (matched trio) with destructive ink instead
+                    // of a filled red button: a red slab directly under
+                    // the two neutral capsules would pull the eye to the
+                    // action we least want tapped. Never fires without
+                    // the confirmation alert — the same one the widget's
+                    // right-click menu raises.
+                    Button {
+                        DiscardRecordingPrompt.confirmAndDiscard(session)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "trash")
+                                .font(.callout.weight(.semibold))
+                            Text("Stop & discard")
+                                .font(.callout.weight(.medium))
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        // Tracks RecordCapsule's pad recipe in lockstep
+                        // with the Stop & save button above it.
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 14)
+                        .foregroundStyle(Color.daisyError)
+                        .background(
+                            Capsule(style: .continuous).fill(Color.daisyBgElevated)
+                        )
+                        .overlay(
+                            Capsule(style: .continuous).strokeBorder(Color.daisyDivider, lineWidth: 0.5)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop recording and delete it — audio, transcript and screenshots. Asks first.")
+                    .listRowInsets(EdgeInsets(top: 0, leading: -8, bottom: 4, trailing: -8))
+                    .listRowBackground(Color.clear)
                 }
 
                 // System-audio status row — UNDER the Stop button.
@@ -421,7 +458,8 @@ struct MainView: View {
                         // 2026-05-25 — top inset 0 → 12 per Egor's
                         // pass. The status pill belongs to a
                         // different visual family than the Pause /
-                        // Stop & save matched-pair above (capsules =
+                        // Stop & save / Stop & discard capsules above
+                        // (capsules =
                         // primary actions; pill = informational
                         // status). Pre-bump the 4pt gap inherited
                         // from Pause→Stop made the three rows read
