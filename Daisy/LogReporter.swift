@@ -288,6 +288,15 @@ enum LogReporter {
     /// carries the grant HISTORY and the count of sessions that
     /// degraded because of it. See
     /// `ScreenRecordingPermission.diagnosticsLine`.
+    ///
+    /// `Devices:` is the full input/output inventory, and it earns the
+    /// space for the same reason: `Route:` and `Mic device:` describe
+    /// the three devices we ended up on, not the field they were chosen
+    /// from. Another app's virtual driver — a rival notetaker, Krisp, a
+    /// Loopback rig — installs itself as the default input or output and
+    /// the meeting records silence or half a conversation, and none of
+    /// that is visible from the winners alone. See
+    /// `AudioInputDevices.deviceInventory`.
     private static func header(settings: AppSettings) -> String {
         let permissions = SystemPermissions.shared
         permissions.refresh()
@@ -304,6 +313,8 @@ enum LogReporter {
         Route:      \(AudioInputDevices.routeDiagnostics(selectedMicUID: settings.selectedMicDeviceUID))
         SysAudio:   \(SystemAudioCapture.backendDiagnosticsLine())
         Mic device: \(AudioInputDevices.describe(AudioInputDevices.systemDefaultInputID()))
+        Devices:
+        \(AudioInputDevices.deviceInventory())
         Bundle:     \(Bundle.main.bundleURL.path)
         Auto-stop:  fromCalendar=\(settings.autoStopFromCalendar) graceSec=\(settings.autoStopGraceSec) promptMode=\(settings.autoStopPromptMode) notifyOnStop=\(settings.notifyOnAutoStop)
         Layout fix: auto=\(settings.layoutFixAuto) hotkey=\(settings.layoutFixHotkey.label) switchSource=\(settings.layoutFixSwitchesSource) running=\(LayoutAutoFix.shared.isRunning) suspendedFor=\(LayoutAutoFix.shared.conflictingSwitcherName ?? "—") \(LayoutFix.diagnostics())

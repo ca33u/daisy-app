@@ -1157,21 +1157,106 @@ final class RecordingSession {
         }
     }
 
+    /// The microphone this session would actually bind to: the pinned
+    /// device when it's still present, the system default otherwise
+    /// (a pinned device that's been unplugged falls back, so judge the
+    /// default in that case). Mirrors the first two steps of
+    /// `CoreAudioMicRecorder.resolveInputDeviceID`.
+    ///
+    /// NOT the whole resolution. The recorder still steers away from a
+    /// Bluetooth default, from the built-in mic in clamshell, and — the
+    /// step that matters to the virtual-device warning below — from a
+    /// default input that reports no live input streams, which is
+    /// exactly how a virtual driver squatting the default slot gets
+    /// bypassed. A caller that warns about this device has to re-check
+    /// the same conditions, or it warns about a device the recording
+    /// never touches.
+    private func plannedInputDeviceID() -> AudioDeviceID {
+        if !settings.selectedMicDeviceUID.isEmpty,
+           let pinned = AudioInputDevices.deviceID(forUID: settings.selectedMicDeviceUID) {
+            return pinned
+        }
+        return AudioInputDevices.systemDefaultInputID()
+    }
+
     /// True when the microphone this session would actually bind to is
     /// the Mac's built-in one — the device that goes hardware-silent
-    /// with the lid closed. Mirrors `CoreAudioMicRecorder`'s pinned-vs-
-    /// default resolution.
+    /// with the lid closed.
     private func plannedInputIsBuiltIn() -> Bool {
-        if !settings.selectedMicDeviceUID.isEmpty {
-            guard let pinned = AudioInputDevices.deviceID(forUID: settings.selectedMicDeviceUID) else {
-                // Pinned device is gone → we'll fall back to the system
-                // default, so judge that instead.
-                return AudioInputDevices.isBuiltIn(AudioInputDevices.systemDefaultInputID())
-            }
-            return AudioInputDevices.isBuiltIn(pinned)
-        }
-        return AudioInputDevices.isBuiltIn(AudioInputDevices.systemDefaultInputID())
+        AudioInputDevices.isBuiltIn(plannedInputDeviceID())
     }
+
+    /// Device UIDs already warned about this launch. A set, not one
+    /// slot: someone who alternates between two virtual inputs would
+    /// otherwise be re-warned every time they switch back.
+    @ObservationIgnored
+    private var virtualInputWarnedUIDs: Set<String> = []
+
+    /// Note it in the log, and say it once, when the microphone we're
+    /// about to record from is another app's virtual audio device that
+    /// isn't carrying real mic audio (BlackHole, Loopback, a capture
+    /// sink left selected after a screen recording).
+    ///
+    /// Soft on purpose. Routing a meeting through a virtual device can
+    /// be exactly what the user set up, so this neither blocks the start
+    /// nor switches the device — unlike the clamshell and Bluetooth
+    /// paths, where the silence is a certainty rather than a risk. What
+    /// it buys is the link between "the recording was empty" and the
+    /// driver that made it so: the log line lands on every start (the
+    /// evidence a report needs), the visible warning only on the first
+    /// start per device per launch (the nudge a user needs).
+    ///
+    /// Three gates before we say anything, each one a way of not crying
+    /// wolf:
+    ///  • mic pass-through drivers (Krisp, Wave Link, eqMac…) are
+    ///    excluded by the signature table — they deliver real
+    ///    microphone audio and are a working setup, not a fault;
+    ///  • a device with no live input streams or zero input channels is
+    ///    one `CoreAudioMicRecorder` never binds to — its default-input
+    ///    fallback exists precisely for a virtual driver squatting that
+    ///    slot — so the recording lands on a real mic and the warning
+    ///    would be about a device we already stepped around;
+    ///  • no readable device name means no sentence worth showing —
+    ///    "pick your microphone" is only actionable when we can say
+    ///    which one is wrong. The log line still goes out.
+    ///
+    /// Surfaces: the widget bubble FIRST, then the toast. Dictation is
+    /// triggered by hotkey from another app, where an in-window toast is
+    /// invisible — and dictation is often the first recording of a
+    /// launch, so a toast-only warning would burn the once-per-launch
+    /// budget on something nobody saw. No `CaptureProblemNotification`
+    /// though: a system banner for a setup the user may well have chosen
+    /// is nagging, and this is a "if it comes out empty, here's why"
+    /// hint, not "Daisy can't hear you".
+    private func warnIfPlannedInputIsVirtual() {
+        let deviceID = plannedInputDeviceID()
+        guard AudioInputDevices.virtualInputMayBeSilent(deviceID) else { return }
+        log.warning("Planned input is a third-party virtual audio device — capture may be silent or routed elsewhere. \(AudioInputDevices.describe(deviceID), privacy: .public)")
+        guard AudioInputDevices.hasInputStreams(deviceID),
+              AudioInputDevices.inputChannelCount(deviceID) > 0 else {
+            log.info("Virtual input reports no live input channels — the recorder won't bind to it, so not warning the user")
+            return
+        }
+        guard let deviceName = AudioInputDevices.name(for: deviceID) else { return }
+        let uid = AudioInputDevices.uid(for: deviceID) ?? deviceName
+        guard virtualInputWarnedUIDs.insert(uid).inserted else { return }
+        let message = String(localized: "The microphone is set to “\(deviceName)” — a virtual audio device. If the recording comes out empty, pick your microphone in Settings.")
+        _ = WidgetBubbleCenter.shared.show(
+            WidgetBubbleContent(text: message, autoDismiss: 12, tag: Self.virtualInputBubbleTag)
+        )
+        ToastCenter.shared.showAction(
+            message,
+            actionLabel: String(localized: "Open audio settings"),
+            style: .warning,
+            duration: .seconds(12)
+        ) {
+            AppNavigation.shared.openInSettings(.recording)
+        }
+    }
+
+    /// Tag for the virtual-input bubble, so it can never be withdrawn by
+    /// another prompt's `dismiss(tag:)`.
+    private static let virtualInputBubbleTag = "virtual-input-warning"
 
     /// Set when `start()` already warned about a closed lid, so the
     /// silence watchdog 10 s later doesn't repeat the same toast.
@@ -1271,6 +1356,13 @@ final class RecordingSession {
                 style: .warning
             )
         }
+
+        // Virtual-input preflight (2026-08-25). Sits next to the
+        // clamshell check because it answers the same question one step
+        // later — not "can macOS give us the mic" but "is the thing it
+        // hands us a microphone at all". Warns, never blocks: see
+        // `warnIfPlannedInputIsVirtual`.
+        warnIfPlannedInputIsVirtual()
 
         reset()
 

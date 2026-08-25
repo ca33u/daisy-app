@@ -1,6 +1,26 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "The microphone is set to “%@” — a virtual audio device. If the recording comes out empty, pick your microphone in Settings." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Микрофоном выбран «%@» — это виртуальный аудиодрайвер. Если запись окажется пустой, выберите свой микрофон в настройках."
+          }
+        }
+      }
+    },
+    "Open audio settings" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть настройки звука"
+          }
+        }
+      }
+    },
     "Space used" : {
       "localizations" : {
         "ru" : {
