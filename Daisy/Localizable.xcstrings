@@ -5544,6 +5544,26 @@
         }
       }
     },
+    "Daisy couldn’t capture the other side of this call, so only your microphone was recorded." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не удалось записать собеседника, поэтому записан только ваш микрофон."
+          }
+        }
+      }
+    },
+    "Daisy couldn’t capture the other side of this call. Your microphone is still being recorded." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не удалось записать собеседника. Ваш микрофон продолжает записываться."
+          }
+        }
+      }
+    },
     "Daisy couldn’t read this file." : {
       "localizations" : {
         "ru" : {
@@ -9550,6 +9570,16 @@
         }
       }
     },
+    "Microphone only" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Только микрофон"
+          }
+        }
+      }
+    },
     "Microphone signal is healthy." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -12612,6 +12642,16 @@
         }
       }
     },
+    "Recording your voice only" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Записывается только ваш голос"
+          }
+        }
+      }
+    },
     "Recordings" : {
       "localizations" : {
         "ru" : {
@@ -13467,6 +13507,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Разрешение «Запись экрана» выключено"
+          }
+        }
+      }
+    },
+    "Screen Recording permission is off, so Daisy can’t capture the other side of this call. Turn it on in System Settings → Privacy & Security → Screen Recording." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешение «Запись экрана» выключено, поэтому Daisy не может записать собеседника. Включите его в Системных настройках → Конфиденциальность и безопасность → Запись экрана."
+          }
+        }
+      }
+    },
+    "Screen Recording permission was off while this was recorded, so the other side of the call wasn’t captured." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Во время этой записи разрешение «Запись экрана» было выключено, поэтому собеседник не записан."
           }
         }
       }

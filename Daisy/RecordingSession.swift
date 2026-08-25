@@ -16,6 +16,30 @@ import os
 // The `.send_failures.json` JSON coders moved to
 // RecordingSession+Finalize.swift next to their consumer.
 
+/// Why a meeting ended up with only the user's own voice in it.
+///
+/// Top-level rather than nested in `RecordingSession` because the value
+/// outlives the session: it is written to `daisy_mic_only:` in the
+/// transcript frontmatter and read back by `StoredSession` and the
+/// Library detail long after the recording is gone. The raw values are
+/// therefore an ON-DISK CONTRACT — extend the enum freely, never rename
+/// a case's string (older builds' parsers drop unknown keys safely, but
+/// a renamed one silently loses the reason on every existing session).
+///
+/// Distinct from `RecordingSession.ArchiveStatus`, which records the
+/// SYMPTOM (`empty`) and reads identically for a Bluetooth output
+/// route, DRM-protected playback, a revoked permission, and a meeting
+/// where nobody spoke. This names a cause.
+nonisolated enum MicOnlyCause: String, Sendable {
+    /// `CGPreflightScreenCaptureAccess()` said no before we ever armed
+    /// the loopback stream. The actionable one: the fix is a toggle.
+    case screenRecordingDenied = "screen-recording-denied"
+    /// Permission was there but `SCStream` refused to start, refused to
+    /// resume after a pause, or died mid-meeting and spent its restart
+    /// budget — display gone, SCK regression, and so on.
+    case systemAudioFailed = "system-audio-failed"
+}
+
 @Observable
 @MainActor
 final class RecordingSession {
@@ -201,6 +225,19 @@ final class RecordingSession {
     /// stream — so toggling Screen Recording on and starting a new
     /// recording produces the right `systemAudioStatus`.
     private var systemAudioDeniedThisSession: Bool = false
+
+    /// Why THIS session is microphone-only, if it is. Set once (first
+    /// cause wins) by `noteMicOnlyDegradation`, persisted into the
+    /// transcript frontmatter as `daisy_mic_only:` and surfaced in the
+    /// Library detail. Nil for a healthy meeting, and for every
+    /// dictation / voice note (those are mic-only by design and never
+    /// go near the loopback stream).
+    ///
+    /// Exists because the warning at start time is a toast and a pill —
+    /// both gone within seconds, and both invisible when the session was
+    /// auto-started while the user was already in Zoom. Two mic-only
+    /// meetings on 1.0.7.61 were only diagnosed days later.
+    private(set) var micOnlyCause: MicOnlyCause?
     var title: String = ""
     var localeIdentifier: String {
         didSet {
@@ -720,6 +757,18 @@ final class RecordingSession {
         self.silenceMonitor = nil  // assigned below once `self` is usable
         self.silenceMonitor = SilenceMonitor(session: self)
 
+        // The loopback stream dying mid-meeting and failing to restart
+        // is the same degradation as a denied preflight, arriving three
+        // minutes later. `SystemAudioCapture` already warns; this makes
+        // the session remember, so `daisy_mic_only:` lands in the
+        // frontmatter and the Library says so afterwards. Silent — the
+        // toast has already been shown by the capture itself. Weak:
+        // the capture is owned by this session, so a strong capture
+        // would be a retain cycle.
+        self.systemAudio.onCaptureGaveUp = { [weak self] in
+            self?.recordMicOnlyDegradation(cause: .systemAudioFailed)
+        }
+
         // Preload the Whisper + diarization models so the first Record click
         // is instant. An XCTest bundle is hosted inside Daisy.app, however,
         // and must reach the test runner before app-startup model I/O begins.
@@ -1225,6 +1274,16 @@ final class RecordingSession {
 
         reset()
 
+        // Cleared HERE and not inside `reset()`: the value has to
+        // survive every reset that happens between Stop and the last
+        // write of transcript.md (the Stage-3 re-render in
+        // `finalizePostStop` reads it), so the one safe moment to zero
+        // it is the start of the NEXT recording. Same lifecycle as
+        // `systemAudioDeniedThisSession`, and cleared before the session
+        // directory below can be claimed, so a new session can never
+        // inherit the previous one's reason.
+        micOnlyCause = nil
+
         // Apply meeting/folder/mode bindings stashed by entry-point
         // helpers (`startFromMeeting`, `toggleVoiceNoteByHotkey`,
         // `toggleDictationByHotkey`). These need to land AFTER
@@ -1507,16 +1566,16 @@ final class RecordingSession {
             // doesn't itself prompt — calling SCK without checking
             // would prompt mid-startCapture, but if the user
             // already denied once we'd skip straight to "throw".
-            if !ScreenRecordingPermission.isGranted {
+            //
+            // `preflight()` rather than `isGranted`: same verdict, but it
+            // also stamps "we saw the grant in place at this moment",
+            // which is what turns a later `denied` in a log report into
+            // evidence of a TCC reset instead of an unanswerable
+            // question (macOS 27.0 beta, 2026-08-21).
+            if !ScreenRecordingPermission.preflight() {
                 systemAudioDeniedThisSession = true
                 log.warning("Screen Recording permission denied — recording mic only")
-                ToastCenter.shared.showAction(
-                    String(localized: "Couldn't capture the other side — Screen Recording permission is off. Recording your voice only."),
-                    actionLabel: String(localized: "Open Privacy Settings"),
-                    style: .warning,
-                    duration: .seconds(20),
-                    perform: { ScreenRecordingPermission.openSystemSettings() }
-                )
+                noteMicOnlyDegradation(cause: .screenRecordingDenied)
             } else {
                 let systemAudioStream = systemAudio.buffers
                 systemTranscriber.start(consuming: systemAudioStream, startedAt: nowStarted, tier: tier)
@@ -1531,10 +1590,7 @@ final class RecordingSession {
                     // The user is about to start a meeting; they
                     // need to know the remote side won't be
                     // captured.
-                    ToastCenter.shared.show(
-                        String(localized: "Couldn't capture the other side — recording your voice only."),
-                        style: .warning
-                    )
+                    noteMicOnlyDegradation(cause: .systemAudioFailed)
                 }
             }
         }
@@ -1565,6 +1621,94 @@ final class RecordingSession {
         scheduleAutoStopIfNeeded()
         silenceMonitor.start()
         startDiskMonitor()
+    }
+
+    /// Remember that this meeting is microphone-only. Silent and
+    /// idempotent — first cause wins, because a denied preflight
+    /// explains the session better than the resume failure it goes on
+    /// to cause.
+    ///
+    /// The recording half is separate from the warning half on purpose:
+    /// `SystemAudioCapture` already warns, in its own words, when the
+    /// stream dies mid-meeting and the restart budget runs out. That
+    /// path needs the session to REMEMBER without a second toast landing
+    /// on top of the first.
+    ///
+    /// What remembering buys: `micOnlyCause` rides into the transcript
+    /// frontmatter and the Library detail, so the answer to "why does
+    /// this recording only have my voice in it" is still there next
+    /// week. A toast lasts seconds; the two mic-only meetings on
+    /// 1.0.7.61 were diagnosed days later, from nothing.
+    func recordMicOnlyDegradation(cause: MicOnlyCause) {
+        // Dictation and voice notes are mic-only BY DESIGN and never arm
+        // the loopback stream, so "microphone only" is not news there —
+        // it's the feature. Guarding here rather than at each call site
+        // keeps a future caller from stamping a voice note as degraded.
+        guard currentMode == .meeting else { return }
+        guard micOnlyCause == nil else { return }
+        micOnlyCause = cause
+        log.warning("Session degraded to microphone-only: \(cause.rawValue, privacy: .public)")
+        ScreenRecordingPermission.noteMicOnlySession(cause: cause)
+    }
+
+    /// Record it AND tell the user, once per session.
+    ///
+    /// Three call sites: a denied preflight, an SCStream that wouldn't
+    /// start, and one that wouldn't resume after a pause — the last of
+    /// which used to fail silently. The warning fires only when the
+    /// cause is NEW, so a stream that failed at start and then fails
+    /// again on every resume doesn't re-toast.
+    ///
+    /// The warning also leaves the main window. The paths that hit this
+    /// most often are the ones the user didn't press — calendar
+    /// auto-start, the app-launch ask — and by then they are looking at
+    /// Zoom, where `ToastCenter` renders nothing at all. Same
+    /// bubble-first / banner-fallback surface the clamshell warning
+    /// uses, which is also why it yields to that one: they share a
+    /// single notification slot, and "the lid is shut, nothing is being
+    /// recorded" outranks "half of it is".
+    ///
+    /// Deliberately NOT a hard stop — the user is on the doorstep of a
+    /// meeting, and mic-only beats nothing at all (P0-2, 2026-08-25).
+    private func noteMicOnlyDegradation(cause: MicOnlyCause) {
+        let before = micOnlyCause
+        recordMicOnlyDegradation(cause: cause)
+        // Warn only when THIS call is the one that recorded the cause:
+        // no second toast for a repeat failure, and nothing at all in
+        // the modes `recordMicOnlyDegradation` declines to mark.
+        guard before == nil, micOnlyCause != nil else { return }
+
+        let notificationBody: String
+        switch cause {
+        case .screenRecordingDenied:
+            ToastCenter.shared.showAction(
+                String(localized: "Couldn't capture the other side — Screen Recording permission is off. Recording your voice only."),
+                actionLabel: String(localized: "Open Privacy Settings"),
+                style: .warning,
+                duration: .seconds(20),
+                perform: { ScreenRecordingPermission.openSystemSettings() }
+            )
+            notificationBody = String(localized: "Screen Recording permission is off, so Daisy can’t capture the other side of this call. Turn it on in System Settings → Privacy & Security → Screen Recording.")
+        case .systemAudioFailed:
+            ToastCenter.shared.show(
+                String(localized: "Couldn't capture the other side — recording your voice only."),
+                style: .warning
+            )
+            notificationBody = String(localized: "Daisy couldn’t capture the other side of this call. Your microphone is still being recorded.")
+        }
+
+        // `CaptureProblemNotification` is a single slot — one request id,
+        // one bubble tag — so posting here would REPLACE the clamshell
+        // warning raised moments earlier in the same `start()`. On a
+        // docked Mac with the lid shut and Screen Recording off, that
+        // would swap "Daisy can't hear you" for "recording your voice
+        // only", which is worse than useless: it isn't recording a voice
+        // at all. The in-app toast above still fires either way.
+        guard !clamshellWarned else { return }
+        CaptureProblemNotification.post(
+            title: String(localized: "Recording your voice only"),
+            body: notificationBody
+        )
     }
 
     // Auto-stop (calendar-bound) — scheduleAutoStopIfNeeded,
@@ -1695,7 +1839,14 @@ final class RecordingSession {
                 try await systemAudio.resume()
             } catch {
                 log.error("Resume system audio failed: \(error.localizedDescription, privacy: .public)")
-                // Soft-fail: continue mic-only, same as during start.
+                // Soft-fail: continue mic-only, same as during start —
+                // but no longer SILENTLY, which is how a session that
+                // captured the other side for its first ten minutes and
+                // nothing after the pause used to look exactly like one
+                // that worked. (`noteMicOnlyDegradation` is a no-op
+                // outside meeting mode and after the first cause, so a
+                // repeated pause/resume can't re-toast.)
+                noteMicOnlyDegradation(cause: .systemAudioFailed)
             }
         }
         micTranscriber.resume()
@@ -2467,6 +2618,10 @@ final class RecordingSession {
         momentMarkers = []
         micArchiveURL = nil
         systemArchiveURL = nil
+        // `micOnlyCause` is deliberately NOT cleared here — the
+        // post-stop re-render of transcript.md still has to write
+        // `daisy_mic_only:`, and reset() runs before that. It is zeroed
+        // at the top of the next `start()` instead.
         startedAt = nil
         sideNoteWindows = []
         boundMeeting = nil

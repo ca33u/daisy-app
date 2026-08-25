@@ -85,6 +85,20 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// and renders verdicts inline. Set per `start()`.
     private var quietDiagnostics: Bool = false
 
+    /// Called once when the restart budget is spent and the stream is
+    /// declared dead for the rest of the capture.
+    ///
+    /// This class already TELLS the user (toast + notification, below);
+    /// what it can't do is make the fact outlive the session, because it
+    /// knows nothing about sessions, transcripts or frontmatter. The
+    /// owner hooks this to record the mic-only degradation, so a meeting
+    /// that captured the other side for ten minutes and then lost it
+    /// doesn't read, a week later, exactly like one that worked.
+    ///
+    /// Not gated on `quietDiagnostics`: the Settings meter runs its own
+    /// instance and never installs a handler.
+    var onCaptureGaveUp: (@MainActor () -> Void)?
+
     /// Wall-clock time `start()` flipped state to `.capturing`,
     /// used to compute the "never received any audio" timeout.
     private var captureStartedAt: Date?
@@ -842,6 +856,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             log.error("SCStream died again after \(Self.maxAutoRestarts, privacy: .public) restarts — giving up: \(error.localizedDescription, privacy: .public)")
             lastError = error.localizedDescription
             state = .stopped
+            onCaptureGaveUp?()
             if !quietDiagnostics {
                 CaptureProblemNotification.post(
                     title: String(localized: "Daisy stopped hearing the other side"),
@@ -872,6 +887,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         }
         lastError = error.localizedDescription
         state = .stopped
+        onCaptureGaveUp?()
         if !quietDiagnostics {
             CaptureProblemNotification.post(
                 title: String(localized: "Daisy stopped hearing the other side"),

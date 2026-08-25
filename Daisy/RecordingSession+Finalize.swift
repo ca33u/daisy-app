@@ -1221,7 +1221,8 @@ extension RecordingSession {
             kind: sessionKind,
             tag: tag,
             meetingPreparation: meetingPreparationSnapshot,
-            systemAudioStatus: systemAudioStatusValue
+            systemAudioStatus: systemAudioStatusValue,
+            micOnlyCause: micOnlyCause?.rawValue
         )
         for integration in autoIntegrations {
             let ok = await MCPDispatcher.send(integration, for: stored)
@@ -1326,7 +1327,8 @@ extension RecordingSession {
             kind: sessionKind,
             tag: tag,
             meetingPreparation: meetingPreparationSnapshot,
-            systemAudioStatus: systemAudioStatusValue
+            systemAudioStatus: systemAudioStatusValue,
+            micOnlyCause: micOnlyCause?.rawValue
         )
     }
 
@@ -1569,7 +1571,8 @@ extension RecordingSession {
         kind: SessionKind = .recording,
         tag: String = "",
         meetingPreparation: MeetingPreparationSnapshot? = nil,
-        systemAudioStatus: String? = nil
+        systemAudioStatus: String? = nil,
+        micOnlyCause: String? = nil
     ) -> StoredSession {
         let transcriptText = segments
             .map { "\($0.text)" }
@@ -1631,7 +1634,8 @@ extension RecordingSession {
             planAnalysisError: MeetingPlanAnalysisErrorRecord.load(from: directory),
             speakerMap: [:],
             speakerCentroidIDs: centroidIDs,
-            systemAudioStatus: systemAudioStatus
+            systemAudioStatus: systemAudioStatus,
+            micOnlyCause: micOnlyCause
         )
     }
 

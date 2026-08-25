@@ -278,6 +278,16 @@ enum LogReporter {
     /// Environment block that makes a report actionable without a
     /// follow-up email: versions, permissions, the settings that
     /// change audio/ML behaviour. No transcript content, no titles.
+    ///
+    /// `ScreenRec:` earns its own line even though `Permissions:`
+    /// already carries `screenRec=`, for the same reason `Disk:` does:
+    /// the one-word state is not the diagnosis. "denied" alone cannot
+    /// tell a user who never granted it from one whose grant macOS
+    /// silently reset — and the second is what happened on the 27.0
+    /// beta, costing two meetings that recorded mic-only. This line
+    /// carries the grant HISTORY and the count of sessions that
+    /// degraded because of it. See
+    /// `ScreenRecordingPermission.diagnosticsLine`.
     private static func header(settings: AppSettings) -> String {
         let permissions = SystemPermissions.shared
         permissions.refresh()
@@ -289,6 +299,7 @@ enum LogReporter {
         Permissions: mic=\(label(permissions.microphone)) screenRec=\(label(permissions.screenRecording)) accessibility=\(label(permissions.accessibility)) calendar=\(label(permissions.calendar)) notifications=\(label(permissions.notifications))
         Audio:      captureSystemAudio=\(settings.captureSystemAudio) liveTier=\(settings.liveTranscriptionTier) dictationEngine=\(settings.dictationEngine.rawValue) nemotronLivePreview=\(settings.dictationUseNemotronLive)
         Disk:       \(diskLine())
+        ScreenRec:  \(ScreenRecordingPermission.diagnosticsLine())
         Locale:     ui=\(Bundle.main.preferredLocalizations.first ?? "?") summaryLanguage=\(settings.summaryLanguage.isEmpty ? "auto" : settings.summaryLanguage)
         Route:      \(AudioInputDevices.routeDiagnostics(selectedMicUID: settings.selectedMicDeviceUID))
         Mic device: \(AudioInputDevices.describe(AudioInputDevices.systemDefaultInputID()))

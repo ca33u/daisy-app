@@ -1114,6 +1114,7 @@ final class SessionStore {
         var linkedEventTitle: String?
         var speakerMap: [String: String] = [:]
         var systemAudioStatus: String?
+        var micOnlyCause: String?
         if !transcriptEvicted,
            let text = try? String(contentsOf: transcriptURL, encoding: .utf8) {
             let parsedFm = parseFrontmatter(in: text)
@@ -1138,6 +1139,7 @@ final class SessionStore {
             linkedEventTitle = parsedFm.linkedEventTitle
             speakerMap = parsedFm.speakerMap
             systemAudioStatus = parsedFm.systemAudioStatus
+            micOnlyCause = parsedFm.micOnlyCause
         }
 
         // speakers.json sidecar — just the centroid KEY set, not the
@@ -1184,6 +1186,7 @@ final class SessionStore {
             speakerMap: speakerMap,
             speakerCentroidIDs: centroidIDs,
             systemAudioStatus: systemAudioStatus,
+            micOnlyCause: micOnlyCause,
             // "Evicted" only when the PRIMARY content is unreachable: a
             // local transcript with cloud-evicted audio still reads fine —
             // the audio player is the only thing that would trigger a
@@ -1362,6 +1365,15 @@ struct StoredSession: Identifiable, Sendable {
     /// understands why every transcript line collapses to their
     /// own display name instead of per-speaker labels.
     let systemAudioStatus: String?
+    /// Raw `MicOnlyCause` value from `daisy_mic_only:` frontmatter —
+    /// present only when Daisy KNOWS why the other side is missing
+    /// (permission off, or the loopback stream refused to start /
+    /// resume). Nil for a healthy meeting, for a dictation or voice
+    /// note, and for every session recorded before 1.0.7.64. Distinct
+    /// from `systemAudioStatus == "empty"`, which is the symptom and is
+    /// also what a Bluetooth output route or a silent meeting looks
+    /// like; this one names a cause the user can act on.
+    var micOnlyCause: String? = nil
     /// True when transcript.md or a retained .caf is present on disk but
     /// its bytes were evicted to iCloud — reading would require a
     /// download. Sessions built in-memory after a live recording are
@@ -1484,6 +1496,8 @@ nonisolated private struct ParsedFrontmatter {
     var speakerMap: [String: String] = [:]
     /// `"ok"` / `"empty"` / nil — see StoredSession.systemAudioStatus.
     var systemAudioStatus: String?
+    /// `daisy_mic_only:` — raw `MicOnlyCause` value, or nil.
+    var micOnlyCause: String?
     /// Markdown body after the closing `---`. Empty if no frontmatter.
     var body: String
 }
@@ -1539,6 +1553,8 @@ nonisolated private func parseFrontmatter(in markdown: String) -> ParsedFrontmat
             parsed.speakerMap = parseYAMLDict(valueRaw)
         case "daisy_system_audio_status":
             parsed.systemAudioStatus = valueRaw
+        case "daisy_mic_only":
+            parsed.micOnlyCause = valueRaw
         default:              break
         }
     }

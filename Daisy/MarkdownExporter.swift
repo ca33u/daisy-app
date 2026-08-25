@@ -152,6 +152,16 @@ enum MarkdownExporter {
         }
         lines.append("daisy_system_audio_status: \(archiveLabel(session.systemAudioArchiveStatus))")
         lines.append("daisy_mic_audio_status: \(archiveLabel(session.micAudioArchiveStatus))")
+        // WHY the other side is missing, when we know — permission was
+        // off, or the stream refused to start / resume. The archive
+        // statuses above record the SYMPTOM (`empty`), which reads the
+        // same for a Bluetooth output route, DRM-protected playback, and
+        // a revoked Screen Recording grant; only this line separates the
+        // one the user can fix from the ones they can't. Absent for a
+        // healthy meeting and for every dictation / voice note.
+        if let micOnly = session.micOnlyCause {
+            lines.append("daisy_mic_only: \(micOnly.rawValue)")
+        }
         lines.append("tags: [meeting, transcript, daisy]")
         lines.append("---")
         return lines

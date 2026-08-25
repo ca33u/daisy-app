@@ -125,7 +125,18 @@ struct SessionDetailView: View {
                 //   3. the user hasn't dismissed it for THIS session
                 //      (transient @State — covers the case where they
                 //      open the same session twice in one app run).
-                if shouldShowLoopbackBanner { acousticLoopbackBanner }
+                //
+                // 2026-08-25 — and when we KNOW the reason, we say the
+                // reason instead. The banner below is a list of three
+                // guesses; `micOnlyNote` names the one cause Daisy
+                // actually recorded at capture time, doesn't expire, and
+                // doesn't offer a "Got it" that would hide a fact about
+                // this specific recording forever.
+                if let cause = knownMicOnlyCause {
+                    micOnlyNote(cause)
+                } else if shouldShowLoopbackBanner {
+                    acousticLoopbackBanner
+                }
 
                 // 2026-05-25 — two-block collapsible layout per Egor's
                 // UX pass on 1.0.7. Pre-fix every mdSection card sat
@@ -719,6 +730,63 @@ struct SessionDetailView: View {
             // post-stop auto-title) — reflect unless the user is editing.
             if !titleFieldFocused { titleDraft = newValue }
         }
+    }
+
+    /// The cause Daisy actually recorded for this session, when it knows
+    /// one. Unknown / future raw values read as nil, so an older build
+    /// opening a newer transcript falls back to the generic banner
+    /// instead of showing nothing.
+    private var knownMicOnlyCause: MicOnlyCause? {
+        session.micOnlyCause.flatMap(MicOnlyCause.init(rawValue:))
+    }
+
+    /// "Microphone only" marker for a meeting where Daisy KNOWS why the
+    /// other side is missing.
+    ///
+    /// Not dismissible, unlike `acousticLoopbackBanner`, and that is the
+    /// whole point of it. The banner teaches a general macOS behaviour
+    /// once per device and is then correctly gone forever; this is a
+    /// per-session fact about THIS recording, and a user who dismissed
+    /// the explainer months ago still needs to know that the call they
+    /// are reading is half a conversation. Every other place it was
+    /// said — the start-time toast, the widget pill — expired the day it
+    /// was recorded.
+    ///
+    /// One line, no icon column, no button: it has to survive being seen
+    /// on every visit for the rest of the session's life, so it is
+    /// sized as a caption, not as an alert.
+    private func micOnlyNote(_ cause: MicOnlyCause) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "speaker.slash")
+                .foregroundStyle(Color.daisyAccent)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Microphone only")
+                    .foregroundStyle(.secondary)
+                Text(micOnlyExplanation(cause))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .font(.callout)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Color.daisyAccent.opacity(0.12),
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+    }
+
+    private func micOnlyExplanation(_ cause: MicOnlyCause) -> String {
+        let text: String = switch cause {
+        case .screenRecordingDenied:
+            String(localized: "Screen Recording permission was off while this was recorded, so the other side of the call wasn’t captured.")
+        case .systemAudioFailed:
+            String(localized: "Daisy couldn’t capture the other side of this call, so only your microphone was recorded.")
+        }
+        return text
     }
 
     @ViewBuilder
