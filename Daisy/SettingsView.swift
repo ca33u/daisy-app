@@ -2796,23 +2796,50 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        ForEach(detector.customApps) { app in
+        // ONE list, built-ins and user additions together: from the
+        // user's side "Telegram asks me to record twenty times a day"
+        // and "Roam isn't detected" are the same question about the same
+        // list, and a screen that can only ever grow answers half of it.
+        // Built-ins can be switched off but not deleted — they're part
+        // of the app, and a delete that silently comes back on the next
+        // release would be the worse affordance.
+        ForEach(detector.meetingApps) { app in
             HStack(spacing: 8) {
                 Text(app.name)
-                Text(app.bundleID)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 8)
-                Button {
-                    detector.customApps.removeAll { $0.bundleID == app.bundleID }
-                } label: {
-                    Image(systemName: "minus.circle")
+                if !app.isBuiltIn, let bundleID = app.bundleIDs.first {
+                    // Only for user additions: it's the one identifier
+                    // they may need to verify (two Slack builds, an app
+                    // that moved). Built-in names aren't ambiguous, and
+                    // printing "us.zoom.xos" next to Zoom is noise.
+                    Text(bundleID)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help(String(localized: "Remove \(app.name)"))
+                Spacer(minLength: 8)
+                if !app.isBuiltIn {
+                    Button {
+                        detector.removeCustomApp(app)
+                    } label: {
+                        Image(systemName: "minus.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help(String(localized: "Remove \(app.name)"))
+                }
+                Toggle(isOn: Binding(
+                    get: { detector.isEnabled(app) },
+                    set: { detector.setEnabled($0, for: app) }
+                )) {
+                    // Hidden visually, kept for VoiceOver — the row's
+                    // own name text is not the switch's label.
+                    Text(app.name)
+                }
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .help(String(localized: "Offer to record when \(app.name) launches"))
             }
         }
     }
@@ -2821,14 +2848,16 @@ struct SettingsView: View {
         // Distinct APPS, not bundle ids: Teams, Webex and Telegram each
         // ship two ids, and counting raw entries would advertise 11 for
         // 8 apps — overstating coverage to someone deciding whether they
-        // need to add theirs. `displayName` already owns that mapping.
-        let builtIn = Set(
-            MeetingDetector.builtInMeetingBundleIDs.map(MeetingDetector.displayName(for:))
-        ).count
+        // need to add theirs. Switched-off apps aren't counted either:
+        // the number has to match what actually happens.
+        let active = detector.meetingApps.filter { detector.isEnabled($0) }.count
+        guard active > 0 else {
+            return String(localized: "No app launch offers to record right now — every app below is switched off. Daisy still records when you press Record, and calendar auto-start is unaffected.")
+        }
         // "Offer", not "start": since 2026-08-21 an app launch never
         // records silently — it raises the widget-bubble ask, under
         // every policy. The copy must not promise a hot mic.
-        return String(localized: "When one of \(builtIn) known call apps launches, Daisy offers to start recording. Add your own if it isn't detected — only a NEW launch counts, so quit and reopen the app to test.")
+        return String(localized: "When one of \(active) known call apps launches, Daisy offers to start recording. Add your own if it isn't detected — only a NEW launch counts, so quit and reopen the app to test.")
     }
 
     /// Standard open panel over /Applications. The bundle id comes from
@@ -2855,20 +2884,24 @@ struct SettingsView: View {
         // bake "Slack.app" into the stored name permanently.
         let name = (Bundle(url: url)?.infoDictionary?["CFBundleDisplayName"] as? String)
             ?? url.deletingPathExtension().lastPathComponent
-        if MeetingDetector.builtInMeetingBundleIDs.contains(bundleID) {
-            ToastCenter.shared.show(
-                String(localized: "\(name) is already detected — no need to add it."),
-                style: .info
-            )
-            return
-        }
-        guard !detector.customApps.contains(where: { $0.bundleID == bundleID }) else {
-            // Same intent as picking a built-in app, so the same answer.
-            // Closing the panel with no explanation reads as a failure.
-            ToastCenter.shared.show(
-                String(localized: "\(name) is already detected — no need to add it."),
-                style: .info
-            )
+        // Already on the list (built-in or previously added)? Say so —
+        // closing the panel with no explanation reads as a failure. But
+        // if it's on the list and switched OFF, "already detected" is a
+        // lie and the user is stuck in a loop, so honour what they just
+        // asked for and switch it back on.
+        if let existing = detector.meetingApps.first(where: { $0.bundleIDs.contains(bundleID) }) {
+            if detector.isEnabled(existing) {
+                ToastCenter.shared.show(
+                    String(localized: "\(existing.name) is already detected — no need to add it."),
+                    style: .info
+                )
+            } else {
+                detector.setEnabled(true, for: existing)
+                ToastCenter.shared.show(
+                    String(localized: "\(existing.name) was switched off — turned it back on."),
+                    style: .info
+                )
+            }
             return
         }
         detector.customApps.append(

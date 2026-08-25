@@ -1,6 +1,36 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ was switched off — turned it back on." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ было выключено — включили обратно."
+          }
+        }
+      }
+    },
+    "No app launch offers to record right now — every app below is switched off. Daisy still records when you press Record, and calendar auto-start is unaffected." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сейчас ни один запуск приложения не предлагает запись — все приложения ниже выключены. Daisy по-прежнему пишет по кнопке «Запись», а автостарт по календарю работает как обычно."
+          }
+        }
+      }
+    },
+    "Offer to record when %@ launches" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Предлагать запись при запуске %@"
+          }
+        }
+      }
+    },
     "Daisy is already recording" : {
           "localizations": {
             "ru": {

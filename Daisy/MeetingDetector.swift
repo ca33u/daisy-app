@@ -26,27 +26,63 @@ import Observation
 final class MeetingDetector {
     static let shared = MeetingDetector()
 
-    /// Bundle identifiers of apps we consider "a meeting is happening"
-    /// when they launch. Conservative list — better to miss a niche
-    /// app than to auto-record someone's FaceTime to grandma. FaceTime
-    /// is absent on purpose; a user who wants it adds it themselves.
+    /// One entry in the "offer to record when this launches" list.
+    ///
+    /// A single app can ship several bundle ids (Teams modern/legacy,
+    /// two Webex builds, Telegram macOS/Desktop). They are grouped so
+    /// the user toggles "Telegram" once rather than hunting two opaque
+    /// reverse-DNS strings that have to be flipped in lockstep.
+    nonisolated struct MeetingApp: Identifiable, Hashable, Sendable {
+        let name: String
+        let bundleIDs: [String]
+        let isBuiltIn: Bool
+        /// Stable across launches (unlike a Set's iteration order), which
+        /// is what `ForEach` needs to avoid re-shuffling the rows.
+        nonisolated var id: String { bundleIDs.joined(separator: "|") }
+    }
+
+    /// Apps we consider "a meeting is happening" when they launch, in
+    /// display order. Conservative list — better to miss a niche app
+    /// than to auto-record someone's FaceTime to grandma. FaceTime is
+    /// absent on purpose; a user who wants it adds it themselves.
+    ///
+    /// Single source of truth for both `builtInMeetingBundleIDs` and
+    /// `displayName(for:)`: with two lists an app added to one and
+    /// forgotten in the other is detectable but nameless (or named but
+    /// dead), and nothing catches it at compile time.
+    ///
+    /// Every entry ships switched ON. Telegram in particular fires on
+    /// plain messenger launches, not just calls — which is a prompt
+    /// twenty times a day for someone who chats there — so the answer
+    /// is the switch below, not removing it from the list: the user who
+    /// takes Telegram calls still wants it detected.
+    nonisolated static let builtInMeetingApps: [MeetingApp] = [
+        MeetingApp(name: "Zoom", bundleIDs: ["us.zoom.xos"], isBuiltIn: true),
+        // Modern + legacy Teams.
+        MeetingApp(name: "Microsoft Teams",
+                   bundleIDs: ["com.microsoft.teams2", "com.microsoft.teams"],
+                   isBuiltIn: true),
+        MeetingApp(name: "Webex",
+                   bundleIDs: ["com.webex.meetingmanager", "com.cisco.webexmeetingsapp"],
+                   isBuiltIn: true),
+        MeetingApp(name: "GoToMeeting", bundleIDs: ["com.logmein.GoToMeeting"], isBuiltIn: true),
+        MeetingApp(name: "BlueJeans", bundleIDs: ["com.bluejeansnet.BlueJeans"], isBuiltIn: true),
+        MeetingApp(name: "Skype", bundleIDs: ["com.skype.skype"], isBuiltIn: true),
+        // Telegram macOS + Telegram Desktop's alternate id.
+        MeetingApp(name: "Telegram",
+                   bundleIDs: ["ru.keepcoder.Telegram", "org.telegram.desktop"],
+                   isBuiltIn: true),
+        MeetingApp(name: "Discord", bundleIDs: ["com.hnc.Discord"], isBuiltIn: true),
+    ]
+
+    /// Flat id set of what Daisy ships with.
     ///
     /// Read `meetingBundleIDs()` rather than this, unless you genuinely
-    /// mean "the ones Daisy ships with": the user's own additions are
-    /// just as much a meeting app as Zoom is.
-    nonisolated static let builtInMeetingBundleIDs: Set<String> = [
-        "us.zoom.xos",                        // Zoom
-        "com.microsoft.teams2",               // Microsoft Teams (modern)
-        "com.microsoft.teams",                // Microsoft Teams (legacy)
-        "com.webex.meetingmanager",           // Webex
-        "com.cisco.webexmeetingsapp",         // Webex Meetings
-        "com.logmein.GoToMeeting",            // GoToMeeting
-        "com.bluejeansnet.BlueJeans",         // BlueJeans
-        "com.skype.skype",                    // Skype
-        "ru.keepcoder.Telegram",              // Telegram macOS (calls)
-        "org.telegram.desktop",               // Telegram Desktop alt id
-        "com.hnc.Discord",                    // Discord
-    ]
+    /// mean "the ones Daisy ships with, switched off ones included": the
+    /// user's own additions are just as much a meeting app as Zoom is,
+    /// and an app they switched off is not one at all.
+    nonisolated static let builtInMeetingBundleIDs: Set<String> =
+        Set(builtInMeetingApps.flatMap(\.bundleIDs))
 
     // MARK: - User-added apps
 
@@ -95,11 +131,91 @@ final class MeetingDetector {
         return apps
     }
 
-    /// Every bundle id that counts as a meeting app: what Daisy ships
-    /// with, plus what the user added. Hoist this out of loops — it
-    /// decodes JSON.
+    // MARK: - Switched-off apps
+
+    nonisolated static let disabledAppsKey = "daisy.disabledMeetingApps"
+
+    /// Bundle ids the user switched OFF in Settings.
+    ///
+    /// Stored as an opt-OUT list rather than an "enabled" list on
+    /// purpose: a built-in added in a future release then arrives
+    /// switched on for everyone, instead of being invisibly absent from
+    /// every existing install's stored enabled-set. Custom apps the user
+    /// switched off keep their entry in `customApps` so the row (and the
+    /// switch) survives — being off is not the same as being deleted.
+    var disabledBundleIDs: Set<String> = [] {
+        didSet {
+            guard disabledBundleIDs != oldValue else { return }
+            // Sorted so the plist diff is stable between writes.
+            UserDefaults.standard.set(disabledBundleIDs.sorted(), forKey: Self.disabledAppsKey)
+        }
+    }
+
+    /// The opt-out list, read straight from UserDefaults — `nonisolated`
+    /// for the same reason `storedCustomApps()` is: the NSWorkspace
+    /// observer resolves the id set at notification time, so a switch
+    /// flipped in Settings takes effect on the very next launch.
+    nonisolated static func storedDisabledBundleIDs() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: disabledAppsKey) ?? [])
+    }
+
+    /// Every bundle id whose LAUNCH offers to start a recording: what
+    /// Daisy ships with, plus what the user added, minus what they
+    /// switched off. Hoist this out of loops — it decodes JSON.
     nonisolated static func meetingBundleIDs() -> Set<String> {
+        allKnownMeetingBundleIDs().subtracting(storedDisabledBundleIDs())
+    }
+
+    /// Every app Daisy recognises as a call app, switch or no switch.
+    ///
+    /// Distinct from `meetingBundleIDs()` on purpose. The switch answers
+    /// "should launching this ask me to record?" — it is not a claim
+    /// that the app stopped hosting calls. Heuristics that merely
+    /// RECOGNISE a call window (`ScreenshotCapture.pickDisplay` picking
+    /// the monitor the call is on) must keep working for an app the user
+    /// switched off and then recorded by hand.
+    nonisolated static func allKnownMeetingBundleIDs() -> Set<String> {
         builtInMeetingBundleIDs.union(storedCustomApps().map(\.bundleID))
+    }
+
+    // MARK: - The list the user manages
+
+    /// Built-ins (ship order) followed by the user's own additions.
+    ///
+    /// An instance property, not a static one, precisely so reading it
+    /// from a SwiftUI body registers observation on `customApps` — the
+    /// Settings list re-renders when an app is added or removed.
+    var meetingApps: [MeetingApp] {
+        Self.builtInMeetingApps + customApps.map {
+            MeetingApp(name: $0.name, bundleIDs: [$0.bundleID], isBuiltIn: false)
+        }
+    }
+
+    /// Whether launching this app still offers to record. "At least one
+    /// live id" rather than "no dead ids": a half-disabled group would
+    /// genuinely still fire, and a switch that reads OFF while detection
+    /// runs is the worse lie. Toggling it repairs the group either way.
+    func isEnabled(_ app: MeetingApp) -> Bool {
+        app.bundleIDs.contains { !disabledBundleIDs.contains($0) }
+    }
+
+    /// Flip one app on/off, moving every id in the group together.
+    func setEnabled(_ enabled: Bool, for app: MeetingApp) {
+        if enabled {
+            disabledBundleIDs.subtract(app.bundleIDs)
+        } else {
+            disabledBundleIDs.formUnion(app.bundleIDs)
+        }
+    }
+
+    /// Drop a user-added app entirely. Built-ins can only be switched
+    /// off — there is nothing to delete, they come back on next launch.
+    func removeCustomApp(_ app: MeetingApp) {
+        guard !app.isBuiltIn else { return }
+        customApps.removeAll { app.bundleIDs.contains($0.bundleID) }
+        // Don't leave the opt-out behind: re-adding the same app later
+        // has to come back switched ON, not silently dead.
+        disabledBundleIDs.subtract(app.bundleIDs)
     }
 
     /// Last detected bundle id, for UI display ("Auto-started: Zoom").
@@ -110,6 +226,7 @@ final class MeetingDetector {
 
     private init() {
         customApps = Self.storedCustomApps()
+        disabledBundleIDs = Self.storedDisabledBundleIDs()
     }
 
     /// Begin watching for meeting-app launches. Replaces any existing
@@ -154,21 +271,13 @@ final class MeetingDetector {
 
     /// Pretty name for a bundle id, for UI display. Curated names win;
     /// then the name captured when the user added the app; then the raw
-    /// id, which is at least searchable.
+    /// id, which is at least searchable. Note the built-in scan runs
+    /// first so the (JSON-decoding) custom lookup is only paid for ids
+    /// Daisy doesn't ship with.
     nonisolated static func displayName(for bundleID: String) -> String {
-        switch bundleID {
-        case "us.zoom.xos":                                    return "Zoom"
-        case "com.microsoft.teams2", "com.microsoft.teams":    return "Microsoft Teams"
-        case "com.webex.meetingmanager",
-             "com.cisco.webexmeetingsapp":                     return "Webex"
-        case "com.logmein.GoToMeeting":                        return "GoToMeeting"
-        case "com.bluejeansnet.BlueJeans":                     return "BlueJeans"
-        case "com.skype.skype":                                return "Skype"
-        case "ru.keepcoder.Telegram",
-             "org.telegram.desktop":                           return "Telegram"
-        case "com.hnc.Discord":                                return "Discord"
-        default:
-            return storedCustomApps().first { $0.bundleID == bundleID }?.name ?? bundleID
+        if let app = builtInMeetingApps.first(where: { $0.bundleIDs.contains(bundleID) }) {
+            return app.name
         }
+        return storedCustomApps().first { $0.bundleID == bundleID }?.name ?? bundleID
     }
 }

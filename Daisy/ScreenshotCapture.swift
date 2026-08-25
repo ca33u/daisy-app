@@ -199,9 +199,13 @@ final class ScreenshotCapture {
         // 1. Biggest on-screen window owned by a known meeting app.
         //    Size gate skips join-panels, HUDs and toolbars; the main
         //    call window (the one rendering shared content) is large.
-        // Hoisted: `meetingBundleIDs()` decodes the user's additions
-        // from UserDefaults, and there can be hundreds of windows.
-        let meetingApps = MeetingDetector.meetingBundleIDs()
+        // Hoisted: this decodes the user's additions from UserDefaults,
+        // and there can be hundreds of windows. `allKnown…`, not
+        // `meetingBundleIDs()`: switching an app off in Settings means
+        // "don't ask me to record when it launches", not "this app no
+        // longer hosts calls" — a recording the user started by hand
+        // still belongs on the monitor showing the call window.
+        let meetingApps = MeetingDetector.allKnownMeetingBundleIDs()
         let meetingWindows = content.windows.filter { w in
             guard let bid = w.owningApplication?.bundleIdentifier else { return false }
             return meetingApps.contains(bid)
