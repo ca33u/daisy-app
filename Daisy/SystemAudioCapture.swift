@@ -7,6 +7,7 @@
 //  Daisy back onto itself.
 //
 
+import AppKit
 import Foundation
 import ScreenCaptureKit
 import AVFoundation
@@ -199,10 +200,60 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     private static let silentContentTimeoutSec: TimeInterval = 120
 
     private var stream: SCStream?
+
+    /// The experimental Core Audio process tap, when this capture is
+    /// running on that backend (P1-6 spike, `daisy.debug.processTapCapture`).
+    /// Exactly one of `stream` / `tap` is ever non-nil.
+    private var tap: ProcessTapAudioCapture?
+
+    /// What the tap records and which device its aggregate is hosted on.
+    /// Both are resolved on the first build of a session and reused by
+    /// every rebuild, so a mid-recording recovery can't quietly change
+    /// either (restart rule 6). Cleared on a fresh start.
+    private var tapScope: ProcessTapAudioCapture.Scope?
+    private var tapHostUID: String?
+
+    /// Which engine feeds this capture. Decided once per FRESH start —
+    /// never on resume or rebuild — so flipping the debug default
+    /// mid-meeting can't split one recording across two backends and
+    /// two archive formats.
+    private(set) var backend: Backend = .screenCaptureKit
+
+    enum Backend: String {
+        case screenCaptureKit = "scstream"
+        case processTap = "tap"
+    }
+
+    /// Whether the next fresh start would use the tap. Read by
+    /// `RecordingSession` to decide whether the Screen Recording gate
+    /// applies (it belongs to ScreenCaptureKit; the tap asks for its own,
+    /// smaller permission).
+    nonisolated static var usesProcessTapBackend: Bool {
+        guard #available(macOS 14.4, *) else { return false }
+        return ProcessTapDebugFlag.isEnabled
+    }
+
+    /// `SysAudio:` line for the log report. Reports the backend that last
+    /// actually ran when there is one, not just what the flag says now —
+    /// a report written after a meeting should describe that meeting.
+    nonisolated static func backendDiagnosticsLine() -> String {
+        if let last = ProcessTapDebugFlag.lastActiveBackend {
+            let host = ProcessTapDebugFlag.lastTapHostDevice.map { " host=\($0)" } ?? ""
+            return "last=\(last)\(host) tapFlag=\(ProcessTapDebugFlag.isEnabled)"
+        }
+        return "last=— tapFlag=\(ProcessTapDebugFlag.isEnabled) available=\(usesProcessTapBackend)"
+    }
+
     /// nonisolated(unsafe) so the audio render callback can yield without
     /// hopping to main. AsyncStream.Continuation.yield is documented as
     /// thread-safe.
     nonisolated(unsafe) private var bufferContinuation: AsyncStream<AudioChunk>.Continuation?
+
+    /// Format of the FIRST buffer this capture delivered. Written on the
+    /// `outputQueue` from `ingest`, read from the MainActor through the
+    /// same queue when a rebuild has to pin the new engine to the format
+    /// the session started in. Cleared on a fresh start only.
+    nonisolated(unsafe) private var deliveredFormat: AVAudioFormat?
 
     /// File URL to archive the captured system audio into. Set in
     /// `start(archiveURL:)`; the audio render callback lazily opens
@@ -309,6 +360,20 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                 archiveFramesWritten = 0
                 archiveWriteErrorCount = 0
                 firstArchiveWriteError = nil
+                deliveredFormat = nil
+            }
+            // Backend, tap scope and tap host are all fresh-start
+            // decisions (see `backend` / `tapScope`).
+            backend = Self.usesProcessTapBackend ? .processTap : .screenCaptureKit
+            tapScope = nil
+            tapHostUID = nil
+            // Record it for the log report — but only for real captures.
+            // The Settings meter runs its own instance every time the
+            // section is opened, and it must not overwrite what the last
+            // MEETING ran on.
+            if !quietDiagnostics {
+                ProcessTapDebugFlag.lastActiveBackend = backend.rawValue
+                ProcessTapDebugFlag.lastTapHostDevice = nil
             }
         }
         state = .starting
@@ -316,16 +381,16 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         self.quietDiagnostics = quietDiagnostics
         captureGeneration &+= 1
 
-        let newStream: SCStream
+        let engine: Engine
         do {
-            newStream = try await buildAndStartSystemAudioStream()
+            engine = try await makeEngine()
         } catch {
             state = .idle
             lastError = error.localizedDescription
             throw error
         }
 
-        self.stream = newStream
+        adopt(engine)
         state = .capturing
         captureStartedAt = Date()
         if !quietDiagnostics {
@@ -366,7 +431,13 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         if quietDiagnostics {
             // Settings meter — the diagnostics UI shows route caveats
             // inline; toasts here would nag on every section visit.
-        } else if Self.currentOutputDeviceIsBluetooth() {
+        } else if backend != .processTap, Self.currentOutputDeviceIsBluetooth() {
+            // The Bluetooth caveat belongs to the ScreenCaptureKit
+            // backend. A process tap reads below device routing, so
+            // AirPods are simply not its problem — warning about them
+            // would teach the user to distrust a path that is working.
+            // (The internal-speakers nudge below still applies to both:
+            // acoustic bleed into the mic is physics, not routing.)
             log.warning("Default output is Bluetooth — SCStream loopback may not deliver frames")
             ToastCenter.shared.show(
                 String(localized: "Bluetooth headphones detected — Daisy may not capture the remote side. Use built-in speakers, wired headphones, or install BlackHole for reliable system-audio capture."),
@@ -391,7 +462,156 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             }
         }
 
-        log.info("SystemAudio capturing")
+        log.info("SystemAudio capturing (backend=\(self.backend.rawValue, privacy: .public))")
+    }
+
+    // MARK: - Backend selection
+
+    /// A freshly built, already-running capture engine that has not been
+    /// adopted yet. Exists so `rebuildStream` can keep doing its
+    /// generation check BETWEEN "it started" and "we own it" — the check
+    /// that stops a rebuild racing Stop from leaking a live capture into
+    /// the next recording (restart rule 1).
+    private enum Engine {
+        case screenCapture(SCStream)
+        case processTap(ProcessTapAudioCapture)
+    }
+
+    /// Build + start whichever engine this capture runs on. One funnel so
+    /// `start()` and `rebuildStream(reason:)` cannot drift apart.
+    private func makeEngine() async throws -> Engine {
+        switch backend {
+        case .screenCaptureKit:
+            return .screenCapture(try await buildAndStartSystemAudioStream())
+        case .processTap:
+            return .processTap(try await buildAndStartProcessTap())
+        }
+    }
+
+    private func adopt(_ engine: Engine) {
+        switch engine {
+        case .screenCapture(let s):
+            stream = s
+            tap = nil
+        case .processTap(let t):
+            tap = t
+            stream = nil
+            if !quietDiagnostics {
+                ProcessTapDebugFlag.lastTapHostDevice = t.hostDeviceName
+            }
+        }
+    }
+
+    /// Kill an engine we built but decided not to adopt.
+    private func discard(_ engine: Engine) async {
+        switch engine {
+        case .screenCapture(let s):
+            try? await s.stopCapture()
+        case .processTap(let t):
+            await Task.detached { t.stop() }.value
+        }
+    }
+
+    /// Stop and release whichever engine is live. Returns whether there
+    /// was one — the callers use that to preserve the old behaviour of
+    /// only finishing the buffer continuation when something was
+    /// actually running.
+    @discardableResult
+    private func teardownEngine(reason: String) async -> Bool {
+        var had = false
+        if let s = stream {
+            had = true
+            do { try await s.stopCapture() }
+            catch {
+                // Benign: the stream was already stopped or never fully
+                // started (e.g. Screen Recording denied → SCStream never
+                // ran), so there is nothing to stop. Log at info, not
+                // error — the real "is the other side captured?" signal
+                // lives in `systemAudioStatus` / the silence monitor, not
+                // in this teardown.
+                log.info("SystemAudio \(reason, privacy: .public): nothing to stop (\(error.localizedDescription, privacy: .public))")
+            }
+        }
+        stream = nil
+        if let t = tap {
+            had = true
+            // Off-main for the same reason the build is: teardown blocks
+            // on `AudioDeviceDestroyIOProcID` until the in-flight IO
+            // callback returns, and talks to `coreaudiod` three more
+            // times after that.
+            await Task.detached { t.stop() }.value
+        }
+        tap = nil
+        return had
+    }
+
+    /// Build + start a Core Audio process tap against the current
+    /// configuration. Buffers land on `outputQueue` — the same serial
+    /// queue ScreenCaptureKit's sample handler uses — so both backends
+    /// reach `ingest` under identical confinement.
+    ///
+    /// The new engine is pinned to the format the session's first buffer
+    /// arrived in, when there was one: a rebuild that changed format
+    /// would otherwise close the archive for the rest of the recording.
+    private func buildAndStartProcessTap() async throws -> ProcessTapAudioCapture {
+        // Scope and host are SESSION decisions, resolved on the first
+        // build and reused by every rebuild (restart rule 6). Re-reading
+        // them here would let a mid-meeting recovery silently change what
+        // is being recorded — a different PID set because the meeting app
+        // respawned, or a different host device — which is the same class
+        // of bug as the mic path re-resolving its default and walking off
+        // a USB microphone onto AirPods.
+        let scope: ProcessTapAudioCapture.Scope
+        if let pinnedScope = tapScope {
+            scope = pinnedScope
+        } else if ProcessTapDebugFlag.meetingAppsOnly {
+            scope = .onlyProcesses(pids: Self.runningMeetingAppPIDs())
+            tapScope = scope
+        } else {
+            scope = .globalExcludingSelf
+            tapScope = scope
+        }
+
+        let pinnedAudioFormat = outputQueue.sync { deliveredFormat }
+        let engine = ProcessTapAudioCapture(
+            scope: scope,
+            requestedHostUID: tapHostUID,
+            pinnedFormat: pinnedAudioFormat,
+            deliveryQueue: outputQueue,
+            onBuffer: { [weak self] chunk in
+                self?.ingest(chunk.pcm)
+            },
+            onDeath: { [weak self] dead, message in
+                Task { @MainActor [weak self] in
+                    await self?.handleTapDeath(
+                        dead: dead,
+                        error: DaisyError.audioEngineFailed(message)
+                    )
+                }
+            }
+        )
+        // Off the main thread: building the tap is a round trip to
+        // `coreaudiod` (create tap → create aggregate → start IO), and on
+        // the death-recovery path that daemon is exactly the thing that
+        // just fell over. A beachball is not the response we want to a
+        // recording that is already in trouble.
+        try await Task.detached { try engine.start() }.value
+        tapHostUID = engine.hostDeviceUID
+        return engine
+    }
+
+    /// PIDs of every running app Daisy recognises as a call app. Only
+    /// used by the `meetingAppsOnly` debug flag; the shipping default is
+    /// a global tap, for the reasons spelled out in
+    /// `ProcessTapAudioCapture.start()`.
+    private static func runningMeetingAppPIDs() -> [pid_t] {
+        let bundleIDs = MeetingDetector.allKnownMeetingBundleIDs()
+        return NSWorkspace.shared.runningApplications
+            .filter { app in
+                guard let id = app.bundleIdentifier else { return false }
+                return bundleIDs.contains(id)
+            }
+            .map(\.processIdentifier)
     }
 
     /// Query CoreAudio for the default output device's transport
@@ -727,6 +947,16 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     private func handleOutputDeviceChange() async {
         guard state == .capturing else { return }
         guard !outputRestartInFlight else { return }
+        // Process tap: a global tap captures at the HAL, below routing,
+        // and its aggregate is hosted on the built-in output rather than
+        // the default one — precisely so that plugging in AirPods is a
+        // non-event. Rebuilding on every Control Centre flip would punch
+        // a hole in the recording for nothing. Only rebuild if the device
+        // we are actually hosted on has gone away.
+        if backend == .processTap, let t = tap, t.hostDeviceIsAlive {
+            log.info("Default output changed — process tap keeps capturing (host device still present)")
+            return
+        }
         // Wall-clock cooldown — defer-only debounce leaks the gap
         // between `outputRestartInFlight = false` and the next
         // CoreAudio fire (sleep/wake can re-emit hours later, the
@@ -741,7 +971,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             lastOutputRestartAt = Date()
         }
 
-        log.info("Default output device changed mid-capture — restarting SCStream")
+        log.info("Default output device changed mid-capture — restarting system audio capture (\(self.backend.rawValue, privacy: .public))")
 
         if await rebuildStream(reason: "output-device-change") {
             if !quietDiagnostics {
@@ -776,27 +1006,23 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// instead of only recording the corpse.
     private func rebuildStream(reason: String) async -> Bool {
         let generation = captureGeneration
-        // Tear down current stream cleanly. Failures here don't block
+        // Tear down the current engine cleanly. Failures here don't block
         // the rebuild — we'll just have a dangling stream the kernel
         // cleans up. (On the didStopWithError path the stream is
         // already dead; stopCapture then throws and that's fine.)
-        if let s = stream {
-            do { try await s.stopCapture() }
-            catch { log.info("Stop before rebuild (\(reason, privacy: .public)) failed — stream likely already dead: \(error.localizedDescription, privacy: .public)") }
-        }
-        stream = nil
+        await teardownEngine(reason: "rebuild (\(reason))")
 
         do {
-            let newStream = try await buildAndStartSystemAudioStream()
+            let engine = try await makeEngine()
             // Did Stop/Pause land while we were building? Then this
-            // stream must not be adopted — kill it here or it captures
+            // engine must not be adopted — kill it here or it captures
             // forever, unreferenced.
             guard generation == captureGeneration else {
-                log.info("SCStream rebuild (\(reason, privacy: .public)) finished after capture ended — discarding")
-                try? await newStream.stopCapture()
+                log.info("Capture rebuild (\(reason, privacy: .public)) finished after capture ended — discarding")
+                await discard(engine)
                 return false
             }
-            self.stream = newStream
+            adopt(engine)
             silenceWarningFired = false
             silentContentWarningFired = false
             captureStartedAt = Date()
@@ -810,10 +1036,10 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             // far side happened not to speak again before Stop. Once the
             // remote side has been heard, that fact stands for the
             // session; the fresh-start reset still zeroes it.
-            log.info("SCStream rebuilt (\(reason, privacy: .public))")
+            log.info("System audio capture rebuilt (\(reason, privacy: .public), backend=\(self.backend.rawValue, privacy: .public))")
             return true
         } catch {
-            log.error("SCStream rebuild (\(reason, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+            log.error("System audio capture rebuild (\(reason, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
@@ -842,6 +1068,31 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             log.info("Ignoring didStopWithError from a superseded stream: \(error.localizedDescription, privacy: .public)")
             return
         }
+        await recoverFromCaptureDeath(error: error)
+    }
+
+    /// The same thing for the process-tap backend, whose aggregate device
+    /// death listener plays the part `didStopWithError` plays for
+    /// ScreenCaptureKit.
+    private func handleTapDeath(dead: ObjectIdentifier, error: Error) async {
+        guard state == .capturing else { return }
+        guard !outputRestartInFlight else { return }
+        // Restart rule 2, applied to taps: the HAL listener block can
+        // still be in flight after we tore an engine down, so an engine
+        // we already replaced can report its own death afterwards. Acting
+        // on that would kill the healthy replacement and spend recovery
+        // budget on a corpse.
+        guard let live = tap, ObjectIdentifier(live) == dead else {
+            log.info("Ignoring a death report from a superseded process tap: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        await recoverFromCaptureDeath(error: error)
+    }
+
+    /// Bounded restart shared by both backends. Caller has already
+    /// established that the capture is live and that the death belongs to
+    /// the engine we currently hold.
+    private func recoverFromCaptureDeath(error: Error) async {
         // Same 2 s cooldown the route-change path uses. A route change
         // both changes the default output AND kills the stream, so
         // without this one user action could spend the whole restart
@@ -853,7 +1104,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         }
 
         guard autoRestartCount < Self.maxAutoRestarts else {
-            log.error("SCStream died again after \(Self.maxAutoRestarts, privacy: .public) restarts — giving up: \(error.localizedDescription, privacy: .public)")
+            log.error("System audio capture (\(self.backend.rawValue, privacy: .public)) died again after \(Self.maxAutoRestarts, privacy: .public) restarts — giving up: \(error.localizedDescription, privacy: .public)")
             lastError = error.localizedDescription
             state = .stopped
             onCaptureGaveUp?()
@@ -877,9 +1128,9 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             outputRestartInFlight = false
             lastOutputRestartAt = Date()
         }
-        log.error("SCStream stopped with error — auto-restart \(attempt, privacy: .public)/\(Self.maxAutoRestarts, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        log.error("System audio capture (\(self.backend.rawValue, privacy: .public)) stopped with error — auto-restart \(attempt, privacy: .public)/\(Self.maxAutoRestarts, privacy: .public): \(error.localizedDescription, privacy: .public)")
 
-        if await rebuildStream(reason: "stream-death-\(attempt)") {
+        if await rebuildStream(reason: "capture-death-\(attempt)") {
             // Quiet on success: the user didn't do anything and the
             // recording is intact. The log carries the detail; a toast
             // here would just teach them to distrust a working capture.
@@ -975,11 +1226,18 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
            let captureStartedAt,
            now.timeIntervalSince(captureStartedAt) >= Self.silentContentTimeoutSec {
             silentContentWarningFired = true
-            log.warning("Silent-content system capture: buffers arriving but nothing audible after \(Int(now.timeIntervalSince(captureStartedAt)), privacy: .public)s")
-            ToastCenter.shared.show(
-                String(localized: "Daisy is capturing the other side but there's no sound in it — they won't be recorded. This usually means DRM-protected playback or a macOS capture glitch. Try a different source or restart the recording."),
-                style: .warning
-            )
+            log.warning("Silent-content system capture (backend=\(self.backend.rawValue, privacy: .public)): buffers arriving but nothing audible after \(Int(now.timeIntervalSince(captureStartedAt)), privacy: .public)s")
+            // On the tap backend this shape has one overwhelmingly likely
+            // cause that the ScreenCaptureKit path doesn't share: a denied
+            // System Audio Recording permission. Core Audio reports no
+            // error for that — every call returns noErr and the IOProc
+            // fires on schedule handing us buffers of pure zeros. This
+            // monitor is the ONLY thing that notices, so it has to say
+            // the actual likely cause rather than the SCStream one.
+            let message = backend == .processTap
+                ? String(localized: "Daisy is recording the other side but there's no sound in it. Check System Settings → Privacy & Security → System Audio Recording and make sure Daisy is allowed.")
+                : String(localized: "Daisy is capturing the other side but there's no sound in it — they won't be recorded. This usually means DRM-protected playback or a macOS capture glitch. Try a different source or restart the recording.")
+            ToastCenter.shared.show(message, style: .warning)
         }
     }
 
@@ -989,40 +1247,22 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         removeOutputDeviceListener()
         captureStartedAt = nil
         peakLevelDB = -160
-        guard let s = stream else {
-            if state != .paused { state = .stopped }
-            else { state = .stopped }
-            // Close archive even if no stream is active (covers the
-            // already-paused → stop transition). Still gated through
-            // outputQueue.sync for symmetry — if an old stream's
-            // callback is somehow still pending, we serialize behind
-            // it.
-            outputQueue.sync {
-                archiveWriter = nil
-                archiveURL = nil
-            }
-            return
+        let hadEngine = await teardownEngine(reason: "stop")
+        if hadEngine {
+            bufferContinuation?.finish()
+            bufferContinuation = nil
         }
-        do { try await s.stopCapture() }
-        catch {
-            // Benign: the stream was already stopped or never fully started
-            // (e.g. Screen Recording denied → SCStream never ran), so there
-            // is nothing to stop. Log at info, not error — the real "is the
-            // other side captured?" signal lives in `systemAudioStatus` /
-            // the silence monitor, not in this teardown.
-            log.info("SystemAudio stop: nothing to stop (\(error.localizedDescription, privacy: .public))")
-        }
-        stream = nil
-        bufferContinuation?.finish()
-        bufferContinuation = nil
         // Fence behind any in-flight sample-buffer callback. After
         // `stopCapture()` returns, ScreenCaptureKit promises no NEW
-        // buffers will be delivered, but a callback currently mid-
-        // execution on outputQueue can still touch archiveWriter.
-        // `outputQueue.sync` on a serial queue blocks until that
-        // callback finishes, then runs our block (which nils out
-        // the writer, triggering ExtAudioFile dispose under the
-        // same queue — atomic w.r.t. any callback).
+        // buffers will be delivered — and the tap's
+        // `AudioDeviceStop` + `AudioDeviceDestroyIOProcID` pair gives the
+        // same guarantee — but a callback currently mid-execution on
+        // outputQueue can still touch archiveWriter. `outputQueue.sync`
+        // on a serial queue blocks until that callback finishes, then
+        // runs our block (which nils out the writer, triggering
+        // ExtAudioFile dispose under the same queue — atomic w.r.t. any
+        // callback). This also covers the already-paused → stop
+        // transition, where there was no engine left to tear down.
         outputQueue.sync {
             archiveWriter = nil
             archiveURL = nil
@@ -1036,14 +1276,12 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// native pause — we rebuild a fresh stream in `resume()` and
     /// route it to the same continuation.
     func pause() async {
-        guard state == .capturing, let s = stream else { return }
+        guard state == .capturing, stream != nil || tap != nil else { return }
         captureGeneration &+= 1   // strand any rebuild in flight
         stopSilenceMonitor()
         removeOutputDeviceListener()
         peakLevelDB = -160
-        do { try await s.stopCapture() }
-        catch { log.error("Pause error: \(error.localizedDescription, privacy: .public)") }
-        stream = nil
+        await teardownEngine(reason: "pause")
         state = .paused
         log.info("SystemAudio paused")
     }
@@ -1082,8 +1320,32 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
               let pcm = Self.pcmBuffer(from: sampleBuffer) else {
             return
         }
+        ingest(pcm)
+    }
+
+    /// Everything that happens to one buffer of remote-side audio: hand
+    /// it to the transcriber, publish the level meter and the liveness
+    /// latches, write it to the archive.
+    ///
+    /// Shared by BOTH backends on purpose — the silence monitor, the
+    /// archive-truncation counters and the format guard are the part of
+    /// this class that has been paid for in field bugs, and a second
+    /// capture path must inherit all of it rather than grow its own
+    /// half-version.
+    ///
+    /// MUST run on `outputQueue`. ScreenCaptureKit calls it there because
+    /// that is the sample-handler queue we registered; the process tap
+    /// hops onto the same serial queue before calling. Every
+    /// `archiveWriter` / `archiveURL` access below depends on that
+    /// confinement.
+    nonisolated private func ingest(_ pcm: AVAudioPCMBuffer) {
         let chunk = AudioChunk(pcm: pcm, time: AVAudioTime(hostTime: mach_absolute_time()))
         bufferContinuation?.yield(chunk)
+
+        // Remember the format the session started in, so a rebuilt
+        // process tap can be pinned back to it instead of closing the
+        // archive on a mismatch.
+        if deliveredFormat == nil { deliveredFormat = pcm.format }
 
         // Publish a rate-limited level meter + sample-arrival
         // timestamp to MainActor. SCStream can fire ~50 callbacks/s

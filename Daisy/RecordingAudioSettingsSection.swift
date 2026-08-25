@@ -22,6 +22,10 @@ struct RecordingAudioSettingsSection: View {
     @State private var systemAudioLevelDB: Float = -160
     @State private var microphoneResult: ProbeResult = .idle
     @State private var systemAudioResult: ProbeResult = .idle
+    /// P1-6 spike switch. Hidden until the key exists in the defaults
+    /// database — see `ProcessTapDebugFlag`.
+    @State private var processTapDebugRevealed = false
+    @State private var processTapEnabled = false
 
     var body: some View {
         Section {
@@ -43,7 +47,7 @@ struct RecordingAudioSettingsSection: View {
             if settings.captureSystemAudio {
                 systemAudioLevelRow
 
-                if !ScreenRecordingPermission.isGranted {
+                if !SystemAudioCapture.usesProcessTapBackend, !ScreenRecordingPermission.isGranted {
                     HStack(alignment: .firstTextBaseline) {
                         Label("Screen Recording permission is off", systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
@@ -52,7 +56,8 @@ struct RecordingAudioSettingsSection: View {
                             ScreenRecordingPermission.openSystemSettings()
                         }
                     }
-                } else if AudioInputDevices.systemDefaultOutputIsBluetooth() {
+                } else if !SystemAudioCapture.usesProcessTapBackend,
+                          AudioInputDevices.systemDefaultOutputIsBluetooth() {
                     Label {
                         Text("Bluetooth output is selected. If the other-side test stays empty, switch macOS output to built-in speakers, USB audio, or a wired device and test again.")
                     } icon: {
@@ -61,6 +66,8 @@ struct RecordingAudioSettingsSection: View {
                     .font(.caption)
                     .foregroundStyle(.orange)
                 }
+
+                processTapDebugRow
             }
 
             if recordingIsActive {
@@ -77,7 +84,11 @@ struct RecordingAudioSettingsSection: View {
                     .textCase(nil)
             }
         }
-        .task { refreshDevices() }
+        .task {
+            refreshDevices()
+            processTapDebugRevealed = ProcessTapDebugFlag.isRevealed
+            processTapEnabled = ProcessTapDebugFlag.isEnabled
+        }
         // Live mic monitor — restarts whenever the selected device, the
         // noise-suppression toggle, or the recording state changes, and
         // stops automatically when the section leaves the screen (task
@@ -100,6 +111,26 @@ struct RecordingAudioSettingsSection: View {
         .onDisappear {
             microphoneProbe.stop()
             Task { await systemAudioProbe.stop() }
+        }
+    }
+
+    /// Experimental backend switch (P1-6). Deliberately not a shipped
+    /// setting: it appears only once someone has written the key by hand,
+    /// so a normal user never meets it, and it takes effect on the NEXT
+    /// recording rather than the current one — `SystemAudioCapture`
+    /// decides its backend at fresh start and never mid-session.
+    @ViewBuilder
+    private var processTapDebugRow: some View {
+        if processTapDebugRevealed {
+            Toggle(isOn: $processTapEnabled) {
+                Text("Record the other side with Core Audio taps")
+                Text("Experimental. Captures below device routing, so Bluetooth headphones stop silencing the other side. Applies to the next recording, and asks for System Audio Recording permission the first time.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .onChange(of: processTapEnabled) { _, newValue in
+                ProcessTapDebugFlag.isEnabled = newValue
+            }
         }
     }
 
@@ -298,7 +329,12 @@ struct RecordingAudioSettingsSection: View {
         systemAudioResult = .idle
         systemAudioLevelDB = -160
         guard settings.captureSystemAudio, !recordingIsActive else { return }
-        guard ScreenRecordingPermission.isGranted else { return }
+        // The Screen Recording gate belongs to the ScreenCaptureKit
+        // backend. With the process-tap spike on, the probe uses a Core
+        // Audio tap, which needs System Audio Recording instead — and
+        // refusing to run here would hide the meter from exactly the
+        // user the spike exists for (Screen Recording denied or reset).
+        guard SystemAudioCapture.usesProcessTapBackend || ScreenRecordingPermission.isGranted else { return }
 
         do {
             try await systemAudioProbe.start(quietDiagnostics: true)

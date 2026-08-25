@@ -1572,7 +1572,16 @@ final class RecordingSession {
             // which is what turns a later `denied` in a log report into
             // evidence of a TCC reset instead of an unanswerable
             // question (macOS 27.0 beta, 2026-08-21).
-            if !ScreenRecordingPermission.preflight() {
+            //
+            // The gate belongs to the ScreenCaptureKit backend. The P1-6
+            // process-tap spike captures below the window server and asks
+            // for its own, narrower permission ("System Audio Recording"),
+            // so demanding Screen Recording there would refuse a path that
+            // doesn't need it — and its denial can't be preflighted at all
+            // (Core Audio reports no error; the silent-content monitor
+            // inside SystemAudioCapture is what catches it).
+            if !SystemAudioCapture.usesProcessTapBackend,
+               !ScreenRecordingPermission.preflight() {
                 systemAudioDeniedThisSession = true
                 log.warning("Screen Recording permission denied — recording mic only")
                 noteMicOnlyDegradation(cause: .screenRecordingDenied)

@@ -1,6 +1,36 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Record the other side with Core Audio taps" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Писать собеседника через Core Audio taps"
+          }
+        }
+      }
+    },
+    "Experimental. Captures below device routing, so Bluetooth headphones stop silencing the other side. Applies to the next recording, and asks for System Audio Recording permission the first time." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспериментально. Захват идёт ниже маршрутизации устройств, поэтому Bluetooth-наушники больше не «выключают» собеседника. Включится со следующей записи; в первый раз система спросит разрешение «Запись системного звука»."
+          }
+        }
+      }
+    },
+    "Daisy is recording the other side but there's no sound in it. Check System Settings → Privacy & Security → System Audio Recording and make sure Daisy is allowed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy пишет собеседника, но в записи нет звука. Проверьте «Системные настройки» → «Конфиденциальность и безопасность» → «Запись системного звука» и разрешите доступ для Daisy."
+          }
+        }
+      }
+    },
     "Stop & discard" : {
       "localizations" : {
         "ru" : {

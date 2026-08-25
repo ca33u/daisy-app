@@ -64,6 +64,27 @@
     <string>Daisy records meeting audio locally to transcribe it on-device. No audio leaves your computer.</string>
     <key>NSScreenCaptureUsageDescription</key>
     <string>Daisy captures the system audio of your meetings via Screen Recording so it can transcribe what other participants say. No video frames are saved or sent anywhere.</string>
+    <!-- Core Audio process taps (macOS 14.4+) — the P1-6 experimental
+         backend for capturing the other side of a meeting, behind
+         `daisy.debug.processTapCapture`. Its TCC service
+         (kTCCServiceAudioCapture, "System Audio Recording") is separate
+         from both Microphone and Screen Recording.
+
+         This key MUST live in the plist file itself. Xcode's
+         INFOPLIST_KEY_* propagation silently drops it — the setting
+         compiles, the key never lands in the built bundle, and TCC then
+         denies the tap WITHOUT any error: every Core Audio call returns
+         noErr, the IOProc fires on schedule, and every buffer is zeros.
+         Verify after a build with:
+             plutil -p Daisy.app/Contents/Info.plist | grep AudioCapture
+         (Daisy already writes this file by hand, so we're safe here —
+         the note is for whoever is tempted to move it.)
+
+         No new entitlement: kTCCServiceAudioCapture is covered by the
+         com.apple.security.device.audio-input entitlement Daisy already
+         carries for the microphone. -->
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Daisy records the audio your Mac plays during a meeting so it can transcribe what the other participants say. Everything stays on your Mac.</string>
     <!-- macOS 26+ "Lite" live transcription uses Apple's on-device
          SpeechAnalyzer. It runs entirely on your Mac (system speech
          models), but the framework still gates first use on this string. -->

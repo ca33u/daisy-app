@@ -302,6 +302,7 @@ enum LogReporter {
         ScreenRec:  \(ScreenRecordingPermission.diagnosticsLine())
         Locale:     ui=\(Bundle.main.preferredLocalizations.first ?? "?") summaryLanguage=\(settings.summaryLanguage.isEmpty ? "auto" : settings.summaryLanguage)
         Route:      \(AudioInputDevices.routeDiagnostics(selectedMicUID: settings.selectedMicDeviceUID))
+        SysAudio:   \(SystemAudioCapture.backendDiagnosticsLine())
         Mic device: \(AudioInputDevices.describe(AudioInputDevices.systemDefaultInputID()))
         Bundle:     \(Bundle.main.bundleURL.path)
         Auto-stop:  fromCalendar=\(settings.autoStopFromCalendar) graceSec=\(settings.autoStopGraceSec) promptMode=\(settings.autoStopPromptMode) notifyOnStop=\(settings.notifyOnAutoStop)
