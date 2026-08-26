@@ -16,7 +16,7 @@
 //    defaults write app.essazanov.Daisy daisy.dictationUseNemotronLive -bool YES
 //  First enable downloads the multilingual 560 ms variant through
 //  FluidAudioNetworkGuard's explicit download window; cached loads run
-//  with FluidAudio's network hard-blocked (enforceOffline).
+//  with FluidAudio's network hard-blocked (ModelHub.offlineMode).
 //
 //  Always loads the full-vocab `multilingual` variant (covers RU + 100+
 //  languages); the per-session language hint goes through

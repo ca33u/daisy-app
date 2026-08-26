@@ -22,7 +22,7 @@
 //  streaming context) rather than the convenience overloads. 0.15.x
 //  also ships Nemotron 3.5 streaming ASR (40 locales, ANE) — a
 //  candidate for a future LIVE dictation path — and
-//  `DownloadUtils.enforceOffline` for a hard no-network guarantee
+//  `ModelHub.offlineMode` for a hard no-network guarantee
 //  once models are cached (not yet adopted; see backlog).
 //
 
@@ -126,7 +126,7 @@ final class ParakeetEngine {
                 )
             }
             // Offline-first: cached models load with FluidAudio's network
-            // hard-blocked; a missing cache throws OfflineError and we
+            // hard-blocked; a missing cache throws DownloadError and we
             // retry inside an explicit download window (first enable).
             let models: AsrModels
             do {
@@ -233,8 +233,8 @@ final class ParakeetEngine {
     }
 
     /// Parakeet folders under `~/Library/Application Support/FluidAudio/
-    /// Models/` (FluidAudio's cache root — see DownloadUtils.clearAll-
-    /// ModelCaches). Name-matched so we never touch the diarization / VAD
+    /// Models/` (FluidAudio's cache root — see ModelHub.clearAllCaches).
+    /// Name-matched so we never touch the diarization / VAD
     /// models in the same root.
     private nonisolated static func fluidAudioParakeetDirs() -> [URL] {
         let fm = FileManager.default

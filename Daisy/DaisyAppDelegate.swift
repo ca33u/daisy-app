@@ -34,7 +34,8 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         // FluidAudio (diarization / Silero VAD / Parakeet) network policy:
         // hard-block every download surface outside explicit, logged
         // model-download windows — "nothing leaves your Mac" enforced in
-        // code via DownloadUtils.enforceOffline (FluidAudio 0.15+), not
+        // code via ModelHub.offlineMode (FluidAudio 0.15.5+; called
+        // DownloadUtils.enforceOffline before that), not
         // just promised. Loaders retry inside a download window when the
         // model cache is missing. See FluidAudioNetworkGuard.
         #if canImport(FluidAudio)

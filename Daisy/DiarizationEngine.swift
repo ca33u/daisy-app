@@ -92,7 +92,7 @@ final class DiarizationEngine {
             // Offline-first (2026-06-08): with FluidAudio's network
             // hard-blocked by `FluidAudioNetworkGuard`, a complete cache
             // loads with NO network possible; a missing/incomplete cache
-            // throws OfflineError and we retry inside an explicit,
+            // throws DownloadError and we retry inside an explicit,
             // logged download window.
             let models: DiarizerModels
             do {
@@ -404,8 +404,10 @@ final class DiarizationEngine {
 #if canImport(FluidAudio)
 /// App-wide policy for FluidAudio's network access (2026-06-08).
 ///
-/// FluidAudio 0.15 added `DownloadUtils.enforceOffline`: when true, every
-/// download surface throws a typed `OfflineError` instead of touching the
+/// FluidAudio 0.15 added `ModelHub.offlineMode` (spelled
+/// `DownloadUtils.enforceOffline` before 0.15.5): when true, every
+/// download surface throws `DownloadError.networkDisabled` /
+/// `.modelMissing` instead of touching the
 /// network, and a corrupt model cache fails loudly instead of silently
 /// re-downloading mid-meeting. Daisy keeps the flag ON for the whole app
 /// lifetime — "nothing leaves your Mac" enforced in code, not just
@@ -436,7 +438,7 @@ enum FluidAudioNetworkGuard {
     /// legitimate first-run download).
     static func engage() {
         guard openWindows == 0 else { return }
-        DownloadUtils.enforceOffline = true
+        ModelHub.offlineMode = true
         log.info("FluidAudio offline enforcement ON — network blocked outside explicit download windows")
     }
 
@@ -446,12 +448,12 @@ enum FluidAudioNetworkGuard {
         _ body: @MainActor () async throws -> T
     ) async rethrows -> T {
         openWindows += 1
-        DownloadUtils.enforceOffline = false
+        ModelHub.offlineMode = false
         log.info("FluidAudio download window OPEN: \(operation, privacy: .public)")
         defer {
             openWindows -= 1
             if openWindows == 0 {
-                DownloadUtils.enforceOffline = true
+                ModelHub.offlineMode = true
                 log.info("FluidAudio download window CLOSED: \(operation, privacy: .public) — offline enforcement back on")
             }
         }
@@ -460,8 +462,21 @@ enum FluidAudioNetworkGuard {
 
     /// True when `error` is FluidAudio's offline-mode rejection — the
     /// signal that a cache is missing and a download window is needed.
+    ///
+    /// 0.15.5 merged the old nested `DownloadUtils.OfflineError` into the
+    /// top-level `DownloadError`, which now also carries the ordinary
+    /// transport failures (`.downloadFailed`, `.rateLimited`, `.stalled`,
+    /// …). A bare `error is DownloadError` would therefore be WIDER than
+    /// the pre-0.15.5 behaviour and would re-open a download window on a
+    /// plain network hiccup, so match the two offline cases explicitly.
     static func isOfflineRejection(_ error: Error) -> Bool {
-        error is DownloadUtils.OfflineError
+        guard let downloadError = error as? DownloadError else { return false }
+        switch downloadError {
+        case .networkDisabled, .modelMissing:
+            return true
+        default:
+            return false
+        }
     }
 }
 #endif
