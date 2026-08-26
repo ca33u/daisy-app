@@ -2,21 +2,38 @@
 //  MCPServer.swift
 //  Daisy
 //
-//  Localhost MCP server. Listens on 127.0.0.1:<port> and speaks the
-//  MCP "HTTP+SSE" transport that Claude Desktop and other current
-//  MCP clients understand:
+//  Localhost MCP server. Listens on 127.0.0.1:<port> and speaks BOTH
+//  HTTP transports MCP has defined, so new and old clients can each
+//  connect the way they know:
 //
-//    GET  /sse       → open server-sent events stream, server emits
-//                      an `endpoint` event pointing to /messages
-//    POST /messages  → client sends a JSON-RPC request, server runs
-//                      it and writes the response back to the SSE
+//    POST /mcp       → Streamable HTTP (spec 2025-03-26 and later).
+//                      One JSON-RPC message in the request body, one
+//                      JSON message straight back in the response
+//                      body. `Mcp-Session-Id` is minted on initialize
+//                      and honoured on every later request.
+//                      GET /mcp answers 405: that GET exists only to
+//                      open a channel for server-initiated messages,
+//                      and we never send any.
+//    GET  /sse       → legacy HTTP+SSE (spec 2024-11-05): open a
+//                      server-sent events stream, server emits an
+//                      `endpoint` event pointing to /messages
+//    POST /messages  → legacy: client sends a JSON-RPC request, server
+//                      runs it and writes the response back to the SSE
 //                      stream as `data: <json>`
+//
+//  The legacy pair is untouched and stays. Every config Daisy has ever
+//  written points at /sse, and the 2025-06-18 spec's backwards-
+//  compatibility section tells servers wanting to support older clients
+//  to keep hosting both. Both paths run the SAME `handleJSONRPC`, the
+//  same Host/Origin guards, the same bearer check, the same storm
+//  breaker and the same client cap.
 //
 //  Scope intentionally narrow:
 //    • Loopback only — never bound to anything but 127.0.0.1
 //    • A few concurrent clients (Claude Desktop + Cowork + friends),
-//      each on its own SSE stream with its own ?sessionId endpoint;
-//      capped at `maxSSEClients` with oldest-stream eviction.
+//      each on its own SSE stream with its own ?sessionId endpoint or
+//      its own Streamable-HTTP session; both kinds share one cap,
+//      `maxClients`, with oldest-client eviction.
 //      (Single-client-with-rollover until 2026-07-25 — two legit
 //      clients ping-ponged each other's streams every 15 s.)
 //    • Tools (see MCPTools.swift) are READ tools plus a small,
@@ -76,10 +93,40 @@ final class MCPServer {
     }
     @ObservationIgnored private var sseClients: [String: SSEClient] = [:]
 
-    /// Hard cap on concurrent SSE clients — past it the OLDEST stream
-    /// is evicted. Normal setups run 1-2 (Claude Desktop + Cowork);
-    /// the cap only bounds a leaky client that opens without closing.
-    private static let maxSSEClients = 4
+    /// Live Streamable HTTP sessions keyed by the `Mcp-Session-Id` we
+    /// minted at `initialize`. Unlike an SSE client this holds NO
+    /// socket — Streamable HTTP is request/response, so a session is
+    /// just the server's memory that this client exists. It earns its
+    /// place for two reasons: the spec wants an unknown session id to
+    /// be answered 404 (so the client re-initializes instead of
+    /// silently drifting), and a session has to occupy a slot in the
+    /// shared client cap, or a leaky Streamable client would be
+    /// invisible to the bound that exists to catch exactly that.
+    private struct StreamableSession {
+        let sessionID: String
+        /// Last request seen on this session — drives idle expiry and
+        /// eviction order.
+        var lastSeenAt: Date
+    }
+    @ObservationIgnored private var streamableSessions: [String: StreamableSession] = [:]
+
+    /// A Streamable HTTP session holds no socket, so nothing tells us
+    /// the client went away: a quit editor just stops calling, a CLI
+    /// run exits after one question, and the DELETE the spec offers is
+    /// opt-in that most clients never send. Expire on idle instead.
+    ///
+    /// Fifteen minutes, not an hour: being wrong costs the client one
+    /// 404 and a re-initialize — which is precisely what that status
+    /// exists to trigger — while being generous costs a live client a
+    /// slot in a cap of four.
+    private static let streamableSessionIdleTimeout: TimeInterval = 15 * 60
+
+    /// Hard cap on concurrent clients across BOTH transports — past it
+    /// the OLDEST client is evicted, whichever kind it is. Normal
+    /// setups run 1-2 (Claude Desktop + Cowork); the cap only bounds a
+    /// leaky client that opens without closing. Counting the two
+    /// transports separately would double the ceiling by accident.
+    private static let maxClients = 4
 
     /// Consecutive bind-retry attempts after EADDRINUSE (a previous
     /// Daisy instance still holding the port during an update
@@ -114,9 +161,11 @@ final class MCPServer {
 
     // (per-session UUIDs live as `SSEClient.sessionID` keys now)
 
-    /// Sliding window of recent SSE-open timestamps for the
-    /// connection-storm circuit breaker. Pruned to the last
-    /// `stormWindow` on every open. The breaker is now a LAST-RESORT
+    /// Sliding window of recent session-open timestamps for the
+    /// connection-storm circuit breaker — `GET /sse` on the legacy
+    /// transport and `initialize` on Streamable HTTP both land here, so
+    /// a client cannot dodge the breaker by switching endpoints. Pruned
+    /// to the last `stormWindow` on every open. The breaker is a LAST-RESORT
     /// safety net, not the primary defence — see the root-cause fixes
     /// in `openSSEStream` (half-open detection + SSE `retry:` directive
     /// + network-layer disconnect observation). Real-world trigger it
@@ -133,7 +182,7 @@ final class MCPServer {
     /// the reconnect-loop removes the layout-pressure trigger at the
     /// source; the breaker only catches a pathological client we
     /// haven't anticipated.
-    @ObservationIgnored private var recentSSEOpenings: [Date] = []
+    @ObservationIgnored private var recentSessionOpenings: [Date] = []
     @ObservationIgnored private var stormCooldownEndsAt: Date?
 
     /// Storm thresholds — exceeded = circuit breaker trips. Loosened
@@ -196,11 +245,15 @@ final class MCPServer {
         }
     }
 
-    /// Stop the listener and close all in-flight SSE streams.
+    /// Stop the listener, close all in-flight SSE streams and forget
+    /// every Streamable HTTP session (their ids are meaningless once
+    /// the listener is gone; a client that comes back after a restart
+    /// must initialize again).
     func stop() {
         listener?.cancel()
         listener = nil
         tearDownAllSSE()
+        streamableSessions.removeAll()
         state = .stopped
     }
 
@@ -215,6 +268,56 @@ final class MCPServer {
 
     private func tearDownAllSSE() {
         for id in Array(sseClients.keys) { tearDown(clientID: id) }
+    }
+
+    // MARK: - Shared client accounting (both transports)
+
+    /// Drop Streamable HTTP sessions nobody has used in a while. Cheap
+    /// enough to run on every path that cares about the cap.
+    private func pruneIdleStreamableSessions() {
+        let cutoff = Date().addingTimeInterval(-Self.streamableSessionIdleTimeout)
+        for (id, session) in streamableSessions where session.lastSeenAt < cutoff {
+            log.info("Streamable HTTP session \(id, privacy: .public) idle past timeout — expiring")
+            streamableSessions.removeValue(forKey: id)
+        }
+    }
+
+    /// Live clients across both transports.
+    private var liveClientCount: Int {
+        sseClients.count + streamableSessions.count
+    }
+
+    /// Make room for one more client. Streamable HTTP sessions go
+    /// FIRST, least-recently-used before most, and only when none is
+    /// left does a live SSE stream get torn down (oldest first, as it
+    /// always did).
+    ///
+    /// The ORDER is the load-bearing part, not the cap. Evicting a
+    /// Streamable session costs its client one 404 and a silent
+    /// re-initialize. Evicting an SSE stream kills a live socket and
+    /// makes that client reconnect — which is the exact input the
+    /// 2026-07-25 ping-pong storm was made of. Ranking the two kinds
+    /// together by age would be worse than useless: a socketless
+    /// session left behind by a CLI run that exited an hour ago would
+    /// outrank nothing, while Claude Desktop's stream, opened at login
+    /// and alive ever since, would sit permanently at the front of the
+    /// queue and be evicted by every passing client.
+    ///
+    /// Loops because a caller may arrive when the tables are over the
+    /// cap, and bails the moment there's nothing left to evict, so it
+    /// can't spin.
+    private func evictOldestClientsIfAtCap() {
+        pruneIdleStreamableSessions()
+        while liveClientCount >= Self.maxClients {
+            if let stalest = streamableSessions.values.min(by: { $0.lastSeenAt < $1.lastSeenAt }) {
+                log.warning("Client cap (\(Self.maxClients, privacy: .public)) reached — evicting least-recently-used Streamable HTTP session \(stalest.sessionID, privacy: .public)")
+                streamableSessions.removeValue(forKey: stalest.sessionID)
+                continue
+            }
+            guard let oldestStream = sseClients.values.min(by: { $0.openedAt < $1.openedAt }) else { return }
+            log.warning("Client cap (\(Self.maxClients, privacy: .public)) reached — evicting oldest SSE session \(oldestStream.sessionID, privacy: .public)")
+            tearDown(clientID: oldestStream.sessionID)
+        }
     }
 
     private func handleListenerState(_ s: NWListener.State, port: Int) {
@@ -418,6 +521,28 @@ final class MCPServer {
         }
 
         switch (request.method.uppercased(), path) {
+        // ── Streamable HTTP (2025-03-26 and later) ──────────────────
+        case ("POST", "/mcp"):
+            await handleStreamableRequest(body: body, headers: request.headers, on: connection)
+        case ("GET", "/mcp"):
+            // The spec's GET on the MCP endpoint exists so a server can
+            // push requests/notifications to the client unprompted. We
+            // never do — the catalog is static (`listChanged: false`)
+            // and nothing here samples, elicits or logs to the client —
+            // so 405 is the spec's own prescribed answer, and it tells
+            // the client to stop waiting rather than leaving it on a
+            // stream that will never say anything.
+            Self.write(
+                status: 405,
+                body: "This MCP endpoint does not offer a server-initiated stream. POST JSON-RPC to /mcp instead.",
+                on: connection,
+                closeAfter: true,
+                extraHeaders: ["Allow: POST, DELETE"]
+            )
+        case ("DELETE", "/mcp"):
+            handleStreamableDelete(headers: request.headers, on: connection)
+
+        // ── Legacy HTTP+SSE (2024-11-05) — unchanged ────────────────
         case ("GET", "/sse"):
             await openSSEStream(on: connection)
         case ("POST", "/messages"):
@@ -432,7 +557,7 @@ final class MCPServer {
             Self.write(
                 status: 200,
                 contentType: "text/plain; charset=utf-8",
-                body: "Daisy MCP server. Point an MCP client at GET /sse.",
+                body: "Daisy MCP server. Point an MCP client at POST /mcp (Streamable HTTP) or GET /sse (legacy HTTP+SSE).",
                 on: connection,
                 closeAfter: true
             )
@@ -477,37 +602,44 @@ final class MCPServer {
         return nil
     }
 
-    // MARK: - SSE stream (server → client)
+    // MARK: - Connection-storm circuit breaker (LAST-RESORT)
 
-    private func openSSEStream(on connection: NWConnection) async {
-        // ── Connection-storm circuit breaker (LAST-RESORT) ───────────
-        //
-        // The primary fix for the reconnect loop lives below (SSE
-        // `retry:` floor, half-open detection on the keepalive, and the
-        // network-layer disconnect observer in handleNewConnection).
-        // This breaker only catches a pathological client those don't
-        // tame. Its RESPONSE has changed: it no longer calls stop().
-        //
-        // Why not stop(): killing the listener makes every subsequent
-        // TCP attempt hit ECONNREFUSED. The `eventsource` runtime
-        // mcp-remote uses treats a refused/failed connection as
-        // `_onFetchError → scheduleReconnect` — i.e. it KEEPS looping at
-        // its reconnect interval. So a 5-minute listener blackout
-        // produced 5 minutes of refused-connection hammering and then
-        // an instant re-storm on re-arm. The cure was feeding the
-        // disease.
-        //
-        // Gentle response instead: answer `GET /sse` with HTTP 503 +
-        // Retry-After and close. A non-200 status drives that same
-        // EventSource into `failConnection → readyState = CLOSED`, which
-        // does NOT schedule a reconnect — the loop stops cleanly. The
-        // listener stays up, so a fresh Claude Desktop launch (or the
-        // user toggling MCP off/on) reconnects immediately rather than
-        // waiting out a cooldown.
+    /// Gate every SESSION-OPENING request — `GET /sse` on the legacy
+    /// transport, `initialize` on Streamable HTTP — through one sliding
+    /// window. Returns true when the caller has already been answered
+    /// 503 and must stop.
+    ///
+    /// Only session openings are counted, on both transports. A client
+    /// hammering `tools/call` on a session it legitimately holds is a
+    /// different problem (and bounded by the response-size cap); what
+    /// this exists to catch is a client that keeps starting over.
+    ///
+    /// The primary fix for the reconnect loop lives in `openSSEStream`
+    /// (SSE `retry:` floor, half-open detection on the keepalive, and
+    /// the network-layer disconnect observer in handleNewConnection).
+    /// This breaker only catches a pathological client those don't
+    /// tame. Its RESPONSE has changed: it no longer calls stop().
+    ///
+    /// Why not stop(): killing the listener makes every subsequent
+    /// TCP attempt hit ECONNREFUSED. The `eventsource` runtime
+    /// mcp-remote uses treats a refused/failed connection as
+    /// `_onFetchError → scheduleReconnect` — i.e. it KEEPS looping at
+    /// its reconnect interval. So a 5-minute listener blackout
+    /// produced 5 minutes of refused-connection hammering and then
+    /// an instant re-storm on re-arm. The cure was feeding the
+    /// disease.
+    ///
+    /// Gentle response instead: HTTP 503 + Retry-After, and close. A
+    /// non-200 status drives that same EventSource into
+    /// `failConnection → readyState = CLOSED`, which does NOT schedule
+    /// a reconnect — the loop stops cleanly. The listener stays up, so
+    /// a fresh Claude Desktop launch (or the user toggling MCP off/on)
+    /// reconnects immediately rather than waiting out a cooldown.
+    private func refusedByStormBreaker(origin: String, on connection: NWConnection) -> Bool {
         let now = Date()
         if let until = stormCooldownEndsAt, now < until {
             let retryAfter = max(1, Int(until.timeIntervalSince(now).rounded(.up)))
-            log.warning("MCP connection-storm cooldown active until \(until, privacy: .public) — replying 503 (Retry-After: \(retryAfter, privacy: .public)s)")
+            log.warning("MCP connection-storm cooldown active until \(until, privacy: .public) — replying 503 to \(origin, privacy: .public) (Retry-After: \(retryAfter, privacy: .public)s)")
             Self.write(
                 status: 503,
                 contentType: "text/plain; charset=utf-8",
@@ -516,18 +648,21 @@ final class MCPServer {
                 closeAfter: true,
                 extraHeaders: ["Retry-After: \(retryAfter)"]
             )
-            return
+            return true
         }
-        recentSSEOpenings.append(now)
-        recentSSEOpenings.removeAll { now.timeIntervalSince($0) > Self.stormWindow }
-        if recentSSEOpenings.count > Self.stormThreshold {
+        recentSessionOpenings.append(now)
+        recentSessionOpenings.removeAll { now.timeIntervalSince($0) > Self.stormWindow }
+        if recentSessionOpenings.count > Self.stormThreshold {
             stormCooldownEndsAt = now.addingTimeInterval(Self.stormCooldown)
-            recentSSEOpenings.removeAll()
+            recentSessionOpenings.removeAll()
             let retryAfter = Int(Self.stormCooldown)
-            log.error("MCP connection storm: \(Self.stormThreshold, privacy: .public)+ opens in \(Int(Self.stormWindow), privacy: .public)s — replying 503 + Retry-After \(retryAfter, privacy: .public)s for \(Int(Self.stormCooldown), privacy: .public)s. Likely cause: a misbehaving MCP client (e.g. mcp-remote with a broken reconnect). Daisy stays usable and the listener stays up; the client should stop its EventSource on the non-200 and reconnect cleanly later.")
-            // Tear down every live stream this storm rolled over so we
-            // don't leak them, then 503 the offending open.
+            log.error("MCP connection storm at \(origin, privacy: .public): \(Self.stormThreshold, privacy: .public)+ opens in \(Int(Self.stormWindow), privacy: .public)s — replying 503 + Retry-After \(retryAfter, privacy: .public)s for \(Int(Self.stormCooldown), privacy: .public)s. Likely cause: a misbehaving MCP client (e.g. mcp-remote with a broken reconnect). Daisy stays usable and the listener stays up; the client should stop its EventSource on the non-200 and reconnect cleanly later.")
+            // Tear down every live client this storm rolled over so we
+            // don't leak them, then 503 the offending open. Streamable
+            // sessions go too: they were opened by the same churn, and
+            // a client that finds its id 404 simply initializes again.
             tearDownAllSSE()
+            streamableSessions.removeAll()
             Self.write(
                 status: 503,
                 contentType: "text/plain; charset=utf-8",
@@ -536,18 +671,21 @@ final class MCPServer {
                 closeAfter: true,
                 extraHeaders: ["Retry-After: \(retryAfter)"]
             )
-            return
+            return true
         }
+        return false
+    }
+
+    // MARK: - SSE stream (server → client)
+
+    private func openSSEStream(on connection: NWConnection) async {
+        if refusedByStormBreaker(origin: "GET /sse", on: connection) { return }
 
         // Multi-client: register ALONGSIDE any existing streams —
         // never tear a peer down for a new arrival (that was the
         // 15-second ping-pong storm; see `sseClients` doc). Bounded by
-        // evicting the OLDEST stream past the cap.
-        if sseClients.count >= Self.maxSSEClients,
-           let oldest = sseClients.values.min(by: { $0.openedAt < $1.openedAt }) {
-            log.warning("SSE client cap (\(Self.maxSSEClients, privacy: .public)) reached — evicting oldest session \(oldest.sessionID, privacy: .public)")
-            tearDown(clientID: oldest.sessionID)
-        }
+        // evicting the OLDEST client past the shared cap.
+        evictOldestClientsIfAtCap()
         let sessionID = UUID().uuidString
 
         // No `Access-Control-Allow-Origin: *` — see the long note in
@@ -556,12 +694,14 @@ final class MCPServer {
         // re-enable the very browser-cross-origin attack the Host /
         // Origin guards exist to block.
         //
-        // Mcp-Session-Id header: defined by the 2025-06-18 Streamable
-        // HTTP spec but harmless under the older HTTP+SSE flow we
-        // implement — mcp-remote ignores unknown headers gracefully.
-        // Surfacing it gives us a per-session correlation token in
-        // server logs so we can match a hung POST to the SSE stream
-        // that should have answered it.
+        // Mcp-Session-Id header: it carries session semantics only on
+        // the Streamable HTTP endpoint (see `streamableSessions`);
+        // here it is a per-stream correlation token for the logs, so
+        // we can match a hung POST to the SSE stream that should have
+        // answered it. Harmless under the older HTTP+SSE flow —
+        // mcp-remote ignores unknown headers gracefully — and the two
+        // id spaces never meet, because /messages routes by the
+        // ?sessionId in the endpoint event and /mcp routes by header.
         let headers = [
             "HTTP/1.1 200 OK",
             "Content-Type: text/event-stream",
@@ -761,31 +901,38 @@ final class MCPServer {
         }
         let sse = sseAtEntry
 
+        guard let data = encodedResponse(response) else { return }
+        sendSSEEvent(name: "message", data: String(decoding: data, as: UTF8.self), on: sse)
+    }
+
+    /// Encode a JSON-RPC response for the wire, enforcing the payload
+    /// ceiling. Shared by both transports so the bound can't be true on
+    /// one endpoint and absent on the other.
+    ///
+    /// Defence-in-depth: cap response bodies at 10 MB. The listener is
+    /// loopback-only so the attack surface is small, but a misbehaving
+    /// local client (or our own `get_transcript` on a 4-hour session
+    /// that returned 80 MB of raw segments) could still ship hundreds
+    /// of megabytes. Cap, replace with a JSON-RPC error referencing the
+    /// request id, log loudly. Returns nil only if encoding itself
+    /// failed, in which case the caller has nothing to send.
+    private func encodedResponse(_ response: JSONRPCResponse) -> Data? {
         do {
-            var data = try JSONEncoder().encode(response)
-            // Defence-in-depth: cap response bodies at 10 MB. The
-            // listener is loopback-only so the attack surface is
-            // small, but a misbehaving local client (or our own
-            // `get_transcript` on a 4-hour session that returned
-            // 80 MB of raw segments) could still ship hundreds of
-            // megabytes through SSE. Cap, replace with a JSON-RPC
-            // error referencing the request id, log loudly.
-            if data.count > Self.maxResponsePayloadBytes {
-                log.warning("MCP response too large (\(data.count, privacy: .public) bytes > \(Self.maxResponsePayloadBytes, privacy: .public)) — replacing with error")
-                let oversized = JSONRPCResponse(
-                    id: response.id,
-                    error: JSONRPCError(
-                        code: -32000,
-                        message: "Result too large — \(data.count) bytes exceeds 10 MB cap. Narrow the query (e.g. fewer sessions, shorter time range) and retry.",
-                        data: nil
-                    )
+            let data = try JSONEncoder().encode(response)
+            guard data.count > Self.maxResponsePayloadBytes else { return data }
+            log.warning("MCP response too large (\(data.count, privacy: .public) bytes > \(Self.maxResponsePayloadBytes, privacy: .public)) — replacing with error")
+            let oversized = JSONRPCResponse(
+                id: response.id,
+                error: JSONRPCError(
+                    code: -32000,
+                    message: "Result too large — \(data.count) bytes exceeds 10 MB cap. Narrow the query (e.g. fewer sessions, shorter time range) and retry.",
+                    data: nil
                 )
-                data = try JSONEncoder().encode(oversized)
-            }
-            let json = String(decoding: data, as: UTF8.self)
-            sendSSEEvent(name: "message", data: json, on: sse)
+            )
+            return try JSONEncoder().encode(oversized)
         } catch {
             log.error("Failed to encode JSON-RPC response: \(error.localizedDescription, privacy: .public)")
+            return nil
         }
     }
 
@@ -793,6 +940,179 @@ final class MCPServer {
     /// where "normal Daisy response" (a long session's tool result)
     /// already feels like a misuse — fix the query, not the server.
     nonisolated private static let maxResponsePayloadBytes: Int = 10 * 1024 * 1024
+
+    // MARK: - POST /mcp (Streamable HTTP)
+
+    /// One JSON-RPC message in, one JSON message out. No SSE stream is
+    /// opened: the spec lets a server answer a request with either
+    /// `text/event-stream` or `application/json`, and the stream is
+    /// only worth its complexity when the server wants to interleave
+    /// its own requests/notifications before the response. We have
+    /// none to send, so the plain JSON body is both simpler and
+    /// strictly conformant.
+    ///
+    /// Everything protective already ran in `route(...)` before this is
+    /// called: the Host guard (DNS rebinding), the Origin guard, and
+    /// the bearer check. This endpoint is not a hole in any of them —
+    /// it's another `case` behind the same door.
+    private func handleStreamableRequest(body: Data, headers: [String: String], on connection: NWConnection) async {
+        let request: JSONRPCRequest
+        do {
+            request = try JSONDecoder().decode(JSONRPCRequest.self, from: body)
+        } catch {
+            // Streamable HTTP has no side channel to report this on, so
+            // unlike the SSE path the parse error goes back in the HTTP
+            // response, in the shape the spec allows for an unparseable
+            // body. Written as a literal because JSON-RPC REQUIRES a
+            // null `id` here and our encoder, which omits nil
+            // Optionals, would drop the field entirely.
+            log.error("Failed to decode JSON-RPC request on /mcp: \(error.localizedDescription, privacy: .public)")
+            Self.write(
+                status: 400,
+                contentType: "application/json",
+                body: "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"message\":\"Parse error\"}}",
+                on: connection,
+                closeAfter: true
+            )
+            return
+        }
+
+        let presentedSession = headers["mcp-session-id"]
+        let isInitialize = request.method == "initialize"
+        var mintedSession: String?
+
+        // `MCP-Protocol-Version` is a 2025-06-18 rule for requests
+        // AFTER initialization, and the spec is explicit that an
+        // unsupported value MUST be answered 400 rather than guessed
+        // at. Absent means "assume 2025-03-26" per the same section;
+        // since our behaviour is identical across all three versions we
+        // speak, there is nothing to branch on — only something to
+        // refuse.
+        //
+        // Deliberately NOT applied to `initialize`, even when a client
+        // sends the header early: initialize is where an unknown
+        // version is NEGOTIATED DOWN (see `handleInitialize`), and
+        // refusing there would make /mcp reject clients that the next
+        // spec revision will produce and that /sse would still serve.
+        // Also not applied to the legacy /sse + /messages pair, which
+        // never negotiated this transport at all.
+        if !isInitialize,
+           let declared = headers["mcp-protocol-version"],
+           !Self.supportedProtocolVersions.contains(declared) {
+            log.warning("POST /mcp with unsupported MCP-Protocol-Version '\(declared, privacy: .public)' — replying 400")
+            Self.write(
+                status: 400,
+                body: "Unsupported MCP-Protocol-Version: \(declared). This server speaks \(Self.supportedProtocolVersions.sorted().joined(separator: ", ")).",
+                on: connection,
+                closeAfter: true
+            )
+            return
+        }
+
+        if isInitialize {
+            // The one session-opening request on this transport, so
+            // this is where the storm breaker belongs.
+            if refusedByStormBreaker(origin: "POST /mcp initialize", on: connection) { return }
+            // A client re-initializing on a session it already holds
+            // gets a fresh id, not a second slot.
+            if let presentedSession { streamableSessions.removeValue(forKey: presentedSession) }
+            evictOldestClientsIfAtCap()
+            let sessionID = UUID().uuidString
+            streamableSessions[sessionID] = StreamableSession(
+                sessionID: sessionID,
+                lastSeenAt: Date()
+            )
+            mintedSession = sessionID
+            log.info("Streamable HTTP session opened, session=\(sessionID, privacy: .public) (live clients: \(self.liveClientCount, privacy: .public))")
+        } else if let presentedSession {
+            // Present-but-unknown means we forgot this session (server
+            // restart, eviction, storm, idle expiry). 404 is the spec's
+            // signal for exactly that, and the client answers it by
+            // initializing again — which is the outcome we want, rather
+            // than serving a client that thinks it has state we don't.
+            pruneIdleStreamableSessions()
+            guard streamableSessions[presentedSession] != nil else {
+                log.warning("POST /mcp for unknown session \(presentedSession, privacy: .public) — replying 404 (client should re-initialize)")
+                Self.write(
+                    status: 404,
+                    body: "Unknown Mcp-Session-Id. Send a new initialize request without a session id.",
+                    on: connection,
+                    closeAfter: true
+                )
+                return
+            }
+            streamableSessions[presentedSession]?.lastSeenAt = Date()
+        }
+        // No session header and not initialize: served anyway. We are
+        // not a server that REQUIRES a session id (the spec's 400 is
+        // only for servers that do), and a stateless client that just
+        // posts tools/call is both harmless and easy to test with curl.
+
+        // A JSON-RPC message with no `id` is a notification: the spec
+        // says answer 202 Accepted with no body, never a response
+        // object. Ours are all no-ops (`notifications/initialized`,
+        // `notifications/cancelled`), so there is nothing to run first.
+        guard request.id != nil else {
+            Self.write(status: 202, body: "", on: connection, closeAfter: true)
+            return
+        }
+
+        let response = await handleJSONRPC(request)
+
+        // That await can be long — `resummarize_session` runs a model.
+        // A client that gave up in the meantime leaves a cancelled
+        // NWConnection behind, and unlike an SSE stream nothing tracks
+        // this one, so there is no roll-over check to lean on. Same
+        // guard the keepalive uses: don't write into a corpse.
+        if connection.state == .cancelled {
+            log.info("POST /mcp client disconnected before the response was ready — dropping it")
+            return
+        }
+
+        guard let data = encodedResponse(response) else {
+            Self.write(status: 500, body: "Internal Server Error", on: connection, closeAfter: true)
+            return
+        }
+        var extraHeaders: [String] = []
+        if let mintedSession { extraHeaders.append("Mcp-Session-Id: \(mintedSession)") }
+        Self.write(
+            status: 200,
+            contentType: "application/json",
+            body: String(decoding: data, as: UTF8.self),
+            on: connection,
+            closeAfter: true,
+            extraHeaders: extraHeaders
+        )
+    }
+
+    /// `DELETE /mcp` — the client saying it's done (editor quitting,
+    /// server toggled off in its UI). Honouring it frees the cap slot
+    /// immediately instead of after the idle timeout.
+    private func handleStreamableDelete(headers: [String: String], on connection: NWConnection) {
+        guard let sessionID = headers["mcp-session-id"] else {
+            Self.write(
+                status: 400,
+                body: "DELETE /mcp requires an Mcp-Session-Id header.",
+                on: connection,
+                closeAfter: true
+            )
+            return
+        }
+        guard streamableSessions.removeValue(forKey: sessionID) != nil else {
+            Self.write(
+                status: 404,
+                body: "Unknown Mcp-Session-Id.",
+                on: connection,
+                closeAfter: true
+            )
+            return
+        }
+        log.info("Streamable HTTP session \(sessionID, privacy: .public) terminated by client (live clients: \(self.liveClientCount, privacy: .public))")
+        // 200 with an empty body rather than 204: our one-size HTTP
+        // writer always emits Content-Length, and a 204 carrying
+        // Content-Length is malformed per RFC 7230.
+        Self.write(status: 200, body: "", on: connection, closeAfter: true)
+    }
 
     // MARK: - JSON-RPC dispatch
 
@@ -831,6 +1151,22 @@ final class MCPServer {
     /// we implement (the highest entry below). Pre-1.0.3 we
     /// hardcoded "2024-11-05" and any client requiring a newer
     /// minimum would break silently.
+    ///
+    /// Claiming 2025-06-18 is only honest because `POST /mcp` exists:
+    /// that revision's transport chapter defines Streamable HTTP and
+    /// describes HTTP+SSE as the thing it replaced. Until we served
+    /// the newer endpoint, a client that believed the version we
+    /// announced and went straight to /mcp got a 404 — announcing a
+    /// version is announcing an endpoint, and the two have to agree.
+    /// If Streamable HTTP is ever removed, the honest ceiling drops
+    /// back to 2024-11-05 and `latestProtocolVersion` must follow it
+    /// down.
+    ///
+    /// What we do NOT implement from the newer revisions is all
+    /// optional: resources, prompts, sampling, elicitation, structured
+    /// tool output, resumable streams, OAuth. A server advertises those
+    /// through `capabilities`, which is the honest place for them —
+    /// nothing about the version number promises any of it.
     private static let supportedProtocolVersions: Set<String> = [
         "2024-11-05",
         "2025-03-26",
@@ -944,7 +1280,10 @@ final class MCPServer {
         case 200: return "OK"
         case 202: return "Accepted"
         case 400: return "Bad Request"
+        case 401: return "Unauthorized"
+        case 403: return "Forbidden"
         case 404: return "Not Found"
+        case 405: return "Method Not Allowed"
         case 413: return "Payload Too Large"
         case 431: return "Request Header Fields Too Large"
         case 500: return "Internal Server Error"
