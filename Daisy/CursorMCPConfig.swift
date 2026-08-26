@@ -3,8 +3,19 @@
 //  Daisy
 //
 //  One-click, non-destructive registration of Daisy in Cursor's global
-//  MCP configuration. Cursor accepts stdio MCP servers, so the pinned
-//  mcp-remote bridge keeps Daisy's local SSE endpoint private.
+//  MCP configuration.
+//
+//  Cursor speaks Streamable HTTP natively — a remote entry is a `url`
+//  plus optional `headers`, no `type` field required — so since Daisy
+//  started serving POST /mcp there is nothing left for the `mcp-remote`
+//  bridge to do here. Dropping it removes Node from the requirements
+//  for Cursor users entirely, along with an `npx` process per session
+//  that had full sight of every transcript it proxied.
+//
+//  Entries written before that read as `.installedDifferentPort` — the
+//  state the UI already renders as "Repair connection". The old bridge
+//  config still works, so this is a nudge rather than a break, and the
+//  repair (or the next port / token change) migrates it.
 //
 
 import Foundation
@@ -52,8 +63,14 @@ enum CursorMCPConfig {
               let daisy = servers["daisy"] as? [String: Any] else {
             return .notInstalled
         }
-        let args = daisy["args"] as? [String] ?? []
-        return args.contains(daisySSEURL(port: port)) ? .installed : .installedDifferentPort
+        // Current shape: a native remote entry pointing at this port's
+        // Streamable HTTP endpoint. Anything else that still says
+        // "daisy" — a wrong port, or a pre-2026-08 mcp-remote bridge —
+        // is present but wants rewriting.
+        if let url = daisy["url"] as? String {
+            return url == daisyStreamableURL(port: port) ? .installed : .installedDifferentPort
+        }
+        return .installedDifferentPort
     }
 
     @discardableResult
@@ -75,12 +92,14 @@ enum CursorMCPConfig {
             }
 
             var servers = root["mcpServers"] as? [String: Any] ?? [:]
-            var arguments = ["-y", "mcp-remote@0.1.38", daisySSEURL(port: port),
-                             "--transport", "sse-only", "--allow-http"]
+            // Assigned wholesale, so a bridge entry written by an older
+            // Daisy loses its `command` / `args` instead of keeping
+            // them alongside the new `url`.
+            var entry: [String: Any] = ["url": daisyStreamableURL(port: port)]
             if MCPAccessToken.isRequired {
-                arguments += ["--header", "Authorization: Bearer \(MCPAccessToken.ensure())"]
+                entry["headers"] = ["Authorization": "Bearer \(MCPAccessToken.ensure())"]
             }
-            servers["daisy"] = ["command": "npx", "args": arguments]
+            servers["daisy"] = entry
             root["mcpServers"] = servers
 
             let output = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
@@ -129,7 +148,7 @@ enum CursorMCPConfig {
         }
     }
 
-    private static func daisySSEURL(port: Int) -> String {
-        "http://127.0.0.1:\(port)/sse"
+    private static func daisyStreamableURL(port: Int) -> String {
+        "http://127.0.0.1:\(port)/mcp"
     }
 }

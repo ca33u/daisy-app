@@ -998,15 +998,18 @@ struct ConnectionsView: View {
         """
     }
 
-    /// Claude Code command. Claude Code ships a native SSE transport,
-    /// so we register the loopback SSE endpoint directly with
-    /// `--transport sse` — no `mcp-remote` bridge, no extra flags. The
-    /// port is the LIVE one (see `liveServerPort`).
+    /// Claude Code command. Claude Code speaks HTTP transports
+    /// natively, so we register the loopback endpoint directly — no
+    /// `mcp-remote` bridge, no extra flags. `--transport http` rather
+    /// than `--transport sse`: Anthropic's own docs mark the SSE
+    /// transport deprecated, and Daisy now serves POST /mcp. Entries
+    /// added with the older command keep working — /sse is still
+    /// served. The port is the LIVE one (see `liveServerPort`).
     private var claudeCodeCommand: String {
         let auth = MCPAccessToken.isRequired
             ? " --header \"Authorization: Bearer \(MCPAccessToken.ensure())\""
             : ""
-        return "claude mcp add --transport sse daisy http://127.0.0.1:\(liveServerPort)/sse\(auth)"
+        return "claude mcp add --transport http daisy http://127.0.0.1:\(liveServerPort)/mcp\(auth)"
     }
 
     private func copyToPasteboard(_ string: String, toast: String) {
