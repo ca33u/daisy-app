@@ -1,6 +1,26 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Couldn’t delete the note" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось удалить заметку"
+          }
+        }
+      }
+    },
+    "Delete this note" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить эту заметку"
+          }
+        }
+      }
+    },
     "Delete Screenshot" : {
       "localizations" : {
         "ru" : {

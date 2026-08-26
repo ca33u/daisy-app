@@ -363,6 +363,21 @@ final class RecordingSession {
     /// `nil` for an ordinary dictation, which pastes as always.
     var pendingScreenshotNote: ScreenshotNoteCapture.Pending?
 
+    /// The note this dictation was feeding was thrown away from its pill
+    /// while the hold was still live. Clearing `pendingScreenshotNote`
+    /// alone is NOT enough: by then the key may already be released and
+    /// the finalize pipeline suspended inside the ASR pass, and a nil
+    /// claim there means "ordinary dictation" — so the sentence the person
+    /// just cancelled would be pasted into whatever app is in front. This
+    /// says the whole take goes with the note.
+    ///
+    /// Zeroed at the top of the next `start()`, NOT in `reset()` — same
+    /// reason as `micOnlyCause`, mirrored: `start()` runs `reset()` in its
+    /// middle, well after `startDictationHotkey` has claimed the note, so
+    /// clearing there would drop a discard made while the session was
+    /// still coming up.
+    var screenshotNoteDiscarded = false
+
     /// Moments the user marked during THIS session, in time order. Kept
     /// in memory so the widget and detail view can react live; the file
     /// (`markers.json`) is written on every mark and is the truth after
@@ -1303,6 +1318,13 @@ final class RecordingSession {
 
         guard status == .idle || status == .finished || isFailed else { return }
 
+        // A discard flag left over from a previous take. Cleared HERE and
+        // not in `reset()`: reset runs in the middle of this function,
+        // after `startDictationHotkey` has already claimed a screenshot
+        // note, so clearing it there would swallow a trash press made
+        // while this very session was still starting up.
+        screenshotNoteDiscarded = false
+
         // Microphone preflight — FIRST, before any state is allocated
         // (2026-07-26). The Screen Recording path further down has
         // always gated on TCC; the mic path never did, so a denied or
@@ -1984,7 +2006,13 @@ final class RecordingSession {
     /// recording deliberately, as opposed to husk-cleanup and
     /// crash-recovery which must never delete on their own
     /// (see the husk-deletes-live-recording incident).
-    func discard() async {
+    ///
+    /// `announcing: false` for the one caller whose user is looking at
+    /// something else: trashing a screenshot note kills the dictation hold
+    /// feeding it, and "Recording discarded — nothing was saved" is both a
+    /// toast in a window they aren't in and a sentence about a recording
+    /// they never thought they started.
+    func discard(announcing: Bool = true) async {
         guard status == .recording || status == .paused else { return }
         skipFinalPassOnNextStop = false
         status = .stopping
@@ -2005,20 +2033,33 @@ final class RecordingSession {
         // under) the just-deleted directory — the husk-resurrection
         // class of bug (review find, 2026-08-21).
         let captured = elapsed
+        // Read before `reset()` puts the mode back to `.meeting`.
+        let wasDictation = (currentMode == .dictation)
         reset()
         if let dir {
-            do {
-                try FileManager.default.trashItem(at: dir, resultingItemURL: nil)
-            } catch {
+            if wasDictation {
+                // A dictation directory is scratch space — every ordinary
+                // dictation exit unlinks it (see RecordingSession+Dictation).
+                // Trashing it would leave a `mic.caf` of what the person
+                // just said sitting in ~/.Trash after they pressed delete,
+                // which for this app is a bug report, not a safety net.
                 try? FileManager.default.removeItem(at: dir)
+            } else {
+                do {
+                    try FileManager.default.trashItem(at: dir, resultingItemURL: nil)
+                } catch {
+                    try? FileManager.default.removeItem(at: dir)
+                }
             }
             log.info("Session discarded by user — directory removed (\(captured, privacy: .public)s captured)")
         }
-        ToastCenter.shared.show(
-            String(localized: "Recording discarded — nothing was saved."),
-            style: .info,
-            duration: .seconds(4)
-        )
+        if announcing {
+            ToastCenter.shared.show(
+                String(localized: "Recording discarded — nothing was saved."),
+                style: .info,
+                duration: .seconds(4)
+            )
+        }
         await SessionStore.shared.refresh()
     }
 

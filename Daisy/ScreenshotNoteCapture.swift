@@ -319,6 +319,7 @@ final class ScreenshotNoteCapture {
     /// nothing to hold, so say the plain thing instead of pointing at a
     /// key that doesn't exist.
     private func announceHoldHint() {
+        guard let note = pending else { return }
         let key = settings?.dictationHotkey
         let message: String
         if let key, key != .none {
@@ -329,7 +330,7 @@ final class ScreenshotNoteCapture {
         } else {
             message = String(localized: "Screenshot saved to Notes")
         }
-        announce(message)
+        announce(message, discarding: note)
     }
 
     // MARK: - Dictation hand-off
@@ -380,8 +381,103 @@ final class ScreenshotNoteCapture {
     /// Confirm where the words went — same visibility rule as the
     /// prompt: a dictation that vanished from the frontmost app needs to
     /// say where it landed, and it can't say it in a hidden window.
-    func announceAttached() {
-        announce(String(localized: "Added to the note"))
+    ///
+    /// Carries the trash too, and by then the note HAS the dictated text
+    /// in it. Deleting anyway is the point: this pill is the only moment
+    /// the note is in front of the person, they are being told a thing
+    /// was created, and "no, not that one" has to mean the same thing it
+    /// meant one second earlier. A note whose only content is a
+    /// screenshot they didn't want plus a sentence about a screenshot
+    /// they didn't want is not worth keeping half of.
+    func announceAttached(_ pending: Pending) {
+        announce(String(localized: "Added to the note"), discarding: pending)
+    }
+
+    // MARK: - Throwing it away
+
+    /// Undo the whole capture: stop the dictation that was feeding it,
+    /// give back the claim, and remove the note — image and all.
+    ///
+    /// No confirmation, by design. The artifact is seconds old, it was
+    /// created without being asked for, and the pill offering this is
+    /// itself the notice that it exists; a dialog in front of "I didn't
+    /// want that" would be the second unrequested thing in a row.
+    ///
+    /// Takes the note EXPLICITLY rather than reading `pending`. The pill
+    /// outlives the field twice over — `claimPending` hands the note to
+    /// the dictation session and nils it, and the confirmation pill
+    /// arrives after even that is gone — so a trash bound to whatever
+    /// `pending` happens to hold at click time would be bound to nothing
+    /// in exactly the two states where it is most likely to be pressed.
+    func discard(_ note: Pending) {
+        // 1. The dictation hold that claimed this note has nowhere left to
+        //    land. Cancel it whole: letting it finish would either write
+        //    the note's markdown back out (`attach` recreates the file) or
+        //    paste the words into whatever app is in front — and the
+        //    person pressing trash asked for neither.
+        //
+        //    The claim is cleared FIRST because `reset()` does not clear
+        //    it: both the release path and `failFast` would otherwise hand
+        //    the deleted note to `restorePending`, which would re-present a
+        //    pill for a note that no longer exists.
+        //
+        //    And clearing the claim is NOT enough on its own. The likeliest
+        //    moment for this button is the second after the key comes up,
+        //    when the pill is still frozen on screen and `finishDictation`
+        //    is suspended inside the ASR pass: `discard()` is a no-op at
+        //    `.stopping`, and a nil claim there reads as "ordinary
+        //    dictation", so the cancelled sentence would be pasted into
+        //    whatever app is in front. `screenshotNoteDiscarded` is what
+        //    the finalizer reads to drop the take with the note.
+        if let session = RecordingSession.current,
+           session.pendingScreenshotNote?.noteDirectory == note.noteDirectory {
+            session.pendingScreenshotNote = nil
+            session.screenshotNoteDiscarded = true
+            // `.dictation` guard on the DISCARD only: nothing else sets
+            // that field, but a bug that let a MEETING carry it must not
+            // turn this button into "throw away the meeting". A session
+            // still starting isn't discardable either (`discard` acts on
+            // .recording/.paused) — the flag covers that case.
+            if session.currentMode == .dictation {
+                Task { await session.discard(announcing: false) }
+            }
+        }
+
+        // 2. Our own window, for the case where the claim was never taken.
+        if pending?.noteDirectory == note.noteDirectory {
+            clearPending()
+        }
+
+        // 3. The note itself. Trash rather than unlink, matching
+        //    `RecordingSession.discard`: nothing here is worth recovering,
+        //    but a misfired click on a note that HAD been dictated into is
+        //    recoverable for free.
+        let ticket = SessionsFolder.acquireBase()
+        defer { ticket?.release() }
+        let fm = FileManager.default
+        do {
+            try fm.trashItem(at: note.noteDirectory, resultingItemURL: nil)
+        } catch {
+            do {
+                try fm.removeItem(at: note.noteDirectory)
+            } catch {
+                log.error("Discarding the screenshot note failed: \(error.localizedDescription, privacy: .public)")
+                // By now the hold has been cancelled and the window given
+                // up, so silence here would read as "deleted" while the
+                // note is still in the Library. Say so where the person
+                // actually is — the same surface that offered the button.
+                announce(
+                    String(localized: "Couldn’t delete the note"),
+                    notificationTitle: String(localized: "Couldn’t delete the note")
+                )
+                return
+            }
+        }
+        // Belt and braces: the panel hides the pill when the button fires,
+        // but the center still thinks ours is the bubble on screen.
+        WidgetBubbleCenter.shared.dismiss(tag: Self.bubbleTag)
+        log.info("Screenshot note discarded from the pill")
+        Task { await SessionStore.shared.refresh() }
     }
 
     /// Write dictated context into a claimed note. Returns whether it
@@ -423,10 +519,36 @@ final class ScreenshotNoteCapture {
     /// screenshot-note pill, never an unrelated prompt.
     private static let bubbleTag = "screenshot-note"
 
-    private func announce(_ message: String) {
+    /// Every pill that ANNOUNCES a note carries the trash — each one is
+    /// telling the person about something Daisy made without being asked,
+    /// and that is the moment to be able to say no. `note: nil` is for the
+    /// pills that announce something else (a failure), which have nothing
+    /// left to delete.
+    ///
+    /// The fallback notification never carries it: a banner can't offer
+    /// "delete it" and be sure the answer was read, and the artifact is one
+    /// Library row away.
+    private func announce(
+        _ message: String,
+        discarding note: Pending? = nil,
+        notificationTitle: String = String(localized: "Screenshot saved to Notes")
+    ) {
+        // Spelled out rather than mapped: the property's type is
+        // `(@MainActor () -> Void)?`, and inference through `Optional.map`
+        // into an isolated function type is not worth the cleverness.
+        var discardAction: (@MainActor () -> Void)?
+        if let note {
+            discardAction = { [weak self] in self?.discard(note) }
+        }
         WidgetBubbleCenter.shared.present(
-            WidgetBubbleContent(text: message, tag: Self.bubbleTag),
-            notificationTitle: String(localized: "Screenshot saved to Notes")
+            WidgetBubbleContent(
+                text: message,
+                tag: Self.bubbleTag,
+                destructiveTitle: note == nil
+                    ? nil : String(localized: "Delete this note"),
+                destructiveAction: discardAction
+            ),
+            notificationTitle: notificationTitle
         )
     }
 

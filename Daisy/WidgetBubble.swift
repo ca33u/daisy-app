@@ -54,6 +54,19 @@ struct WidgetBubbleContent: Identifiable, Equatable {
     /// content value is never mutated, so comparing ids is sufficient
     /// for SwiftUI's diffing.
     var action: (@MainActor () -> Void)?
+    /// Tooltip for the destructive control below. Its presence is what
+    /// puts the control on the pill.
+    var destructiveTitle: String?
+    /// A THIRD meaning, for pills that announce something Daisy just
+    /// created. The pill already says two things: the body accepts, and
+    /// the ✕ dismisses — and dismissing leaves the thing alone, which is
+    /// right for a prompt and useless when the answer is "I didn't want
+    /// that at all". This throws the thing away. Drawn as a trash glyph
+    /// in the error colour, so it can't be read as another ✕.
+    ///
+    /// Not carried by the notification fallback: a banner has one action
+    /// at most, and the one that DELETES is not the one to guess at.
+    var destructiveAction: (@MainActor () -> Void)?
 
     static func == (lhs: WidgetBubbleContent, rhs: WidgetBubbleContent) -> Bool {
         lhs.id == rhs.id
@@ -183,6 +196,12 @@ protocol WidgetBubbleHosting: AnyObject {
 /// The bubble's content view. Mirrors `ToastView`'s look (elevated card,
 /// hairline border, soft shadow) so the two feel like one design, but as
 /// a rounded rect rather than a capsule since it wraps to two lines.
+///
+/// SUPERSEDED and unreferenced: `FloatingPanelController.showBubble` draws
+/// the live pill in plain AppKit after this never painted inside a
+/// borderless panel on macOS 27 (see that method's comment). Kept only as
+/// the reference for what the pill is meant to look like — it does NOT
+/// carry the destructive control, and anything added here reaches nobody.
 struct WidgetBubbleView: View {
     let content: WidgetBubbleContent
     let onAction: () -> Void

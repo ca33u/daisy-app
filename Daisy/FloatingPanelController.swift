@@ -32,6 +32,11 @@ final class FloatingPanelController {
     /// Objc target for the bubble's action button — see
     /// `BubbleActionTarget`. Lives exactly as long as the bubble.
     private var bubbleActionTarget: AnyObject?
+    /// Same, for the bubble's destructive (trash) button. A second slot
+    /// rather than a reused one: a pill can carry both, and one `AnyObject`
+    /// holding two targets means whichever was assigned second is the only
+    /// button that still fires.
+    private var bubbleDestructiveTarget: AnyObject?
     /// When set, the panel stays hidden until this date — regardless of
     /// session status. Set by the right-click "Hide for…" menu. Backed by
     /// AppSettings so the suspension is persisted and survives an app
@@ -378,11 +383,14 @@ extension FloatingPanelController: WidgetBubbleHosting {
         // at a 15 pt glyph to start recording is fiddly). Dismissal
         // stays on the ✕, which swallows its own mouseDown as an
         // NSButton subview. Action-less pills keep tap-to-dismiss.
+        //
+        // Hide BEFORE running the action, here and in both buttons below.
+        // An action is allowed to put up a pill of its own (the
+        // screenshot-note trash does, when the delete fails), and hiding
+        // afterwards would tear that replacement straight back down.
         card.onTap = { [weak self] in
-            if let action = content.action {
-                action()
-            }
             self?.hideBubble()
+            content.action?()
         }
 
         // Single-line pill, matched to the PASSIVE (mini) daisy: same
@@ -405,8 +413,8 @@ extension FloatingPanelController: WidgetBubbleHosting {
         var actionControl: NSView?
         if content.actionSymbol != nil || content.actionTitle != nil {
             let target = BubbleActionTarget { [weak self] in
-                content.action?()
                 self?.hideBubble()
+                content.action?()
             }
             bubbleActionTarget = target
             let button: NSButton
@@ -428,6 +436,36 @@ extension FloatingPanelController: WidgetBubbleHosting {
             actionControl = button
         }
 
+        // Throw-it-away affordance, for a pill announcing something Daisy
+        // just created. Deliberately NOT another glyph in the ✕'s clothing:
+        // the ✕ leaves the artifact alone, this deletes it, and the two
+        // must not be a coin flip. Trash glyph, error colour, its own
+        // target, and it sits inboard of the ✕ so the muscle-memory
+        // "dismiss is the far-right thing" stays true.
+        var destructiveControl: NSView?
+        if let destructiveAction = content.destructiveAction {
+            let target = BubbleActionTarget { [weak self] in
+                self?.hideBubble()
+                destructiveAction()
+            }
+            bubbleDestructiveTarget = target
+            let image = NSImage(systemSymbolName: "trash", accessibilityDescription: content.destructiveTitle)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold))
+            let button = NSButton(
+                image: image ?? NSImage(),
+                target: target,
+                action: #selector(BubbleActionTarget.fire)
+            )
+            button.toolTip = content.destructiveTitle
+            button.isBordered = false
+            button.contentTintColor = NSColor(Color.daisyError)
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.setContentHuggingPriority(.required, for: .horizontal)
+            button.setContentCompressionResistancePriority(.required, for: .horizontal)
+            card.addSubview(button)
+            destructiveControl = button
+        }
+
         // Close affordance: an ✕ inside a countdown ring that unwinds
         // over the bubble's lifetime — "act now or this goes away".
         let closeButton = CountdownCloseButton(diameter: 22)
@@ -447,14 +485,29 @@ extension FloatingPanelController: WidgetBubbleHosting {
                 lessThanOrEqualToConstant: screen.visibleFrame.width - 80
             )
         ])
+        // Right-to-left chain: ✕, then the trash if there is one, then
+        // whatever comes before it. Written as a moving anchor so adding
+        // a control never means re-deriving the other two constraints.
+        var trailingNeighbour = closeButton.leadingAnchor
+        if let destructiveControl {
+            NSLayoutConstraint.activate([
+                // 12, not the 8 the action button gets. The two glyphs
+                // either side of this gap have wildly asymmetric costs:
+                // slipping off the trash onto the ✕ costs nothing,
+                // slipping off the ✕ onto the trash destroys the note.
+                destructiveControl.trailingAnchor.constraint(equalTo: trailingNeighbour, constant: -12),
+                destructiveControl.centerYAnchor.constraint(equalTo: card.centerYAnchor)
+            ])
+            trailingNeighbour = destructiveControl.leadingAnchor
+        }
         if let actionControl {
             NSLayoutConstraint.activate([
                 actionControl.leadingAnchor.constraint(equalTo: label.trailingAnchor, constant: 10),
-                actionControl.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -8),
+                actionControl.trailingAnchor.constraint(equalTo: trailingNeighbour, constant: -8),
                 actionControl.centerYAnchor.constraint(equalTo: card.centerYAnchor)
             ])
         } else {
-            label.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -8).isActive = true
+            label.trailingAnchor.constraint(equalTo: trailingNeighbour, constant: -8).isActive = true
         }
 
         card.layoutSubtreeIfNeeded()
@@ -511,6 +564,7 @@ extension FloatingPanelController: WidgetBubbleHosting {
         bubblePanel?.orderOut(nil)
         bubblePanel = nil
         bubbleActionTarget = nil
+        bubbleDestructiveTarget = nil
         bubbleCloseButton = nil
     }
 
@@ -578,7 +632,14 @@ extension FloatingPanelController: WidgetBubbleHosting {
     private final class BubbleActionTarget: NSObject {
         private let onFire: () -> Void
         init(onFire: @escaping () -> Void) { self.onFire = onFire }
-        @objc func fire() { onFire() }
+        /// The closure ends in `hideBubble()`, which nils the controller's
+        /// only strong reference to THIS object (`NSControl.target` is
+        /// weak) while the closure is still on the stack. Copy it out
+        /// first so its captured context outlives the target that held it.
+        @objc func fire() {
+            let run = onFire
+            run()
+        }
     }
 
     /// ✕ inside a countdown ring. The ring starts full and unwinds

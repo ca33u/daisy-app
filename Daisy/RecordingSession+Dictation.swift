@@ -164,7 +164,7 @@ extension RecordingSession {
             // still counts toward the profile unlock.
             let prepared = DictationPaste.shared.prepare(transcriptText)
             if ScreenshotNoteCapture.shared.attach(context: prepared, to: pending) {
-                ScreenshotNoteCapture.shared.announceAttached()
+                ScreenshotNoteCapture.shared.announceAttached(pending)
                 if let dir = sessionDirectory {
                     try? FileManager.default.removeItem(at: dir)
                 }
@@ -194,6 +194,20 @@ extension RecordingSession {
             // Real text, broken write: the words go to the clipboard
             // below; the frozen "hold" pill is moot and timer-less.
             ScreenshotNoteCapture.shared.withdrawHoldHint()
+        }
+        // The note this hold was answering was thrown away from its pill
+        // while we were still decoding. The claim is already nil by now,
+        // which on its own reads as "ordinary dictation" — and pasting the
+        // cancelled sentence into whatever app is in front is the one
+        // outcome the trash exists to prevent. The take goes with the note.
+        if screenshotNoteDiscarded {
+            log.info("Screenshot note discarded mid-hold — dictation dropped, nothing pasted")
+            if let dir = sessionDirectory {
+                try? FileManager.default.removeItem(at: dir)
+            }
+            releaseSessionsFolderTicket()
+            reset()
+            return
         }
         DictationPaste.shared.handle(transcript: transcriptText)
         if let dir = sessionDirectory {
