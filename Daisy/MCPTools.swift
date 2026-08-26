@@ -48,6 +48,25 @@ enum MCPTools {
 
     // MARK: - Catalog
 
+    /// Annotations every READ tool shares: mutates nothing, has
+    /// nothing to destroy, calling it twice is the same as calling it
+    /// once, and the only world it touches is this Mac's own session
+    /// archive (no network, no external service).
+    ///
+    /// We spell out all four hints instead of leaning on defaults
+    /// because the MCP defaults are the pessimistic ones
+    /// (`destructiveHint` and `openWorldHint` both default to TRUE),
+    /// so an omitted annotation reads as "destructive, open-world".
+    private static func readOnlyAnnotations(_ title: String) -> MCPToolAnnotations {
+        MCPToolAnnotations(
+            title: title,
+            readOnlyHint: true,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false
+        )
+    }
+
     /// Advertise the full toolset to the MCP client via `tools/list`.
     /// JSON Schemas are hand-rolled as AnyJSON literals.
     static func catalog() -> [MCPTool] {
@@ -80,7 +99,8 @@ enum MCPTools {
                         ])
                     ]),
                     "additionalProperties": .bool(false)
-                ])
+                ]),
+                annotations: readOnlyAnnotations("List sessions")
             ),
             MCPTool(
                 name: "get_session",
@@ -95,7 +115,8 @@ enum MCPTools {
                     ]),
                     "required": .array([.string("id")]),
                     "additionalProperties": .bool(false)
-                ])
+                ]),
+                annotations: readOnlyAnnotations("Get session")
             ),
             MCPTool(
                 name: "search_sessions",
@@ -116,7 +137,8 @@ enum MCPTools {
                     ]),
                     "required": .array([.string("query")]),
                     "additionalProperties": .bool(false)
-                ])
+                ]),
+                annotations: readOnlyAnnotations("Search sessions")
             ),
             MCPTool(
                 name: "list_folders",
@@ -125,7 +147,8 @@ enum MCPTools {
                     "type": .string("object"),
                     "properties": .object([:]),
                     "additionalProperties": .bool(false)
-                ])
+                ]),
+                annotations: readOnlyAnnotations("List folders")
             ),
             MCPTool(
                 name: "list_destinations",
@@ -134,7 +157,8 @@ enum MCPTools {
                     "type": .string("object"),
                     "properties": .object([:]),
                     "additionalProperties": .bool(false)
-                ])
+                ]),
+                annotations: readOnlyAnnotations("List destinations")
             ),
         ] + actionCatalog()
     }
@@ -156,6 +180,24 @@ enum MCPTools {
     ///     would mean building a parallel mutation path (forbidden).
     ///   • any settings / API-key / provider / server-config or
     ///     network-binding mutation.
+    ///
+    /// Annotations here say `destructiveHint: false` for all four:
+    /// nothing in this list removes user content. `set_session_title`
+    /// and `rename_speaker` overwrite one field and are undone by
+    /// calling them again with the old value; `route_session_…` only
+    /// ADDS a record on the destination side; `resummarize_session`
+    /// replaces a DERIVED artefact (summary.json) that Daisy can
+    /// regenerate — the transcript and audio it came from are never
+    /// touched. The "the previous summary is not kept" caveat lives in
+    /// that tool's description, where a model will actually read it.
+    ///
+    /// `openWorldHint` is NOT uniformly false, unlike the read tools:
+    /// `resummarize_session` can hand the transcript to a cloud LLM on
+    /// the user's key, and `route_session_to_destination` posts to
+    /// Notion / Linear / Slack / a webhook. Those two genuinely reach
+    /// an open world — which is exactly why they're the two gated
+    /// behind `allowExternalActions`. Claiming otherwise would hide
+    /// the one property a client most needs to warn about.
     private static func actionCatalog() -> [MCPTool] {
         [
             MCPTool(
@@ -175,7 +217,19 @@ enum MCPTools {
                     ]),
                     "required": .array([.string("id")]),
                     "additionalProperties": .bool(false)
-                ])
+                ]),
+                annotations: MCPToolAnnotations(
+                    title: "Re-summarize session",
+                    readOnlyHint: false,
+                    destructiveHint: false,
+                    // Not idempotent: every call re-runs the model, so
+                    // the stored summary changes (and tokens are spent)
+                    // even with identical arguments.
+                    idempotentHint: false,
+                    // May leave the Mac — the user's configured summary
+                    // provider can be a cloud API.
+                    openWorldHint: true
+                )
             ),
             MCPTool(
                 name: "set_session_title",
@@ -194,7 +248,14 @@ enum MCPTools {
                     ]),
                     "required": .array([.string("id"), .string("title")]),
                     "additionalProperties": .bool(false)
-                ])
+                ]),
+                annotations: MCPToolAnnotations(
+                    title: "Rename session",
+                    readOnlyHint: false,
+                    destructiveHint: false,
+                    idempotentHint: true,
+                    openWorldHint: false
+                )
             ),
             MCPTool(
                 name: "rename_speaker",
@@ -217,7 +278,16 @@ enum MCPTools {
                     ]),
                     "required": .array([.string("id"), .string("speaker_id"), .string("name")]),
                     "additionalProperties": .bool(false)
-                ])
+                ]),
+                annotations: MCPToolAnnotations(
+                    title: "Name a speaker",
+                    readOnlyHint: false,
+                    destructiveHint: false,
+                    // Same id + speaker + name twice lands on the same
+                    // mapping; the SpeakerProfile seed is upsert-shaped.
+                    idempotentHint: true,
+                    openWorldHint: false
+                )
             ),
             MCPTool(
                 name: "route_session_to_destination",
@@ -236,7 +306,20 @@ enum MCPTools {
                     ]),
                     "required": .array([.string("id"), .string("destination")]),
                     "additionalProperties": .bool(false)
-                ])
+                ]),
+                annotations: MCPToolAnnotations(
+                    title: "Send session to a destination",
+                    readOnlyHint: false,
+                    // Purely additive on the destination side — it
+                    // creates a record, never edits or removes one.
+                    destructiveHint: false,
+                    // Explicitly NOT idempotent: Daisy does not
+                    // de-duplicate, so a second call creates a second
+                    // page / issue / message.
+                    idempotentHint: false,
+                    // Posts to Notion / Linear / Slack / a webhook.
+                    openWorldHint: true
+                )
             ),
         ]
     }

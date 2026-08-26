@@ -179,6 +179,50 @@ nonisolated struct MCPInitializeResult: Codable, Sendable {
     let serverInfo: MCPServerInfo
 }
 
+/// Behaviour hints attached to a tool (`Tool.annotations` in the MCP
+/// schema, present since the 2025-03-26 revision). Every field is a
+/// HINT: the spec is explicit that clients must not treat these as
+/// guarantees from an untrusted server. For us they're how a client
+/// can tell the five read tools from the four write ones without
+/// parsing English descriptions — which is what ChatGPT's developer
+/// mode and Anthropic's connector directory key off.
+///
+/// Spec defaults, which is why we spell every field out rather than
+/// relying on omission: `readOnlyHint` false, `destructiveHint` TRUE,
+/// `idempotentHint` false, `openWorldHint` TRUE. Staying silent means
+/// "destructive, open-world" — the opposite of what Daisy's catalog is.
+nonisolated struct MCPToolAnnotations: Codable, Sendable {
+    /// Human-readable display name. Client display precedence is
+    /// `title` → `annotations.title` → `name`; we set it here (rather
+    /// than the top-level `Tool.title`) because `annotations.title`
+    /// is understood by 2025-03-26 clients as well as newer ones.
+    let title: String?
+    /// True = the tool does not modify anything.
+    let readOnlyHint: Bool?
+    /// True = the tool may perform destructive (non-additive) updates.
+    /// Only meaningful when `readOnlyHint` is false.
+    let destructiveHint: Bool?
+    /// True = calling again with the same arguments changes nothing
+    /// further. Only meaningful when `readOnlyHint` is false.
+    let idempotentHint: Bool?
+    /// True = the tool may reach an open world of external entities.
+    let openWorldHint: Bool?
+
+    init(
+        title: String? = nil,
+        readOnlyHint: Bool? = nil,
+        destructiveHint: Bool? = nil,
+        idempotentHint: Bool? = nil,
+        openWorldHint: Bool? = nil
+    ) {
+        self.title = title
+        self.readOnlyHint = readOnlyHint
+        self.destructiveHint = destructiveHint
+        self.idempotentHint = idempotentHint
+        self.openWorldHint = openWorldHint
+    }
+}
+
 /// Tool descriptor advertised via `tools/list`.
 nonisolated struct MCPTool: Codable, Sendable {
     let name: String
@@ -186,6 +230,43 @@ nonisolated struct MCPTool: Codable, Sendable {
     /// JSON Schema describing the tool's arguments. We hand-roll
     /// schemas as `AnyJSON` objects so we don't pull in a schema lib.
     let inputSchema: AnyJSON
+    /// Optional behaviour hints. Omitted entirely when nil (a nil
+    /// Optional encodes to nothing), so pre-2025-03-26 clients see the
+    /// exact same tool shape they saw before.
+    let annotations: MCPToolAnnotations?
+
+    init(
+        name: String,
+        description: String,
+        inputSchema: AnyJSON,
+        annotations: MCPToolAnnotations? = nil
+    ) {
+        self.name = name
+        self.description = description
+        self.inputSchema = inputSchema
+        self.annotations = annotations
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name, description, inputSchema, annotations
+    }
+
+    /// Decoding matters because this type runs in BOTH directions:
+    /// Daisy advertises tools with it, and `MCPClient` decodes some
+    /// other server's `tools/list` with it when the user points a
+    /// destination at a third-party MCP server.
+    ///
+    /// `annotations` is therefore read with `try?`. The field is a bag
+    /// of hints we don't act on, servers in the wild put arbitrary
+    /// shapes there, and a strict decode would fail the WHOLE catalog
+    /// over one malformed hint on one tool.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        description = try c.decode(String.self, forKey: .description)
+        inputSchema = try c.decode(AnyJSON.self, forKey: .inputSchema)
+        annotations = try? c.decode(MCPToolAnnotations.self, forKey: .annotations)
+    }
 }
 
 nonisolated struct MCPToolsListResult: Codable, Sendable {
