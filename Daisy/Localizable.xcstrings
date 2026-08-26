@@ -1,6 +1,46 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Delete Screenshot" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить скриншот"
+          }
+        }
+      }
+    },
+    "Delete this screenshot?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить этот скриншот?"
+          }
+        }
+      }
+    },
+    "The image and its place on this recording's timeline are removed from disk. This can't be undone." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Картинка и её место на таймлайне записи будут удалены с диска. Это действие необратимо."
+          }
+        }
+      }
+    },
+    "That screenshot couldn’t be deleted." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось удалить скриншот."
+          }
+        }
+      }
+    },
     "The microphone is set to “%@” — a virtual audio device. If the recording comes out empty, pick your microphone in Settings." : {
       "localizations" : {
         "ru" : {

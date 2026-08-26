@@ -59,17 +59,21 @@ struct SessionDetailView: View {
     /// sidecar is a handful of bytes and only re-read on the tick.
     @State private var suggestionRefreshTick = 0
     /// Frame shown by the screen-preview sheet — set by tapping a
-    /// `[mm:ss]` stamp in the transcript.
-    @State private var previewedScreenshot: PreviewedFrame?
+    /// `[mm:ss]` stamp in the transcript, or a thumbnail in the
+    /// Screenshots section.
+    @State private var previewedScreenshot: FrameRef?
+    /// Frame the delete confirmation is asking about. Non-nil only while
+    /// the alert is up — deleting is one click from the thumbnail, so it
+    /// asks first (the picture doesn't come back).
+    @State private var frameToDelete: FrameRef?
     /// Pending "scroll the transcript to this moment" ask. Carries an id
     /// so asking twice for the same second still moves the pane.
     @State private var transcriptScroll: ScrollableTextView.ScrollRequest?
     /// Position in `session.distinctScreenshots` for the header stepper.
     /// -1 = not started, so the first tap lands on frame 1.
     @State private var screenStep = -1
-    /// Frame the strip should scroll to. Set by the stepper and by a
-    /// timecode tap, so both keep the two panes pointing at the same
-    /// moment.
+    /// Frame the Screenshots grid highlights. Set by the stepper and by a
+    /// timecode tap, so the picture and the words point at one moment.
     @State private var stripTarget: URL?
     /// Local draft for the tag field in the header. Mirrors
     /// `session.tag` and commits to disk on blur / Enter — same
@@ -155,7 +159,13 @@ struct SessionDetailView: View {
                 // summary (or vice versa) doesn't have to re-collapse
                 // every session open.
                 let hasSummary = session.summary != nil || isSummaryGenerating
-                if hasSummary || session.hasScreenshots {
+                // `|| isResummarizing`: a MANUAL Re-summarize on a session
+                // that has no summary yet sets `isRunningAction`, not
+                // `sessionsGenerating`, so the block would vanish for the
+                // whole run and the skeleton below would never render. The
+                // screenshots arm used to hold the block open by accident;
+                // now the progress state says so itself.
+                if hasSummary || isResummarizing {
                     CollapsibleBlock(
                         title: summaryBlockTitle,
                         storageKey: "daisy.session.detail.summaryExpanded",
@@ -193,8 +203,27 @@ struct SessionDetailView: View {
                             } else if isResummarizing {
                                 summarySkeletonSection
                             }
-                            if session.hasScreenshots { screenshotsSection }
                         }
+                    }
+                }
+                // Screenshots — their OWN accordion since 2026-08-26 (Egor).
+                // They used to hang off the bottom of the Summary block as a
+                // horizontal strip, which made them a footnote to a summary
+                // they don't belong to (a session can have frames and no
+                // summary at all) and gave a frame no place to be acted on.
+                // This block is where a screenshot is now looked at and
+                // deleted; the transcript's [mm:ss] stamps and the header
+                // stepper stay as NAVIGATION into it. Absent, not empty, when
+                // there are no frames.
+                if session.hasScreenshots {
+                    CollapsibleBlock(
+                        title: String(localized: "Screenshots (\(session.screenshotURLs.count))"),
+                        storageKey: "daisy.session.detail.screenshotsExpanded",
+                        copyLabel: "",
+                        copyText: { "" },
+                        showsCopy: false
+                    ) {
+                        screenshotsGrid
                     }
                 }
                 // Follow-up — its OWN accordion with its own copy button
@@ -264,7 +293,24 @@ struct SessionDetailView: View {
         } message: {
             Text("The audio tracks move to the Trash. The transcript, summary and screenshots stay.")
         }
-        // A sheet rather than a popover: the strip's 160pt thumbnails are
+        // One line, two buttons — the deliberately light confirmation Egor
+        // asked for. A frame is cheap to lose next to an hour of audio, so
+        // this exists only so a stray click on a hover control can't take a
+        // picture silently; it is not a dialog to read.
+        .alert(
+            "Delete this screenshot?",
+            isPresented: Binding(
+                get: { frameToDelete != nil },
+                set: { if !$0 { frameToDelete = nil } }
+            ),
+            presenting: frameToDelete
+        ) { frame in
+            Button("Cancel", role: .cancel) { frameToDelete = nil }
+            Button("Delete", role: .destructive) { deleteScreenshot(frame.url) }
+        } message: { _ in
+            Text("The image and its place on this recording's timeline are removed from disk. This can't be undone.")
+        }
+        // A sheet rather than a popover: the grid's 160pt thumbnails are
         // too small to read a slide off, and a popover anchored to a
         // click inside an NSTextView has nothing stable to attach to.
         .sheet(item: $previewedScreenshot) { frame in
@@ -718,6 +764,12 @@ struct SessionDetailView: View {
             stripTarget = nil
             previewedScreenshot = nil
             transcriptScroll = nil
+            // Same reason, sharper consequence: a delete confirmation left
+            // standing would carry the OLD session's frame URL while
+            // `deleteScreenshot` reads the NEW session's directory — it
+            // would delete one session's picture and scrub another
+            // session's sidecars.
+            frameToDelete = nil
         }
         .onChange(of: session.tag) { _, newValue in
             // External edit (e.g., from another window or a future
@@ -1217,86 +1269,90 @@ struct SessionDetailView: View {
 
     // MARK: - Screenshots
 
-    private var screenshotsSection: some View {
-        mdSection(title: String(localized: "Screenshots (\(session.screenshotURLs.count))")) {
-            screenshotStrip
-        }
-    }
-
-    private var screenshotStrip: some View {
-        ScrollViewReader { proxy in
-            screenshotRow
-                // Keeps the picture and the words pointing at the same
-                // moment: the stepper moves both panes, so the frame is
-                // on screen by the time the transcript lands on its line.
-                .onChange(of: stripTarget) { _, target in
-                    guard let target else { return }
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        proxy.scrollTo(target, anchor: .center)
-                    }
-                }
-        }
-    }
-
-    private var screenshotRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(session.screenshotURLs, id: \.self) { url in
-                    VStack(alignment: .leading, spacing: 4) {
-                        AsyncImage(url: url) { image in
-                            image.resizable().scaledToFill()
-                        } placeholder: {
-                            Color.gray.opacity(0.2)
-                        }
-                        .frame(width: 160, height: 100)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        // Where the frame sits on the recording's
-                        // timeline, on the same clock as the transcript's
-                        // [mm:ss] markers — which is the whole point:
-                        // read a moment in the transcript, find the
-                        // picture. Absent for sessions recorded before
-                        // the index existed.
-                        if let timecode = ScreenshotIndex.timecode(
-                            for: url, offsets: session.screenshotOffsets
-                        ) {
-                            Text(timecode)
-                                .font(.caption2.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .id(url)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .strokeBorder(
-                                stripTarget == url ? Color.daisyHomeAccent : .clear,
-                                lineWidth: 2
-                            )
-                    )
-                    // Double first: SwiftUI resolves the higher count
-                    // before falling back to the single tap. Belt and
-                    // braces below — if arbitration ever swallows the
-                    // double-tap, opening the frame is still reachable.
-                    .contextMenu {
-                        Button("Open Screenshot") { NSWorkspace.shared.open(url) }
-                        Button("Reveal in Finder") {
-                            NSWorkspace.shared.activateFileViewerSelecting([url])
-                        }
-                    }
-                    .onTapGesture(count: 2) {
-                        NSWorkspace.shared.open(url)
-                    }
-                    // The reverse trip — saw the slide, want the words.
-                    .onTapGesture {
-                        stripTarget = url
-                        guard let seconds = session.offset(of: url) else { return }
-                        transcriptScroll = ScrollableTextView.ScrollRequest(
-                            id: (transcriptScroll?.id ?? 0) + 1,
-                            seconds: seconds
-                        )
-                    }
-                }
+    /// Every frame of the session, as a wrapping grid.
+    ///
+    /// `LazyVGrid`, and only one of it. A two-hour meeting is a couple of
+    /// hundred JPEGs and this view used to build them into a non-lazy
+    /// `HStack` — every tile materialised on open whether or not it was
+    /// ever scrolled to. That is also why the horizontal strip is GONE
+    /// rather than kept alongside the grid: two views over the same frames
+    /// means the same pictures held twice.
+    ///
+    /// No scroll-into-view. The strip had one (`ScrollViewReader` +
+    /// `scrollTo`), and it moved a HORIZONTAL offset inside a card, which
+    /// cost nothing. The grid's enclosing scroll view is the whole page, so
+    /// the same call on the header stepper would yank the reader away from
+    /// the transcript the stepper exists to walk. `stripTarget` still marks
+    /// the frame — a grid shows dozens at once, so the mark usually lands
+    /// somewhere already visible.
+    private var screenshotsGrid: some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 10)],
+            alignment: .leading,
+            spacing: 12
+        ) {
+            ForEach(session.screenshotURLs, id: \.self) { url in
+                ScreenshotTile(
+                    url: url,
+                    // Where the frame sits on the recording's timeline, on
+                    // the same clock as the transcript's [mm:ss] markers —
+                    // which is the whole point: read a moment in the
+                    // transcript, find the picture. Absent for sessions
+                    // recorded before the index existed.
+                    timecode: ScreenshotIndex.timecode(
+                        for: url, offsets: session.screenshotOffsets
+                    ),
+                    isHighlighted: stripTarget == url,
+                    onOpen: { openFrame(url) },
+                    onDelete: { frameToDelete = FrameRef(url: url) }
+                )
             }
         }
+    }
+
+    /// A click on a thumbnail: show it big, and take the transcript to the
+    /// moment it was captured. The preview covers the page, so the second
+    /// half happens behind it — close the sheet and the words are already
+    /// where the picture was.
+    private func openFrame(_ url: URL) {
+        stripTarget = url
+        previewedScreenshot = FrameRef(url: url)
+        guard let seconds = session.offset(of: url) else { return }
+        transcriptScroll = ScrollableTextView.ScrollRequest(
+            id: (transcriptScroll?.id ?? 0) + 1,
+            seconds: seconds
+        )
+    }
+
+    /// Delete one frame — the file plus every sidecar that names it (see
+    /// `ScreenshotDeletion`). Confirmed by the alert above; there is no
+    /// undo, so view state pointing at the frame is dropped BEFORE it goes
+    /// rather than left to resolve against a file that isn't there.
+    private func deleteScreenshot(_ url: URL) {
+        frameToDelete = nil
+        if previewedScreenshot?.url == url { previewedScreenshot = nil }
+        if stripTarget == url { stripTarget = nil }
+        // Frame numbers don't renumber, but the stepper's position is an
+        // INDEX into a list that just got shorter — restart it rather than
+        // let it point one past where the user thought they were.
+        screenStep = -1
+
+        let directory = session.directoryURL
+        let id = session.id
+        let ticket = SessionsFolder.acquireAccess(to: directory, requireWrite: true)
+        let deleted = ScreenshotDeletion.delete(url, in: directory)
+        ticket?.release()
+        guard deleted else {
+            ToastCenter.shared.show(
+                String(localized: "That screenshot couldn’t be deleted."),
+                style: .error
+            )
+            return
+        }
+        // Re-read this one folder: `screenshotURLs`, the offsets and the
+        // highlights all come from disk, and the grid, the stepper and the
+        // transcript's stamps must agree about what still exists.
+        Task { await SessionStore.shared.reloadSession(id: id) }
     }
 
     // MARK: - Transcript
@@ -1344,7 +1400,7 @@ struct SessionDetailView: View {
                         ? { seconds in
                             let frame = session.screenshot(at: seconds)
                             stripTarget = frame
-                            previewedScreenshot = frame.map(PreviewedFrame.init)
+                            previewedScreenshot = frame.map(FrameRef.init)
                         }
                         : nil,
                     scrollRequest: transcriptScroll
@@ -2329,12 +2385,107 @@ struct SessionDetailView: View {
 // nesting as "this card holds N cards" rather than "two different
 // component families coexisting".
 
-/// Wrapper so a frame URL can drive `.sheet(item:)`. A retroactive
-/// `URL: Identifiable` would be visible to the whole module for the sake
-/// of one sheet.
-private struct PreviewedFrame: Identifiable {
+/// Wrapper so a frame URL can drive `.sheet(item:)` and `.alert(presenting:)`.
+/// A retroactive `URL: Identifiable` would be visible to the whole module
+/// for the sake of two modifiers.
+private struct FrameRef: Identifiable {
     let url: URL
     var id: String { url.path }
+}
+
+/// One frame in the Screenshots grid.
+///
+/// Its own view for one reason: hover state. A `@State` per tile keeps the
+/// trash affordance local — a single hover flag on the parent would light
+/// every thumbnail at once, and re-render the whole grid on every mouse
+/// move across it.
+///
+/// Delete is offered twice on purpose, matching how the rest of the app
+/// deletes: a hover control for the mouse already on the picture, and a
+/// context-menu item for anyone who reaches for right-click first (the same
+/// menu that has always carried Open / Reveal). Both go through the parent's
+/// confirmation — neither deletes on the click itself.
+///
+/// A tap opens the frame; Preview.app lives in the context menu.
+private struct ScreenshotTile: View {
+    let url: URL
+    let timecode: String?
+    /// True when the stepper or a transcript timecode is pointing here.
+    let isHighlighted: Bool
+    let onOpen: () -> Void
+    let onDelete: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            AsyncImage(url: url) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                Color.gray.opacity(0.2)
+            }
+            .frame(height: 100)
+            .frame(maxWidth: .infinity)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(
+                        isHighlighted ? Color.daisyHomeAccent : .clear,
+                        lineWidth: 2
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            // ONE tap gesture, deliberately. The strip carried a
+            // count-2 "open in Preview.app" under a count-1; now that the
+            // single tap opens the in-app preview, a double-click that
+            // fires both — which SwiftUI's arbitration does on some macOS
+            // builds — would open the sheet AND hand the file to another
+            // app. Preview.app stays reachable from the context menu.
+            .onTapGesture(perform: onOpen)
+            // ORDER MATTERS: the trash goes on AFTER the taps above, so it
+            // sits over the surface that carries them and wins the click.
+            // Overlaid before them, a click on the trash would be a click
+            // on the picture — which opens it, and the one control whose
+            // whole job is destructive would be dead.
+            .overlay(alignment: .topTrailing) {
+                if hovering {
+                    Button(action: onDelete) {
+                        Image(systemName: "trash")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.daisyError)
+                            .padding(5)
+                            .background(
+                                Circle().fill(Color.daisyBgElevated.opacity(0.92))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help(String(localized: "Delete Screenshot"))
+                    .padding(6)
+                    .transition(.opacity)
+                }
+            }
+            if let timecode {
+                Text(timecode)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        // Hit area for the hover + the context menu covers the caption too,
+        // so a right-click just under the picture still finds the menu.
+        // Carries no gesture of its own, so the taps above keep priority.
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .animation(.easeInOut(duration: 0.12), value: hovering)
+        .contextMenu {
+            Button("Open Screenshot") { NSWorkspace.shared.open(url) }
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            }
+            Divider()
+            Button("Delete Screenshot", role: .destructive, action: onDelete)
+        }
+    }
 }
 
 private struct CollapsibleBlock<Accessory: View, Content: View>: View {
