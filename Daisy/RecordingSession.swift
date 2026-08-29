@@ -245,6 +245,16 @@ final class RecordingSession {
             systemTranscriber.localeIdentifier = localeIdentifier
         }
     }
+
+    /// The language actually HEARD, as opposed to `localeIdentifier`,
+    /// which is the setting and reads "auto" for most people. Snapped by
+    /// the transcriber once it has enough committed text, nil until then
+    /// (and nil for a session where the user pinned a language — there
+    /// `localeIdentifier` already is the answer). Mic side first: it is
+    /// the user's own language, which is what the voice corpus asks for.
+    var detectedLanguage: String? {
+        micTranscriber.detectedLanguage ?? systemTranscriber.detectedLanguage
+    }
     private(set) var sessionDirectory: URL?
     private(set) var micArchiveURL: URL?
     private(set) var systemArchiveURL: URL?

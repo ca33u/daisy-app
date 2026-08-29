@@ -41,6 +41,12 @@ enum MarkdownExporter {
         lines.append("type: meeting-transcript")
         lines.append("source: Daisy")
         lines.append("locale: \(session.localeIdentifier)")
+        // `locale:` above is the SETTING — "auto" for most people, and
+        // useless as a language signal. This is what was actually heard,
+        // written only when the transcriber managed to snap it.
+        if let detected = session.detectedLanguage {
+            lines.append("detected_locale: \(detected)")
+        }
         if let started = session.startedAt {
             lines.append("started: \(iso(started))")
         }

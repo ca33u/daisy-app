@@ -337,7 +337,14 @@ final class Transcriber {
     /// Only used when the user picked "Auto-detect" in Settings
     /// (`localeIdentifier == "auto"`). If they pinned a language
     /// explicitly we honour that and never touch this field.
-    private var lockedLanguage: String?
+    ///
+    /// Exposed (read-only) because it is the ONLY place the session's
+    /// real language is ever computed: `localeIdentifier` is a SETTING
+    /// and reads "auto" for most people. `RecordingSession` writes it to
+    /// the transcript frontmatter as `detected_locale:` and hands it to
+    /// the voice corpus, where "which language was this?" decides which
+    /// bucket the user's own speech belongs in.
+    private(set) var detectedLanguage: String?
 
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "Transcriber")
 
@@ -876,7 +883,7 @@ final class Transcriber {
         isRunning = false
         lastError = nil
         sessionStartedAt = nil
-        lockedLanguage = nil
+        detectedLanguage = nil
     }
 
     // MARK: - Audio ingestion
@@ -1539,7 +1546,7 @@ final class Transcriber {
     /// Resolution order:
     ///   1. Explicit user choice in Settings (anything that isn't
     ///      "auto") — always wins.
-    ///   2. Auto-detect WITH a snapped `lockedLanguage` — feed the
+    ///   2. Auto-detect WITH a snapped `detectedLanguage` — feed the
     ///      locked code to Whisper so it stops auto-detecting per
     ///      chunk and stops drifting on noise.
     ///   3. Auto-detect, not yet locked — return nil so Whisper picks
@@ -1552,15 +1559,15 @@ final class Transcriber {
             .map(String.init)?
             .lowercased()
         if let prefix, prefix != "auto" { return prefix }
-        return lockedLanguage
+        return detectedLanguage
     }
 
-    /// Try to snap `lockedLanguage` once we have enough committed
+    /// Try to snap `detectedLanguage` once we have enough committed
     /// text to be sure. Called from `applyLivePass` after each
     /// committed batch. Idempotent — once locked, stays locked for
     /// the session.
     private func updateLockedLanguageIfPossible() {
-        guard lockedLanguage == nil else { return }
+        guard detectedLanguage == nil else { return }
         // Only act when the user is on Auto-detect — if they pinned
         // a language explicitly, no locking needed.
         let isAuto = (
@@ -1578,7 +1585,7 @@ final class Transcriber {
             .joined(separator: " ")
         guard text.count >= 120 else { return }
         if let detected = LanguageDetector.detect(text) {
-            lockedLanguage = detected
+            detectedLanguage = detected
             log.info("Locked transcription language to \(detected, privacy: .public) after \(self.committedSegments.count, privacy: .public) committed segments")
         }
     }
