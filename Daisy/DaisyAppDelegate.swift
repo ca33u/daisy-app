@@ -195,6 +195,12 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
     /// reach here — Daisy keeps running in the menu bar / floating widget
     /// (see `applicationShouldTerminateAfterLastWindowClosed`).
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // The voice corpus defers its write off the dictation path (so
+        // file IO never lands in front of a paste). Dictate, then ⌘Q,
+        // and that turn never arrives — so flush here, on every quit,
+        // before any of the branches below can return.
+        VoiceProfileStore.shared.flushPendingWrites()
+
         guard let session = RecordingSession.current,
               session.status == .recording || session.status == .paused else {
             return .terminateNow

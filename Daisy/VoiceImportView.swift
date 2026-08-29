@@ -32,14 +32,22 @@ struct VoiceImportView: View {
     @State private var instructionText: String
     @State private var showingFileImporter = false
 
+    /// Which language bucket this import belongs to. Empty string = let
+    /// the classifier decide for samples, or "no language of its own"
+    /// for a style prompt — which is what a prompt carried over from
+    /// another app actually is, so it becomes the universal profile.
+    @State private var languageCode: String
+
     /// `initialText` pre-fills the editor (e.g. the current profile's style
     /// instruction, for editing/replacing); `startInStylePrompt` opens
     /// straight in the "Style prompt" tab and seeds THAT tab. Both default
-    /// to fresh-import (empty).
-    init(initialText: String = "", startInStylePrompt: Bool = false) {
+    /// to fresh-import (empty). `initialLanguage` preselects the language
+    /// (the Voice screen passes the language card the user came from).
+    init(initialText: String = "", startInStylePrompt: Bool = false, initialLanguage: String? = nil) {
         _mode = State(initialValue: startInStylePrompt ? .instruction : .samples)
         _instructionText = State(initialValue: startInStylePrompt ? initialText : "")
         _samplesText = State(initialValue: startInStylePrompt ? "" : initialText)
+        _languageCode = State(initialValue: initialLanguage ?? "")
     }
 
     /// The text field for the currently-selected tab.
@@ -69,6 +77,22 @@ struct VoiceImportView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            // Which language this lands in. Nothing about a paste tells
+            // us reliably on its own — an English signature at the end
+            // of a Russian letter is enough to tip a detector — and this
+            // is the one moment the user is here to say so.
+            Picker(selection: $languageCode) {
+                Text(mode == .samples ? "Detect automatically" : "Any language")
+                    .tag("")
+                ForEach(Transcriber.availableLocales.filter { $0.id != "auto" }, id: \.id) { locale in
+                    Text(locale.label).tag(locale.id)
+                }
+            } label: {
+                Text("Language")
+            }
+            .pickerStyle(.menu)
+            .fixedSize()
 
             TextEditor(text: activeText)
                 .font(.body)
@@ -106,7 +130,9 @@ struct VoiceImportView: View {
             }
         }
         .padding(20)
-        .frame(width: 480, height: 400)
+        // 40pt taller than before to make room for the language row
+        // without squeezing the editor.
+        .frame(width: 480, height: 440)
         .fileImporter(
             isPresented: $showingFileImporter,
             allowedContentTypes: [.plainText, .text],
@@ -124,28 +150,51 @@ struct VoiceImportView: View {
         }
     }
 
+    private var saveFailedMessage: String {
+        String(localized: "Daisy couldn’t save that to disk — check there’s free space and try again.")
+    }
+
     private func apply() {
         let store = VoiceProfileStore.shared
+        let chosen = languageCode.isEmpty ? nil : languageCode
         switch mode {
         case .samples:
-            let added = store.importSamples(samplesText)
-            if store.isUnlocked {
+            let result = store.importSamples(samplesText, language: chosen)
+            if result.language == VoiceLanguage.undetermined {
+                // The `und` bucket never generates a profile, so
+                // "added 4 200 words" would be a promise we can't keep.
+                // Say what actually happened and what to do about it.
                 ToastCenter.shared.show(
-                    String(localized: "Added \(added) words — your Voice Profile is ready to generate."),
+                    String(localized: "Daisy couldn’t tell which language that is — pick one from the Language menu and add it again."),
+                    style: .warning,
+                    duration: .seconds(6)
+                )
+            } else if !result.persisted {
+                ToastCenter.shared.show(saveFailedMessage, style: .error, duration: .seconds(6))
+            } else if store.canGenerate(for: result.language) {
+                // Per LANGUAGE: 60 Spanish words don't become "ready to
+                // generate" just because Russian passed 300 long ago.
+                ToastCenter.shared.show(
+                    String(localized: "Added \(result.words) words — your Voice Profile is ready to generate."),
                     style: .success
                 )
             } else {
                 ToastCenter.shared.show(
-                    String(localized: "Added \(added) words toward your Voice Profile."),
+                    String(localized: "Added \(result.words) words toward your Voice Profile."),
                     style: .success
                 )
             }
         case .instruction:
-            store.setCustomInstruction(instructionText)
-            ToastCenter.shared.show(
-                String(localized: "Style prompt installed — Daisy will polish in this voice."),
-                style: .success
-            )
+            // Only claim it was installed if it reached disk — an empty
+            // box, or a failed write, used to toast success anyway.
+            if store.setCustomInstruction(instructionText, language: chosen) {
+                ToastCenter.shared.show(
+                    String(localized: "Style prompt installed — Daisy will polish in this voice."),
+                    style: .success
+                )
+            } else if !instructionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                ToastCenter.shared.show(saveFailedMessage, style: .error, duration: .seconds(6))
+            }
         }
         dismiss()
     }

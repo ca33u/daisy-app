@@ -41,6 +41,24 @@ enum LanguageDetector {
     /// would propagate to `detect` and emit a synchronous-cross-actor
     /// warning at every call site.
     nonisolated static func detect(_ text: String) -> String? {
+        detectDetailed(text)?.code
+    }
+
+    /// What `detect` found, plus the runner-up's confidence.
+    nonisolated struct Verdict: Sendable, Equatable {
+        let code: String
+        let confidence: Double
+        /// Confidence of the second-best hypothesis, 0 when there was
+        /// none. A strong runner-up is the cheapest code-switching
+        /// signal we have (`VoiceCorpusBucket.codeSwitchSamples`).
+        let runnerUpConfidence: Double
+    }
+
+    /// Same gates as `detect` — this is where they actually live — but
+    /// also reports how close the second hypothesis came. The voice
+    /// corpus needs that; the summary-locale callers don't and keep
+    /// using `detect`.
+    nonisolated static func detectDetailed(_ text: String) -> Verdict? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         // Below ~16 chars NLLanguageRecognizer guesses based on a
         // couple of glyphs and is unreliable. Voice memos under that
@@ -59,13 +77,19 @@ enum LanguageDetector {
         // recognizer is essentially flipping a coin between two
         // similar languages and we prefer "no hint" over "wrong hint".
         let hypotheses = recognizer.languageHypotheses(withMaximum: 3)
+        let ranked = hypotheses.sorted { $0.value > $1.value }
         guard
-            let top = hypotheses.max(by: { $0.value < $1.value }),
+            let top = ranked.first,
             top.value >= 0.55
         else { return nil }
 
         let code = top.key.rawValue
-        return supportedSummaryCodes.contains(code) ? code : nil
+        guard supportedSummaryCodes.contains(code) else { return nil }
+        return Verdict(
+            code: code,
+            confidence: top.value,
+            runnerUpConfidence: ranked.dropFirst().first?.value ?? 0
+        )
     }
 
     /// Mirrors the explicit branches in

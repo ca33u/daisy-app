@@ -2513,19 +2513,32 @@ final class RecordingSession {
         // re-transcribes them as `.microphone` segments — feeding those
         // in would train "your voice" on whoever was talking. Skipping
         // this would also make the live path disagree with
-        // `ownSpeech(inTranscript:)`, which reads the already-deduped
-        // transcript on disk.
+        // `ownSpeechChunks(inTranscript:)`, which reads the
+        // already-deduped transcript on disk.
         //
         // Meetings only, matching what the switch promises and what
         // `backfillFromMeetings` collects; a voice note is left out in
         // both paths rather than counted in one of them.
+        //
+        // Grouped into blocks rather than fed as one string: own speech
+        // on a call can honestly change language halfway through (starts
+        // in Russian, continues in English), and one blob would be filed
+        // under one language. On auto-detect each block is classified on
+        // its own and the session-wide `detectedLanguage` is only the
+        // fallback where the detector stays silent. With a pinned
+        // session locale that locale wins for every block — deliberately:
+        // the ASR was decoding that one language, so that is what the
+        // text is.
         if currentMode == .meeting, VoiceProfileStore.shared.includesMeetings {
-            let ownSpeech = dedupedSegments
+            let ownLines = dedupedSegments
                 .filter { $0.source == .microphone }
                 .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
-                .joined(separator: " ")
-            VoiceProfileStore.shared.appendMeetingSpeech(ownSpeech)
+            VoiceProfileStore.shared.appendMeetingSpeech(
+                VoiceSpeechBlocks.group(ownLines),
+                language: VoiceCorpusClassifier.normalized(localeIdentifier),
+                transcriberHint: detectedLanguage
+            )
         }
 
         // ── Granola-style: status → .finished BEFORE summary ──────────

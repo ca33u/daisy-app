@@ -58,6 +58,14 @@ struct DaisyApp: App {
         // say what this Mac updated FROM and when (see VersionInfo).
         VersionInfo.recordLaunch()
 
+        // Touch the voice corpus here, at launch, and not by accident on
+        // the first dictation: its first access reads (and on an update,
+        // migrates) the corpus, and migration runs a language detector
+        // over every paragraph. That work is fine at launch and is not
+        // fine in the Stop→paste window, which is where the first access
+        // would otherwise land (`DictationPaste.prepare`).
+        _ = VoiceProfileStore.shared
+
         // Start Sparkle's normal background cycle immediately after launch.
         // This honours the Automatic update setting, does not interrupt the
         // user with a manual-check sheet, and ensures a newly published

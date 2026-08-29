@@ -1596,6 +1596,24 @@ final class AppSettings {
         UserDefaults.standard.string(forKey: k_summaryLanguage) ?? "auto"
     }
 
+    /// The language DICTATION is pinned to right now, as a two-letter
+    /// code, or nil when the user is on auto-detect. Dictation's own
+    /// override wins, falling back to the meeting default — the same
+    /// resolution `finishDictation` does for the fast engines.
+    ///
+    /// Read statically because the voice-corpus store has no
+    /// `AppSettings` instance: it is a singleton fed from the paste path,
+    /// and a pinned language is the cheapest, most reliable answer to
+    /// "which language bucket does this dictation belong in".
+    nonisolated static var currentDictationLanguage: String? {
+        let defaults = UserDefaults.standard
+        let dictation = defaults.string(forKey: k_dictationLocale) ?? ""
+        let raw = dictation.isEmpty
+            ? (defaults.string(forKey: k_defaultTranscriptionLocale) ?? "auto")
+            : dictation
+        return VoiceCorpusClassifier.normalized(raw)
+    }
+
     /// Read where no `AppSettings` instance is in reach — the summarizer
     /// is handed a transcript, not the settings object. Same pattern as
     /// `currentSummaryLanguage` above.
@@ -1640,10 +1658,12 @@ final class AppSettings {
     /// nonisolated context" error. The string is a plain `let` with
     /// no shared mutation — safe to read from any actor.
     nonisolated private static let k_summaryLanguage = "daisy.summaryLanguage"
-    private static let k_defaultTranscriptionLocale = "daisy.defaultTranscriptionLocale"
+    // `nonisolated` — read by `currentDictationLanguage`, which the
+    // voice-corpus store calls without an AppSettings instance.
+    nonisolated private static let k_defaultTranscriptionLocale = "daisy.defaultTranscriptionLocale"
     private static let k_voiceNoteLocale = "daisy.voiceNoteLocale"
     private static let k_defaultMeetingFolderSlug = "daisy.defaultMeetingFolderSlug"
-    private static let k_dictationLocale = "daisy.dictationLocale"
+    nonisolated private static let k_dictationLocale = "daisy.dictationLocale"
     private static let k_dictationUseParakeet = "daisy.dictationUseParakeet"  // legacy — read once for migration into k_dictationEngine
     private static let k_dictationEngine = "daisy.dictationEngine"
     private static let k_polishDictationInMyVoice = "daisy.polishDictationInMyVoice"

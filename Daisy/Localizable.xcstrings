@@ -1,6 +1,96 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Daisy couldn’t save that to disk — check there’s free space and try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не смогла сохранить это на диск — проверьте, есть ли свободное место, и попробуйте снова."
+          }
+        }
+      }
+    },
+    "Daisy couldn’t tell which language that is — pick one from the Language menu and add it again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не поняла, какой это язык — выберите его в меню «Язык» и добавьте текст снова."
+          }
+        }
+      }
+    },
+    "Any language" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Любой язык"
+          }
+        }
+      }
+    },
+    "Detect automatically" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Определить автоматически"
+          }
+        }
+      }
+    },
+    "No profile for this language yet — Daisy is carrying your manner over, not your words. Keep dictating and it will build one." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Профиля для этого языка пока нет — Daisy переносит вашу манеру, но не слова. Продолжайте диктовать, и профиль появится."
+          }
+        }
+      }
+    },
+    "Plus %lld words in a language Daisy couldn’t place." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ещё %lld слов на языке, который Daisy не распознала."
+          }
+        }
+      }
+    },
+    "Rebuild this language’s profile from your latest dictations" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пересобрать профиль этого языка по последним диктовкам"
+          }
+        }
+      }
+    },
+    "This profile isn’t tied to a language — it’s used wherever Daisy hasn’t built one yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Этот профиль не привязан к языку — он используется везде, где Daisy ещё не собрала свой."
+          }
+        }
+      }
+    },
+    "Until this language has its own profile, Daisy polishes it with the one you already have — your manner carries over, your words don’t." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пока у этого языка нет своего профиля, Daisy полирует его тем, что уже есть: манера переносится, слова — нет."
+          }
+        }
+      }
+    },
     "Couldn’t delete the note" : {
       "localizations" : {
         "ru" : {
