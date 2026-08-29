@@ -128,6 +128,12 @@ struct AboutView: View {
                     url: URL(string: "https://github.com/addicted-studio/daisy-app/discussions")
                 )
                 aboutLinkRow(
+                    icon: "person.2.wave.2",
+                    title: "Discord",
+                    detail: "Chat with the community",
+                    url: URL(string: "https://discord.gg/JYCZRZXy6j")
+                )
+                aboutLinkRow(
                     icon: "doc.text",
                     title: "License",
                     detail: "Apache 2.0 — open source",
