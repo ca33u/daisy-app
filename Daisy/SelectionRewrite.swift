@@ -48,9 +48,10 @@ final class SelectionRewrite {
     func trigger() async {
         guard !isRunning else { return }
 
-        // Precondition 1: a voice profile to rewrite WITH.
-        guard let instruction = VoiceProfileStore.shared.profile?.styleInstruction,
-              !instruction.isEmpty else {
+        // Precondition 1: a voice profile to rewrite WITH. (Which one is
+        // decided further down, once the selection is in hand and its
+        // language is known — this only checks that any exists.)
+        guard VoiceProfileStore.shared.hasProfile else {
             ToastCenter.shared.show(
                 String(localized: "Generate your Voice Profile first — open the Voice section."),
                 style: .warning
@@ -82,11 +83,30 @@ final class SelectionRewrite {
             return
         }
 
-        // 3. Rewrite under a deadline (never hang the user's flow).
+        // 3. Pick the profile by the language of the SELECTION — this is
+        // the path most likely to cross languages (an English email
+        // rewritten by someone whose corpus is Russian), and a selection
+        // is usually long enough for the detector to be sure.
+        let style = VoiceProfileStore.shared.resolveStyle(
+            forTextIn: LanguageDetector.detect(selection)
+        )
+        guard let style else {
+            PasteboardProxy.shared.giveBack(borrow)
+            ToastCenter.shared.show(
+                String(localized: "Generate your Voice Profile first — open the Voice section."),
+                style: .warning
+            )
+            return
+        }
+        if style.isCrossLanguage {
+            VoiceProfileStore.shared.noteCrossLanguagePolish(target: style.targetLanguage)
+        }
+
+        // 4. Rewrite under a deadline (never hang the user's flow).
         ToastCenter.shared.show(String(localized: "Rewriting in your voice…"), style: .info)
         let rewritten = await RecordingSession.polishWithDeadline(
             text: selection,
-            instruction: instruction,
+            instruction: style.promptInstruction,
             seconds: Self.rewriteDeadlineSeconds
         )
         guard let rewritten, !rewritten.isEmpty else {
@@ -103,7 +123,7 @@ final class SelectionRewrite {
         let after = rewritten.split(whereSeparator: { $0.isWhitespace })
         UsageStats.shared.recordFixes(polished: after.difference(from: before).insertions.count)
 
-        // 4. Paste the result over the (still-active) selection; the
+        // 5. Paste the result over the (still-active) selection; the
         //    proxy gives the user's clipboard back a beat later.
         PasteboardProxy.shared.pasteAndReturn(rewritten, borrow)
         ToastCenter.shared.show(

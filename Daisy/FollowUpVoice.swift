@@ -50,12 +50,19 @@ enum FollowUpVoice {
         guard AppSettings.followUpsInMyVoiceEnabled else { return summary }
         let draft = summary.clientFollowUp.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !draft.isEmpty else { return summary }
-        guard let style = VoiceProfileStore.shared.profile?.styleInstruction,
-              !style.isEmpty else { return summary }
+        // The follow-up's language is the summary language when one is
+        // pinned (that is exactly why the setting exists — record in one
+        // language, write to the client in another), otherwise whatever
+        // the draft turned out to be. No nudge toast from here: this runs
+        // after a meeting, with nobody watching for it.
+        let target = VoiceCorpusClassifier.normalized(AppSettings.currentSummaryLanguage)
+            ?? LanguageDetector.detect(draft)
+        guard let style = VoiceProfileStore.shared.resolveStyle(forTextIn: target),
+              !style.instruction.isEmpty else { return summary }
 
         guard let rewritten = await RecordingSession.polishWithDeadline(
             text: draft,
-            instruction: instruction(for: style),
+            instruction: instruction(for: style.promptInstruction),
             seconds: deadlineSeconds
         )?.trimmingCharacters(in: .whitespacesAndNewlines), !rewritten.isEmpty else {
             log.info("Follow-up left as drafted — voice polish returned nothing usable")

@@ -87,8 +87,18 @@ final class DictationPaste {
     /// routing around ALL of this: the note would have stored raw text
     /// with brand names still transliterated, and the dictation wouldn't
     /// have counted toward the voice-profile unlock.
+    ///
+    /// `corpusText` splits ONE of those apart: what gets pasted and what
+    /// the voice profile learns from are the same text everywhere except
+    /// on the polish path, where `finishDictation` has already rewritten
+    /// `input` in the user's own (previous) profile. Feeding that back in
+    /// makes the profile learn from the model's taste rather than the
+    /// person's — invisible today, fatal for anything that measures
+    /// filler words, since the polish prompt removes them by name. Pass
+    /// the RAW transcript here; leave it nil when no polish happened.
+    /// Do not collapse this fork back into one argument.
     @discardableResult
-    func prepare(_ input: String) -> String {
+    func prepare(_ input: String, corpusText: String? = nil) -> String {
         var transcript = input
         var dictionaryFixes: Int
         (transcript, dictionaryFixes) = DictationDictionary.shared.applyCounting(to: transcript)
@@ -126,11 +136,26 @@ final class DictationPaste {
         // profile unlocks once enough real dictation has accumulated).
         // Placed before the AX/clipboard fork so every successful
         // dictation counts regardless of how it lands in the field.
-        VoiceProfileStore.shared.appendDictation(transcript)
+        //
+        // The corpus still gets the user's own vocabulary and the brand
+        // layer — those are spelling, and "Figma" is how this person
+        // writes it. What it must NOT get is the LLM polish, which is
+        // style: hence the raw text in, corrections re-applied here.
+        var forCorpus = transcript
+        if let corpusText {
+            forCorpus = DictationDictionary.shared.apply(to: corpusText)
+            if UserDefaults.standard.object(forKey: BrandCorrections.defaultsKey) as? Bool ?? true {
+                let triggers = Set(
+                    DictationDictionary.shared.replacements.map { $0.from.lowercased() }
+                )
+                forCorpus = BrandCorrections.apply(to: forCorpus, userTriggers: triggers).text
+            }
+        }
+        VoiceProfileStore.shared.appendDictation(forCorpus)
         return transcript
     }
 
-    func handle(transcript: String) {
+    func handle(transcript: String, corpusText: String? = nil) {
         guard !transcript.isEmpty else {
             // Say WHY when we know why (2026-07-26). "Nothing was
             // transcribed" after a full-volume dictation reads like the
@@ -158,7 +183,7 @@ final class DictationPaste {
         // does the once-per-dictation bookkeeping (fixes counter, 24h
         // history, voice-profile corpus); `deliver` puts the result where
         // the caret is. Both are MainActor-isolated same-actor calls.
-        deliver(prepare(transcript), context: .freshDictation)
+        deliver(prepare(transcript, corpusText: corpusText), context: .freshDictation)
     }
 
     /// Where a `deliver` call came from — only a FRESH dictation shows
