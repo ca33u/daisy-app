@@ -1644,6 +1644,18 @@ final class RecordingSession {
         // only; the pasted final text is unchanged. See NemotronLiveEngine.
         micTranscriber.dictationNemotronLive =
             currentMode == .dictation && settings.dictationUseNemotronLive
+        // Live word-by-word caption for dictation on the Apple engine —
+        // the native-macOS-dictation experience (Egor, 2026-08-29),
+        // rendered on the widget's caption pill. The flag routes the
+        // live path through AppleSpeechLiveEngine; the sink carries the
+        // running text out. Both are no-ops unless every gate holds
+        // (macOS 26, concrete locale, model installed) — any miss keeps
+        // today's behaviour: Whisper live, no caption, unchanged paste.
+        micTranscriber.dictationAppleLive =
+            currentMode == .dictation && settings.dictationEngine == .appleSpeech
+        micTranscriber.onDictationLiveText = currentMode == .dictation
+            ? { text in WidgetBubbleCenter.shared.updateLiveCaption(text) }
+            : nil
         micTranscriber.start(consuming: micAudio, startedAt: nowStarted, tier: tier)
         do {
             try recorder.start(
@@ -2076,6 +2088,11 @@ final class RecordingSession {
         // (no summary, no auto-send — hours later, undiagnosable).
         let isRotationStop = skipFinalPassOnNextStop
         skipFinalPassOnNextStop = false
+        // Caption down at key-up, not after the decode: the dictation
+        // final pass runs INLINE below, and a caption that lingers
+        // through it reads as "still listening". Harmless no-op for
+        // meetings/voice notes (no caption was ever shown).
+        WidgetBubbleCenter.shared.hideLiveCaption()
         removeThermalDowngrade()
         // No stop-click cue — it fired before capture stopped (tailing the
         // recording) and before any work finished. The "done" cue now plays
@@ -2653,6 +2670,7 @@ final class RecordingSession {
             ScreenshotNoteCapture.shared.restorePending(p)
         }
         releaseSessionsFolderTicket()
+        WidgetBubbleCenter.shared.hideLiveCaption()
         micTranscriber.reset()
         systemTranscriber.reset()
         // recorder/systemAudio may not have started yet on early
@@ -2743,6 +2761,10 @@ final class RecordingSession {
         summaryTask?.cancel()
         summaryTask = nil
         summaryGenerationState = .idle
+        // Belt to stop()'s braces: reset() is reached by every exit —
+        // discard, husk cleanup, failed starts that got far enough —
+        // and a caption with no session behind it must never survive.
+        WidgetBubbleCenter.shared.hideLiveCaption()
         // Defensive: the rotation flag is normally consumed at the top
         // of stop(), but a reset() between set and consume (husk
         // cleanup path) must not leave it armed for a later stop.

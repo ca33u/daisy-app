@@ -152,6 +152,36 @@ final class WidgetBubbleCenter {
         host?.restartBubbleCountdown()
     }
 
+    // MARK: - Live dictation caption
+
+    /// Wall-clock of the last caption push that reached the host — the
+    /// throttle below is deliberately lossy (a dropped frame is replaced
+    /// by the next result ~instantly; the pill is a preview, not a record).
+    private var lastCaptionPush = Date.distantPast
+
+    /// Stream the running dictation text onto the caption pill (a second,
+    /// non-interactive panel one slot above the prompt bubble — the two
+    /// never contend, see `FloatingPanelController.updateLiveCaption`).
+    /// Unlike `present`, there is NO notification fallback: a stream of
+    /// banners would be noise, and without a panel host there is simply
+    /// no live preview — the dictation itself is unaffected.
+    /// Throttled to ~10 Hz so a chatty engine can't spend the main
+    /// thread on label layout.
+    func updateLiveCaption(_ text: String) {
+        guard let host else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastCaptionPush) >= 0.1 else { return }
+        lastCaptionPush = now
+        host.updateLiveCaption(text)
+    }
+
+    /// Tear the caption down (dictation stopped, session discarded or
+    /// failed). Idempotent — callers on every exit path may all fire.
+    func hideLiveCaption() {
+        lastCaptionPush = .distantPast
+        host?.hideLiveCaption()
+    }
+
     private func postNotification(title: String, body: String) {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             guard settings.authorizationStatus == .authorized
@@ -191,6 +221,11 @@ protocol WidgetBubbleHosting: AnyObject {
     /// timer). Restart runs the FULL duration again, not the remainder.
     func pauseBubbleCountdown()
     func restartBubbleCountdown()
+    /// Live dictation caption — a separate, non-interactive pill that
+    /// updates in place as the person speaks. Distinct from the prompt
+    /// bubble so a stream can never evict a prompt (or vice versa).
+    func updateLiveCaption(_ text: String)
+    func hideLiveCaption()
 }
 
 /// The bubble's content view. Mirrors `ToastView`'s look (elevated card,

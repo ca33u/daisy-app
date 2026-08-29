@@ -453,6 +453,27 @@ final class Transcriber {
     @ObservationIgnored
     private var nemotronSegmentID = UUID()
 
+    /// Set by RecordingSession before `start()` for dictation sessions
+    /// whose engine is Apple SpeechAnalyzer. Dictation runs at the `.full`
+    /// tier (whose live path is the Whisper rolling timer); this flag
+    /// routes it through `AppleSpeechLiveEngine` instead, so the person
+    /// sees words as they speak — the experience that sold Egor on the
+    /// NATIVE macOS dictation (2026-08-29). Same gates as the Lite path
+    /// (macOS 26, concrete locale, model installed); any miss falls back
+    /// to the Whisper timer exactly as before. Cleared on `reset()`.
+    @ObservationIgnored
+    var dictationAppleLive = false
+    /// Streaming caption sink for dictation: called with the full running
+    /// transcript after each Apple live result. RecordingSession points
+    /// this at the widget's caption pill for `.dictation` sessions and
+    /// leaves it nil otherwise (meetings render live text in their own
+    /// transcript view — no caption wanted). Fires only from the Apple
+    /// live path: the Whisper fallback's ~per-window cadence is too
+    /// coarse to read as "live" and would make the pill look broken.
+    /// Cleared on `reset()`.
+    @ObservationIgnored
+    var onDictationLiveText: (@MainActor (String) -> Void)?
+
     /// Soft pause. Kill the live re-transcribe timer so no rolling
     /// Whisper passes run while we're paused — but keep the
     /// consumerTask alive (no audio is flowing anyway because the
@@ -491,11 +512,14 @@ final class Transcriber {
         // EXPERIMENTAL dictation streaming preview (dark) — see
         // NemotronLiveEngine. Falls back to the Whisper timer when the
         // engine can't run (model not downloaded yet / load failed).
+        // Deliberately outranks the Apple caption path below: the dark
+        // flag exists to test Nemotron, and whoever set it wants that
+        // engine driving, caption or no caption.
         if dictationNemotronLive {
             startNemotronLivePath()
             return
         }
-        if liveTier == .lite, #available(macOS 26, *), let appleLocale = resolvedAppleLocale() {
+        if liveTier == .lite || dictationAppleLive, #available(macOS 26, *), let appleLocale = resolvedAppleLocale() {
             Task { @MainActor [weak self] in
                 guard let self, self.isRunning, self.appleEngine == nil, self.liveTimer == nil else { return }
                 if await AppleSpeechLiveEngine.isUsable(locale: appleLocale),
@@ -661,6 +685,23 @@ final class Transcriber {
         }
         invalidateSegmentsCache()
         kickLiveDiarizeIfDue(currentAudioSec: absEnd)
+
+        // Dictation caption: hand the full running text (committed +
+        // volatile tail, in time order) to whoever is listening. Sorted
+        // because a volatile result can still be in `pendingSegments`
+        // while a later bucket has already committed.
+        if let onDictationLiveText {
+            // Tie-break on finality: Swift's sort isn't stable, and a
+            // committed final + volatile tail sharing a 100 ms bucket
+            // must not momentarily swap in the caption.
+            let running = (committedSegments + pendingSegments)
+                .sorted {
+                    ($0.startSec, $0.isFinal ? 0 : 1) < ($1.startSec, $1.isFinal ? 0 : 1)
+                }
+                .map(\.text)
+                .joined(separator: " ")
+            if !running.isEmpty { onDictationLiveText(running) }
+        }
     }
 
     /// Legacy entry point — runs live-stop + final pass back-to-back.
@@ -708,6 +749,15 @@ final class Transcriber {
         liveTimer = nil
         consumerTask?.cancel()
         consumerTask = nil
+
+        // Disarm the dictation caption sink BEFORE finalizing the Apple
+        // engine: `finalizeAndFinishThroughEndOfInput` flushes final
+        // results through `applyAppleLiveResult`, and with the sink
+        // still armed the caption pill — already hidden at key-up by
+        // `RecordingSession.stop()` — would resurrect and sit stale
+        // through the whole inline final pass (review find, 2026-08-29).
+        // The flushed SEGMENTS still land; only the caption goes quiet.
+        onDictationLiveText = nil
 
         await finishAppleEngine()
 
@@ -797,6 +847,22 @@ final class Transcriber {
         nemotronActive = false
         dictationNemotronLive = false
         nemotronSegmentID = UUID()
+        dictationAppleLive = false
+        onDictationLiveText = nil
+        // Tear down a live Apple engine that never went through
+        // `stopCapture()` — discard() and failFast both land here
+        // directly. Left alive, it (a) blocks the NEXT session's
+        // `startLivePath` on its `appleEngine == nil` guard with no
+        // Whisper fallback, and (b) keeps eating that session's buffers
+        // via `ingest`, committing segments with the OLD session's time
+        // base (review find, 2026-08-29). reset() is synchronous, so
+        // finish() is fire-and-forget — the input continuation closes
+        // immediately, which is what stops the result flow.
+        if #available(macOS 26, *), let engine = appleEngine as? AppleSpeechLiveEngine {
+            Task { await engine.finish() }
+        }
+        appleEngine = nil
+        appleEngineStartSec = 0
         committedSegments.removeAll()
         pendingSegments.removeAll()
         invalidateSegmentsCache()

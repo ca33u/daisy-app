@@ -37,6 +37,14 @@ final class FloatingPanelController {
     /// holding two targets means whichever was assigned second is the only
     /// button that still fires.
     private var bubbleDestructiveTarget: AnyObject?
+    /// The live dictation caption — a THIRD panel, one pill-slot above
+    /// the prompt bubble's, that updates in place as the person speaks.
+    /// Deliberately its own panel (not a reuse of `bubblePanel`): a
+    /// stream must never evict a prompt mid-countdown, and a prompt
+    /// ("Daisy is already recording") must be able to appear WHILE the
+    /// caption is running. Nil when no dictation is streaming.
+    private var captionPanel: NSPanel?
+    private weak var captionLabel: NSTextField?
     /// When set, the panel stays hidden until this date — regardless of
     /// session status. Set by the right-click "Hide for…" menu. Backed by
     /// AppSettings so the suspension is persisted and survives an app
@@ -592,6 +600,98 @@ extension FloatingPanelController: WidgetBubbleHosting {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in self?.hideBubble() }
         }
+    }
+
+    // MARK: - Live dictation caption
+
+    /// Update (creating on first call) the caption pill with the running
+    /// dictation text. Same visual language as the prompt pill (dark warm
+    /// card, 34 pt, white text) but strictly passive: it ignores mouse
+    /// events entirely — mid-dictation the person's next click belongs to
+    /// the app they're dictating INTO, and a pill that swallows it would
+    /// be worse than no pill. Head-truncated so the freshest words win
+    /// when the line outgrows the width cap.
+    func updateLiveCaption(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard let screen = panel?.screen ?? bestScreen() else { return }
+
+        let pillHeight: CGFloat = 34
+        let hPad: CGFloat = 14
+        // Width cap: readable, not a marquee across the display.
+        let widthCap = min(screen.visibleFrame.width - 80, 560)
+
+        if captionPanel == nil {
+            let card = BubbleCardView()
+            let label = NSTextField(labelWithString: "")
+            label.font = .systemFont(ofSize: 12)
+            label.textColor = NSColor.white.withAlphaComponent(0.92)
+            label.lineBreakMode = .byTruncatingHead
+            label.maximumNumberOfLines = 1
+            label.isSelectable = false
+            card.addSubview(label)
+
+            let caption = NSPanel(
+                contentRect: NSRect(x: 0, y: 0, width: 200, height: pillHeight),
+                styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            caption.isOpaque = false
+            caption.backgroundColor = .clear
+            caption.hasShadow = true
+            caption.level = .floating
+            caption.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+            caption.isReleasedWhenClosed = false
+            caption.hidesOnDeactivate = false
+            caption.ignoresMouseEvents = true
+            caption.contentView = card
+            captionPanel = caption
+            captionLabel = label
+        }
+        guard let caption = captionPanel, let label = captionLabel else { return }
+
+        label.stringValue = trimmed
+        let textSize = label.attributedStringValue.size()
+        let width = min(ceil(textSize.width) + hPad * 2, widthCap)
+        let size = NSSize(width: max(width, 60), height: pillHeight)
+        caption.contentView?.frame = NSRect(origin: .zero, size: size)
+        // Center the single line vertically ourselves — an NSTextField
+        // cell given the pill's full height top-aligns its text.
+        let labelHeight = ceil(textSize.height)
+        label.frame = NSRect(
+            x: hPad,
+            y: (pillHeight - labelHeight) / 2,
+            width: size.width - hPad * 2,
+            height: labelHeight
+        )
+        caption.setContentSize(size)
+
+        // One pill-slot above where a prompt bubble would sit, so the
+        // two surfaces can coexist (e.g. "Daisy is already recording"
+        // during a dictation). Same dumb math as `positionBubble`,
+        // nudged up by a pill height + gap.
+        let anchorFrame: NSRect
+        if let widget = panel, widget.isVisible {
+            anchorFrame = widget.frame
+        } else {
+            let visible = screen.visibleFrame
+            anchorFrame = NSRect(x: visible.maxX - 24, y: visible.minY + 24, width: 1, height: 1)
+        }
+        positionBubble(caption, over: anchorFrame, on: screen)
+        var origin = caption.frame.origin
+        origin.y = min(
+            origin.y + pillHeight + 7,
+            screen.visibleFrame.maxY - pillHeight - 4
+        )
+        caption.setFrameOrigin(origin)
+        if !caption.isVisible { caption.orderFrontRegardless() }
+    }
+
+    func hideLiveCaption() {
+        captionPanel?.orderOut(nil)
+        captionPanel = nil
+        captionLabel = nil
     }
 
     /// The bubble's card: a full-end-cap pill in the daisy widget's own
