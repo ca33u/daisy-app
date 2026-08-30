@@ -1663,9 +1663,16 @@ final class RecordingSession {
         // today's behaviour: Whisper live, no caption, unchanged paste.
         micTranscriber.dictationAppleLive =
             currentMode == .dictation && settings.dictationEngine == .appleSpeech
-        micTranscriber.onDictationLiveText = currentMode == .dictation
-            ? { text in WidgetBubbleCenter.shared.updateLiveCaption(text) }
-            : nil
+        // NB: written as if/else, not `?:` — the ternary over an optional
+        // @MainActor closure fails to type-check on the Xcode 27 beta
+        // compiler ("failed to produce diagnostic for expression").
+        if currentMode == .dictation {
+            micTranscriber.onDictationLiveText = { text in
+                WidgetBubbleCenter.shared.updateLiveCaption(text)
+            }
+        } else {
+            micTranscriber.onDictationLiveText = nil
+        }
         micTranscriber.start(consuming: micAudio, startedAt: nowStarted, tier: tier)
         do {
             try recorder.start(
