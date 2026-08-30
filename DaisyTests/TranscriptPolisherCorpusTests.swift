@@ -155,8 +155,7 @@ struct TranscriptPolisherCorpusTests {
         let rate = Double(russianPassed) / Double(russian.count)
         #expect(
             rate >= 0.8,
-            "Russian accept rate \(Int(rate * 100))% — the pass is a no-op on Russian again "
-            + "(\(russianPassed)/\(russian.count)). Before the 2026-08-25 calibration it was 68%."
+            "Russian accept rate \(Int(rate * 100))% — the pass is a no-op on Russian again (\(russianPassed)/\(russian.count)). Before the 2026-08-25 calibration it was 68%."
         )
 
         // The other half of the trade. A single leak here means a
