@@ -90,6 +90,15 @@
          models), but the framework still gates first use on this string. -->
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Daisy uses on-device speech recognition to show a lighter live transcript while you record. Everything stays on your Mac — nothing is sent to Apple or any server.</string>
+    <!-- Help → "Export Logs…" writes the report straight to ~/Downloads
+         (2026-08-31) instead of opening a save panel. Downloads is a
+         TCC-protected folder — without this string the prompt is a bare
+         "Daisy would like to access files in your Downloads folder" with
+         no reason attached, and on some configurations doesn't appear at
+         all (the write just fails). A denial isn't fatal: the export
+         falls back to the save panel, which grants access implicitly. -->
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Daisy saves the log report you asked for into your Downloads folder. Nothing else is read or written there, and nothing leaves your Mac.</string>
 
     <!-- Sparkle 2.x — auto-update configuration. The public EdDSA
          key is the verifier for every signed DMG Sparkle downloads;

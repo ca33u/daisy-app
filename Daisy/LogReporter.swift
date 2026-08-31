@@ -10,9 +10,9 @@
 //    • `sendReport` — Help → "Send Log Report…": writes a temp file and
 //      opens a pre-addressed Mail compose window with the report
 //      attached and the questions in the body.
-//    • `exportLogs` — Help → "Export Logs…": writes the file where the
-//      user says and reveals it. Nothing else. For anyone whose mail is
-//      in a browser, or who just wants to hand over the log.
+//    • `exportLogs` — Help → "Export Logs…": drops the file in Downloads
+//      and reveals it. Nothing else. For anyone whose mail is in a
+//      browser, or who just wants to hand over the log.
 //
 //  Neither one sends anything: Mail waits on the user pressing Send, and
 //  the export just puts a file on disk. Nothing leaves the Mac without an
@@ -30,10 +30,17 @@
 
 import AppKit
 import Foundation
+import OSLog
+import Speech
 import UniformTypeIdentifiers
 
 @MainActor
 enum LogReporter {
+    /// `nonisolated`: the off-main export path logs through it.
+    nonisolated private static let log = Logger(
+        subsystem: "app.essazanov.Daisy", category: "LogReporter"
+    )
+
     /// Where tester reports go. Single hard-coded recipient on
     /// purpose — this is a built-in feedback channel, not a generic
     /// share sheet.
@@ -86,7 +93,15 @@ enum LogReporter {
         }
     }
 
-    /// Collect → write the file where the user points → reveal it.
+    /// Collect → drop the file in Downloads → reveal it.
+    ///
+    /// No save panel (2026-08-31): the button has exactly one job and the
+    /// panel added a decision nobody has an opinion about — "выгрузка
+    /// логов… давай сделаем, чтобы сразу падало в загрузки" (Egor). The
+    /// panel survives as the fallback for the one case where the silent
+    /// write can't work: Downloads is a TCC-protected folder, so a denied
+    /// prompt (or a read-only/missing Downloads) turns into "pick a
+    /// place" rather than a dead button.
     ///
     /// One job, no side effects. The previous version of this also put the
     /// question template on the clipboard, which turned out to be actively
@@ -98,39 +113,101 @@ enum LogReporter {
     static func exportLogs(settings: AppSettings) {
         Task {
             guard let text = await collectReport(settings: settings) else { return }
-            let panel = NSSavePanel()
-            if let txt = UTType(filenameExtension: "txt") {
-                panel.allowedContentTypes = [txt]
+            // Off-main on purpose: Downloads is TCC-protected, so the
+            // FIRST export blocks inside the file API until the person
+            // answers "Daisy would like to access files in your Downloads
+            // folder". On the main actor that's a beachball over the whole
+            // app for as long as the sheet is up (review find, 2026-08-31).
+            let downloadsURL = await Task.detached(priority: .userInitiated) {
+                writeToDownloads(text, baseName: reportBasename())
+            }.value
+            let destination: URL
+            if let downloadsURL {
+                destination = downloadsURL
+            } else {
+                guard let picked = askWhereToSave() else { return }
+                do {
+                    try text.write(to: picked, atomically: true, encoding: .utf8)
+                } catch {
+                    ToastCenter.shared.show(
+                        String(localized: "Couldn't save the log file: \(error.localizedDescription)"),
+                        style: .error
+                    )
+                    return
+                }
+                destination = picked
             }
-            panel.canCreateDirectories = true
-            panel.nameFieldStringValue = reportFilename()
-            panel.title = String(localized: "Export Logs")
-            panel.message = String(localized: "Daisy's last 24 hours of logs, plus a short environment header.")
-            // No `directoryURL`: the panel remembers where this app saved
-            // last, which beats dragging the user back to Downloads every
-            // time.
-            guard panel.runModal() == .OK, let destination = panel.url else { return }
-            do {
-                // Straight to the destination, atomically — no temp file to
-                // leak and no remove-then-copy window where a failed copy
-                // leaves the user with neither the old file nor the new one.
-                try text.write(to: destination, atomically: true, encoding: .utf8)
-            } catch {
-                ToastCenter.shared.show(
-                    String(localized: "Couldn't save the log file: \(error.localizedDescription)"),
-                    style: .error
-                )
-                return
+            // Named rather than inlined as a ternary: the Xcode 27 beta
+            // type-checker has bitten us twice on ternaries in argument
+            // position, and this one buys nothing.
+            let message: String
+            if downloadsURL != nil {
+                message = String(localized: "Logs saved to Downloads — \(destination.lastPathComponent).")
+            } else {
+                message = String(localized: "Logs exported to \(destination.lastPathComponent).")
             }
             // Reveal rather than just toast: the point of the button is to
             // end up holding the file.
             NSWorkspace.shared.activateFileViewerSelecting([destination])
-            ToastCenter.shared.show(
-                String(localized: "Logs exported to \(destination.lastPathComponent)."),
-                style: .info,
-                duration: .seconds(6)
-            )
+            ToastCenter.shared.show(message, style: .info, duration: .seconds(6))
         }
+    }
+
+    /// Write the report to `~/Downloads/Daisy-log-report-<date>.txt`,
+    /// suffixing the name if it's taken — two exports on the same day are
+    /// a normal thing to do (fix something, reproduce, export again) and
+    /// silently overwriting the first one would throw away the report the
+    /// person still needs.
+    ///
+    /// Returns nil on ANY failure — no Downloads folder, a declined TCC
+    /// prompt, a full disk — which sends the caller to the save panel.
+    /// The failure is logged, because the field report for this is "у меня
+    /// всё равно спрашивает, куда сохранять" and without a line here
+    /// there's nothing to tell the two cases apart.
+    ///
+    /// `nonisolated`: touches the filesystem (and possibly a TCC prompt),
+    /// so it must never run on the main actor.
+    nonisolated private static func writeToDownloads(_ text: String, baseName: String) -> URL? {
+        guard let downloads = FileManager.default.urls(
+            for: .downloadsDirectory, in: .userDomainMask
+        ).first else {
+            log.warning("Log export: no Downloads folder — falling back to the save panel")
+            return nil
+        }
+        var candidate = downloads.appendingPathComponent("\(baseName).txt")
+        var counter = 2
+        // Bounded: after 50 exports in one day, overwrite rather than
+        // spin — nobody is reading report #51 anyway.
+        while FileManager.default.fileExists(atPath: candidate.path), counter <= 50 {
+            candidate = downloads.appendingPathComponent("\(baseName) \(counter).txt")
+            counter += 1
+        }
+        do {
+            // Atomically — no temp file to leak and no remove-then-copy
+            // window where a failed copy leaves the user with neither the
+            // old file nor the new one.
+            try text.write(to: candidate, atomically: true, encoding: .utf8)
+            return candidate
+        } catch {
+            log.warning(
+                "Log export: couldn't write to Downloads (\(error.localizedDescription, privacy: .public)) — falling back to the save panel"
+            )
+            return nil
+        }
+    }
+
+    /// The old behaviour, kept for the denied-Downloads case only.
+    private static func askWhereToSave() -> URL? {
+        let panel = NSSavePanel()
+        if let txt = UTType(filenameExtension: "txt") {
+            panel.allowedContentTypes = [txt]
+        }
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = reportFilename()
+        panel.title = String(localized: "Export Logs")
+        panel.message = String(localized: "Daisy's last 24 hours of logs, plus a short environment header.")
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
     }
 
     // MARK: - Shared steps
@@ -144,7 +221,7 @@ enum LogReporter {
             duration: .seconds(3)
         )
         let logText = await collectLogs()
-        return header(settings: settings) + "\n" + logText
+        return await header(settings: settings) + "\n" + logText
     }
 
     /// Park the report in a temp file so Mail has something to attach.
@@ -171,12 +248,29 @@ enum LogReporter {
         NSPasteboard.general.setString(body, forType: .string)
     }
 
-    private static func dateStamp() -> String {
-        ISO8601DateFormatter.daisyDayStamp.string(from: Date())
+    /// `2026-06-12` — filename-safe day stamp.
+    ///
+    /// `nonisolated`: the off-main Downloads writer names its file with
+    /// it. The formatter is built per call rather than shared in a
+    /// `static let`: under main-actor-by-default a static would be
+    /// MainActor-isolated (unreachable from here), and `ISO8601DateFormatter`
+    /// isn't Sendable, so the alternative is `nonisolated(unsafe)` on a
+    /// mutable-ish Foundation object shared across actors. Twice per
+    /// export isn't worth that.
+    nonisolated private static func dateStamp() -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate]
+        return formatter.string(from: Date())
+    }
+
+    /// Filename without the extension — the Downloads writer appends its
+    /// own (possibly suffixed) `.txt`.
+    nonisolated private static func reportBasename() -> String {
+        "Daisy-log-report-\(dateStamp())"
     }
 
     private static func reportFilename() -> String {
-        "Daisy-log-report-\(dateStamp()).txt"
+        "\(reportBasename()).txt"
     }
 
     /// Subject stays English on purpose: it's the triage line in the
@@ -297,9 +391,10 @@ enum LogReporter {
     /// the meeting records silence or half a conversation, and none of
     /// that is visible from the winners alone. See
     /// `AudioInputDevices.deviceInventory`.
-    private static func header(settings: AppSettings) -> String {
+    private static func header(settings: AppSettings) async -> String {
         let permissions = SystemPermissions.shared
         permissions.refresh()
+        let appleSpeech = await appleSpeechLine(settings: settings)
         return """
         ── Daisy log report ─────────────────────────────
         Generated:  \(Date().formatted(date: .abbreviated, time: .standard))
@@ -310,6 +405,7 @@ enum LogReporter {
         Disk:       \(diskLine())
         ScreenRec:  \(ScreenRecordingPermission.diagnosticsLine())
         Locale:     ui=\(Bundle.main.preferredLocalizations.first ?? "?") summaryLanguage=\(settings.summaryLanguage.isEmpty ? "auto" : settings.summaryLanguage)
+        AppleSpeech: \(appleSpeech)
         Route:      \(AudioInputDevices.routeDiagnostics(selectedMicUID: settings.selectedMicDeviceUID))
         SysAudio:   \(SystemAudioCapture.backendDiagnosticsLine())
         Mic device: \(AudioInputDevices.describe(AudioInputDevices.systemDefaultInputID()))
@@ -322,6 +418,46 @@ enum LogReporter {
         Updates:    \(updaterLine())
         ─────────────────────────────────────────────────
         """
+    }
+
+    /// What Apple's speech stack actually offers for the dictation
+    /// language. Worth a line of its own: a miss here is invisible in
+    /// use — dictation quietly runs Whisper and sounds fine — so without
+    /// it the report can't tell "Apple engine, working" from "Apple
+    /// engine selected, never once used" (Егор, 2026-08-31). Prints the
+    /// installed set too, because the interesting failure is a supported
+    /// language whose asset never arrives.
+    private static func appleSpeechLine(settings: AppSettings) async -> String {
+        let id = settings.dictationLocale.isEmpty
+            ? settings.defaultTranscriptionLocale
+            : settings.dictationLocale
+        guard #available(macOS 26, *) else { return "unavailable (needs macOS 26+); dictationLocale=\(id)" }
+        guard id != "auto", !id.isEmpty else { return "not used: dictation language is Auto" }
+        let state: String
+        switch await AppleSpeechEngine.availability(locale: Locale(identifier: id)) {
+        case .ready:
+            state = "ready"
+        case .notInstalled:
+            state = "SUPPORTED BUT NOT INSTALLED (falls back to Whisper)"
+        case .unsupported:
+            state = "NOT SUPPORTED for this language (falls back to Whisper)"
+        case .frameworkUnavailable:
+            state = "SpeechTranscriber unavailable on this Mac (falls back to Whisper)"
+        }
+        let installed = await SpeechTranscriber.installedLocales
+            .map { $0.identifier(.bcp47) }
+            .sorted()
+        // Reservations are the quiet way "supported but never installs"
+        // happens: `reserve(locale:)` is called on every install attempt
+        // and never released, so a hit ceiling blocks all further pulls.
+        let reserved = await AssetInventory.reservedLocales
+            .map { $0.identifier(.bcp47) }
+            .sorted()
+        let engineNote = settings.dictationEngine == .appleSpeech
+            ? ""
+            : " (engine not selected — informational)"
+        return "locale=\(id) \(state)\(engineNote); installed=[\(installed.joined(separator: " "))]"
+            + " reserved=\(reserved.count)/\(AssetInventory.maximumReservedLocales) [\(reserved.joined(separator: " "))]"
     }
 
     /// Free space, plus an explicit verdict when it's under the floor
@@ -379,13 +515,4 @@ enum LogReporter {
         case .insufficient:  return "writeOnly"
         }
     }
-}
-
-private extension ISO8601DateFormatter {
-    /// `2026-06-12` — filename-safe day stamp.
-    static let daisyDayStamp: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withFullDate]
-        return formatter
-    }()
 }
