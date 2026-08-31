@@ -39,6 +39,12 @@ final class AppleSpeechEngine {
         await AppleSpeechLiveEngine.isUsable(locale: locale)
     }
 
+    /// Ready / still downloading / not a language Apple has at all.
+    /// Delegates to the live engine so both paths agree.
+    static func availability(locale: Locale) async -> AppleSpeechLiveEngine.Availability {
+        await AppleSpeechLiveEngine.availability(locale: locale)
+    }
+
     /// Ensure the locale's on-device model is installed (kicks a
     /// background download if not, returning false so the caller uses
     /// Whisper for this session).

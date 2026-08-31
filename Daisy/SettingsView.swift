@@ -75,6 +75,25 @@ struct SettingsView: View {
     @State private var hasUnusedModels = false
     @State private var cacheRefreshTick: Int = 0
 
+    /// Whether Apple's on-device speech model covers the dictation
+    /// language, and if so whether it's actually on disk. `nil` = not
+    /// applicable (another engine, "Auto", pre-26) or not checked yet.
+    ///
+    /// The miss is otherwise completely silent — dictation just runs
+    /// Whisper — so the person keeps believing they're on the fast engine
+    /// (Егор, 2026-08-31 field log: Apple never ran once, every word came
+    /// from Whisper). Worth saying out loud, and worth separating "Apple
+    /// has no such language" from "the model hasn't downloaded", because
+    /// the second one is a known Apple bug class and the person can push
+    /// it along by enabling the language in System Settings.
+    @State private var appleSpeechAvailability: AppleSpeechAvailabilityState?
+
+    /// Mirror of `AppleSpeechLiveEngine.Availability` that doesn't need
+    /// `@available(macOS 26, *)` to exist in this view's state.
+    private enum AppleSpeechAvailabilityState {
+        case ready, notInstalled, unsupported, frameworkUnavailable
+    }
+
     /// UI-language override state. Snapshot at view init so the "restart
     /// needed" hint appears only when the pick differs from what THIS
     /// launch is running with. `appLanguageTick` forces a re-render after
@@ -1489,11 +1508,30 @@ struct SettingsView: View {
                         Task { await ParakeetEngine.shared.ensureLoaded() }
                     }
                 }
+                // Ask the framework whether Apple covers this language,
+                // re-asking whenever the engine or the language changes.
+                .task(id: appleSpeechCheckKey) { await refreshAppleSpeechLocaleSupport() }
                 if settings.dictationEngine == .appleSpeech {
                     Text("Uses the speech model built into macOS 26 — no download, ~2× faster than Whisper, nothing added to Daisy’s size. Needs a specific language below (not Auto); otherwise dictation falls back to Whisper.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if appleSpeechAvailability == .unsupported {
+                        Text("macOS doesn’t have an Apple speech model for \(appleSpeechLanguageName) — dictation runs on Whisper instead. Everything still works; it just isn’t the faster engine.")
+                            .font(.caption)
+                            .foregroundStyle(Color.daisyWarning)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if appleSpeechAvailability == .frameworkUnavailable {
+                        Text("Apple’s speech engine isn’t available on this Mac — dictation runs on Whisper instead.")
+                            .font(.caption)
+                            .foregroundStyle(Color.daisyWarning)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if appleSpeechAvailability == .notInstalled {
+                        Text("macOS hasn’t downloaded the Apple speech model for \(appleSpeechLanguageName) yet — until it does, dictation runs on Whisper. Daisy asks for it in the background; adding the language in System Settings → Keyboard → Dictation usually brings it down faster.")
+                            .font(.caption)
+                            .foregroundStyle(Color.daisyWarning)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
                 // Built-in brand layer (Egor 2026-07-25) — the only way
@@ -1815,6 +1853,72 @@ struct SettingsView: View {
         .controlSize(.small)
         .tint(Color.daisyTextPrimary)
         .disabled(isDownloadingModel)
+    }
+
+    /// The locale dictation actually runs at: the dictation override when
+    /// it's set, otherwise the single transcription language.
+    private var effectiveDictationLocaleID: String {
+        settings.dictationLocale.isEmpty
+            ? settings.defaultTranscriptionLocale
+            : settings.dictationLocale
+    }
+
+    /// Re-run key for the Apple-coverage check: engine or language moved.
+    private var appleSpeechCheckKey: String {
+        "\(settings.dictationEngine)-\(effectiveDictationLocaleID)"
+    }
+
+    /// The same label the Language picker shows ("Русский", not
+    /// "русский"), falling back to the system's language name for an
+    /// identifier that isn't in our list.
+    private var appleSpeechLanguageName: String {
+        let id = effectiveDictationLocaleID
+        if let known = Transcriber.availableLocales.first(where: { $0.id == id }) {
+            return known.label
+        }
+        let code = id.split(separator: "-").first.map(String.init) ?? id
+        return Locale.current.localizedString(forLanguageCode: code) ?? id
+    }
+
+    private func refreshAppleSpeechLocaleSupport() async {
+        guard settings.dictationEngine == .appleSpeech else {
+            appleSpeechAvailability = nil
+            return
+        }
+        let id = effectiveDictationLocaleID
+        // "Auto" and pre-26 already have their own copy under the picker;
+        // these lines are only about a concrete language.
+        guard id != "auto", !id.isEmpty, #available(macOS 26, *) else {
+            appleSpeechAvailability = nil
+            return
+        }
+        let locale = Locale(identifier: id)
+        // Clear first: the language name in the warning updates the
+        // instant the picker changes, so a stale verdict would name the
+        // NEW language for as long as the check takes to answer.
+        appleSpeechAvailability = nil
+        let availability = await AppleSpeechEngine.availability(locale: locale)
+        // `.task(id:)` cancels the old task but can't unwind an await
+        // already in flight: switch language mid-check and the stale
+        // answer would land last and stick until the next change,
+        // warning about a language you aren't using. Only the answer
+        // that still matches what's on screen is allowed to write.
+        guard !Task.isCancelled, id == effectiveDictationLocaleID,
+              settings.dictationEngine == .appleSpeech else { return }
+        switch availability {
+        case .ready:
+            appleSpeechAvailability = .ready
+        case .notInstalled:
+            appleSpeechAvailability = .notInstalled
+            // Opening Settings is as good a moment as any to ask macOS
+            // for the asset — the person is looking right at the line
+            // that says it's missing.
+            await AppleSpeechEngine.ensureModelReady(locale: locale)
+        case .unsupported:
+            appleSpeechAvailability = .unsupported
+        case .frameworkUnavailable:
+            appleSpeechAvailability = .frameworkUnavailable
+        }
     }
 
     private func downloadAllModels() async {

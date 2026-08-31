@@ -62,6 +62,42 @@ final class AppleSpeechLiveEngine {
         return await SpeechTranscriber.supportedLocale(equivalentTo: locale) != nil
     }
 
+    /// Why Apple can or can't run this language — the cases the caller
+    /// has to tell apart, because they mean different things to the
+    /// person: `.unsupported` is permanent (Apple has no model for this
+    /// language at all), `.notInstalled` fixes itself once the download
+    /// lands, `.frameworkUnavailable` isn't about the language at all,
+    /// and `.ready` is the happy path.
+    ///
+    /// They used to be collapsed into one Bool, which turned a field
+    /// report into a day of guessing: the log said "unsupported or model
+    /// not installed" and the answer for Russian looked like "Apple
+    /// doesn't do Russian" when the real story was an asset that never
+    /// arrived (Егор, 2026-08-31 — "русский отлично работает на телефоне
+    /// и на компе", and he's right: the system's own dictation does).
+    enum Availability: Sendable {
+        case ready
+        case notInstalled
+        case unsupported
+        /// SpeechTranscriber itself isn't available on this machine —
+        /// nothing to do with the chosen language. Its own case so the
+        /// warning doesn't blame a language that's perfectly fine (the
+        /// mistake this enum exists to stop making).
+        case frameworkUnavailable
+    }
+
+    static func availability(locale: Locale) async -> Availability {
+        guard SpeechTranscriber.isAvailable else { return .frameworkUnavailable }
+        guard let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) else {
+            return .unsupported
+        }
+        let target = supported.identifier(.bcp47)
+        let installed = await SpeechTranscriber.installedLocales
+        return installed.contains(where: { $0.identifier(.bcp47) == target })
+            ? .ready
+            : .notInstalled
+    }
+
     /// Whether the locale's on-device model is installed *right now*. If
     /// it isn't, kicks a best-effort background download (so a later
     /// session can use Apple) and returns false — the caller falls back
@@ -76,7 +112,17 @@ final class AppleSpeechLiveEngine {
         if installed.contains(where: { $0.identifier(.bcp47) == target }) {
             return true
         }
+        // One download attempt in flight per locale. Every dictation used
+        // to kick a fresh one, so a language whose asset keeps failing got
+        // a new doomed request on every hotkey press.
+        guard !installsInFlight.contains(target) else {
+            Logger(subsystem: "app.essazanov.Daisy", category: "AppleSpeechLiveEngine")
+                .info("Apple speech: download for \(target, privacy: .public) already in flight — skipping")
+            return false
+        }
+        installsInFlight.insert(target)
         Task.detached {
+            let log = Logger(subsystem: "app.essazanov.Daisy", category: "AppleSpeechLiveEngine")
             do {
                 let probe = SpeechTranscriber(
                     locale: supported,
@@ -86,14 +132,27 @@ final class AppleSpeechLiveEngine {
                 )
                 try await AssetInventory.reserve(locale: supported)
                 if let request = try await AssetInventory.assetInstallationRequest(supporting: [probe]) {
+                    log.info("Apple speech: downloading model for \(target, privacy: .public)…")
                     try await request.downloadAndInstall()
+                    log.info("Apple speech: model for \(target, privacy: .public) installed")
+                } else {
+                    // No request to make, yet the locale isn't installed:
+                    // the asset catalog thinks it's covered when it isn't.
+                    log.warning("Apple speech: no installation request for \(target, privacy: .public) — model stays missing")
                 }
             } catch {
-                // Best-effort; Whisper-Lite covers this session regardless.
+                // Whisper-Lite covers this session regardless, but the
+                // failure must NOT be silent: this is exactly where a
+                // supported language looks unsupported forever.
+                log.error("Apple speech: model download for \(target, privacy: .public) failed — \(error.localizedDescription, privacy: .public)")
             }
+            await MainActor.run { _ = installsInFlight.remove(target) }
         }
         return false
     }
+
+    /// bcp47 identifiers whose asset download is running right now.
+    private static var installsInFlight: Set<String> = []
 
     func start() async throws {
         let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) ?? locale

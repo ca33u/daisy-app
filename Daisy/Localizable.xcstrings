@@ -3041,6 +3041,16 @@
         }
       }
     },
+    "Apple’s speech engine isn’t available on this Mac — dictation runs on Whisper instead." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Речевой движок Apple недоступен на этом Mac — диктовка идёт через Whisper."
+          }
+        }
+      }
+    },
     "Apps that offer to record" : {
       "localizations" : {
         "ru" : {
@@ -9477,6 +9487,16 @@
         }
       }
     },
+    "Logs saved to Downloads — %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Логи сохранены в «Загрузки» — %@."
+          }
+        }
+      }
+    },
     "Loopback-only (127.0.0.1) — the server is reachable only from this Mac. Connected clients can read your sessions and rename a session or speaker. Re-summarizing and sending sessions to destinations stay off unless you enable “Allow actions from MCP clients” above. They can't delete anything or change Daisy's settings. Add to Claude Desktop merges the entry into ~/Library/Application Support/Claude/claude_desktop_config.json, preserving any servers you already have. Both clients need Node.js installed: Claude Desktop bridges SSE→stdio via `npx mcp-remote`; Claude Code speaks SSE natively. The raw snippet works the same for Cursor / Cline / Continue." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -9514,6 +9534,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выход Mac"
+          }
+        }
+      }
+    },
+    "macOS doesn’t have an Apple speech model for %@ — dictation runs on Whisper instead. Everything still works; it just isn’t the faster engine." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В macOS нет модели Apple для языка «%@» — диктовка идёт через Whisper. Всё работает, просто это не быстрый движок."
+          }
+        }
+      }
+    },
+    "macOS hasn’t downloaded the Apple speech model for %@ yet — until it does, dictation runs on Whisper. Daisy asks for it in the background; adding the language in System Settings → Keyboard → Dictation usually brings it down faster." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS ещё не скачала модель Apple для языка «%@» — пока этого не произошло, диктовка идёт через Whisper. Daisy запрашивает её в фоне; быстрее всего помогает добавить язык в «Системных настройках» → «Клавиатура» → «Диктовка»."
           }
         }
       }

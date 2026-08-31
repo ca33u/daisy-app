@@ -70,18 +70,27 @@ extension RecordingSession {
                 : settings.dictationLocale
             if #available(macOS 26, *), localeID != "auto", !localeID.isEmpty {
                 let locale = Locale(identifier: localeID)
-                if await AppleSpeechEngine.isUsable(locale: locale),
-                   await AppleSpeechEngine.ensureModelReady(locale: locale) {
-                    do {
-                        fastText = try await AppleSpeechEngine.shared.transcribe(samples: samples, locale: locale)
-                        if fastText?.isEmpty != false {
-                            log.info("Dictation fast-engine miss: Apple SpeechAnalyzer returned empty — Whisper fallback")
+                // The two misses below used to share one line ("unsupported
+                // or model not installed"), which cost a day of guessing in
+                // the field: "unsupported" is permanent and the user must be
+                // told, while "not installed yet" fixes itself on the next
+                // dictation once the background pull lands. Same fallback,
+                // different diagnosis — so they're logged apart.
+                if await AppleSpeechEngine.isUsable(locale: locale) {
+                    if await AppleSpeechEngine.ensureModelReady(locale: locale) {
+                        do {
+                            fastText = try await AppleSpeechEngine.shared.transcribe(samples: samples, locale: locale)
+                            if fastText?.isEmpty != false {
+                                log.info("Dictation fast-engine miss: Apple SpeechAnalyzer returned empty — Whisper fallback")
+                            }
+                        } catch {
+                            log.warning("Dictation fast-engine miss: Apple SpeechAnalyzer error \(error.localizedDescription, privacy: .public) — Whisper fallback")
                         }
-                    } catch {
-                        log.warning("Dictation fast-engine miss: Apple SpeechAnalyzer error \(error.localizedDescription, privacy: .public) — Whisper fallback")
+                    } else {
+                        log.info("Dictation fast-engine miss: Apple model for \(localeID, privacy: .public) not installed yet (download kicked) — Whisper fallback")
                     }
                 } else {
-                    log.info("Dictation fast-engine miss: Apple SpeechAnalyzer unusable for locale \(localeID, privacy: .public) (unsupported or model not installed) — Whisper fallback")
+                    log.info("Dictation fast-engine miss: Apple SpeechAnalyzer has no model for \(localeID, privacy: .public) on this OS — Whisper fallback (permanent for this language). Note: the system's own dictation supports more languages than SpeechTranscriber does, so \"my Mac dictates this fine\" and this line can both be true.")
                 }
             } else {
                 log.info("Dictation fast-engine miss: Apple SpeechAnalyzer needs macOS 26+ and a concrete language (got \(localeID, privacy: .public)) — Whisper fallback")

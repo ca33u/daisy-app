@@ -1654,13 +1654,16 @@ final class RecordingSession {
         // only; the pasted final text is unchanged. See NemotronLiveEngine.
         micTranscriber.dictationNemotronLive =
             currentMode == .dictation && settings.dictationUseNemotronLive
-        // Live word-by-word caption for dictation on the Apple engine —
-        // the native-macOS-dictation experience (Egor, 2026-08-29),
-        // rendered on the widget's caption pill. The flag routes the
-        // live path through AppleSpeechLiveEngine; the sink carries the
-        // running text out. Both are no-ops unless every gate holds
-        // (macOS 26, concrete locale, model installed) — any miss keeps
-        // today's behaviour: Whisper live, no caption, unchanged paste.
+        // Live word-by-word caption for dictation — the native-macOS-
+        // dictation experience (Egor, 2026-08-29), rendered on the
+        // widget's caption pill. The flag below routes the live path
+        // through AppleSpeechLiveEngine; the sink carries the running
+        // text out and is armed for EVERY dictation session, because
+        // either streaming engine can be the one driving (Nemotron
+        // outranks Apple in `Transcriber.startLivePath`). Both are
+        // no-ops unless a streaming path actually starts — a Whisper
+        // fallback keeps today's behaviour: live timer, no caption,
+        // unchanged paste.
         micTranscriber.dictationAppleLive =
             currentMode == .dictation && settings.dictationEngine == .appleSpeech
         // NB: written as if/else, not `?:` — the ternary over an optional
@@ -2110,6 +2113,14 @@ final class RecordingSession {
         // through it reads as "still listening". Harmless no-op for
         // meetings/voice notes (no caption was ever shown).
         WidgetBubbleCenter.shared.hideLiveCaption()
+        // …and cut the sink in the same breath. The transcriber keeps
+        // streaming until `stopCapture()` far below (after the audio
+        // teardown awaits), and a streaming engine landing one more
+        // result in that window would re-open the pill we just closed —
+        // stale text hanging over the inline final pass. Apple's cadence
+        // made this a near-miss; Nemotron's 560 ms chunks would hit it
+        // almost every time (review find, 2026-08-31).
+        micTranscriber.onDictationLiveText = nil
         removeThermalDowngrade()
         // No stop-click cue — it fired before capture stopped (tailing the
         // recording) and before any work finished. The "done" cue now plays

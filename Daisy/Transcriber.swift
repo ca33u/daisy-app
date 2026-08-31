@@ -471,13 +471,17 @@ final class Transcriber {
     @ObservationIgnored
     var dictationAppleLive = false
     /// Streaming caption sink for dictation: called with the full running
-    /// transcript after each Apple live result. RecordingSession points
-    /// this at the widget's caption pill for `.dictation` sessions and
-    /// leaves it nil otherwise (meetings render live text in their own
-    /// transcript view — no caption wanted). Fires only from the Apple
-    /// live path: the Whisper fallback's ~per-window cadence is too
-    /// coarse to read as "live" and would make the pill look broken.
-    /// Cleared on `reset()`.
+    /// transcript after each live result. RecordingSession points this at
+    /// the widget's caption pill for `.dictation` sessions and leaves it
+    /// nil otherwise (meetings render live text in their own transcript
+    /// view — no caption wanted). Fires from BOTH streaming paths — Apple
+    /// (`applyAppleLiveResult` → `ingest`) and Nemotron
+    /// (`applyNemotronRunningText`); the Nemotron omission shipped in
+    /// 1.0.7.65 and read in the field as "включаю превью — ничего не
+    /// происходит" (Егор, 2026-08-31), because the dark flag outranks the
+    /// Apple path in `startLivePath`. NOT the Whisper fallback: its
+    /// ~per-window cadence is too coarse to read as "live" and would make
+    /// the pill look broken. Cleared on `reset()`.
     @ObservationIgnored
     var onDictationLiveText: (@MainActor (String) -> Void)?
 
@@ -607,6 +611,11 @@ final class Transcriber {
             startSec: 0
         )]
         invalidateSegmentsCache()
+        // The streamed text IS the whole running transcript (it replaces
+        // the single pending segment wholesale), so the caption takes it
+        // as-is — no need for the committed+pending merge the Apple path
+        // does in `ingest`.
+        onDictationLiveText?(trimmed)
     }
 
     /// Concrete `Locale` for the Apple engine, or nil when the user is on
