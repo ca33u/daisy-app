@@ -275,8 +275,11 @@ struct SpeakerDetailSheet: View {
 
     private var footer: some View {
         HStack {
+            // Neutral tint: Daisy never paints a destructive control red
+            // (Egor, 2026-08-31). The confirmation sheet is what guards
+            // the action; colour is not a safety mechanism.
             Button("Forget", role: .destructive) { confirmForget = true }
-                .tint(Color.daisyError)
+                .tint(Color.daisyTextPrimary)
             Spacer()
             Button("Cancel", role: .cancel) { dismiss() }
                 .keyboardShortcut(.cancelAction)

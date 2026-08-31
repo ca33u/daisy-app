@@ -62,7 +62,9 @@ struct WidgetBubbleContent: Identifiable, Equatable {
     /// the ✕ dismisses — and dismissing leaves the thing alone, which is
     /// right for a prompt and useless when the answer is "I didn't want
     /// that at all". This throws the thing away. Drawn as a trash glyph
-    /// in the error colour, so it can't be read as another ✕.
+    /// in the pill's neutral tint (never red — Daisy paints no
+    /// destructive control in the error colour); the glyph and its
+    /// position, not colour, are what keep it apart from the ✕.
     ///
     /// Not carried by the notification fallback: a banner has one action
     /// at most, and the one that DELETES is not the one to guess at.

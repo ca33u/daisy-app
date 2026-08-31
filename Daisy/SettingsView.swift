@@ -898,7 +898,8 @@ struct SettingsView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .tint(audioCacheFiles == 0 ? Color.secondary : Color.daisyError)
+            // Neutral, never red — house rule for destructive controls.
+            .tint(audioCacheFiles == 0 ? Color.secondary : Color.daisyTextPrimary)
             .disabled(clearingAudioCache || audioCacheFiles == 0)
         }
         .task(id: audioCacheRefreshTick) {
@@ -1982,7 +1983,8 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .tint(Color.daisyError)
+                    // Neutral, never red — house rule for destructive controls.
+                    .tint(Color.daisyTextPrimary)
                 }
             }
             .sheet(item: $editingSpeaker) { item in

@@ -447,8 +447,9 @@ extension FloatingPanelController: WidgetBubbleHosting {
         // Throw-it-away affordance, for a pill announcing something Daisy
         // just created. Deliberately NOT another glyph in the ✕'s clothing:
         // the ✕ leaves the artifact alone, this deletes it, and the two
-        // must not be a coin flip. Trash glyph, error colour, its own
-        // target, and it sits inboard of the ✕ so the muscle-memory
+        // must not be a coin flip. Trash glyph in the pill's neutral
+        // tint, its own target, and it sits inboard of the ✕ so the
+        // muscle-memory
         // "dismiss is the far-right thing" stays true.
         var destructiveControl: NSView?
         if let destructiveAction = content.destructiveAction {
@@ -466,7 +467,12 @@ extension FloatingPanelController: WidgetBubbleHosting {
             )
             button.toolTip = content.destructiveTitle
             button.isBordered = false
-            button.contentTintColor = NSColor(Color.daisyError)
+            // Neutral, never red (Egor, 2026-08-31 — house rule: Daisy
+            // paints no destructive control in the error colour). The
+            // glyph itself says "delete"; colour is not what keeps the
+            // two apart — position and shape are, and the 12pt gap to
+            // the ✕ carries that weight.
+            button.contentTintColor = NSColor.white.withAlphaComponent(0.72)
             button.translatesAutoresizingMaskIntoConstraints = false
             button.setContentHuggingPriority(.required, for: .horizontal)
             button.setContentCompressionResistancePriority(.required, for: .horizontal)
