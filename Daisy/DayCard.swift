@@ -34,9 +34,6 @@ struct DayCard: View {
     @Bindable private var actionItems = ActionItemStore.shared
     @Bindable private var store = SessionStore.shared
 
-    /// Which event's Prep brief is expanded (one at a time).
-    @State private var expandedPrepID: String?
-
     /// Open items whose source session is older than this land in the
     /// separate "Overdue" block instead of "To close" (tunable).
     private static let overdueAfterDays = 3
@@ -255,10 +252,6 @@ struct DayCard: View {
                     itemsList(tasks)
                         .padding(.leading, Self.glyphColumn + 8)
                 }
-                if expandedPrepID == key {
-                    PreMeetingBriefCard(meeting: event, settings: settings)
-                        .padding(.leading, 24)
-                }
             }
         }
     }
@@ -298,23 +291,26 @@ struct DayCard: View {
             .buttonStyle(.plain)
             Spacer()
             if briefable {
-                // Prep brief toggle. Textual and neutral (Egor
-                // 2026-07-28): the accent-tinted icon-only chip read as a
-                // primary action competing with the record button beside
-                // it. `.bordered` + `.small` + `daisyTextPrimary` is the
-                // app's secondary-button idiom — the same one Settings and
-                // About use. The expanded card below the row is still the
-                // open/closed indicator.
-                Button("Prep") {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        let key = PreMeetingBriefStore.key(for: event)
-                        expandedPrepID = (expandedPrepID == key) ? nil : key
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .tint(Color.daisyTextPrimary)
-                .help(String(localized: "Prep brief"))
+                // Passive badge, not a button (Egor 2026-08-31): the brief
+                // itself moved into the meeting-preparation window (next to
+                // the attached plan), so this chip only signals "there is
+                // prep material inside". Clicking the row opens that
+                // window. Not hit-test-disabled: the tooltip needs hover,
+                // and a plain Text swallows no clicks anyway.
+                Text("Prep")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color.daisySelectionBackground)
+                    )
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .strokeBorder(Color.daisySelectionBorder, lineWidth: 0.5)
+                    )
+                    .help(String(localized: "A prep brief is waiting inside — open the meeting to see it"))
             }
         }
         .frame(minHeight: 24)

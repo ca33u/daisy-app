@@ -2168,6 +2168,16 @@
         }
       }
     },
+    "A prep brief is waiting inside — open the meeting to see it" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Внутри есть бриф к встрече — откройте встречу, чтобы посмотреть"
+          }
+        }
+      }
+    },
     "A profile of how you write, built from your dictations" : {
       "localizations" : {
         "ru" : {
