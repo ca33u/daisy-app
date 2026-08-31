@@ -25,6 +25,21 @@ enum MainSection: String, Hashable, CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
 
+    /// Destinations that hold the user's own material. These fill the
+    /// sidebar from the top.
+    static var primaryCases: [MainSection] {
+        allCases.filter { !utilityCases.contains($0) }
+    }
+
+    /// Housekeeping destinations, pinned to the bottom of the sidebar
+    /// (Egor, 2026-08-31). They're where you go to configure the app,
+    /// not where you work — sitting them under Home/Library/Notes gave
+    /// them the same weight as the content, and pushed the recording
+    /// capsule further from the eye. Bottom-anchored is also where
+    /// macOS users look for them (Mail, Music, Xcode all park account
+    /// and settings affordances at the foot of the source list).
+    static let utilityCases: [MainSection] = [.settings, .about]
+
     var title: String {
         switch self {
         case .home:        String(localized: "Home")
@@ -333,7 +348,9 @@ struct MainView: View {
         // highlight from fighting the system-selected row.
         List(selection: $sidebarSelection) {
             Section {
-                ForEach(MainSection.allCases) { section in
+                // Settings / About are NOT here — they live in the
+                // bottom inset below, under the update row.
+                ForEach(MainSection.primaryCases) { section in
                     Label {
                         Text(section.title)
                             .foregroundStyle(Color.daisySidebarInk)
@@ -492,11 +509,60 @@ struct MainView: View {
         // letting the system material darken it against the window.
         .scrollContentBackground(.hidden)
         .background(Color.daisyBgSidebar)
-        // Quiet "update available" affordance pinned to the very bottom of
-        // the side menu — appears only once Sparkle has found (and the user
-        // hasn't yet installed) a newer build. Non-modal complement to
-        // Sparkle's own prompt; tapping re-opens the install flow.
-        .safeAreaInset(edge: .bottom, spacing: 0) { updateFooter }
+        // Foot of the sidebar: the update affordance (only when there IS
+        // an update) sitting directly above the two housekeeping
+        // destinations. Order matters — "Update" appears above Settings
+        // rather than below it, so the row that comes and goes never
+        // shifts the two rows the user reaches for by muscle memory.
+        .safeAreaInset(edge: .bottom, spacing: 0) { sidebarFooter }
+    }
+
+    /// Update row + the pinned Settings / About rows.
+    private var sidebarFooter: some View {
+        VStack(spacing: 2) {
+            updateFooter
+            ForEach(MainSection.utilityCases) { section in
+                utilityRow(section)
+            }
+        }
+        .padding(.bottom, 8)
+        .background(Color.daisyBgSidebar)
+    }
+
+    /// A bottom-pinned sidebar destination, hand-drawn because it lives
+    /// outside `List(selection:)` and therefore gets no system chip.
+    /// Mirrors the List row's geometry and colours so the two groups read
+    /// as one sidebar: same ink, same selection fill, same 8pt outer
+    /// inset. Selection still flows through `sidebarSelection`, so
+    /// keyboard focus, the menu bar and the widget keep working.
+    private func utilityRow(_ section: MainSection) -> some View {
+        let isSelected = sidebarSelection == section
+        return Button {
+            sidebarSelection = section
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: section.systemImage)
+                    .symbolRenderingMode(.monochrome)
+                    .font(.callout)
+                    .frame(width: 18)
+                Text(section.title)
+                    .font(.callout)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(Color.daisySidebarInk)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? Color.daisySidebarSelection : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
     /// Bottom-of-sidebar "Обновиться" row. Renders nothing in the steady
@@ -525,9 +591,10 @@ struct MainView: View {
             }
             .buttonStyle(.plain)
             .help(Text("Update available: \(upd.shortVersion)"))
+            // Bottom padding and the sidebar ground now belong to
+            // `sidebarFooter`, which stacks this row above Settings /
+            // About; owning them here too double-padded the group.
             .padding(.horizontal, 8)
-            .padding(.bottom, 8)
-            .background(Color.daisyBgSidebar)
         }
     }
 
