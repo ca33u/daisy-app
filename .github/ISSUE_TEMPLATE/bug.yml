@@ -8,7 +8,7 @@ body:
       value: |
         Thanks for taking the time to report a bug.
 
-        **Before you submit:** is this a question, a how-do-I, or a feature idea? Please use [Discussions](https://github.com/addicted-studio/daisy-app/discussions) instead — Issues is reserved for confirmed bugs with reproducible behaviour. Discussions get faster answers because they're searchable for the next person.
+        **Before you submit:** is this a question, a how-do-I, or a feature idea? Please use [Discussions](https://github.com/ca33u/daisy-app/discussions) instead — Issues is reserved for confirmed bugs with reproducible behaviour. Discussions get faster answers because they're searchable for the next person.
 
   - type: input
     id: daisy-version

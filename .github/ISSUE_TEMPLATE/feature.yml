@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        **Most feature ideas should start in [Discussions → Ideas](https://github.com/addicted-studio/daisy-app/discussions/categories/ideas)**, not here.
+        **Most feature ideas should start in [Discussions → Ideas](https://github.com/ca33u/daisy-app/discussions/categories/ideas)**, not here.
 
         Open an Issue only if:
         - The idea has already been discussed and there's general agreement to ship it, **or**
@@ -43,4 +43,4 @@ body:
     attributes:
       label: Link to the discussion (if any)
       description: Issue is more likely to be accepted if there's prior discussion thread context.
-      placeholder: "https://github.com/addicted-studio/daisy-app/discussions/42"
+      placeholder: "https://github.com/ca33u/daisy-app/discussions/42"

@@ -7,7 +7,7 @@ Thanks for thinking about contributing. Daisy is open source under the Apache 2.
 Daisy is shaped by one person (Egor, Addicted Studio) and a small handful of advisors. That means:
 
 - The roadmap is opinionated. Some features are deliberately out of scope (cloud sync, account system, multi-user collaboration) and won't be merged regardless of code quality.
-- **Substantial changes should be discussed first.** Please open a [Discussion in Ideas](https://github.com/addicted-studio/daisy-app/discussions/categories/ideas) before writing the PR. I'll tell you upfront whether the direction fits, and we can iterate on the approach before you spend hours coding.
+- **Substantial changes should be discussed first.** Please open a [Discussion in Ideas](https://github.com/ca33u/daisy-app/discussions/categories/ideas) before writing the PR. I'll tell you upfront whether the direction fits, and we can iterate on the approach before you spend hours coding.
 - I will sometimes close PRs that I won't merge. That's not a comment on the work — it's a "this doesn't fit where Daisy is going". I'll explain why.
 
 ## What's likely to be welcomed
@@ -15,7 +15,7 @@ Daisy is shaped by one person (Egor, Addicted Studio) and a small handful of adv
 - **Bug fixes** with a clear repro. Open an Issue first if there isn't one, but PRs that close existing Issues are great.
 - **Performance improvements** that don't change the user-facing behaviour. CPU, memory, startup time, build time, render-thread allocation.
 - **Polishing existing features** — better error messages, accessibility, keyboard navigation, dark-mode visuals.
-- **Docs improvements** to the README, code comments, or [mydaisy.io](https://mydaisy.io) (which lives in [daisy-web](https://github.com/addicted-studio/daisy-web)).
+- **Docs improvements** to the README, code comments, or [mydaisy.io](https://mydaisy.io) (which lives in [daisy-web](https://github.com/ca33u/daisy-web)).
 - **New tests.** The `DaisyTests` smoke suite is small on purpose; high-value pure-function tests are welcome.
 
 ## What's likely to be declined
@@ -31,7 +31,7 @@ Daisy is shaped by one person (Egor, Addicted Studio) and a small handful of adv
 ### Setup
 
 ```bash
-git clone https://github.com/addicted-studio/daisy-app.git
+git clone https://github.com/ca33u/daisy-app.git
 cd daisy-app
 open Daisy.xcodeproj
 ```
@@ -72,4 +72,4 @@ Daisy is [Apache 2.0](LICENSE). Contributions are accepted under that same licen
 
 ## Questions
 
-Open a [Discussion in Q&A](https://github.com/addicted-studio/daisy-app/discussions/categories/q-a) or email **my@addicted.design**.
+Ask on [Discord](https://discord.gg/JYCZRZXy6j), open a [Discussion in Q&A](https://github.com/ca33u/daisy-app/discussions/categories/q-a), or email **my@addicted.design**.

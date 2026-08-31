@@ -37,7 +37,7 @@ Requirements:
 Clone and open:
 
 ```bash
-git clone https://github.com/addicted-studio/daisy-app.git
+git clone https://github.com/ca33u/daisy-app.git
 cd daisy-app
 open Daisy.xcodeproj
 ```
@@ -108,13 +108,14 @@ and the [public evidence](./Benchmarks/reports/public/).
 DAISY_AUTO_PUSH=1 ./scripts/release.sh <shortVersion> <buildNumber> [stable|beta]
 ```
 
-Beta is the default channel from `main`; stable is promoted from a soaked beta with `./scripts/release.sh promote <version>` (no rebuild). Six steps: archive → export → notarize → DMG → publish to the [daisy-web](https://github.com/addicted-studio/daisy-web) repo → inject an `<item>` into `appcast.xml` and commit. Vercel auto-deploys the site within a couple of minutes. Full branch/channel model and the hotfix flow are in [`RELEASING.md`](./RELEASING.md).
+Beta is the default channel from `main`; stable is promoted from a soaked beta with `./scripts/release.sh promote <version>` (no rebuild). Six steps: archive → export → notarize → DMG → publish to the [daisy-web](https://github.com/ca33u/daisy-web) repo → inject an `<item>` into `appcast.xml` and commit. Vercel auto-deploys the site within a couple of minutes. Full branch/channel model and the hotfix flow are in [`RELEASING.md`](./RELEASING.md).
 
 Release notes for each version go in `scripts/release-notes/<shortVersion>.md` as a flat markdown bullet list (`- one line per change`). The script extracts those bullets and embeds them in the appcast `<description>` so Sparkle shows them in its update sheet.
 
 ## Support and contact
 
-- Questions, ideas, show-and-tell → [GitHub Discussions](https://github.com/addicted-studio/daisy-app/discussions)
+- Chat with the community → [Discord](https://discord.gg/JYCZRZXy6j)
+- Questions, ideas, show-and-tell → [GitHub Discussions](https://github.com/ca33u/daisy-app/discussions)
 - Product issues, feature requests → file an issue on this repo or email **support@mydaisy.io**
 - Security disclosures → see [`SECURITY.md`](./SECURITY.md)
 - Procurement / security review / tailored deployment → email **hello@mydaisy.io**

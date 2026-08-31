@@ -1,14 +1,17 @@
 blank_issues_enabled: false
 contact_links:
+  - name: 🌼 Chat on Discord
+    url: https://discord.gg/JYCZRZXy6j
+    about: Quick questions, setup help, and release chatter — the fastest way to reach us.
   - name: 💬 Question, setup help, or "how do I…"
-    url: https://github.com/addicted-studio/daisy-app/discussions/categories/q-a
+    url: https://github.com/ca33u/daisy-app/discussions/categories/q-a
     about: Ask in Q&A — faster answers, searchable for the next person.
   - name: 💡 Feature idea or "wouldn't it be cool if…"
-    url: https://github.com/addicted-studio/daisy-app/discussions/categories/ideas
+    url: https://github.com/ca33u/daisy-app/discussions/categories/ideas
     about: Start in Ideas. If it grows legs, we'll graduate it to an Issue.
   - name: 🌸 Show your Daisy setup
-    url: https://github.com/addicted-studio/daisy-app/discussions/categories/show-and-tell
+    url: https://github.com/ca33u/daisy-app/discussions/categories/show-and-tell
     about: Workflow, vault structure, MCP setup — show others how you use Daisy.
   - name: 🔒 Security vulnerability
-    url: https://github.com/addicted-studio/daisy-app/security/advisories/new
+    url: https://github.com/ca33u/daisy-app/security/advisories/new
     about: Please report privately, never in a public Issue. Details in SECURITY.md.
