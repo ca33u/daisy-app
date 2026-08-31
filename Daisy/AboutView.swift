@@ -30,6 +30,22 @@ struct AboutView: View {
 
     var body: some View {
         Form {
+            // Ko-fi sits above everything else (Egor, 2026-08-31): Daisy
+            // is free and open source, and the donation link is the one
+            // row we actually want a visitor of this page to notice.
+            // Reuses the standard link-row idiom — no special styling, a
+            // plain top-of-page section is emphasis enough.
+            Section {
+                aboutLinkRow(
+                    icon: "cup.and.saucer",
+                    title: "Buy me a coffee",
+                    detail: "ko-fi.com/ca33u",
+                    url: URL(string: "https://ko-fi.com/ca33u")
+                )
+            } header: {
+                Text("Support Daisy")
+            }
+
             // Updates lives directly under the version line — natural
             // pairing of "what version am I on" and "how do I get newer
             // ones". Apple's own About panels historically had this same

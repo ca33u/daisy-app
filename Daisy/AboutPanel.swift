@@ -82,6 +82,15 @@ enum AboutPanel {
             url: "mailto:hello@mydaisy.io",
             base: base
         ))
+        // Donation link (2026-08-31) — same low-key styling as the
+        // other links; the in-app About view carries the prominent
+        // "Support Daisy" section, this is just parity.
+        result.append(.init(string: "\n", attributes: base))
+        result.append(link(
+            "ko-fi.com/ca33u",
+            url: "https://ko-fi.com/ca33u",
+            base: base
+        ))
         return result
     }
 
