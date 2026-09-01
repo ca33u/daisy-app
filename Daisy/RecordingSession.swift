@@ -2582,6 +2582,7 @@ final class RecordingSession {
             // bail cleanly. transcript.md never landed, no summary
             // can run, no auto-send needed.
             releaseSessionsFolderTicket()
+            SessionStore.shared.activeRecordingDirName = nil
             status = .finished
             if settings.recordingSoundsEnabled { SoundEffects.playFinished() }
             return
@@ -2669,7 +2670,32 @@ final class RecordingSession {
             return
         }
         summaryTask = Task { [weak self] in
-            defer { ticketSnapshot?.release() }
+            // Release the live-folder marker when the pipeline is done —
+            // not before (the finalize task still rewrites transcript.md
+            // and can purge audio) and not never, which is what shipped:
+            // it used to be cleared ONLY in `discard()`, so after the
+            // first recording of the day the flag stayed armed for the
+            // rest of the run. It gates the two mechanisms that repair a
+            // crash — interrupted-recording recovery
+            // (`SessionStore.swift:268`) and quit-finalize
+            // (`QuitFinalizeRecovery.swift:84`, which answers "finish the
+            // current recording first" while nothing is recording) —
+            // plus renaming the last session and bulk-delete
+            // (audit 2026-09-01).
+            //
+            // Guarded by identity: a back-to-back meeting may already
+            // have announced ITS folder while this task was finishing,
+            // and clearing that would hand the next session's live
+            // directory to the sweepers. The rotation-stop path above
+            // returns without spawning this task at all and needs no
+            // clear of its own for the same reason — the incoming
+            // `start()` reassigns the flag moments later.
+            defer {
+                ticketSnapshot?.release()
+                if SessionStore.shared.activeRecordingDirName == sessionID {
+                    SessionStore.shared.activeRecordingDirName = nil
+                }
+            }
             await self?.finalizePostStop(
                 sessionID: sessionID,
                 directory: dir,
@@ -2712,6 +2738,12 @@ final class RecordingSession {
         }
         releaseSessionsFolderTicket()
         WidgetBubbleCenter.shared.hideLiveCaption()
+        // A start that failed after the directory was announced would
+        // otherwise leave the folder marked live forever — see the note
+        // in `reset()`. Identity-guarded for the same reason.
+        if SessionStore.shared.activeRecordingDirName == sessionDirectory?.lastPathComponent {
+            SessionStore.shared.activeRecordingDirName = nil
+        }
         micTranscriber.reset()
         systemTranscriber.reset()
         // recorder/systemAudio may not have started yet on early
@@ -2795,6 +2827,10 @@ final class RecordingSession {
     }
 
     func reset() {
+        // Read before the cancel below nils it: whether a finalize was
+        // in flight decides who owns the live-folder marker (see the
+        // clause further down).
+        let finalizeWasRunning = summaryTask != nil
         // Best-effort cancel of any post-Stop finalize task. start()
         // already cancels first (so this is usually a no-op), but
         // direct reset() callers — e.g. an early-return after a Stop
@@ -2810,6 +2846,27 @@ final class RecordingSession {
         // of stop(), but a reset() between set and consume (husk
         // cleanup path) must not leave it armed for a later stop.
         skipFinalPassOnNextStop = false
+        // Belt for the live-folder marker, same reasoning as the caption
+        // above: `stop()` clears it when its finalize task ends, but
+        // `stop()` has early returns (husk cleanup, dictation, missing
+        // directory) that never spawn one, and dictation finishes
+        // through here. A marker left armed disables crash recovery for
+        // the rest of the run.
+        //
+        // Two guards, both earned. Identity: `start()` calls reset()
+        // before announcing its own directory, and a back-to-back
+        // meeting must not have its live folder handed to the sweepers.
+        // Finalize-in-flight: cancellation isn't instant (the streaming
+        // pass only checks between ~15-minute blocks) while the
+        // `.recording` marker on disk lives until Stage 3 — clearing the
+        // flag in that window would let `SessionStore.scanRoots` classify
+        // the folder as quit-saved and offer a SECOND finalize pass over
+        // it. In that case the finalize task's own `defer` clears the
+        // flag when it actually finishes.
+        if !finalizeWasRunning,
+           SessionStore.shared.activeRecordingDirName == sessionDirectory?.lastPathComponent {
+            SessionStore.shared.activeRecordingDirName = nil
+        }
         recorder.reset()
         micTranscriber.reset()
         systemTranscriber.reset()

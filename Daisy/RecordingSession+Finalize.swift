@@ -288,6 +288,9 @@ extension RecordingSession {
             return
         }
 
+        // (see `transcriptHasContent` below — Stage 6 asks it before
+        // deleting anyone's audio)
+
         // ── Stage 3: Re-render transcript.md with final-quality data ─
         //
         // The inline path in stop() wrote a transcript.md from
@@ -524,13 +527,27 @@ extension RecordingSession {
         // Gating: for the summary path we wait for summary success
         // (so the user can re-summarize from SessionDetailView if it
         // failed). For the no-summary path (voice notes, autoSummarize
-        // disabled, provider unavailable) we purge unconditionally —
-        // there's no second-chance LLM pass to keep audio around for,
-        // and transcript.md is final-quality by this point.
-        let canPurge = willSummarize ? (summary != nil) : true
-        if canPurge,
-           settings.audioRetentionDays == AppSettings.audioRetentionDeleteAfterTranscription {
-            AudioRetentionSweep.purgeOneSession(at: directory)
+        // disabled, provider unavailable) we purge once the transcript
+        // is on disk — there's no second-chance LLM pass to keep audio
+        // around for.
+        //
+        // The transcript check is not a formality. `willSummarize`
+        // contains `!segments.isEmpty`, so an EMPTY transcript made the
+        // old `: true` branch fire unconditionally — the one case where
+        // the audio is the only surviving copy of the meeting was also
+        // the case that deleted it (audit 2026-09-01). Deciding from the
+        // file on disk rather than from a flag keeps the two in step:
+        // no transcript, no purge, ever.
+        if settings.audioRetentionDays == AppSettings.audioRetentionDeleteAfterTranscription {
+            let transcriptLanded = await Task.detached {
+                Self.transcriptHasContent(in: directory)
+            }.value
+            let canPurge = willSummarize ? (summary != nil && transcriptLanded) : transcriptLanded
+            if canPurge {
+                AudioRetentionSweep.purgeOneSession(at: directory)
+            } else if !transcriptLanded {
+                log.warning("Audio purge skipped: no transcript on disk for \(sessionID, privacy: .public) — the recording is the only copy left")
+            }
         }
 
         // Final state flip. The no-summary path never called
@@ -545,6 +562,52 @@ extension RecordingSession {
         if generation == summaryTaskGeneration {
             summaryTask = nil
         }
+    }
+
+    // MARK: - Transcript presence
+
+    /// True when `transcript.md` holds actual transcribed speech.
+    ///
+    /// Stricter than "the body isn't empty", and that distinction is the
+    /// whole point: `MarkdownExporter.renderBody` writes the title, the
+    /// recorded-on line and the `## Transcript` heading unconditionally,
+    /// so a session that transcribed NOTHING still produces a file with
+    /// a perfectly non-empty body. Checking for a body would have
+    /// answered "yes, there's a transcript" in exactly the case this
+    /// function exists to catch (review find, 2026-09-01). What proves
+    /// speech is at least one line under that heading.
+    ///
+    /// Errs toward keeping audio: a missing, unreadable or
+    /// iCloud-evicted file, and a file in an unfamiliar shape, all
+    /// return the answer that prevents deletion where it can.
+    ///
+    /// `nonisolated`: reads a file, so it must be called off the main
+    /// actor (`Task.detached`).
+    nonisolated static func transcriptHasContent(in directory: URL) -> Bool {
+        let url = directory.appendingPathComponent("transcript.md")
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return false
+        }
+        // The heading is a literal in every renderer (MarkdownExporter,
+        // ClaudeExporter, SessionDetailView) — never localized.
+        guard let heading = text.range(of: "\n## Transcript\n") else {
+            // A shape we don't recognise (hand-edited, or written by a
+            // build older than the heading). Fall back to "is there a
+            // body at all" rather than declaring the transcript missing
+            // and purging someone's only copy of the audio.
+            var body = text[text.startIndex...]
+            if body.hasPrefix("---\n"),
+               let closing = text.range(
+                   of: "\n---",
+                   range: text.index(text.startIndex, offsetBy: 3)..<text.endIndex
+               ) {
+                body = text[closing.upperBound...]
+            }
+            return !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return text[heading.upperBound...]
+            .split(separator: "\n")
+            .contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 
     // MARK: - Transcript second pass

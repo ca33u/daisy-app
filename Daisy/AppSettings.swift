@@ -1211,6 +1211,20 @@ final class AppSettings {
             resolvedAutoSummarize = false
         }
         self.autoSummarize = resolvedAutoSummarize
+        // ─── Why these defaults are WRITTEN, not just resolved ───────
+        // A fresh-install default derived from `!hasShownFirstRun` is
+        // only true for one launch: first-run completes, sets that flag,
+        // and the next launch takes the "existing install" branch — so
+        // whatever the person never touched by hand silently reverts.
+        // And because these are stored properties assigned inside
+        // `init`, `didSet` does NOT fire, so nothing reached disk on its
+        // own. Audit 2026-09-01 found three settings decaying this way:
+        // auto-summary, the dictation hotkey (Fn → none, i.e. dictation
+        // stops working on day two) and audio retention. Writing the
+        // resolved value the first time freezes the decision instead.
+        if defaults.object(forKey: Self.k_autoSummarize) == nil {
+            defaults.set(resolvedAutoSummarize, forKey: Self.k_autoSummarize)
+        }
         // Derived from the substrate on first read: an existing install
         // that had summaries on means "after each meeting", off means
         // "manually". Nobody is moved onto the scheduler without asking.
@@ -1219,7 +1233,9 @@ final class AppSettings {
             self.summaryTiming = timing
             self.didLoadStoredSummaryTiming = true
         } else {
-            self.summaryTiming = resolvedAutoSummarize ? .afterEachMeeting : .manual
+            let resolvedTiming: SummaryTiming = resolvedAutoSummarize ? .afterEachMeeting : .manual
+            self.summaryTiming = resolvedTiming
+            defaults.set(resolvedTiming.rawValue, forKey: Self.k_summaryTiming)
         }
         let storedHour = defaults.object(forKey: Self.k_endOfDaySummaryHour) as? Int
         // 20:00: late enough that the day's meetings are done, early
@@ -1304,7 +1320,17 @@ final class AppSettings {
             // first-run completes (see ServiceWiring) so the Input
             // Monitoring prompt lands after the Hotkeys step, not at
             // first launch.
+            //
+            // Written to disk immediately — see the note above
+            // `k_autoSummarize`. Without it the Fn binding survives
+            // exactly one launch: first-run sets `hasShownFirstRun`, and
+            // the next launch falls into `.none` below, so dictation
+            // stops responding on day two for anyone who never opened
+            // the hotkey picker.
             self.dictationHotkey = .fn
+            if let encoded = try? JSONEncoder().encode(HotkeyChoice.fn) {
+                defaults.set(encoded, forKey: Self.k_dictationHotkey)
+            }
         } else {
             self.dictationHotkey = .none
         }
@@ -1428,8 +1454,17 @@ final class AppSettings {
         // UserDefaults keeps it (storedRetention non-nil path).
         let storedRetention = defaults.object(forKey: Self.k_audioRetentionDays) as? Int
         let isFreshInstall = !defaults.bool(forKey: Self.k_hasShownFirstRun)
-        self.audioRetentionDays = storedRetention
+        let resolvedRetention = storedRetention
             ?? (isFreshInstall ? Self.audioRetentionDeleteAfterTranscription : 0)
+        self.audioRetentionDays = resolvedRetention
+        // Written on first resolve — see the note above `k_autoSummarize`.
+        // Retention decays the other way round (delete-after-transcription
+        // → keep-forever), so the leak is privacy, not data: a fresh
+        // install would quietly stop honouring the strongest setting it
+        // was given.
+        if storedRetention == nil {
+            defaults.set(resolvedRetention, forKey: Self.k_audioRetentionDays)
+        }
         self.recordingSoundsEnabled = defaults.object(forKey: Self.k_recordingSoundsEnabled) as? Bool ?? true
         self.menuBarShowsNextMeeting = defaults.object(forKey: Self.k_menuBarShowsNextMeeting) as? Bool ?? false
         self.appAppearance = AppearancePreference.stored(in: defaults)

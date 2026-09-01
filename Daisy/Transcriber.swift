@@ -1308,6 +1308,23 @@ final class Transcriber {
             //     session-time `finalRangeStart`, not zero, so we keep
             //     the earlier live-committed segments and replace only the
             //     retained-tail range with cleaner output.
+            // Same guard as the streaming path: a pass that succeeded
+            // with nothing to show is not authority to erase what the
+            // live pass captured. See the note there (audit 2026-09-01).
+            //
+            // NOT for dictation. There the final pass over the whole
+            // buffer is the authority precisely because it filters what
+            // the live windows hallucinated on silence ("Спасибо за
+            // просмотр" and friends) — keeping live text there would
+            // paste that hallucination into the person's document
+            // (review find, 2026-09-01).
+            if fullReplace, profile != .dictationFinal,
+               result.isEmpty, !committedSegments.isEmpty {
+                log.error("Final pass: produced 0 segments — keeping the \(self.committedSegments.count, privacy: .public) live segments instead of clearing them")
+                speakerCentroids = output.centroids
+                return
+            }
+
             if fullReplace {
                 committedSegments.removeAll()
                 pendingSegments.removeAll()
@@ -1531,6 +1548,24 @@ final class Transcriber {
             segments: fresh,
             diarization: diarization.spans
         )
+
+        // An empty result is NOT authority to erase a transcript the
+        // person already has. Whisper returns zero segments for ordinary
+        // reasons — VAD found no speech, the post-filter dropped
+        // everything on log-prob, the archive read back as digital
+        // silence (full disk / dead mic, a known class here) — and the
+        // live pass may well have captured the meeting perfectly in the
+        // meantime. `.failed` and `.cancelled` above already keep the
+        // live segments; "succeeded with nothing" was the one hole, and
+        // it cost the whole transcript (audit 2026-09-01).
+        guard !merged.isEmpty || committedSegments.isEmpty else {
+            log.error("Final pass (streaming): produced 0 segments from \(blockCount, privacy: .public) block(s), ≈\(Int(coveredSec), privacy: .public)s of archive — keeping the \(self.committedSegments.count, privacy: .public) live segments instead of clearing them")
+            // Diarization ran over the whole archive and its centroids
+            // are valid for the kept live segments too — `stop()` writes
+            // them to speakers.json and matches them against profiles.
+            speakerCentroids = diarization.centroids
+            return .done
+        }
 
         // Commit — the legacy `fullReplace` branch verbatim: the
         // archive covers the whole session, this output replaces
