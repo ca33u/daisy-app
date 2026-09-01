@@ -351,7 +351,14 @@ extension RecordingSession {
             let screenshotsDir = directory.appendingPathComponent("screenshots", isDirectory: true)
             let ocrState = signposter.beginInterval("screen_ocr", id: signposter.makeSignpostID())
             let t_ocr = Date()
-            let ocr = await ScreenTextExtractor.extract(from: screenshotsDir)
+            // `Task.detached` is what puts the Vision pass on a
+            // background thread — `nonisolated` alone would not, since a
+            // nonisolated async function inherits the caller's executor
+            // under this project's concurrency settings, and this
+            // caller is the main actor.
+            let ocr = await Task.detached(priority: .utility) {
+                ScreenTextExtractor.extract(from: screenshotsDir)
+            }.value
             signposter.endInterval("screen_ocr", ocrState)
             // Which frames were a NEW screen, for the transcript's
             // screen-stepper. Written even when the markdown is dropped

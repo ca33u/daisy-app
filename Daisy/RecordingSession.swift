@@ -694,6 +694,23 @@ final class RecordingSession {
     // internal for RecordingSession+Hotkeys.swift
     var pendingMode: RecordingMode?
 
+    /// Set when the dictation key is released while `start()` is still
+    /// in `.preparing` — i.e. the person let go before the engine
+    /// finished loading. Consumed by `startDictationHotkey` the moment
+    /// `start()` returns, which then stops immediately.
+    ///
+    /// Without it the release was simply dropped (`stopDictationHotkey`
+    /// only accepts `.recording`/`.paused`), and `start()` went on to
+    /// open a microphone nobody was holding a key for: the macOS
+    /// recording indicator on, no way to stop it, and the next press
+    /// answering "Daisy is already recording" — the bug wearing another
+    /// bug's face. First-ever dictation is the common case, where
+    /// `ensureLoaded` can take minutes to pull a model
+    /// (audit 2026-09-01).
+    @ObservationIgnored
+    // internal for RecordingSession+Hotkeys.swift
+    var dictationReleasedWhilePreparing = false
+
     /// Calendar-driven meeting binding that should be applied to the
     /// session AFTER `start()` runs its internal `reset()` (which
     /// otherwise nukes the binding). Set by `startFromMeeting(_:)`

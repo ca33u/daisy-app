@@ -151,6 +151,10 @@ extension RecordingSession {
         switch status {
         case .idle, .finished, .failed:
             pendingMode = .dictation
+            // Fresh hold, fresh release-flag: a stale one from a
+            // previous hold would stop this dictation the instant it
+            // started.
+            dictationReleasedWhilePreparing = false
             // Claim a screenshot waiting for context NOW, at key-down:
             // the window is about intent ("I pressed this because of that
             // screenshot"), and claiming at release would let a long
@@ -184,6 +188,17 @@ extension RecordingSession {
                 Task { await NemotronLiveEngine.shared.ensureLoaded() }
             }
             await start()
+            // The key may have come back up while `start()` was still
+            // loading an engine — press and release arrive as two
+            // independent tasks, so the release couldn't act on a
+            // session that didn't exist yet. Honour it now, before the
+            // microphone spends any longer open than the person asked
+            // for.
+            if dictationReleasedWhilePreparing {
+                dictationReleasedWhilePreparing = false
+                log.info("Dictation key released while the engine was still loading — stopping the session it just started")
+                await stopDictationHotkey()
+            }
         case .recording, .paused:
             // The dictation key was pressed from ANOTHER app (that's
             // what the key is for) — an in-window toast is invisible
@@ -211,6 +226,24 @@ extension RecordingSession {
     /// to the clipboard and deletes the session directory before
     /// returning to idle.
     func stopDictationHotkey() async {
+        // The press may still be inside `start()`, in which case both
+        // guards below would reject this release and leave a microphone
+        // open with nobody holding a key. Two shapes of that:
+        //
+        //   • `.preparing` — the usual one, waiting on a model load
+        //     (minutes on a first-ever dictation);
+        //   • `.idle` with `pendingMode == .dictation` — `start()` is
+        //     awaiting the system microphone prompt, which happens
+        //     before it flips to `.preparing`. `pendingMode` is
+        //     non-nil only while a start is in flight, so it's a
+        //     precise tell rather than a widened net.
+        //
+        // Record the intent; `startDictationHotkey` acts on it the
+        // moment `start()` returns.
+        if status == .preparing || pendingMode == .dictation {
+            dictationReleasedWhilePreparing = true
+            return
+        }
         guard currentMode == .dictation else { return }
         guard status == .recording || status == .paused else { return }
         // End-to-end dictation latency: hotkey release → paste. `stop()`

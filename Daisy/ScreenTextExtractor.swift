@@ -8,8 +8,8 @@
 //  and handed to the summarizer, so a metric on a slide or a date in a
 //  doc becomes part of the record even if nobody read it aloud.
 //
-//  100% local: Apple's Vision framework, no network. The heavy pass runs
-//  inside the already-detached post-Stop task, not on the main actor.
+//  100% local: Apple's Vision framework, no network. The heavy pass must
+//  run in a `Task.detached` — see the isolation note below the imports.
 //
 //  Deduplication is the whole trick: periodic capture produces many
 //  near-identical frames of the same slide. We keep only frames whose
@@ -23,9 +23,21 @@ import CoreGraphics
 import ImageIO
 import os
 
-// `nonisolated` so the CPU-bound Vision pass runs OFF the main actor —
-// finalize awaits it from a @MainActor context, so without this the
-// synchronous OCR loop would block the UI (main-actor-by-default).
+// Isolation: `nonisolated` AND synchronous, and the caller must reach it through
+// `Task.detached` — that combination is what actually gets this off the
+// main actor, and only that.
+//
+// It used to be `nonisolated static func … async`, with a comment
+// claiming the Vision pass therefore ran in the background. It did not.
+// The project builds with SWIFT_APPROACHABLE_CONCURRENCY = YES, under
+// which a `nonisolated async` function runs on the CALLER's executor —
+// and the caller here is `finalizePostStop`, a @MainActor method. So
+// every frame's `VNImageRequestHandler.perform` ran on the main thread:
+// 200–600 ms per retina frame, 120 frames for a 30-minute meeting,
+// which is the half-minute-to-a-minute of frozen UI right after Stop
+// that field reports called "долгая пост-обработка" (audit 2026-09-01).
+// Synchronous now, so there is no async hop to be misread — the
+// isolation is decided entirely by whoever calls it.
 nonisolated enum ScreenTextExtractor {
     private static let log = Logger(subsystem: "app.essazanov.Daisy", category: "ScreenOCR")
 
@@ -61,7 +73,10 @@ nonisolated enum ScreenTextExtractor {
     /// dedup consecutive identical screens, and return a consolidated
     /// markdown block. Best-effort: unreadable frames are skipped, and a
     /// missing/empty directory yields an empty result.
-    static func extract(from directory: URL) async -> Result {
+    ///
+    /// Long and CPU-bound — call it from `Task.detached`, never inline
+    /// from an actor-isolated context (see the note at the top).
+    static func extract(from directory: URL) -> Result {
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(
             at: directory,

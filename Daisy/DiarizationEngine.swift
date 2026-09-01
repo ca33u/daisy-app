@@ -20,10 +20,14 @@
 //    https://github.com/FluidInference/FluidAudio  (FluidAudio library
 //    only — fluidaudiocli executable is unused).
 //
-//  Wiring: `Transcriber.runFinalTranscribe()` calls
-//  `DiarizationEngine.shared.diarize(samples:)` once the final
-//  Whisper pass returns, then `mergeBySpeaker(segments:diarization:)`
-//  assigns `speakerId` to each `TranscriptSegment` by max-IoU overlap.
+//  Wiring: both paths go through `DiarizationBlockPass` — the final
+//  pass feeds it one archive block at a time, the live tick feeds it
+//  the audio that arrived since the last tick — and both then use
+//  `mergeBySpeaker(segments:diarization:)` / `applyLiveDiarization` to
+//  assign `speakerId` to each `TranscriptSegment` by max-IoU overlap.
+//  `diarizeFull` is the legacy whole-buffer entry point, kept for the
+//  non-streaming fallback; it runs its inference on the MainActor, so
+//  nothing new should call it.
 //
 //  API note (May 2026, FluidAudio 0.14.x): loading is two-step —
 //  `try await DiarizerModels.downloadIfNeeded()` returns a `DiarizerModels`
@@ -125,17 +129,6 @@ final class DiarizationEngine {
         #else
         self.isAvailable = false
         #endif
-    }
-
-    /// Run diarization on a buffer. Returns one span per detected
-    /// speaker turn. Empty array if the package isn't linked, the
-    /// model failed to load, or the audio is too short.
-    ///
-    /// Convenience wrapper around `diarizeFull` that discards the
-    /// centroids — the live in-session diarization path doesn't need
-    /// them, only the post-stop voice-fingerprint pass does.
-    func diarize(samples: [Float]) async -> [DiarizedSpan] {
-        await diarizeFull(samples: samples).spans
     }
 
     /// Full diarization with cluster centroids returned alongside

@@ -297,11 +297,27 @@ final class Transcriber {
     /// kicked off. `kickLiveDiarize` skips if we're inside the
     /// minimum interval. Reset on `reset()`.
     private var lastDiarizeSec: Double = 0
-    /// How much new audio must accumulate between live
-    /// diarization runs. 15s balances label freshness against
-    /// the cost of re-clustering on a growing buffer; final
-    /// pass on stop is still authoritative.
-    private let liveDiarizeIntervalSec: Double = 15.0
+    /// How much new audio must accumulate between live diarization
+    /// runs — and, since the pass went incremental, also the size of
+    /// the chunk each run clusters.
+    ///
+    /// 30 s rather than the old 15: cost no longer depends on the
+    /// interval (each second of audio is diarized exactly once either
+    /// way), while a longer chunk gives the clusterer more to work with
+    /// and halves the number of seams, where a turn can split in two or
+    /// a sliver under `minSpeechDuration` can drop. Live labels are a
+    /// convenience; the final pass on Stop is still authoritative.
+    private let liveDiarizeIntervalSec: Double = 30.0
+    /// The live clusterer, kept for the whole session so speaker labels
+    /// stay stable between ticks: a fresh pass per tick would re-derive
+    /// A/B/C from scratch and could hand "A" to a different voice.
+    /// Cleared on `reset()`. Separate from the one the final pass
+    /// builds — that one re-reads the archive from zero.
+    private var liveBlockPass: DiarizationBlockPass?
+    /// Session-absolute end of the audio already fed to `liveBlockPass`.
+    /// Each tick feeds exactly the span from here to now, so cost per
+    /// tick is flat rather than growing with the meeting.
+    private var liveDiarizedThroughSec: Double = 0
 
     /// Per-cluster centroid embeddings from the most recent
     /// diarization pass — keyed by the same A/B/C labels used in
@@ -422,6 +438,15 @@ final class Transcriber {
         converter = nil
         converterInput = nil
         liveTier = tier
+        // Belt for the live diarizer's window bookkeeping. `reset()`
+        // clears both and today always runs first, but if that ever
+        // stops being true a stale `liveDiarizedThroughSec` would sit
+        // permanently ahead of a zeroed buffer: every tick would fail
+        // its bounds check and live speaker labels would be silently
+        // dead for the whole session, while the carried-over clusterer
+        // labelled this meeting's voices with the last one's identities.
+        liveBlockPass = nil
+        liveDiarizedThroughSec = 0
 
         consumerTask = Task { @MainActor [weak self] in
             for await chunk in audio {
@@ -857,6 +882,11 @@ final class Transcriber {
         diarizeTask?.cancel()
         diarizeTask = nil
         lastDiarizeSec = 0
+        // Drop the live clusterer with the session it belongs to —
+        // carrying its speakers into the next recording would label a
+        // stranger "A" on the strength of yesterday's meeting.
+        liveBlockPass = nil
+        liveDiarizedThroughSec = 0
         if nemotronActive {
             NemotronLiveEngine.shared.endSession()
         }
@@ -1099,14 +1129,75 @@ final class Transcriber {
         guard currentAudioSec >= 10 else { return }
         guard currentAudioSec - lastDiarizeSec >= liveDiarizeIntervalSec else { return }
 
+        // Feed only what arrived since the last tick, and feed it to a
+        // block pass that keeps its clusters between ticks.
+        //
+        // This used to hand the WHOLE buffer to `diarizeFull` — on the
+        // main actor, synchronously, every 15 seconds. FluidAudio runs
+        // at roughly 60× real time, so a 10-minute buffer froze the UI
+        // for ~10 s per tick and a 30-minute one for ~30 s, i.e. past
+        // the quarter-hour mark the main thread was never free again:
+        // pills, pause and Stop all stopped responding for the rest of
+        // the meeting (audit 2026-09-01). Incremental costs one
+        // interval's worth of audio per tick no matter how long the
+        // meeting runs, keeps speaker identity stable across ticks
+        // (one clusterer, not a fresh one per tick), and — because
+        // `atSec` makes the spans session-absolute — fixes the offset
+        // the old snapshot silently got wrong once the buffer started
+        // trimming.
+        //
+        // Flat applies to the INFERENCE, which was the stall. The fold
+        // afterwards (`finish()` + `applyLiveDiarization`) still walks
+        // everything accumulated so far, so it keeps growing with the
+        // meeting — but it's sorting and arithmetic, not CoreML.
+        let sampleRate = Self.targetSampleRate
+        let bufferStartSec = Double(samplesDropped) / sampleRate
+        // Start where the last tick finished, or at the head of what
+        // the buffer still holds if trimming has overtaken us.
+        let chunkStartSec = max(liveDiarizedThroughSec, bufferStartSec)
+        let firstIndex = Int((chunkStartSec - bufferStartSec) * sampleRate)
+        guard firstIndex >= 0, firstIndex < allSamples.count else { return }
+        let chunk = Array(allSamples[firstIndex...])
+        // Below FluidAudio's own 3 s floor the call is a no-op; wait for
+        // the next tick rather than burning a pass on it.
+        guard chunk.count > Int(sampleRate * 3) else { return }
+
         lastDiarizeSec = currentAudioSec
-        let snapshotSamples = allSamples
+        liveDiarizedThroughSec = chunkStartSec + Double(chunk.count) / sampleRate
 
         diarizeTask = Task { @MainActor [weak self] in
-            let spans = await DiarizationEngine.shared.diarize(samples: snapshotSamples)
-            guard let strong = self else { return }
-            strong.applyLiveDiarization(spans: spans)
-            strong.diarizeTask = nil
+            guard let self else { return }
+            if liveBlockPass == nil {
+                liveBlockPass = await DiarizationEngine.shared.makeBlockPass(
+                    numSpeakers: speakerCountHint
+                )
+            }
+            guard let pass = liveBlockPass else {
+                diarizeTask = nil
+                return
+            }
+            // The detached hop is what actually leaves the main actor:
+            // `process` is synchronous CoreML, and a plain `await` on a
+            // nonisolated async function would have run it right here.
+            await Task.detached(priority: .utility) {
+                pass.process(samples: chunk, atSec: chunkStartSec)
+            }.value
+            // A detached task doesn't inherit cancellation, so a
+            // `reset()` mid-tick (Stop-and-delete, a discarded
+            // screenshot note) leaves this one in flight with the old
+            // session's clusterer. Identity is the check that matters,
+            // not `isRunning`: by the time we wake up a NEW session may
+            // already be running, and both applying these spans to its
+            // transcript and clearing its `diarizeTask` handle (which
+            // would let two `process` calls race on one pass) are
+            // wrong (review find, 2026-09-01).
+            guard self.liveBlockPass === pass else { return }
+            defer { self.diarizeTask = nil }
+            guard self.isRunning else { return }
+            // `finish()` is a fold over what has been processed so far —
+            // no inference, safe to call on every tick, and it leaves
+            // the accumulated segments in place for the next one.
+            self.applyLiveDiarization(spans: pass.finish().spans)
         }
     }
 
