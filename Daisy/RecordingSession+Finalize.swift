@@ -1524,6 +1524,16 @@ extension RecordingSession {
                 guard outCount * 5 >= inCount * 2,          // ≥ 40% of input
                       outCount <= (inCount * 5) / 2 + 40    // ≤ 250% + slack
                 else { return nil }
+                // …and never paste a privacy placeholder. If the cloud
+                // filter's pseudonym came back in a shape `restore`
+                // couldn't match, the polished text contains
+                // `[[DAISY_PERSON_001]]` where a name belongs — and
+                // this string is about to be typed into whatever app
+                // the person is looking at (audit 2026-09-01). The raw
+                // dictation is the right answer then.
+                guard !SensitiveDataProtector.containsUnrestoredMarker(polished) else {
+                    return nil
+                }
                 return polished
             }
             group.addTask {

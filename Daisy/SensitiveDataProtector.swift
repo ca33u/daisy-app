@@ -64,9 +64,7 @@ nonisolated struct ProtectedSummaryRequest: Sendable {
     }
 
     private func restore(_ text: String) -> String {
-        originalsByToken.reduce(text) { restored, pair in
-            restored.replacingOccurrences(of: pair.key, with: pair.value)
-        }
+        SensitiveDataProtector.restore(text, using: originalsByToken)
     }
 }
 
@@ -86,15 +84,62 @@ nonisolated struct ProtectedPlanAnalysisRequest: Sendable {
     fileprivate let originalsByToken: [String: String]
 
     func restore(_ text: String) -> String {
-        originalsByToken.reduce(text) { restored, pair in
-            restored.replacingOccurrences(of: pair.key, with: pair.value)
-        }
+        SensitiveDataProtector.restore(text, using: originalsByToken)
     }
 }
 
 nonisolated enum SensitiveDataProtector {
     static func shouldProtect(enabled: Bool, providerIsLocal: Bool) -> Bool {
         enabled && !providerIsLocal
+    }
+
+    /// Put the originals back.
+    ///
+    /// Tolerant on purpose. A literal `replacingOccurrences` was enough
+    /// while models echoed the tokens byte-for-byte, but they don't
+    /// always: they lowercase them, put spaces inside the brackets, or
+    /// (in a Russian transcript) decline the pseudonym as if it were a
+    /// word. Every such near-miss used to leave `[[DAISY_PERSON_001]]`
+    /// in the output — and in the transcript polisher's case, three
+    /// foreign tokens per name pushed the changed-token ratio past its
+    /// guard, which is the most likely reason RU polish dropped every
+    /// chunk in the field (audit 2026-09-01).
+    ///
+    /// So: match the token shape, case-insensitively, allowing
+    /// whitespace anywhere inside the brackets.
+    nonisolated static func restore(_ text: String, using originals: [String: String]) -> String {
+        guard !originals.isEmpty, text.contains("[[") else { return text }
+        var result = text
+        for (token, original) in originals {
+            // `[[DAISY_PERSON_001]]` → `\[\[\s*DAISY\s*_\s*PERSON\s*_\s*001\s*\]\]`
+            let inner = token
+                .replacingOccurrences(of: "[[", with: "")
+                .replacingOccurrences(of: "]]", with: "")
+            let spaced = inner
+                .map { NSRegularExpression.escapedPattern(for: String($0)) }
+                .joined(separator: "\\s*")
+            let pattern = "\\[\\s*\\[\\s*\(spaced)\\s*\\]\\s*\\]"
+            guard let regex = try? NSRegularExpression(
+                pattern: pattern, options: [.caseInsensitive]
+            ) else {
+                result = result.replacingOccurrences(of: token, with: original)
+                continue
+            }
+            result = regex.stringByReplacingMatches(
+                in: result,
+                range: NSRange(result.startIndex..., in: result),
+                withTemplate: NSRegularExpression.escapedTemplate(for: original)
+            )
+        }
+        return result
+    }
+
+    /// True when any pseudonym or redaction marker survived `restore`.
+    /// Callers that put model output in front of a person — the polish
+    /// passes — must refuse such a result rather than ship a placeholder
+    /// into someone's transcript or text field.
+    nonisolated static func containsUnrestoredMarker(_ text: String) -> Bool {
+        text.range(of: "\\[\\s*\\[\\s*(DAISY|REDACTED)_", options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     /// Plan-analysis boundary: pseudonymize the plan FIRST so canonical
@@ -130,7 +175,23 @@ nonisolated enum SensitiveDataProtector {
         task: SummaryTask,
         detectNamedEntities: Bool = true
     ) -> ProtectedSummaryRequest {
-        var context = Context(detectNamedEntities: detectNamedEntities)
+        // The polish passes rewrite the person's OWN words and hand them
+        // straight back — into transcript.md, or into whatever field
+        // they're dictating into. An irreversible `[[REDACTED_SECRET]]`
+        // has nowhere to be restored from, so it would simply replace
+        // what was said (audit 2026-09-01). Everything is reversible on
+        // those tasks instead: the same privacy on the wire — the
+        // provider still never sees the real value — with the original
+        // restored locally afterwards.
+        let reversibleOnly: Bool
+        switch task {
+        case .dictationPolish, .transcriptPolish: reversibleOnly = true
+        default:                                  reversibleOnly = false
+        }
+        var context = Context(
+            detectNamedEntities: detectNamedEntities,
+            reversibleOnly: reversibleOnly
+        )
 
         // Task context first: canonical attendee/company names from calendar
         // metadata become the stable mapping that shorter transcript mentions
@@ -155,6 +216,11 @@ nonisolated enum SensitiveDataProtector {
 
     private struct Context {
         let detectNamedEntities: Bool
+        /// When true, EVERY entity gets a reversible pseudonym —
+        /// including the kinds normally redacted outright. For tasks
+        /// whose output is the person's own text handed back to them,
+        /// an unrestorable placeholder is data loss, not privacy.
+        var reversibleOnly: Bool = false
         var tokenByEntity: [String: String] = [:]
         var originalsByToken: [String: String] = [:]
         var counters: [SensitiveEntityKind: Int] = [:]
@@ -212,7 +278,7 @@ nonisolated enum SensitiveDataProtector {
             for candidate in selected {
                 let original = source.substring(with: candidate.range)
                 let replacement: String
-                if candidate.kind.isReversible {
+                if candidate.kind.isReversible || reversibleOnly {
                     replacement = token(for: candidate.kind, original: original)
                 } else {
                     redactedOccurrences += 1

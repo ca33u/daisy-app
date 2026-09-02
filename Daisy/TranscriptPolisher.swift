@@ -398,6 +398,18 @@ nonisolated enum TranscriptPolisher {
             let original = chunk.lines[number - 1]
             let trimmed = polished.trimmingCharacters(in: .whitespacesAndNewlines)
 
+            // A surviving pseudonym or redaction marker means the
+            // privacy round-trip didn't close — the model echoed
+            // `[[DAISY_PERSON_001]]` or `[[REDACTED_EMAIL]]` in a shape
+            // `restore` couldn't match. Writing that into the transcript
+            // replaces what was actually said with a placeholder, which
+            // is worse than skipping the polish entirely
+            // (audit 2026-09-01).
+            guard !SensitiveDataProtector.containsUnrestoredMarker(trimmed) else {
+                log.warning("Polish reply still contains a privacy placeholder — chunk dropped")
+                return nil
+            }
+
             // An emptied line is a deletion, not a correction.
             guard !trimmed.isEmpty else {
                 log.warning("Polish emptied a line — chunk dropped")
