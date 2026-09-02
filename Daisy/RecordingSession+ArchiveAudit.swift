@@ -130,7 +130,20 @@ extension RecordingSession {
         // summarise); what it needed was an honest reason, which is why
         // `captureFailureMessage()` branches on disk vs retention.
         guard !audioArchivingDisabled else { return .off }
+        // Sum every part, not just the base file. When the input format
+        // changes mid-session the archive rolls over into
+        // `microphone.part2.caf` and the base file can be left at zero
+        // bytes — which read as `.truncated` on a recording that is
+        // completely intact, stamped `daisy_mic_status: truncated` in
+        // the frontmatter, put a red toast in front of the person and,
+        // via `anyChannelCaptured`, suppressed the automatic summary.
+        // `stop()`'s own husk check already counts frames across parts
+        // for exactly this reason; the audit was left behind
+        // (audit 2026-09-01).
         let bytes = Self.archiveBytesOnDisk(micArchiveURL)
+            + recorder.archivedParts
+                .filter { $0 != micArchiveURL }
+                .reduce(0) { $0 + Self.archiveBytesOnDisk($1) }
         let framesWritten = recorder.archivedFrameCount
         let (errCount, _) = recorder.archiveWriteErrorsSummary
         let receivedAnything = framesWritten > 0 || bytes > 0

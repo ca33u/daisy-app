@@ -95,6 +95,22 @@ nonisolated enum DaisyError: LocalizedError {
     }
 }
 
+/// Why the recorder put itself on pause mid-session. Reported to the
+/// session through `onFellToPaused` so the app's state and the person's
+/// screen agree with the hardware.
+nonisolated enum MicPauseReason: Sendable {
+    /// A route change left no usable input device at all.
+    case noInputDevice
+    /// Rebuilding the audio unit on the new device failed.
+    case rebuildFailed
+    /// The unit reported started, but no buffers ever arrived.
+    case noBuffers
+    /// The liveness watchdog fired. It has already told the person why
+    /// (digital silence gets its own actionable message), so the
+    /// session should update state without a second announcement.
+    case silenceAlreadyAnnounced
+}
+
 // MARK: - CoreAudioMicRecorder
 
 @Observable
@@ -1130,11 +1146,17 @@ final class CoreAudioMicRecorder {
 
         guard targetID != 0 else {
             log.error("Route change — no usable input device. Falling to paused.")
-            fallToPaused()
-            ToastCenter.shared.show(
-                "Mic disconnected — recording paused. Connect a mic and hit Resume.",
-                style: .warning
-            )
+            fallToPaused(reason: .noInputDevice)
+            // Only when nobody is listening: a session wired to
+            // `onFellToPaused` says this itself, with a bubble that
+            // survives a closed window, and two messages about one
+            // event read as two problems (review find, 2026-09-02).
+            if onFellToPaused == nil {
+                ToastCenter.shared.show(
+                    String(localized: "Mic disconnected — recording paused. Connect a mic and hit Resume."),
+                    style: .warning
+                )
+            }
             return
         }
 
@@ -1150,18 +1172,37 @@ final class CoreAudioMicRecorder {
             armRecoveryWatchdog()
         } catch {
             log.error("Route-change rebuild failed: \(error.localizedDescription, privacy: .public). Falling to paused.")
-            fallToPaused()
-            ToastCenter.shared.show(
-                "Mic changed — recording paused. Hit Resume to continue.",
-                style: .warning
-            )
+            fallToPaused(reason: .rebuildFailed)
+            if onFellToPaused == nil {
+                ToastCenter.shared.show(
+                    String(localized: "Mic changed — recording paused. Hit Resume to continue."),
+                    style: .warning
+                )
+            }
         }
     }
+
+    /// Called when the recorder has dropped itself to `.paused` — the
+    /// watchdogs and the route-change rebuild can all decide, on their
+    /// own, that capture has to stop.
+    ///
+    /// Without this the decision stayed inside the recorder: nobody
+    /// reads `recorder.state`, so `RecordingSession.status` remained
+    /// `.recording` and the widget went on showing a live recording with
+    /// a frozen timer, while the rest of the meeting wasn't captured at
+    /// all. The only signal was a toast, which during a meeting has no
+    /// window to appear in (audit 2026-09-01).
+    @ObservationIgnored
+    var onFellToPaused: (@MainActor (MicPauseReason) -> Void)?
 
     /// Centralised "drop to paused" — preserves `accumulatedActiveSec`,
     /// clears the level/spectrum, stops the unit. Mirrors
     /// AudioRecorder.fallToPaused().
-    private func fallToPaused() {
+    ///
+    /// `reason` tells the session what to say — or, for the silence
+    /// watchdog, that the recorder has already said it. The recorder
+    /// doesn't write UI copy; it reports what happened.
+    private func fallToPaused(reason: MicPauseReason) {
         cancelRecoveryWatchdog()
         stopSilenceMonitor()
         lastReconfigureAt = nil  // let a follow-up recover immediately
@@ -1184,6 +1225,7 @@ final class CoreAudioMicRecorder {
         levelDB = -160
         spectrumBands = Array(repeating: 0, count: SpectrumAnalyzer.bandCount)
         state = .paused
+        onFellToPaused?(reason)
     }
 
     // MARK: - CoreAudio listeners
@@ -1371,11 +1413,13 @@ final class CoreAudioMicRecorder {
         } else {
             log.error("Recovery watchdog fired — no audio buffers post-arm (everDelivered=\(everDelivered, privacy: .public), rebuilds=\(self.midSessionRebuilds, privacy: .public)). Falling to paused.")
         }
-        fallToPaused()
-        ToastCenter.shared.show(
-            "Mic stopped delivering audio — recording paused. Hit Resume to retry.",
-            style: .warning
-        )
+        fallToPaused(reason: .noBuffers)
+        if onFellToPaused == nil {
+            ToastCenter.shared.show(
+                String(localized: "Mic stopped delivering audio — recording paused. Hit Resume to retry."),
+                style: .warning
+            )
+        }
     }
 
     // MARK: - Mic silence watchdog (signal level, not arrival)
@@ -1411,7 +1455,7 @@ final class CoreAudioMicRecorder {
         // Different cause ⇒ different message ⇒ different fix.
         let digitalSilence = snap.total > 0 && snap.allZero * 10 >= snap.total * 9
         log.error("Mic silence watchdog fired — RMS below \(Self.micLivenessFloorDB, privacy: .public) dBFS for \(Int(silentFor), privacy: .public)s (last RMS \(snap.lastRMS, privacy: .public) dBFS, all-zero samples \(snap.allZero, privacy: .public)/\(snap.total, privacy: .public) ticks, digitalSilence=\(digitalSilence, privacy: .public), micPermission=\(SystemPermissions.micAuthorizationDescription(), privacy: .public)). Device: \(AudioInputDevices.describe(self.boundDeviceID ?? 0), privacy: .public). Falling to paused.")
-        fallToPaused()
+        fallToPaused(reason: .silenceAlreadyAnnounced)
         if digitalSilence {
             // Name the specific cause when we can prove it. Lid closed
             // + built-in mic is THE common one on a desk-docked laptop

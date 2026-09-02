@@ -68,6 +68,17 @@ final class SilenceMonitor {
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "SilenceMonitor")
 
     private let silenceWindowSec: TimeInterval = 3 * 60
+
+    /// Above this RMS the microphone is hearing something with content —
+    /// speech, typing, a room with people in it. Only used in the
+    /// Live-transcript-Off tier, where there is no transcript to read.
+    ///
+    /// −60, not −50: the recorder's own notes put a live mic at about
+    /// −55 dB RMS and a quiet room at −70…−90, so −50 would have called
+    /// a softly-spoken or distant participant "silence" and offered to
+    /// stop their meeting. −60 still clears room tone by 10–30 dB
+    /// (review find, 2026-09-02).
+    private static let audibleMicFloorDB: Float = -60
     private let pausedWindowSec:  TimeInterval = 5 * 60
     private let pollIntervalSec:  TimeInterval = 5
 
@@ -238,6 +249,33 @@ final class SilenceMonitor {
 
     private func tick() {
         guard let session, session.status == .recording else { return }
+
+        // New transcript text is the primary sign of life — but it isn't
+        // the only one, and in one configuration it never arrives at
+        // all. With Live transcript = Off no segments are produced
+        // during the recording (the whole point of the tier: one pass on
+        // Stop), so `lastSpeechAt` never moved and every meeting got
+        // "seems to be over — Stop & save?" three minutes in, no matter
+        // how loud the room. One click on that banner stops a meeting
+        // mid-sentence (audit 2026-09-01).
+        //
+        // Audio levels are the fallback, the same signal auto-stop
+        // already uses: the mic RMS floor distinguishes speech from a
+        // room tone, and the system stream stamps its own last audible
+        // sample.
+        if session.micTranscriber.liveTierIsOff {
+            let micIsLive = session.recorder.lastMicRMSDB > Self.audibleMicFloorDB
+            let systemHeardRecently = session.systemAudio.lastAudibleSampleAt
+                .map { Date().timeIntervalSince($0) < silenceWindowSec } ?? false
+            if micIsLive || systemHeardRecently {
+                lastSpeechAt = Date()
+                if promptOutstanding {
+                    SilencePromptNotification.cancel()
+                    promptOutstanding = false
+                }
+                return
+            }
+        }
 
         let latestSpeechAt = session.segments
             .reversed()

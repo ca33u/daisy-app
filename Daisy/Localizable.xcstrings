@@ -1,6 +1,46 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "The microphone stopped delivering audio — recording is paused. Reconnect it and press Resume, or stop and save what's recorded." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Микрофон перестал отдавать звук — запись на паузе. Подключите его и нажмите «Продолжить» или остановите и сохраните записанное."
+          }
+        }
+      }
+    },
+    "Mic disconnected — recording paused. Connect a mic and hit Resume." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Микрофон отключён — запись на паузе. Подключите микрофон и нажмите «Продолжить»."
+          }
+        }
+      }
+    },
+    "Mic changed — recording paused. Hit Resume to continue." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Микрофон сменился — запись на паузе. Нажмите «Продолжить»."
+          }
+        }
+      }
+    },
+    "Mic stopped delivering audio — recording paused. Hit Resume to retry." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Микрофон перестал отдавать звук — запись на паузе. Нажмите «Продолжить», чтобы попробовать снова."
+          }
+        }
+      }
+    },
     "Couldn't restart the microphone — the recording is paused, not lost. Try Resume, or stop and save what's recorded." : {
       "localizations" : {
         "ru" : {

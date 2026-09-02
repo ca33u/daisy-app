@@ -249,6 +249,12 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// thread-safe.
     nonisolated(unsafe) private var bufferContinuation: AsyncStream<AudioChunk>.Continuation?
 
+    /// Which continuation is currently installed. `AsyncStream`'s
+    /// continuation isn't Equatable, so a late `onTermination` needs
+    /// this to tell "mine" from "the next session's". Guarded by
+    /// `outputQueue`, like the continuation itself.
+    nonisolated(unsafe) private var bufferContinuationGeneration = 0
+
     /// Format of the FIRST buffer this capture delivered. Written on the
     /// `outputQueue` from `ingest`, read from the MainActor through the
     /// same queue when a rebuild has to pin the new engine to the format
@@ -309,11 +315,21 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// oversight that the macOS audit caught (build 40 fix).
     var buffers: AsyncStream<AudioChunk> {
         AsyncStream { continuation in
+            var installed = 0
             self.outputQueue.sync {
+                self.bufferContinuationGeneration &+= 1
+                installed = self.bufferContinuationGeneration
                 self.bufferContinuation = continuation
             }
+            let myGeneration = installed
             continuation.onTermination = { @Sendable [weak self] _ in
                 self?.outputQueue.sync {
+                    // Only clear OUR continuation. Termination can
+                    // arrive late — after a new session installed its
+                    // own — and an unconditional nil here silently cut
+                    // the new recording's system-audio feed. Continuations
+                    // aren't Equatable, hence the generation counter.
+                    guard self?.bufferContinuationGeneration == myGeneration else { return }
                     self?.bufferContinuation = nil
                 }
             }
@@ -987,6 +1003,14 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             // user so they can stop & restart if they need the
             // remote side captured.
             state = .stopped
+            // Tell the session, exactly as the stream-death path does.
+            // Without it `micOnlyCause` stays nil, `daisy_mic_only:`
+            // never reaches the frontmatter and the mic-only session
+            // counter never ticks — so a meeting that lost the other
+            // side halfway through is indistinguishable from a healthy
+            // one a week later, which is the very thing `micOnlyCause`
+            // was introduced to prevent (audit 2026-09-01).
+            onCaptureGaveUp?()
             if !quietDiagnostics {
                 ToastCenter.shared.show(
                     String(localized: "Output changed and Daisy couldn't keep recording the other side. Stop & restart the recording if you need it."),
@@ -1247,11 +1271,27 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         removeOutputDeviceListener()
         captureStartedAt = nil
         peakLevelDB = -160
-        let hadEngine = await teardownEngine(reason: "stop")
-        if hadEngine {
-            bufferContinuation?.finish()
+        // Finish the stream regardless of whether an engine was still
+        // up. `pause()` already tore the engine down, so a Stop from
+        // paused used to leave the continuation alive; it then died
+        // later, when the transcriber's cancelled consumer noticed, and
+        // its `onTermination` nils `bufferContinuation` without checking
+        // whose it is — by which point the NEXT session may have
+        // installed its own. That session then captured the other side
+        // to disk but fed the transcriber nothing: a "only my voice"
+        // meeting with no warning anywhere (audit 2026-09-01).
+        _ = await teardownEngine(reason: "stop")
+        // Take it under the queue that guards it (an `ingest` callback
+        // may be mid-flight and about to `yield`), then finish OUTSIDE
+        // that queue: `finish()` calls `onTermination` synchronously,
+        // and that handler does its own `outputQueue.sync` — doing both
+        // inside would deadlock the serial queue.
+        let finishing = outputQueue.sync { () -> AsyncStream<AudioChunk>.Continuation? in
+            let c = bufferContinuation
             bufferContinuation = nil
+            return c
         }
+        finishing?.finish()
         // Fence behind any in-flight sample-buffer callback. After
         // `stopCapture()` returns, ScreenCaptureKit promises no NEW
         // buffers will be delivered — and the tap's

@@ -56,13 +56,23 @@ final class DictationPaste {
     static let retentionSeconds: TimeInterval = 10
 
     /// Restore delay when the AUTO-paste succeeded: the ⌘V has already
-    /// landed, so the transcript only needs to survive in the pasteboard
-    /// long enough for the frontmost app to service the keystroke. Short
-    /// on purpose — the user's prior clipboard (logs, a link, …) comes
-    /// back almost immediately instead of being held hostage for 10 s
-    /// (Egor, 2026-07-14: "надиктовал команду → иду вставлять логи, а их
-    /// уже нет").
-    static let quickRestoreSeconds: TimeInterval = 1.5
+    /// been POSTED, so the transcript only needs to survive in the
+    /// pasteboard long enough for the frontmost app to service the
+    /// keystroke. Short on purpose — the user's prior clipboard (logs, a
+    /// link, …) comes back quickly instead of being held hostage for
+    /// 10 s (Egor, 2026-07-14: "надиктовал команду → иду вставлять логи,
+    /// а их уже нет").
+    ///
+    /// 4 s, not the original 1.5. `attemptAutoPaste` posts CGEvents and
+    /// returns immediately; delivery is asynchronous, and an app that
+    /// takes longer than this to handle the keystroke — Electron waking
+    /// up, a heavy page, an IDE under load — pastes whatever is on the
+    /// pasteboard by then. Restoring too early doesn't just lose the
+    /// dictation: it puts the person's PREVIOUS clipboard into the
+    /// field, which can be a password manager's payload. The failure is
+    /// asymmetric, so the delay errs on the side of holding our own text
+    /// a little longer (audit 2026-09-01).
+    static let quickRestoreSeconds: TimeInterval = 4
 
     private init() {}
 
@@ -267,7 +277,7 @@ final class DictationPaste {
         let didAutoPaste = (autoPaste == .pasted)
         // 4. Schedule restore. Auto-paste already landed → the transcript
         //    only needs to outlive the keystroke (quick restore, prior
-        //    clipboard back in ~1.5 s). Manual-paste fallback → the
+        //    clipboard back in a few seconds). Manual-paste fallback → the
         //    transcript must stay around long enough to ⌘V by hand.
         let restoreAfter = didAutoPaste ? Self.quickRestoreSeconds : Self.retentionSeconds
         switch autoPaste {

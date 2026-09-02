@@ -469,6 +469,11 @@ final class Transcriber {
     @ObservationIgnored
     private var liveTier: LiveTranscriptionTier = .full
 
+    /// True when this session produces no transcript until Stop. Read by
+    /// `SilenceMonitor`, which otherwise mistakes "no live segments, by
+    /// design" for "nobody has spoken in three minutes".
+    var liveTierIsOff: Bool { liveTier == .off }
+
     /// EXPERIMENTAL (dark): set by RecordingSession before `start()` for
     /// dictation sessions when `dictationUseNemotronLive` is on. Routes
     /// the live preview through `NemotronLiveEngine` (streaming, 560 ms
@@ -1553,6 +1558,12 @@ final class Transcriber {
         }
         var fresh: [TranscriptSegment] = []
         var blockCount = 0
+        /// Blocks whose decode threw. Counted rather than fatal — see
+        /// the catch below.
+        var failedBlocks = 0
+        /// Session-time ranges this pass actually decoded. Only these
+        /// may replace live segments; see the commit below.
+        var decodedRanges: [(start: Double, end: Double)] = []
         var coveredSec = 0.0
         var block: (samples: [Float], startSec: Double)? = firstBlock
 
@@ -1606,14 +1617,27 @@ final class Transcriber {
                     ))
                 }
                 coveredSec = current.startSec + Double(current.samples.count) / Self.targetSampleRate
+                decodedRanges.append((start: current.startSec, end: coveredSec))
                 log.info("Final pass (streaming): block \(blockCount, privacy: .public) [\(Int(current.startSec), privacy: .public)s–\(Int(coveredSec), privacy: .public)s] → \(result.count, privacy: .public) segments (\(fresh.count, privacy: .public) total)")
             } catch is CancellationError {
                 log.info("Final pass (streaming): cancelled mid-block — keeping live segments, no error surfaced")
                 return .cancelled
             } catch {
-                log.error("Final pass (streaming): block \(blockCount, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+                // Skip the block, keep the pass. Returning `.failed`
+                // here threw away everything already decoded — on a
+                // two-hour meeting a transient CoreML error in block 5
+                // of 8 cost 75 minutes of finished transcript, and in
+                // deferred mode (no live pass) there was nothing left at
+                // all. One bad block is a hole; the rest of the archive
+                // is still worth having (audit 2026-09-01).
+                //
+                // The hole shifts nothing: `startSec` comes from the
+                // reader, so later blocks keep their true timestamps.
+                // And the commit below is careful about what a holed
+                // pass is allowed to replace.
+                failedBlocks += 1
                 lastError = error.localizedDescription
-                return .failed
+                log.error("Final pass (streaming): block \(blockCount, privacy: .public) failed: \(error.localizedDescription, privacy: .public) — skipping it and continuing")
             }
             // Re-check BEFORE decoding the next block: a cancel that
             // arrived during this block's inference shouldn't pay for
@@ -1630,6 +1654,21 @@ final class Transcriber {
             return .cancelled
         }
 
+        // Every block failed: that's not a pass with a hole, that's no
+        // pass at all (a broken model load, an archive of the wrong
+        // format). Treat it as the failure it is so the live transcript
+        // stays and the caller can fall back.
+        if failedBlocks == blockCount, blockCount > 0 {
+            log.error("Final pass (streaming): all \(blockCount, privacy: .public) block(s) failed — keeping live segments")
+            return .failed
+        }
+        if failedBlocks > 0 {
+            log.error("Final pass (streaming): \(failedBlocks, privacy: .public) of \(blockCount, privacy: .public) block(s) failed — transcript is missing that audio")
+        }
+        if !reader.skippedParts.isEmpty {
+            log.error("Final pass (streaming): \(reader.skippedParts.count, privacy: .public) archive part(s) unreadable — transcript is missing that audio and later timestamps are shifted")
+        }
+
         // Fold diarization: spans are already session-absolute
         // (`atTime:`), `fresh` is already offset per block — no
         // translation step, unlike the legacy path's `offsetSpans`.
@@ -1639,6 +1678,30 @@ final class Transcriber {
             segments: fresh,
             diarization: diarization.spans
         )
+
+        // A pass with holes in it is not authoritative for the whole
+        // session, only for what it actually decoded. Replacing
+        // everything would delete the live transcript of the minutes
+        // covered by a failed or unreadable block — turning "one block
+        // was lost" into "those fifteen minutes were lost", which is
+        // strictly worse than the `.failed` behaviour this replaced
+        // (review find, 2026-09-02). So: drop live segments only where
+        // this pass has something to put in their place.
+        let passHasHoles = failedBlocks > 0 || !reader.skippedParts.isEmpty
+        if passHasHoles, !committedSegments.isEmpty {
+            let survivors = committedSegments.filter { seg in
+                !decodedRanges.contains { seg.startSec >= $0.start && seg.startSec < $0.end }
+            }
+            let combined = (survivors + merged).sorted { $0.startSec < $1.startSec }
+            log.error("Final pass (streaming): committing a partial pass — \(merged.count, privacy: .public) fresh segment(s) over \(decodedRanges.count, privacy: .public) decoded range(s), keeping \(survivors.count, privacy: .public) live segment(s) in the gaps")
+            committedSegments = combined
+            pendingSegments.removeAll()
+            bucketIDs.removeAll()
+            committedThroughSec = combined.map(\.endSec).max() ?? 0
+            invalidateSegmentsCache()
+            speakerCentroids = diarization.centroids
+            return .done
+        }
 
         // An empty result is NOT authority to erase a transcript the
         // person already has. Whisper returns zero segments for ordinary

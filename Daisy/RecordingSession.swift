@@ -818,6 +818,17 @@ final class RecordingSession {
             self?.recordMicOnlyDegradation(cause: .systemAudioFailed)
         }
 
+        // The mic recorder can decide to stop on its own — a route
+        // change with nowhere to bind, a rebuild that failed, a unit
+        // that never delivered a buffer. It used to keep that to
+        // itself: nobody reads `recorder.state`, so the session stayed
+        // `.recording` and the widget kept claiming a live recording
+        // with a frozen clock while nothing was being captured
+        // (audit 2026-09-01).
+        self.recorder.onFellToPaused = { [weak self] reason in
+            self?.handleMicFellToPaused(reason)
+        }
+
         // Preload the Whisper + diarization models so the first Record click
         // is instant. An XCTest bundle is hosted inside Daisy.app, however,
         // and must reach the test runner before app-startup model I/O begins.
@@ -1925,6 +1936,44 @@ final class RecordingSession {
             title: String(localized: "Recording your voice only"),
             body: notificationBody
         )
+    }
+
+    /// The recorder stopped capturing and put itself on pause. Bring the
+    /// session's own state in line — otherwise the widget, the capsule
+    /// and the elapsed clock all keep saying "recording" over a
+    /// microphone that isn't running — and tell the person, through the
+    /// channel that works with the main window closed.
+    private func handleMicFellToPaused(_ reason: MicPauseReason) {
+        guard status == .recording else { return }
+        log.warning("Mic recorder fell to paused (\(String(describing: reason), privacy: .public)) — pausing the session to match")
+        // Go through the real `pause()`, not just `status = .paused`.
+        // Pause is seven things — silence monitor, both transcribers,
+        // screenshots, system audio, the disk monitor — and setting the
+        // status alone left all of them running against a microphone
+        // that had stopped, then handed `resume()` an unbalanced state
+        // (review find, 2026-09-02). `recorder.pause()` inside it is a
+        // no-op: the recorder is already paused, which is why we're here.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await pause()
+            // Dictation has no Resume button and the person is looking
+            // at another app's window; the hold ending will stop the
+            // session on its own, so the meeting copy would just be
+            // wrong there.
+            guard currentMode != .dictation else { return }
+            // The silence watchdog has its own, more specific message
+            // (digital silence names the permission or the closed lid),
+            // and two prompts about one event is worse than one.
+            guard reason != .silenceAlreadyAnnounced else { return }
+            let message = String(
+                localized: "The microphone stopped delivering audio — recording is paused. Reconnect it and press Resume, or stop and save what's recorded."
+            )
+            WidgetBubbleCenter.shared.present(
+                WidgetBubbleContent(text: message, tag: "mic-fell-to-paused"),
+                notificationTitle: String(localized: "Recording is paused")
+            )
+            ToastCenter.shared.show(message, style: .warning, duration: .seconds(12))
+        }
     }
 
     // Auto-stop (calendar-bound) — scheduleAutoStopIfNeeded,

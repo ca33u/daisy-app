@@ -9,6 +9,7 @@
 
 import Foundation
 import AVFoundation
+import os
 
 final class AudioConverter {
     let outputFormat: AVAudioFormat
@@ -251,6 +252,15 @@ nonisolated final class ArchiveBlockReader: @unchecked Sendable {
     private var yieldedSamples = 0
     private var exhausted = false
 
+    /// Parts that couldn't be opened during this read. Non-empty means
+    /// the output has a hole in it and every timestamp after that hole
+    /// is earlier than the real one — callers should treat the pass as
+    /// incomplete rather than authoritative (and must not delete the
+    /// source audio on the strength of it).
+    private(set) var skippedParts: [URL] = []
+
+    private static let log = Logger(subsystem: "app.essazanov.Daisy", category: "ArchiveBlockReader")
+
     init(urls: [URL],
          blockSeconds: Double = 900,
          cutSearchSeconds: Double = 60,
@@ -285,9 +295,22 @@ nonisolated final class ArchiveBlockReader: @unchecked Sendable {
                 let url = urls[fileIndex]
                 fileIndex += 1
                 // Missing / unreadable / zero-frame parts are skipped,
-                // matching `decodeToMono16k`.
+                // matching `decodeToMono16k` — but NOT silently. A part
+                // that won't open (evicted to iCloud, locked, corrupt)
+                // takes its audio out of the transcript AND shortens the
+                // timeline: `startSec` counts only what was yielded, so
+                // everything after the hole is reported earlier than it
+                // happened. Downstream that means moment markers,
+                // screenshots and — worst — a diarization pass reading
+                // mic and system through two independent readers, where
+                // one hole desynchronises every speaker label
+                // (audit 2026-09-01).
                 guard FileManager.default.fileExists(atPath: url.path),
-                      let next = CAFPartPuller(url: url, out: outFormat) else { continue }
+                      let next = CAFPartPuller(url: url, out: outFormat) else {
+                    skippedParts.append(url)
+                    Self.log.error("Archive block reader: part \(url.lastPathComponent, privacy: .public) could not be opened — its audio is missing from this pass and everything after it shifts earlier")
+                    continue
+                }
                 puller = next
             }
             if let chunk = puller?.nextChunk() {
