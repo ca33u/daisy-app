@@ -1,6 +1,36 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Couldn't restart the microphone — the recording is paused, not lost. Try Resume, or stop and save what's recorded." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось перезапустить микрофон — запись на паузе, ничего не потеряно. Нажмите «Продолжить» или остановите и сохраните записанное."
+          }
+        }
+      }
+    },
+    "Recording is paused" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запись на паузе"
+          }
+        }
+      }
+    },
+    "Daisy is transcribing a recording right now — the audio it's reading can't be deleted yet. Try again when it finishes." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy сейчас расшифровывает запись — аудио, которое она читает, пока удалить нельзя. Попробуйте, когда закончит."
+          }
+        }
+      }
+    },
     "the default microphone" : {
       "localizations" : {
         "ru" : {

@@ -101,7 +101,10 @@ struct HomeView: View {
             ActionItemStore.shared.rebuild(from: store.sessions)
             // One-time: seed the usage widgets from the existing Library
             // so long-time users don't see an empty stats block.
-            usage.backfillIfNeeded(from: store.sessions)
+            usage.backfillIfNeeded(
+                from: store.sessions,
+                storageWasReachable: store.storageWasReachable
+            )
             // Keep the daily morning-brief notification armed (idempotent).
             MorningBriefStore.rescheduleNotification(settings: settings)
             freeDiskBytes = DiskSpace.recordingsVolumeFreeBytes()

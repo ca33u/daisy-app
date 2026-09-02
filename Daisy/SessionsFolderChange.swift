@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import os
 
 enum SessionsFolderExistingFilesAction: Sendable, Equatable {
     case move
@@ -52,6 +53,10 @@ enum SessionsFolderChangeError: LocalizedError {
 
 @MainActor
 enum SessionsFolderChange {
+    nonisolated static let log = Logger(
+        subsystem: "app.essazanov.Daisy", category: "SessionsFolderChange"
+    )
+
     /// A real destination change always needs an explicit user decision,
     /// regardless of the best-effort folder count shown in the dialog.
     nonisolated static func requiresUserDecision(
@@ -167,8 +172,19 @@ enum SessionsFolderChange {
             }
         }.value
 
-        if request.sourceWasCustom, report.remainingCount == 0 {
+        // `isComplete`, not `remainingCount == 0`. The count comes from
+        // re-listing the source, and that listing swallows its error
+        // (`try?` → `[]`) — so an external drive that goes away
+        // mid-move reads as "nothing left there" while `failedNames` is
+        // full of sessions that never made it. Forgetting the folder
+        // then drops it from the legacy list, and recordings that are
+        // physically fine stop being scanned: the same "absent from
+        // this scan ⇒ delete the record of it" class that has cost this
+        // project data three times (audit 2026-09-01).
+        if request.sourceWasCustom, report.isComplete {
             SessionsFolder.forgetLegacyFolder(request.sourceBaseURL)
+        } else if request.sourceWasCustom {
+            log.warning("Keeping the old folder in the legacy list — \(report.remainingCount, privacy: .public) session(s) still there, \(report.failedNames.count, privacy: .public) failed to move")
         }
         await SessionStore.shared.refresh()
         return report

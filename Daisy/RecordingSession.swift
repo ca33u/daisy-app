@@ -681,8 +681,15 @@ final class RecordingSession {
     /// `.dictation` never persists a StoredSession, so its mapping here is
     /// irrelevant (it falls in the `.recording` default, unused).
     var sessionKind: SessionKind {
-        currentMode == .voiceNote ? .note : .recording
+        persistedKindOverride ?? (currentMode == .voiceNote ? .note : .recording)
     }
+
+    /// Set when the post-stop pipeline finds that the person moved this
+    /// session between Library and Notes while it was running — the
+    /// kind is otherwise derived from the recording mode, which by then
+    /// no longer reflects where the session lives. Cleared on `reset()`.
+    @ObservationIgnored
+    var persistedKindOverride: SessionKind?
 
     /// Mode the next `start()` should adopt. Set by mode-specific
     /// entry points (`toggleVoiceNoteByHotkey`, etc.) right before
@@ -2039,8 +2046,28 @@ final class RecordingSession {
         do {
             try recorder.resume()
         } catch {
-            log.error("Resume mic failed: \(error.localizedDescription, privacy: .public)")
-            status = .failed(String(localized: "Couldn't resume mic capture: \(error.localizedDescription)"))
+            // Stay PAUSED, don't fail. `.failed` is a dead end for a
+            // session that already has an hour of audio on disk and a
+            // live transcript in memory: `stop()` only accepts
+            // `.recording`/`.paused`, so nothing could save it, and the
+            // widget's "Try again" is `start()`, which resets and walks
+            // away from the directory. Paused keeps the file open, the
+            // elapsed clock intact, and both Resume and Stop & save
+            // available. The likely trigger is mundane — the Mac woke up
+            // before CoreAudio republished the device, or the USB
+            // interface was unplugged during sleep (audit 2026-09-01).
+            log.error("Resume mic failed: \(error.localizedDescription, privacy: .public) — staying paused so the session can still be saved")
+            let message = String(
+                localized: "Couldn't restart the microphone — the recording is paused, not lost. Try Resume, or stop and save what's recorded."
+            )
+            // Both channels: a paused recording is usually noticed from
+            // outside the app, and the widget is where the person will
+            // look for the Resume button.
+            WidgetBubbleCenter.shared.present(
+                WidgetBubbleContent(text: message, tag: "resume-failed"),
+                notificationTitle: String(localized: "Recording is paused")
+            )
+            ToastCenter.shared.show(message, style: .warning, duration: .seconds(12))
             return
         }
         if settings.captureSystemAudio {
@@ -2900,6 +2927,7 @@ final class RecordingSession {
         // of stop(), but a reset() between set and consume (husk
         // cleanup path) must not leave it armed for a later stop.
         skipFinalPassOnNextStop = false
+        persistedKindOverride = nil
         // Belt for the live-folder marker, same reasoning as the caption
         // above: `stop()` clears it when its finalize task ends, but
         // `stop()` has early returns (husk cleanup, dictation, missing

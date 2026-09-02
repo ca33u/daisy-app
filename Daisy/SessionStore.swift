@@ -46,6 +46,11 @@ final class SessionStore {
     /// deletes storage folders, including empty ones.
     var activeRecordingDirName: String?
 
+    /// False when the last scan couldn't open a configured recordings
+    /// folder. Distinguishes "the Library is empty" from "the Library
+    /// is unreachable" — see the note where it's set.
+    private(set) var storageWasReachable = true
+
     @ObservationIgnored
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "SessionStore")
     @ObservationIgnored
@@ -247,6 +252,14 @@ final class SessionStore {
         // impossible (two recordings starting at the same millisecond
         // would have to come from different installs of Daisy).
         sessions = loaded.sorted(by: { $0.startedAt > $1.startedAt })
+        // Did this scan actually see the user's storage? An empty
+        // `sessions` means two very different things — a new install
+        // with nothing recorded yet, versus a configured folder that
+        // didn't open (unmounted drive, a bookmark that no longer
+        // resolves, a storage-change dialog still waiting). Callers that
+        // make one-shot decisions from the corpus have to tell them
+        // apart; see `UsageStats.backfillIfNeeded`.
+        storageWasReachable = !inaccessibleConfiguredFolder
         if inaccessibleConfiguredFolder {
             lastError = String(localized: "Daisy couldn't access one of your recordings folders. Choose it again in Settings to restore access.")
         }

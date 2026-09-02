@@ -949,6 +949,19 @@ struct SettingsView: View {
         //     idle so the language is consistent before/after.
         .alert("Delete all audio files?", isPresented: $showingClearAudioConfirm) {
             Button("Delete", role: .destructive) {
+                // The sweep refuses to run while a session is being
+                // transcribed (it would read the archive out from under
+                // the pass). Say so here rather than letting the button
+                // report "nothing to clear", which would be a lie about
+                // gigabytes that are still on disk.
+                if SessionAudioProcessing.shared.isRunning {
+                    ToastCenter.shared.show(
+                        String(localized: "Daisy is transcribing a recording right now — the audio it's reading can't be deleted yet. Try again when it finishes."),
+                        style: .warning,
+                        duration: .seconds(8)
+                    )
+                    return
+                }
                 clearingAudioCache = true
                 AudioRetentionSweep.runNow { _, freedBytes in
                     let mb = Double(freedBytes) / 1_048_576.0

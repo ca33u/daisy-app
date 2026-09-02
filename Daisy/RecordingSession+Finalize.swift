@@ -311,9 +311,42 @@ extension RecordingSession {
         // their work, and the sidecar entry is already pruned, so it
         // couldn't even be offered again. Fold theirs in first; an
         // explicit choice by the user wins any collision with ours.
-        let persistedMap = Self.persistedSpeakerMap(at: mdURL)
-        if !persistedMap.isEmpty {
-            initialSpeakerMap = initialSpeakerMap.merging(persistedMap) { _, theirs in theirs }
+        // Speaker names were the first field to need this, and the
+        // reasoning generalises to every field the person can edit: the
+        // re-render below writes the WHOLE file from this session's
+        // in-memory state, so anything they changed on disk while the
+        // pipeline was running gets overwritten. Retitling, tagging and
+        // filing a session are exactly what someone does in the minutes
+        // after a meeting — and the Stage 2 toast invites them into that
+        // window on purpose. Read those fields back and adopt them
+        // before rendering; the person's explicit choice wins any
+        // collision with ours (audit 2026-09-01).
+        let persisted = Self.persistedUserFields(at: mdURL)
+        if !persisted.speakerMap.isEmpty {
+            initialSpeakerMap = initialSpeakerMap.merging(persisted.speakerMap) { _, theirs in theirs }
+        }
+        // `self.` throughout: `title` here is the function's parameter
+        // (the snapshot taken at Stop), not the session's property, and
+        // the render below reads the property.
+        if let theirTitle = persisted.title,
+           !theirTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           theirTitle != self.title {
+            log.info("post-stop: adopting the title written while finalizing")
+            self.title = theirTitle
+        }
+        if let slug = persisted.folderSlug, slug != self.folder.slug {
+            log.info("post-stop: adopting the project written while finalizing")
+            self.folder = SessionFolder(name: slug)
+        }
+        if let theirTag = persisted.tag, theirTag != self.tag {
+            log.info("post-stop: adopting the tag written while finalizing")
+            self.tag = theirTag
+        }
+        if let rawKind = persisted.kind,
+           let theirKind = SessionKind(rawValue: rawKind),
+           theirKind != sessionKind {
+            log.info("post-stop: adopting the kind written while finalizing")
+            persistedKindOverride = theirKind
         }
 
         let reRenderState = signposter.beginInterval("re_render_md", id: signposter.makeSignpostID())
@@ -453,7 +486,14 @@ extension RecordingSession {
                 let url = directory.appendingPathComponent("summary.json")
                 do {
                     let data = try JSONEncoder().encode(summary)
-                    try data.write(to: url)
+                    // Atomic, like every other write in the app. The
+                    // second write below replaces this file in place,
+                    // and a crash or a full disk halfway through a
+                    // non-atomic rewrite leaves truncated JSON where a
+                    // good summary used to be — decoded with `try?` on
+                    // the read side, so it surfaces as "no summary" and
+                    // looks like generation failed (audit 2026-09-01).
+                    try data.write(to: url, options: [.atomic])
                     summaryPersisted = true
                 } catch {
                     log.error("Failed to write summary.json: \(error.localizedDescription, privacy: .public)")
@@ -483,7 +523,7 @@ extension RecordingSession {
                     summarizer.adopt(voiced)
                     let url = directory.appendingPathComponent("summary.json")
                     do {
-                        try JSONEncoder().encode(voiced).write(to: url)
+                        try JSONEncoder().encode(voiced).write(to: url, options: [.atomic])
                     } catch {
                         log.error("Failed to rewrite summary.json after voice polish: \(error.localizedDescription, privacy: .public)")
                     }
@@ -934,6 +974,54 @@ extension RecordingSession {
     /// Frontmatter only: a body line that happens to begin with the key
     /// (someone reading a transcript aloud, an OCR'd slide) must not be
     /// parsed as one.
+    /// The frontmatter fields a person can change from the Library
+    /// while a finalize pass is still running.
+    nonisolated struct PersistedUserFields {
+        var speakerMap: [String: String] = [:]
+        var title: String?
+        var folderSlug: String?
+        var tag: String?
+        var kind: String?
+    }
+
+    /// Read those fields back from `transcript.md`. One pass over the
+    /// frontmatter — the file is re-read here anyway for the speaker
+    /// map, and reading four more keys costs nothing.
+    ///
+    /// `nonisolated`: touches the filesystem only.
+    nonisolated static func persistedUserFields(at url: URL) -> PersistedUserFields {
+        var fields = PersistedUserFields()
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return fields }
+        let lines = text.components(separatedBy: .newlines)
+        guard lines.first?.trimmingCharacters(in: .whitespaces) == "---" else { return fields }
+        for line in lines.dropFirst() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == "---" { break }
+            guard let colon = trimmed.firstIndex(of: ":") else { continue }
+            let key = String(trimmed[trimmed.startIndex..<colon])
+            let raw = String(trimmed[trimmed.index(after: colon)...])
+                .trimmingCharacters(in: .whitespaces)
+            switch key {
+            case "daisy_speaker_map": fields.speakerMap = parseYAMLDict(raw)
+            case "title":             fields.title = unquotedYAMLScalar(raw)
+            case "daisy_folder":      fields.folderSlug = unquotedYAMLScalar(raw)
+            case "daisy_tag":         fields.tag = unquotedYAMLScalar(raw)
+            case "daisy_kind":        fields.kind = unquotedYAMLScalar(raw)
+            default:                  break
+            }
+        }
+        return fields
+    }
+
+    /// Strip the surrounding double quotes `MarkdownExporter.yamlQuote`
+    /// adds, and unescape what it escaped.
+    nonisolated private static func unquotedYAMLScalar(_ raw: String) -> String {
+        guard raw.count >= 2, raw.hasPrefix("\""), raw.hasSuffix("\"") else { return raw }
+        return String(raw.dropFirst().dropLast())
+            .replacingOccurrences(of: "\\\"", with: "\"")
+            .replacingOccurrences(of: "\\\\", with: "\\")
+    }
+
     nonisolated static func persistedSpeakerMap(at url: URL) -> [String: String] {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
         let lines = text.components(separatedBy: .newlines)

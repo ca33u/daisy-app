@@ -132,8 +132,23 @@ final class UsageStats {
     /// own day. Dictation history can't be backfilled (ephemeral), so WPM
     /// stays 0 until the first new dictation — correct, since WPM is
     /// dictation-only. Idempotent via a UserDefaults flag.
-    func backfillIfNeeded(from sessions: [StoredSession]) {
+    func backfillIfNeeded(from sessions: [StoredSession], storageWasReachable: Bool) {
         guard !UserDefaults.standard.bool(forKey: Self.backfillKey) else { return }
+        // The gate is whether the STORAGE was readable, not whether the
+        // list came back non-empty, and both halves of that matter:
+        //
+        //   • an unreachable folder (drive unmounted, bookmark gone)
+        //     used to burn the one-shot flag on an empty list, leaving
+        //     the Home widgets permanently blank;
+        //   • but gating on "non-empty" instead would leave the flag
+        //     unburned on a genuinely new install — and then the first
+        //     recording, already counted live, would be backfilled on
+        //     top of itself and every number for that day would double
+        //     (review find, 2026-09-02).
+        //
+        // Reachable-and-empty is a real answer: nothing to backfill,
+        // and we say so permanently.
+        guard storageWasReachable else { return }
         UserDefaults.standard.set(true, forKey: Self.backfillKey)
         guard !sessions.isEmpty else { return }
 

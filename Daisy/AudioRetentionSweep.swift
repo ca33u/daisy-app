@@ -159,6 +159,13 @@ enum AudioRetentionSweep {
         for sessionDir in entries {
             let isDir = (try? sessionDir.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
             guard isDir else { continue }
+            // Count only what the sweep would actually delete. It skips
+            // sessions with no transcript (their audio is the only copy),
+            // so counting those here would promise back gigabytes that
+            // the button then refuses to free — and the caption would go
+            // right back to claiming them after the refresh
+            // (review find, 2026-09-02).
+            guard RecordingSession.transcriptHasContent(in: sessionDir) else { continue }
             guard let inner = try? fm.contentsOfDirectory(
                 at: sessionDir,
                 includingPropertiesForKeys: [.fileSizeKey],
@@ -187,7 +194,14 @@ enum AudioRetentionSweep {
     }
 
     @discardableResult
-    private static func sweep(cutoff: Date) async -> SweepResult {
+    /// `nonisolated` — and it has to be. The enum is `@MainActor`, so
+    /// without this the whole body (directory walks, file reads, unlinks
+    /// across every session) ran on the main thread no matter that both
+    /// callers wrap it in `Task.detached`; the `await MainActor.run`
+    /// hops below were the tell, since they'd be pointless in a function
+    /// already on that actor. Same class as the OCR pass in the audit's
+    /// batch 2 (2026-09-01).
+    nonisolated private static func sweep(cutoff: Date) async -> SweepResult {
         let fm = FileManager.default
         // Never touch the session that's recording RIGHT NOW. The manual
         // "Clear audio cache" path (`runNow`, cutoff = distantFuture)
@@ -198,6 +212,30 @@ enum AudioRetentionSweep {
         // accident, not a guard.) Same data-loss class as the husk
         // cleanup fixed in a82eab9; same guard.
         let activeDirName = await MainActor.run { SessionStore.shared.activeRecordingDirName }
+        // …and never while a session is being transcribed. The first
+        // transcript of an imported or retained recording reads the
+        // archive IN PLACE ("keep multi-gigabyte archives where they
+        // are"), so deleting the files under it truncates the transcript
+        // AND loses the audio — the same double loss the live-recording
+        // guard above exists to prevent. Trivially reachable from the
+        // UI: start a re-transcribe of a two-hour meeting, open
+        // Settings → Privacy while it works, press Delete
+        // (audit 2026-09-01).
+        //
+        // `isRunning` only — deliberately NOT
+        // `recordingOrFinalizeIsActive`, which counts a paused session
+        // as active. A recording that failed to resume now stays paused
+        // (that's how its audio survives), and treating that as "busy"
+        // would disable the sweep, re-transcription and the Settings
+        // button for the rest of the run. The live session's own folder
+        // is already excluded by name above.
+        let processingActive = await MainActor.run {
+            SessionAudioProcessing.shared.isRunning
+        }
+        if processingActive {
+            log.info("retention sweep: skipped — a session is being transcribed right now")
+            return SweepResult(purgedFiles: 0, freedBytes: 0)
+        }
         guard let ticket = await MainActor.run(body: { SessionsFolder.acquireBase() }) else {
             log.info("retention sweep: no sessions root acquired")
             return SweepResult(purgedFiles: 0, freedBytes: 0)
@@ -232,8 +270,29 @@ enum AudioRetentionSweep {
             // Session age — use the directory's mtime as the proxy.
             // Stable across re-renames, and matches what the user
             // sees in Finder.
+            //
+            // Checked BEFORE the transcript test below, which opens and
+            // decodes a file: on a 500-session Library that ordering is
+            // the difference between a handful of reads and five hundred.
             let mtime = (try? sessionDir.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
             guard let mtime, mtime < cutoff else { continue }
+
+            // Retention rests on one premise: the audio is expendable
+            // BECAUSE the transcript exists. Where it doesn't, the
+            // recording is the only copy of the meeting, and deleting it
+            // on a timer is indistinguishable from losing it.
+            //
+            // Three ways a folder gets here without a transcript, all
+            // seen: a crash before the marker was written; a recovery
+            // pass that failed after clearing the marker (both recovery
+            // paths promise "the audio is kept for another try"); and an
+            // audio-only folder from a storage move, whose whole purpose
+            // is that it can still be transcribed later
+            // (audit 2026-09-01).
+            guard RecordingSession.transcriptHasContent(in: sessionDir) else {
+                log.info("retention sweep: skipping \(sessionDir.lastPathComponent, privacy: .private) — no transcript, the audio is the only copy")
+                continue
+            }
 
             guard let inner = try? fm.contentsOfDirectory(
                 at: sessionDir,
