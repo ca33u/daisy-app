@@ -872,7 +872,7 @@ extension RecordingSession {
         let added = mergeSuggestions(proposed, source: "mentioned", into: directory)
         guard added > 0 else { return }
         ToastCenter.shared.show(
-            String(localized: "Daisy has a name for \(added) speakers · review in History"),
+            String(localized: "Daisy has a name for \(added) speakers · review in Library"),
             style: .info
         )
     }
@@ -1222,7 +1222,7 @@ extension RecordingSession {
         writeSuggestionsSidecar(SpeakerSuggestionsFile(byLabel: byLabel, source: source), to: dir)
         let n = byLabel.count
         ToastCenter.shared.show(
-            String(localized: "Daisy recognized \(n) speakers · review in History"),
+            String(localized: "Daisy recognized \(n) speakers · review in Library"),
             style: .info
         )
         log.info("Wrote \(n, privacy: .public) speaker suggestion(s) for review")
@@ -1261,7 +1261,7 @@ extension RecordingSession {
                 log.info("Auto-sent to Notion: \(url.absoluteString, privacy: .private)")
             } catch {
                 log.error("Auto-send to Notion failed: \(error.localizedDescription, privacy: .private)")
-                ToastCenter.shared.show(String(localized: "Auto-send to Notion failed — retry from History"), style: .warning)
+                ToastCenter.shared.show(String(localized: "Auto-send to Notion failed — retry from Library"), style: .warning)
                 recordAutoSendFailure(
                     integration: "Notion",
                     kind: "notion",
@@ -1642,7 +1642,8 @@ extension RecordingSession {
         tag: String = "",
         meetingPreparation: MeetingPreparationSnapshot? = nil,
         systemAudioStatus: String? = nil,
-        micOnlyCause: String? = nil
+        micOnlyCause: String? = nil,
+        micAudioStatus: String? = nil
     ) -> StoredSession {
         let transcriptText = segments
             .map { "\($0.text)" }
@@ -1705,7 +1706,8 @@ extension RecordingSession {
             speakerMap: [:],
             speakerCentroidIDs: centroidIDs,
             systemAudioStatus: systemAudioStatus,
-            micOnlyCause: micOnlyCause
+            micOnlyCause: micOnlyCause,
+            micAudioStatus: micAudioStatus
         )
     }
 

@@ -1115,6 +1115,7 @@ final class SessionStore {
         var speakerMap: [String: String] = [:]
         var systemAudioStatus: String?
         var micOnlyCause: String?
+        var micAudioStatus: String?
         if !transcriptEvicted,
            let text = try? String(contentsOf: transcriptURL, encoding: .utf8) {
             let parsedFm = parseFrontmatter(in: text)
@@ -1140,6 +1141,7 @@ final class SessionStore {
             speakerMap = parsedFm.speakerMap
             systemAudioStatus = parsedFm.systemAudioStatus
             micOnlyCause = parsedFm.micOnlyCause
+            micAudioStatus = parsedFm.micAudioStatus
         }
 
         // speakers.json sidecar — just the centroid KEY set, not the
@@ -1187,6 +1189,7 @@ final class SessionStore {
             speakerCentroidIDs: centroidIDs,
             systemAudioStatus: systemAudioStatus,
             micOnlyCause: micOnlyCause,
+            micAudioStatus: micAudioStatus,
             // "Evicted" only when the PRIMARY content is unreachable: a
             // local transcript with cloud-evicted audio still reads fine —
             // the audio player is the only thing that would trigger a
@@ -1374,6 +1377,15 @@ struct StoredSession: Identifiable, Sendable {
     /// also what a Bluetooth output route or a silent meeting looks
     /// like; this one names a cause the user can act on.
     var micOnlyCause: String? = nil
+    /// `daisy_mic_audio_status:` — `ok` / `off` / `empty` / `truncated`,
+    /// nil for sessions that predate it. `off` is the interesting one:
+    /// the audio was never written, either because the person chose
+    /// "don't record audio" or because the disk was too full at start.
+    /// Without it a full-disk session looked exactly like one whose
+    /// audio had been deleted on purpose, and the only hint was a red
+    /// "No audio found" when they tried to re-transcribe it
+    /// (audit 2026-09-01).
+    var micAudioStatus: String? = nil
     /// True when transcript.md or a retained .caf is present on disk but
     /// its bytes were evicted to iCloud — reading would require a
     /// download. Sessions built in-memory after a live recording are
@@ -1498,6 +1510,8 @@ nonisolated private struct ParsedFrontmatter {
     var systemAudioStatus: String?
     /// `daisy_mic_only:` — raw `MicOnlyCause` value, or nil.
     var micOnlyCause: String?
+    /// `daisy_mic_audio_status:` — `ok` / `off` / `empty` / `truncated`.
+    var micAudioStatus: String?
     /// Markdown body after the closing `---`. Empty if no frontmatter.
     var body: String
 }
@@ -1555,6 +1569,14 @@ nonisolated private func parseFrontmatter(in markdown: String) -> ParsedFrontmat
             parsed.systemAudioStatus = valueRaw
         case "daisy_mic_only":
             parsed.micOnlyCause = valueRaw
+        case "daisy_mic_audio_status":
+            // `off` means the archive was deliberately skipped — the
+            // "don't record audio" mode, or a disk too full to hold it.
+            // Written since the beginning and parsed by nobody, which is
+            // why a session recorded on a full disk arrived in the
+            // Library indistinguishable from one whose audio was simply
+            // deleted (audit 2026-09-01).
+            parsed.micAudioStatus = valueRaw
         default:              break
         }
     }

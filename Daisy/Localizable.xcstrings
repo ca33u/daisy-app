@@ -1,6 +1,236 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "the default microphone" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "микрофон по умолчанию"
+          }
+        }
+      }
+    },
+    "Recording from a different microphone" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запись с другого микрофона"
+          }
+        }
+      }
+    },
+    "Daisy couldn't register %@ as a shortcut. Try a different combination." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не смогла назначить сочетание %@. Попробуйте другое."
+          }
+        }
+      }
+    },
+    "No audio was recorded for this session." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для этой записи звук не сохранялся."
+          }
+        }
+      }
+    },
+    "Either “Don’t record audio” was on, or the disk was too full to hold it. The transcript above is complete." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Либо был включён режим «Не записывать аудио», либо на диске не хватало места. Расшифровка выше — полная."
+          }
+        }
+      }
+    },
+    "Daisy can't paste for you without Accessibility access — the text is on your clipboard, press ⌘V. Reverts in %llds." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не может вставить текст без доступа к Универсальному доступу — текст в буфере обмена, нажмите ⌘V. Вернём буфер через %lld с."
+          }
+        }
+      }
+    },
+    "Open Accessibility settings" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть настройки доступа"
+          }
+        }
+      }
+    },
+    "Another app is already using %@ — Daisy can't use it as a shortcut. Pick a different one." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сочетание %@ уже занято другой программой — Daisy не может его использовать. Выберите другое."
+          }
+        }
+      }
+    },
+    "Recording without audio" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запись без звука"
+          }
+        }
+      }
+    },
+    "Your chosen microphone isn't connected — recording from %@ instead." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбранный микрофон не подключён — пишем с «%@»."
+          }
+        }
+      }
+    },
+    "Choose microphone" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбрать микрофон"
+          }
+        }
+      }
+    },
+    "Transcript only" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Только расшифровка"
+          }
+        }
+      }
+    },
+    "No audio was saved for this recording — either “Don’t record audio” was on, or the disk was too full at the time. The transcript is complete; there's nothing to play back or re-transcribe." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для этой записи звук не сохранялся — либо был включён режим «Не записывать аудио», либо на диске не хватало места. Расшифровка полная; воспроизвести или расшифровать заново нечего."
+          }
+        }
+      }
+    },
+    "On, but your Mac has only one keyboard layout — add a second one in System Settings → Keyboard to give Daisy something to switch between." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включено, но на Mac всего одна раскладка — добавьте вторую в «Системных настройках» → «Клавиатура», иначе переключать нечего."
+          }
+        }
+      }
+    },
+    "Set your Notion token in Connections first" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сначала укажите токен Notion в «Подключениях»"
+          }
+        }
+      }
+    },
+    "Couldn’t download the model for %@ — check your connection and try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось скачать модель для: %@ — проверьте соединение и попробуйте ещё раз."
+          }
+        }
+      }
+    },
+    "meeting transcription" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "расшифровки встреч"
+          }
+        }
+      }
+    },
+    "fast dictation" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "быстрой диктовки"
+          }
+        }
+      }
+    },
+    "speaker separation" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "разделения спикеров"
+          }
+        }
+      }
+    },
+    "Daisy has a name for %lld speakers · review in Library" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy подобрала имена для %lld спикеров · проверьте в «Библиотеке»"
+          }
+        }
+      }
+    },
+    "Daisy recognized %lld speakers · review in Library" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy распознала %lld спикеров · проверьте в «Библиотеке»"
+          }
+        }
+      }
+    },
+    "Auto-send to Notion failed — retry from Library" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автоотправка в Notion не удалась — повторите из «Библиотеки»"
+          }
+        }
+      }
+    },
+    "Daisy can push finished recordings to Notion, Linear, Slack, or any MCP server — automatically or via the kebab menu in Library." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy может отправлять готовые записи в Notion, Linear, Slack или любой MCP-сервер — автоматически или через меню «…» в «Библиотеке»."
+          }
+        }
+      }
+    },
     "Daisy couldn’t save that to disk — check there’s free space and try again." : {
       "localizations" : {
         "ru" : {

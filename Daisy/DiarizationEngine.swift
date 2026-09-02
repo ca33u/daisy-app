@@ -169,7 +169,11 @@ final class DiarizationEngine {
             let hinted = DiarizerManager(config: hintedConfig)
             hinted.initialize(models: models)
             activeManager = hinted
-            log.info("Diarizing with attendee-count hint: numClusters=\(n, privacy: .public)")
+            // Says "requested", not "using": the online pipeline ignores
+            // `numClusters` entirely (only FluidAudio's Offline one reads
+            // it), and the old wording sent a field investigation down a
+            // path where the hint appeared to be in effect.
+            log.info("Attendee-count hint requested (numClusters=\(n, privacy: .public)) — NOTE: the online pipeline ignores it")
         } else {
             activeManager = manager
         }
@@ -260,7 +264,7 @@ final class DiarizationEngine {
         let m = DiarizerManager(config: config)
         m.initialize(models: models)
         if let n = numSpeakers, n > 0 {
-            log.info("Block diarization with attendee-count hint: numClusters=\(n, privacy: .public)")
+            log.info("Block diarization: attendee-count hint requested (numClusters=\(n, privacy: .public)) — NOTE: the online pipeline ignores it")
         }
         return DiarizationBlockPass(manager: m)
         #else

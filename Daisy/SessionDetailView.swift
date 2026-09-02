@@ -141,6 +141,10 @@ struct SessionDetailView: View {
                 } else if shouldShowLoopbackBanner {
                     acousticLoopbackBanner
                 }
+                // "No audio was recorded" is explained by the Audio
+                // block further down, where the player would have been —
+                // the place someone actually looks for it. A banner up
+                // here as well would say the same thing twice.
 
                 // 2026-05-25 — two-block collapsible layout per Egor's
                 // UX pass on 1.0.7. Pre-fix every mdSection card sat
@@ -1872,6 +1876,20 @@ struct SessionDetailView: View {
                             files: audio.system
                         )
                     }
+                } else if session.micAudioStatus == "off" {
+                    // Never written, as opposed to written-then-deleted.
+                    // The retention advice below would be a lie here:
+                    // no retention setting would have kept a file that
+                    // was never created (audit 2026-09-01).
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("No audio was recorded for this session.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Text("Either “Don’t record audio” was on, or the disk was too full to hold it. The transcript above is complete.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 } else {
                     // Text-only, matching the other blocks' empty states
                     // (Egor 2026-08-21: the waveform.slash icon read as
@@ -2237,7 +2255,7 @@ struct SessionDetailView: View {
             return
         }
         if !AppSettings.notionConfigured {
-            ToastCenter.shared.show(String(localized: "Set Notion token in Settings first"), style: .warning)
+            ToastCenter.shared.show(String(localized: "Set your Notion token in Connections first"), style: .warning)
             return
         }
         isRunningAction = true

@@ -263,21 +263,40 @@ final class DictationPaste {
 
         // 3. Try to auto-paste. If Accessibility permission is
         //    missing, fall back to the manual-paste toast.
-        let didAutoPaste = attemptAutoPaste()
+        let autoPaste = attemptAutoPaste()
+        let didAutoPaste = (autoPaste == .pasted)
         // 4. Schedule restore. Auto-paste already landed → the transcript
         //    only needs to outlive the keystroke (quick restore, prior
         //    clipboard back in ~1.5 s). Manual-paste fallback → the
         //    transcript must stay around long enough to ⌘V by hand.
         let restoreAfter = didAutoPaste ? Self.quickRestoreSeconds : Self.retentionSeconds
-        if didAutoPaste {
+        switch autoPaste {
+        case .pasted:
             ToastCenter.shared.show(
                 String(localized: "Dictation pasted — your previous clipboard is coming right back."),
                 style: .success
             )
-        } else {
+        case .needsAccessibility:
+            // Not a success, and not a mystery either: name the missing
+            // permission and offer the pane. Announced as success, this
+            // is how a person concludes that manual ⌘V is simply how
+            // Daisy works.
+            ToastCenter.shared.showAction(
+                String(localized: "Daisy can't paste for you without Accessibility access — the text is on your clipboard, press ⌘V. Reverts in \(Int(Self.retentionSeconds))s."),
+                actionLabel: String(localized: "Open Accessibility settings"),
+                style: .warning,
+                // Never outlive the clipboard it points at: the toast
+                // says "press ⌘V", and after `retentionSeconds` the
+                // previous clipboard is back, so a later ⌘V would paste
+                // the wrong thing.
+                duration: .seconds(Self.retentionSeconds)
+            ) {
+                SystemPermissions.shared.openAccessibilitySettings()
+            }
+        case .failed:
             ToastCenter.shared.show(
                 String(localized: "Dictation copied — press ⌘V to paste. Clipboard reverts in \(Int(Self.retentionSeconds))s."),
-                style: .success
+                style: .warning
             )
         }
 
@@ -488,19 +507,25 @@ final class DictationPaste {
     /// user now has the system dialog open and can grant. Second
     /// dictation works. The 10s clipboard hold means even the
     /// failed first attempt is recoverable via manual ⌘V.
-    private func attemptAutoPaste() -> Bool {
+    ///
+    /// Returns WHICH failure, not just that there was one: the caller
+    /// used to announce every outcome as a success ("Dictation copied —
+    /// press ⌘V"), so someone whose Accessibility grant was missing (or
+    /// reset by an OS update) concluded that manual ⌘V is simply how
+    /// Daisy works, and lived with it (audit 2026-09-01).
+    private func attemptAutoPaste() -> AutoPasteOutcome {
         // Silent check first — avoids re-showing the system dialog
         // on every call when permission is granted.
         if !AXIsProcessTrusted() {
             // Permission missing — prompt once (system dedups the
-            // dialog if user already saw it), but return false
+            // dialog if user already saw it), but report the miss
             // because the dialog is non-modal and we'd be racing
             // against the user's click.
             let promptOption = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
             let options: NSDictionary = [promptOption: true]
             _ = AXIsProcessTrustedWithOptions(options)
             log.warning("Accessibility permission missing — prompted user, falling back to manual ⌘V for this dictation")
-            return false
+            return .needsAccessibility
         }
 
         // Build a ⌘ down + V down + V up + ⌘ up sequence and post
@@ -508,7 +533,7 @@ final class DictationPaste {
         // to whichever app has frontmost focus.
         guard let source = CGEventSource(stateID: .combinedSessionState) else {
             log.error("Couldn't create CGEventSource for paste keystroke")
-            return false
+            return .failed
         }
 
         let vKeyCode = CGKeyCode(kVK_ANSI_V)
@@ -521,7 +546,7 @@ final class DictationPaste {
             let cmdUp   = CGEvent(keyboardEventSource: source, virtualKey: cmdKeyCode, keyDown: false)
         else {
             log.error("CGEvent construction returned nil")
-            return false
+            return .failed
         }
 
         // V events need the Command flag set so apps see them as
@@ -555,7 +580,16 @@ final class DictationPaste {
         vDown.post(tap: tap)
         vUp.post(tap: tap)
         cmdUp.post(tap: tap)
-        return true
+        return .pasted
+    }
+
+    /// Why the automatic ⌘V did or didn't happen. `.needsAccessibility`
+    /// is separated from `.failed` because only it has an action the
+    /// person can take.
+    private enum AutoPasteOutcome {
+        case pasted
+        case needsAccessibility
+        case failed
     }
 
     // MARK: - Snapshot + restore

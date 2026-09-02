@@ -401,6 +401,10 @@ final class HotkeyManager {
         register(slot: .record, choice: choice, action: .toggle(action))
     }
 
+    /// Combinations we've already complained about this launch — see the
+    /// failure path in `installCarbonToggle`.
+    private static var reportedRegistrationFailures: Set<String> = []
+
     /// Carbon path — single fire on press, no permission required.
     /// Used by `.toggle` mode for any non-Fn key.
     private func installCarbonToggle(slot: HotkeySlot, keyCode: UInt32, mods: UInt32) {
@@ -410,7 +414,7 @@ final class HotkeyManager {
             signature: fourCharCode("DAIS"),
             id: slot.rawValue
         )
-        RegisterEventHotKey(
+        let status = RegisterEventHotKey(
             keyCode,
             mods,
             id,
@@ -418,8 +422,42 @@ final class HotkeyManager {
             0,
             &ref
         )
-        if let ref {
+        if let ref, status == noErr {
             refs[slot] = ref
+            return
+        }
+        // The status used to be discarded, so a combination already held
+        // by another app (Raycast, Alfred, Keyboard Maestro, a system
+        // shortcut) failed with `eventHotKeyExistsErr` and NOTHING said
+        // so: Settings kept showing the shortcut as assigned, the key
+        // did nothing, and no line reached the log either. The hold path
+        // right below has always handled its own permission failure
+        // properly; this was the one silent one (audit 2026-09-01).
+        let label = HotkeyChoice.humanLabel(keyCode: keyCode, modifiers: mods)
+        log.warning("RegisterEventHotKey failed for \(label, privacy: .public) (slot \(slot.rawValue, privacy: .public)) — OSStatus \(status, privacy: .public)")
+        // Only `eventHotKeyExistsErr` means "taken"; anything else is
+        // our own bug and shouldn't accuse another app of it.
+        let message = status == OSStatus(eventHotKeyExistsErr)
+            ? String(localized: "Another app is already using \(label) — Daisy can't use it as a shortcut. Pick a different one.")
+            : String(localized: "Daisy couldn't register \(label) as a shortcut. Try a different combination.")
+        // One toast per combination per launch. `applyAllHotkeys`
+        // re-registers all seven slots on every settings change, so a
+        // standing conflict would otherwise fire on each keystroke in
+        // the shortcut recorder and evict every other toast — the
+        // ToastCenter has one slot too.
+        guard Self.reportedRegistrationFailures.insert(label).inserted else { return }
+        ToastCenter.shared.showAction(
+            message,
+            actionLabel: String(localized: "Open Settings"),
+            style: .warning,
+            duration: .seconds(15)
+        ) {
+            // Land on the tab that holds the shortcut rows, and bring
+            // the window forward — the toast can be triggered from a
+            // background launch where no window is open.
+            AppNavigation.shared.pendingSettingsTab = .recording
+            AppNavigation.shared.section = .settings
+            WidgetBubbleCenter.shared.openMainWindow?()
         }
     }
 

@@ -88,6 +88,11 @@ struct SettingsView: View {
     /// it along by enabling the language in System Settings.
     @State private var appleSpeechAvailability: AppleSpeechAvailabilityState?
 
+    /// Bump to force the layout-fixer caption to re-read state that
+    /// isn't Observable (`LayoutAutoFix.isRunning`, installed keyboard
+    /// layouts). Mirrors `FirstRunView.layoutFixRecheck`.
+    @State private var layoutFixRecheck: Int = 0
+
     /// Mirror of `AppleSpeechLiveEngine.Availability` that doesn't need
     /// `@available(macOS 26, *)` to exist in this view's state.
     private enum AppleSpeechAvailabilityState {
@@ -1602,6 +1607,40 @@ struct SettingsView: View {
             Section {
                 Toggle(isOn: $settings.layoutFixAuto) {
                     Text("Fix the layout as I type")
+                    // The toggle's stated intent and what is actually
+                    // running are two different things, and three
+                    // conditions can silently separate them: no
+                    // Accessibility grant, a rival switcher (Caramba,
+                    // Punto) holding the keyboard, or a Mac with only
+                    // one keyboard layout installed. Onboarding has
+                    // said this since the beginning; Settings — where
+                    // people actually flip the switch — said nothing,
+                    // which is the `auto=true running=false` state a
+                    // bug report once cost a full day (audit
+                    // 2026-09-01). Same live signal, same phrasing.
+                    if let caption = layoutFixCaption {
+                        Text(caption)
+                            .font(.caption)
+                            .foregroundStyle(Color.daisyWarning)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                // Neither `LayoutAutoFix.isRunning` nor the installed
+                // layout list is Observable, and flipping the toggle
+                // re-renders this row a beat BEFORE the wiring starts
+                // the tap — so a caption rendered right now would read
+                // "not running yet" and stay wrong until something else
+                // happened to redraw. Same fix onboarding already uses:
+                // wait out the race, then force a re-read.
+                .id(layoutFixRecheck)
+                .onChange(of: settings.layoutFixAuto) { _, _ in
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(400))
+                        layoutFixRecheck &+= 1
+                    }
+                }
+                .onChange(of: systemPermissions.accessibility) { _, _ in
+                    layoutFixRecheck &+= 1
                 }
                 .help("Corrects words that are gibberish in one layout and a real word in another, as you finish them — including the word you press Return on. Needs Accessibility access.")
 
@@ -1720,20 +1759,18 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                // Previously defaults-only, with the doc comment saying
-                // "flip via defaults for testing". It's surfaced now so
-                // the A/B can happen on real meetings; still default OFF
-                // and still honestly described as a gamble, because the
-                // attendee count is a hard constraint on the diarizer
-                // and the invite is a noisy proxy for who actually
-                // showed up.
-                Toggle(isOn: $settings.diarizeUseAttendeeCountHint) {
-                    Text("Use the invite’s headcount")
-                    Text("For calendar meetings, tells the speaker-splitter exactly how many people to expect. Sharpens it when the invite is accurate — and makes it worse when it isn’t (no-shows, someone who wasn’t invited, one person on two devices). Experimental.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                // "Use the invite's headcount" lived here until
+                // 2026-09-01. Removed rather than relabelled: the
+                // toggle asked the person to weigh a real trade-off
+                // (sharper when the invite is accurate, worse when it
+                // isn't) while both positions produced byte-identical
+                // output — FluidAudio's online pipeline never reads
+                // `numClusters`, only its Offline one does, as the
+                // comment in DiarizationEngine records. A control that
+                // does nothing is worse than a missing feature; the
+                // setting itself is kept in AppSettings so a later
+                // switch to the Offline pipeline can bring the toggle
+                // back without a migration.
             } header: {
                 Text("Speakers")
             }
@@ -1880,6 +1917,33 @@ struct SettingsView: View {
         return Locale.current.localizedString(forLanguageCode: code) ?? id
     }
 
+    /// Why "Fix the layout as I type" is on but not running, or nil when
+    /// it is running (or off, in which case there's nothing to explain).
+    /// Mirrors `FirstRunView.layoutFixCaption`, plus the one condition
+    /// onboarding never had to name because it checks Accessibility
+    /// first: a Mac with a single keyboard layout has nothing to switch
+    /// between, and `LayoutAutoFix.start` bails silently.
+    private var layoutFixCaption: String? {
+        guard settings.layoutFixAuto, !LayoutAutoFix.shared.isRunning else { return nil }
+        // A rival switcher outranks the permission hint: with Caramba or
+        // Punto running, Accessibility can be granted and "not running
+        // yet" would be true, useless, and the exact shape of caption
+        // that cost a day of triage once already.
+        if let rival = LayoutAutoFix.shared.conflictingSwitcherName {
+            return String(
+                format: String(localized: "Off while %@ is running — two layout fixers would garble the same word."),
+                rival
+            )
+        }
+        if systemPermissions.accessibility != .granted {
+            return String(localized: "On, but Accessibility access is needed to actually run it.")
+        }
+        if KeyboardLayouts.shared.installed.count < 2 {
+            return String(localized: "On, but your Mac has only one keyboard layout — add a second one in System Settings → Keyboard to give Daisy something to switch between.")
+        }
+        return String(localized: "On, but not running yet.")
+    }
+
     private func refreshAppleSpeechLocaleSupport() async {
         guard settings.dictationEngine == .appleSpeech else {
             appleSpeechAvailability = nil
@@ -1923,6 +1987,7 @@ struct SettingsView: View {
 
     private func downloadAllModels() async {
         await whisper.ensureLoaded()
+        var appleAssetMissing = false
         switch settings.dictationEngine {
         case .whisper:
             break  // covered by the Whisper load above
@@ -1934,19 +1999,42 @@ struct SettingsView: View {
                     ? settings.defaultTranscriptionLocale
                     : settings.dictationLocale
                 if localeID != "auto", !localeID.isEmpty {
-                    _ = await AppleSpeechEngine.ensureModelReady(locale: Locale(identifier: localeID))
+                    appleAssetMissing = !(await AppleSpeechEngine.ensureModelReady(
+                        locale: Locale(identifier: localeID)
+                    ))
                 }
             }
         }
         await DiarizationEngine.shared.ensureLoaded()
         cacheRefreshTick &+= 1
         refreshStorageUsage()
-        let ok = whisper.isReady
-        ToastCenter.shared.show(
-            ok ? String(localized: "Models ready.")
-               : String(localized: "Couldn’t download some models — check your connection and try again."),
-            style: ok ? .success : .error
-        )
+        // The verdict used to come from `whisper.isReady` alone, so a
+        // Parakeet or diarizer that failed to download still reported
+        // "Models ready." — and the person then quietly went without
+        // speaker labels, whose only other trace is a log line
+        // (audit 2026-09-01). Name what didn't make it.
+        var missing: [String] = []
+        if !whisper.isReady { missing.append(String(localized: "meeting transcription")) }
+        if settings.dictationEngine == .parakeet, !parakeet.isReady {
+            missing.append(String(localized: "fast dictation"))
+        }
+        if appleAssetMissing { missing.append(String(localized: "fast dictation")) }
+        // `isAvailable` is also false in a build without FluidAudio, where
+        // there is nothing to download and complaining would be noise.
+        #if canImport(FluidAudio)
+        if !DiarizationEngine.shared.isAvailable {
+            missing.append(String(localized: "speaker separation"))
+        }
+        #endif
+        if missing.isEmpty {
+            ToastCenter.shared.show(String(localized: "Models ready."), style: .success)
+        } else {
+            ToastCenter.shared.show(
+                String(localized: "Couldn’t download the model for \(missing.joined(separator: ", ")) — check your connection and try again."),
+                style: .error,
+                duration: .seconds(10)
+            )
+        }
     }
 
     /// Models-on-disk summary row + Remove-unused action. Disabled

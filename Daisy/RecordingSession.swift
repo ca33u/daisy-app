@@ -1305,6 +1305,21 @@ final class RecordingSession {
     @ObservationIgnored
     var clamshellWarned = false
 
+    /// Set when `start()` already warned that this session records no
+    /// audio because the disk is nearly full.
+    ///
+    /// `CaptureProblemNotification` is a single slot — one request id,
+    /// one bubble tag — so these warnings have to queue by severity
+    /// rather than by arrival. The order, worst first:
+    ///
+    ///   1. clamshell — nothing is being recorded at all;
+    ///   2. low disk — the transcript survives, the audio is never written;
+    ///   3. mic-only — half the conversation is captured.
+    ///
+    /// Each one refuses to post over a worse one already shown.
+    @ObservationIgnored
+    var lowDiskWarned = false
+
     /// Toast for "we can't record because macOS won't give us the mic".
     /// Actionable — the deep link lands the user exactly where the
     /// switch is, instead of leaving them to hunt through Settings.
@@ -1391,6 +1406,7 @@ final class RecordingSession {
         // built-in one), while a user who explicitly pinned the
         // built-in mic is silent and deserves the same warning.
         clamshellWarned = false
+        lowDiskWarned = false
         if AudioInputDevices.isLidClosed(),
            plannedInputIsBuiltIn(),
            AudioInputDevices.firstExternalWiredInputID() == nil {
@@ -1637,11 +1653,30 @@ final class RecordingSession {
         let systemArchive = skipAudioArchive ? nil : dir?.appendingPathComponent("system_audio.caf")
         if lowDiskAtStart {
             let freeGB = Double(freeAtStart ?? 0) / 1_073_741_824
-            ToastCenter.shared.show(
-                String(format: String(localized: "Low disk space (%.1f GB free) — recording transcript only this session, no audio. Free up space to record audio again."), freeGB),
-                style: .warning,
-                duration: .seconds(6)
+            let message = String(
+                format: String(localized: "Low disk space (%.1f GB free) — recording transcript only this session, no audio. Free up space to record audio again."),
+                freeGB
             )
+            ToastCenter.shared.show(message, style: .warning, duration: .seconds(6))
+            // …and again through the channel that works when the main
+            // window is closed, which is nearly always: recording starts
+            // from a hotkey, the widget or a calendar auto-start, and
+            // `ToastOverlay` lives inside the window. Four meetings were
+            // recorded silently at 0.4 GB free before anyone noticed
+            // (field report 2026-07-27) — the warning was there, it just
+            // had nowhere to appear.
+            //
+            // Yields to the clamshell warning raised moments earlier in
+            // this same `start()`: they share one slot, and "Daisy can't
+            // hear you" outranks "this one has no audio file". See
+            // `lowDiskWarned`.
+            lowDiskWarned = true
+            if !clamshellWarned {
+                CaptureProblemNotification.post(
+                    title: String(localized: "Recording without audio"),
+                    body: message
+                )
+            }
             log.warning("Low disk at start (\(freeAtStart ?? -1, privacy: .public) bytes free) — transcript-only session")
         }
 
@@ -1870,13 +1905,15 @@ final class RecordingSession {
         }
 
         // `CaptureProblemNotification` is a single slot — one request id,
-        // one bubble tag — so posting here would REPLACE the clamshell
-        // warning raised moments earlier in the same `start()`. On a
-        // docked Mac with the lid shut and Screen Recording off, that
-        // would swap "Daisy can't hear you" for "recording your voice
-        // only", which is worse than useless: it isn't recording a voice
-        // at all. The in-app toast above still fires either way.
-        guard !clamshellWarned else { return }
+        // one bubble tag — so posting here would REPLACE a warning
+        // raised moments earlier in the same `start()`. On a docked Mac
+        // with the lid shut and Screen Recording off, that would swap
+        // "Daisy can't hear you" for "recording your voice only", which
+        // is worse than useless: it isn't recording a voice at all. The
+        // same goes for the low-disk warning — losing the audio file
+        // entirely outranks losing one side of it. The in-app toast
+        // above still fires either way. See `lowDiskWarned`.
+        guard !clamshellWarned, !lowDiskWarned else { return }
         CaptureProblemNotification.post(
             title: String(localized: "Recording your voice only"),
             body: notificationBody

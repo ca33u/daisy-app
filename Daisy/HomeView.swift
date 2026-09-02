@@ -448,7 +448,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Send recordings somewhere")
                     .font(.callout.weight(.medium))
-                Text("Daisy can push finished recordings to Notion, Linear, Slack, or any MCP server — automatically or via the kebab menu in History.")
+                Text("Daisy can push finished recordings to Notion, Linear, Slack, or any MCP server — automatically or via the kebab menu in Library.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

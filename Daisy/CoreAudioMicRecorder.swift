@@ -893,6 +893,11 @@ final class CoreAudioMicRecorder {
 
     // MARK: - Device resolution + binding
 
+    /// One "your pinned mic is missing" warning per app run — the device
+    /// stays disconnected across back-to-back meetings, and repeating
+    /// the warning each time trains the person to ignore it.
+    private static var warnedAboutMissingPinnedMic = false
+
     /// Resolve `uid` to a concrete `AudioDeviceID`. Three paths, same as
     /// AudioRecorder.applyPreferredInputDevice:
     ///   1. User pinned a device that's connected → use it.
@@ -906,6 +911,47 @@ final class CoreAudioMicRecorder {
         }
         if !uid.isEmpty {
             log.warning("Saved mic UID \(uid, privacy: .public) not connected — falling back to system default")
+            // Say it, don't just log it. The person deliberately pinned
+            // a microphone; recording the whole meeting through the
+            // built-in one instead is the kind of thing you want to know
+            // at the start, not when you play the file back. Nothing
+            // on screen named the actual device during a recording, and
+            // Settings only shows "not connected" if you go looking
+            // (audit 2026-09-01).
+            //
+            // Once per launch: the pinned device stays disconnected
+            // across back-to-back meetings, and repeating this every
+            // time would train the person to ignore it.
+            if !Self.warnedAboutMissingPinnedMic {
+                Self.warnedAboutMissingPinnedMic = true
+                // `name(for:)`, not `describe(_:)` — the latter is a log
+                // line ("device 63 'MacBook Pro Microphone' uid=… …").
+                let fallbackName = AudioInputDevices.name(
+                    for: AudioInputDevices.systemDefaultInputID()
+                ) ?? String(localized: "the default microphone")
+                let message = String(
+                    localized: "Your chosen microphone isn't connected — recording from \(fallbackName) instead."
+                )
+                // Bubble first: recording starts from a hotkey, the
+                // widget or a calendar auto-start, and a toast lives
+                // inside a window that isn't open then. `present`
+                // falls back to a notification when the widget is
+                // hidden, so the message lands either way.
+                WidgetBubbleCenter.shared.present(
+                    WidgetBubbleContent(
+                        text: message,
+                        actionTitle: String(localized: "Choose microphone"),
+                        tag: "mic-not-connected",
+                        action: {
+                            AppNavigation.shared.pendingSettingsTab = .recording
+                            AppNavigation.shared.section = .settings
+                            WidgetBubbleCenter.shared.openMainWindow?()
+                        }
+                    ),
+                    notificationTitle: String(localized: "Recording from a different microphone")
+                )
+                ToastCenter.shared.show(message, style: .warning, duration: .seconds(10))
+            }
         }
         // Unpinned: take the system default — UNLESS it's a Bluetooth mic,
         // in which case prefer a non-BT input. A BT headset used for OUTPUT
