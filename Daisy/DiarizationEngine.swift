@@ -85,10 +85,58 @@ final class DiarizationEngine {
 
     private init() {}
 
-    /// Force the model bundle to load. Safe to call multiple times.
-    /// Idempotent.
+    /// Drop the diarizer under memory pressure. Reloads from the
+    /// on-disk cache on the next `ensureLoaded()` / `makeBlockPass()`,
+    /// so the cost of being wrong is a few seconds, not a download.
+    ///
+    /// Refuses while anything is capturing or transcribing — a live
+    /// block pass holds its own `DiarizerManager`, and the models
+    /// object behind it must outlive that pass.
+    func releaseUnderMemoryPressure() {
+        #if canImport(FluidAudio)
+        guard !RecordingSession.isCapturingOrTranscribing else {
+            log.info("Memory pressure: keeping the diarizer — a session is in flight")
+            return
+        }
+        guard manager != nil || models != nil else { return }
+        manager = nil
+        models = nil
+        isAvailable = false
+        log.info("Memory pressure: released the diarizer")
+        #endif
+    }
+
+    /// Force the model bundle to load. Safe to call multiple times, and
+    /// safe to call CONCURRENTLY: the `guard manager == nil` alone let
+    /// two callers past while the first was still awaiting the download,
+    /// so both loaded the bundle and built a manager. That was masked by
+    /// the app-start preload always winning the race; with the preload
+    /// gone, the two live-diarization tickers (mic and system) are the
+    /// first callers and they fire within milliseconds of each other
+    /// (review find, 2026-09-02).
     func ensureLoaded() async {
         #if canImport(FluidAudio)
+        guard manager == nil else { return }
+        if let loadTask {
+            await loadTask.value
+            return
+        }
+        let task = Task { @MainActor in await performLoad() }
+        loadTask = task
+        await task.value
+        loadTask = nil
+        #else
+        self.isAvailable = false
+        #endif
+    }
+
+    #if canImport(FluidAudio)
+    /// In-flight load, so concurrent `ensureLoaded()` callers wait on
+    /// one download instead of starting several.
+    @ObservationIgnored
+    private var loadTask: Task<Void, Never>?
+
+    private func performLoad() async {
         guard manager == nil else { return }
         do {
             // One-time download of the CoreML diarization bundle from
@@ -126,10 +174,8 @@ final class DiarizationEngine {
             log.error("Diarizer init failed: \(error.localizedDescription, privacy: .public)")
             self.isAvailable = false
         }
-        #else
-        self.isAvailable = false
-        #endif
     }
+    #endif
 
     /// Full diarization with cluster centroids returned alongside
     /// the spans. Called from `Transcriber.runFinalTranscribe()` so

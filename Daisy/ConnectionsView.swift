@@ -139,9 +139,16 @@ struct ConnectionsView: View {
             // so changing the port never creates a config the user
             // didn't ask for.
             ClaudeDesktopConfig.refreshIfInstalled(port: liveServerPort)
-            CodexMCPConfig.refreshIfInstalled(port: liveServerPort)
             CursorMCPConfig.refreshIfInstalled(port: liveServerPort)
             refreshMCPClientEntryStates()
+            // Codex's refresh is async (it shells out to the CLI), so
+            // its entry state has to be re-read AFTER it finishes —
+            // reading it now would show the pre-refresh port and offer
+            // a "reconnect" button for work already in progress.
+            Task {
+                await CodexMCPConfig.refreshIfInstalled(port: liveServerPort)
+                refreshMCPClientEntryStates()
+            }
         }
         // The button copy + status hints key off whether the server is
         // running and on what port; recompute when the listener state
@@ -603,9 +610,12 @@ struct ConnectionsView: View {
             .onChange(of: mcpRequireToken) { _, new in
                 MCPAccessToken.isRequired = new
                 ClaudeDesktopConfig.refreshIfInstalled(port: liveServerPort)
-                CodexMCPConfig.refreshIfInstalled(port: liveServerPort)
                 CursorMCPConfig.refreshIfInstalled(port: liveServerPort)
                 refreshMCPClientEntryStates()
+                Task {
+                    await CodexMCPConfig.refreshIfInstalled(port: liveServerPort)
+                    refreshMCPClientEntryStates()
+                }
             }
 
             if mcpRequireToken {
@@ -672,7 +682,7 @@ struct ConnectionsView: View {
             mcpClientTitle("Codex", status: codexHint)
             Spacer(minLength: 8)
             if codexEntryIsPresent {
-                Button(role: .destructive) { removeFromCodex() } label: {
+                Button(role: .destructive) { Task { await removeFromCodex() } } label: {
                     Label("Disconnect", systemImage: "trash")
                 }
                 .buttonStyle(.bordered)
@@ -1078,7 +1088,7 @@ struct ConnectionsView: View {
 
     private func installToCodex() async {
         codexInstallInProgress = true
-        let result = CodexMCPConfig.install(port: liveServerPort)
+        let result = await CodexMCPConfig.install(port: liveServerPort)
         codexInstallInProgress = false
         refreshMCPClientEntryStates()
         switch result {
@@ -1095,9 +1105,9 @@ struct ConnectionsView: View {
         }
     }
 
-    private func removeFromCodex() {
+    private func removeFromCodex() async {
         codexInstallInProgress = true
-        let result = CodexMCPConfig.remove()
+        let result = await CodexMCPConfig.remove()
         codexInstallInProgress = false
         refreshMCPClientEntryStates()
         switch result {

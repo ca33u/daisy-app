@@ -763,6 +763,20 @@ final class RecordingSession {
     /// app's `@State` reference remains the owner.
     static weak var current: RecordingSession?
 
+    /// True while any part of the pipeline is holding audio: a live
+    /// recording, a stop that's still finalizing, or a standalone
+    /// re-transcription. Read by the memory-pressure handler, which must
+    /// never pull a model out from under a decode in flight.
+    static var isCapturingOrTranscribing: Bool {
+        if SessionAudioProcessing.shared.isRunning { return true }
+        guard let current else { return false }
+        if current.summaryTask != nil { return true }
+        switch current.status {
+        case .preparing, .recording, .paused, .stopping, .summarizing: return true
+        case .idle, .finished, .failed: return false
+        }
+    }
+
     init(settings: AppSettings, localeIdentifier: String? = nil) {
         self.settings = settings
         // Caller can override (used by tests), otherwise pull the
@@ -837,7 +851,13 @@ final class RecordingSession {
         let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
         if !isRunningTests {
             Task { await WhisperEngine.shared.ensureLoaded() }
-            Task { await DiarizationEngine.shared.ensureLoaded() }
+            // The diarizer is NOT preloaded any more. It's needed only
+            // once a meeting with system audio is under way, and both
+            // entry points (`makeBlockPass`, `diarizeFull`) load it
+            // themselves — so preloading only ever meant hundreds of
+            // megabytes resident on machines that never record
+            // (audit 2026-09-01).
+            MemoryPressureWatch.start()
         }
 
         // 1.0.5.1 hotfix: REMOVED recorder.prewarm() — calling
@@ -1802,6 +1822,18 @@ final class RecordingSession {
                 log.warning("Screen Recording permission denied — recording mic only")
                 noteMicOnlyDegradation(cause: .screenRecordingDenied)
             } else {
+                // Warm the diarizer HERE rather than at app start: this
+                // is the first moment we know speaker separation will
+                // actually be wanted. Loading it in the app's `init`
+                // meant hundreds of megabytes resident on machines that
+                // never record; loading it lazily on the first live tick
+                // would put a synchronous `initialize(models:)` ten
+                // seconds into the meeting instead (review find,
+                // 2026-09-02). This lands in the gap before anyone has
+                // spoken.
+                if settings.diarizeRemoteSpeakers {
+                    Task { await DiarizationEngine.shared.ensureLoaded() }
+                }
                 let systemAudioStream = systemAudio.buffers
                 systemTranscriber.start(consuming: systemAudioStream, startedAt: nowStarted, tier: tier)
                 do {

@@ -651,8 +651,12 @@ enum MCPTools {
         if !name.isEmpty,
            let centroids = loadSpeakerCentroids(for: session),
            let embedding = centroids[speakerID], !embedding.isEmpty {
-            SpeakerProfileStore.shared.upsert(name: name, embedding: embedding)
-            profileSeeded = true
+            // nil ⇒ the store declined to enrol (unreadable profiles on
+            // disk); report that honestly rather than promising future
+            // auto-labelling that won't happen.
+            profileSeeded = SpeakerProfileStore.shared.upsert(
+                name: name, embedding: embedding
+            ) != nil
         }
 
         return ack([

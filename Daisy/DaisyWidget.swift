@@ -102,7 +102,25 @@ struct DaisyWidget: View {
         // never jumps the animation. Reduce-Motion → 30fps (comet is static).
         let shimmering = Self.isShimmerStatus(session.status)
         let interval = (!reduceMotion && shimmering) ? 1.0 / 60.0 : 1.0 / 30.0
-        return TimelineView(.animation(minimumInterval: interval, paused: false)) { context in
+        // Pause the clock when nothing on screen depends on it. `paused`
+        // was hard-coded to `false`, so an idle Daisy — the state it
+        // spends most of the day in, with the widget on by default —
+        // recomputed this body, eight petal shapes and a shadow thirty
+        // times a second to draw a pixel-identical frame. That's a
+        // permanent main-thread wakeup cadence and a GPU composite that
+        // keeps the machine out of idle (audit 2026-09-01).
+        //
+        // Animated states are exactly two: `.recording` (petals follow
+        // the live spectrum) and the shimmer states (rotating comet).
+        // `.paused`, `.idle`, `.finished` and `.failed` all return
+        // constants from `amplitudeFor`, so a still frame is the
+        // correct picture — and any status change re-evaluates `body`
+        // and starts the clock again.
+        // Reduce Motion makes the shimmer states static too (`amplitudeFor`
+        // and `petalColor` both return constants), so there's nothing for
+        // the clock to drive there either.
+        let animating = session.status == .recording || (shimmering && !reduceMotion)
+        return TimelineView(.animation(minimumInterval: interval, paused: !animating)) { context in
             let status = session.status
             let mode = session.currentMode
             let summaryGen = session.summaryGenerationState

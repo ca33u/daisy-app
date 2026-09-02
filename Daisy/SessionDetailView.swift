@@ -1610,6 +1610,10 @@ struct SessionDetailView: View {
             pruneSuggestion(for: speakerID)
             return
         }
+        // nil when the store refuses to enrol (some profiles on disk are
+        // unreadable, so a new one might duplicate a person). The rename
+        // in this transcript still stands — only the cross-session voice
+        // profile is skipped.
         let profile = SpeakerProfileStore.shared.upsert(name: name, embedding: embedding)
 
         // Calendar-attendee email attach — when this session is bound
@@ -1622,7 +1626,7 @@ struct SessionDetailView: View {
         // — index alignment between the deduped names + emails arrays
         // isn't reliable; the speaker detail editor in Settings is the
         // explicit path for those.
-        if session.meetingAttendeeEmails.count == 1 {
+        if let profile, session.meetingAttendeeEmails.count == 1 {
             SpeakerProfileStore.shared.addEmail(session.meetingAttendeeEmails[0], to: profile.id)
         }
 

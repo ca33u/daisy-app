@@ -68,30 +68,60 @@ final class SpeakerProfileStore {
     /// view body / init paths.
     func ensureLoaded() {
         guard !loaded else { return }
-        loaded = true
         do {
             try FileManager.default.createDirectory(
                 at: dirURL,
                 withIntermediateDirectories: true
             )
         } catch {
+            // Don't latch `loaded` on a failure to even make the
+            // directory — that left the store empty and mute for the
+            // whole run, and the next `upsert` would happily start a
+            // fresh set of profiles beside the ones on disk.
+            // Latch the "picture is incomplete" flag too: without it
+            // `upsert` would sail past its guard, create a profile in
+            // memory and then fail its own write (which doesn't create
+            // the directory either) — inventing a person that never
+            // reaches disk (review find, 2026-09-02).
+            hasUnreadableProfiles = true
             log.error("Couldn't create profile dir: \(error.localizedDescription, privacy: .public)")
             return
         }
+        loaded = true
         let urls = (try? FileManager.default.contentsOfDirectory(at: dirURL, includingPropertiesForKeys: nil)) ?? []
         let decoder = JSONDecoder()
         var loaded: [UUID: SpeakerProfile] = [:]
+        var failures = 0
         for url in urls where url.pathExtension == "json" {
-            guard let data = try? Data(contentsOf: url) else { continue }
+            guard let data = try? Data(contentsOf: url) else {
+                // "Didn't read" is not "doesn't exist" — the lesson
+                // `VoiceProfileStore` already learned. Left unmarked,
+                // an unreadable profile means `upsert` creates a SECOND
+                // profile for the same person, and "Forget all people"
+                // walks the loaded dictionary and so leaves that file
+                // behind — on a store of voice biometrics, with a
+                // button that promises to erase them (audit 2026-09-01).
+                failures += 1
+                log.error("Couldn't read profile at \(url.lastPathComponent, privacy: .public)")
+                continue
+            }
             guard let profile = try? decoder.decode(SpeakerProfile.self, from: data) else {
+                failures += 1
                 log.warning("Skipped malformed profile at \(url.lastPathComponent, privacy: .public)")
                 continue
             }
             loaded[profile.id] = profile
         }
         profiles = loaded
-        log.info("Loaded \(loaded.count, privacy: .public) speaker profile(s)")
+        hasUnreadableProfiles = failures > 0
+        log.info("Loaded \(loaded.count, privacy: .public) speaker profile(s), \(failures, privacy: .public) unreadable")
     }
+
+    /// True when at least one profile file on disk couldn't be read or
+    /// decoded during the last load. While set, the store won't invent
+    /// new profiles (the unreadable one may BE this person), and
+    /// "forget all" deletes by directory rather than by what loaded.
+    private(set) var hasUnreadableProfiles = false
 
     // MARK: - Match
 
@@ -211,7 +241,7 @@ final class SpeakerProfileStore {
     /// creating a duplicate — same person under two names is a
     /// data integrity bug we want to avoid.
     @discardableResult
-    func upsert(name: String, embedding: [Float]) -> SpeakerProfile {
+    func upsert(name: String, embedding: [Float]) -> SpeakerProfile? {
         ensureLoaded()
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         // 1. If embedding matches an existing profile → rename
@@ -247,7 +277,15 @@ final class SpeakerProfileStore {
             log.info("Re-enrolled profile for \(trimmed, privacy: .private)")
             return updated
         }
-        // 3. Fresh profile.
+        // 3. Fresh profile — unless we know the picture is incomplete.
+        //    A profile we failed to READ might be this very person, and
+        //    creating a second one for them corrupts the CRM quietly:
+        //    two "Alex"es with different embeddings, and auto-matching
+        //    picking between them at random.
+        guard !hasUnreadableProfiles else {
+            log.error("Not creating a profile for \(trimmed, privacy: .private) — some profiles on disk are unreadable and one of them may be this person")
+            return nil
+        }
         let new = SpeakerProfile(name: trimmed, embedding: embedding)
         profiles[new.id] = new
         write(new)
@@ -297,12 +335,29 @@ final class SpeakerProfileStore {
     /// Nuclear option — wipe every profile. Exposed in Settings.
     func forgetAll() {
         ensureLoaded()
-        for id in profiles.keys {
-            let url = dirURL.appendingPathComponent("\(id.uuidString).json")
-            try? FileManager.default.removeItem(at: url)
+        // Delete by DIRECTORY, not by what happened to load. A profile
+        // file that failed to decode this run is still a stored voice
+        // fingerprint, and it used to survive a button that says it
+        // erases all of them (audit 2026-09-01).
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: dirURL, includingPropertiesForKeys: nil
+        )) ?? []
+        var removed = 0
+        for url in urls where url.pathExtension == "json" {
+            do {
+                try FileManager.default.removeItem(at: url)
+                removed += 1
+            } catch {
+                log.error("Couldn't delete profile \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
         profiles.removeAll()
-        log.info("Forgot all speaker profiles")
+        // Only claim a clean slate if every file actually went. This
+        // button promises to erase voice biometrics; a survivor means
+        // the promise wasn't kept, and the store must keep behaving
+        // as though something unknown is on disk.
+        hasUnreadableProfiles = removed != urls.filter { $0.pathExtension == "json" }.count
+        log.info("Forgot all speaker profiles — \(removed, privacy: .public) file(s) deleted")
     }
 
     // MARK: - Sorted view for UI

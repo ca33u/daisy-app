@@ -936,6 +936,44 @@ final class WhisperEngine {
         )
     }
 
+    /// Drop the loaded Whisper graphs under memory pressure. (The small
+    /// Silero VAD box stays — it's a rounding error next to these.)
+    ///
+    /// The models are 626 MB (default) to 1.5 GB each, they load at app
+    /// start and — before this — nothing ever unloaded them, so a Mac
+    /// that never records still carried the weight all day, and a
+    /// re-transcribe with a second variant could hold both at once. On
+    /// an 8 GB machine that is the difference between "Daisy is open"
+    /// and the system swapping (audit 2026-09-01).
+    ///
+    /// Refuses while a recording or a transcription is in flight —
+    /// pulling the graph out from under a decode would fail the pass,
+    /// which is a far worse trade than the memory. The next
+    /// `ensureLoaded()` reloads from the on-disk cache.
+    func releaseModelsUnderMemoryPressure() {
+        // `isBusy` is the authoritative check: it's true for the whole
+        // duration of any decode, whoever started it. Session state
+        // alone missed three real callers — interrupted-recording
+        // recovery, quit-finalize and the Voice Memos ingestor — all of
+        // which run at launch with the session idle, and all of which
+        // would have failed with `.notReady` if pressure arrived while
+        // they waited on `ensureLoaded()` (review find, 2026-09-02).
+        guard !isBusy else {
+            log.info("Memory pressure: keeping Whisper loaded — a decode is running")
+            return
+        }
+        guard !RecordingSession.isCapturingOrTranscribing else {
+            log.info("Memory pressure: keeping Whisper loaded — a session is in flight")
+            return
+        }
+        guard kitBox != nil || alternateKitBox != nil else { return }
+        kitBox = nil
+        alternateKitBox = nil
+        alternateModelID = nil
+        state = .notLoaded
+        log.info("Memory pressure: released Whisper model(s)")
+    }
+
     /// Drop a large alternate CoreML graph as soon as the batch job ends.
     /// The normal meeting model remains loaded throughout.
     func releaseAlternateModel(_ requestedModelID: String) {
