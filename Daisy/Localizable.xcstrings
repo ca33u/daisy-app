@@ -1,6 +1,36 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ — not available for %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ — недоступно для языка «%2$@»"
+          }
+        }
+      }
+    },
+    "Apple’s speech engine can’t do %@, so dictation is back on Whisper — the engine that was transcribing all along." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Речевой движок Apple не поддерживает язык «%@», поэтому диктовка снова на Whisper — он и так всё это время расшифровывал."
+          }
+        }
+      }
+    },
+    "Set your Notion token in Settings → Connections first" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сначала укажите токен Notion в «Настройках» → «Подключения»"
+          }
+        }
+      }
+    },
     "The microphone stopped delivering audio — recording is paused. Reconnect it and press Resume, or stop and save what's recorded." : {
       "localizations" : {
         "ru" : {

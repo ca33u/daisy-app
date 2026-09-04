@@ -673,10 +673,13 @@ extension FloatingPanelController: WidgetBubbleHosting {
         )
         caption.setContentSize(size)
 
-        // One pill-slot above where a prompt bubble would sit, so the
-        // two surfaces can coexist (e.g. "Daisy is already recording"
-        // during a dictation). Same dumb math as `positionBubble`,
-        // nudged up by a pill height + gap.
+        // Vertically centred on the widget — the caption is the thing
+        // the eye tracks while dictating, and "one slot above the
+        // flower" read as floating away from it (Egor, 2026-09-04). It
+        // only moves up a slot when a prompt pill is actually showing at
+        // the same time ("Daisy is already recording" during a
+        // dictation), so the two can still coexist; `positionBubble`
+        // makes the matching concession in the other direction.
         let anchorFrame: NSRect
         if let widget = panel, widget.isVisible {
             anchorFrame = widget.frame
@@ -685,12 +688,14 @@ extension FloatingPanelController: WidgetBubbleHosting {
             anchorFrame = NSRect(x: visible.maxX - 24, y: visible.minY + 24, width: 1, height: 1)
         }
         positionBubble(caption, over: anchorFrame, on: screen)
-        var origin = caption.frame.origin
-        origin.y = min(
-            origin.y + pillHeight + 7,
-            screen.visibleFrame.maxY - pillHeight - 4
-        )
-        caption.setFrameOrigin(origin)
+        if let prompt = bubblePanel, prompt.isVisible {
+            var origin = caption.frame.origin
+            origin.y = min(
+                origin.y + pillHeight + 7,
+                screen.visibleFrame.maxY - pillHeight - 4
+            )
+            caption.setFrameOrigin(origin)
+        }
         if !caption.isVisible { caption.orderFrontRegardless() }
     }
 
@@ -860,6 +865,13 @@ extension FloatingPanelController: WidgetBubbleHosting {
             x = widgetFrame.maxX + gap
         }
         var y = widgetFrame.midY - size.height / 2
+        // A prompt pill arriving while the live caption is up takes the
+        // slot BELOW it, so the caption keeps the centre it was given.
+        // (`positionBubble` also lays out the caption itself, and the
+        // caption is never its own neighbour — hence the identity check.)
+        if bubble !== captionPanel, let caption = captionPanel, caption.isVisible {
+            y -= size.height + gap
+        }
 
         // Clamp into the visible frame on both axes.
         x = min(max(visible.minX + 4, x), visible.maxX - size.width - 4)

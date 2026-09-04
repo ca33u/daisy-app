@@ -2259,7 +2259,7 @@ struct SessionDetailView: View {
             return
         }
         if !AppSettings.notionConfigured {
-            ToastCenter.shared.show(String(localized: "Set your Notion token in Connections first"), style: .warning)
+            ToastCenter.shared.show(String(localized: "Set your Notion token in Settings → Connections first"), style: .warning)
             return
         }
         isRunningAction = true

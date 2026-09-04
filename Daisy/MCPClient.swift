@@ -318,7 +318,15 @@ final class MCPClient {
         } catch is CancellationError {
             await failAll(MCPClientError.cancelled)
         } catch {
-            await failAll(MCPClientError.streamFailed(error.localizedDescription))
+            // Name the host. "Не удалось подключиться к серверу" on its
+            // own sent a field report (2026-09-04) into guessing which
+            // server — the summarizer's MCP provider can point at
+            // anything, and the person's next question is always
+            // "which one, and is it running?".
+            let host = baseURL.host.map { h in
+                baseURL.port.map { "\(h):\($0)" } ?? h
+            } ?? baseURL.absoluteString
+            await failAll(MCPClientError.streamFailed("\(error.localizedDescription) (\(host) — is the server running?)"))
         }
     }
 

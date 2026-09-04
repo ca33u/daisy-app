@@ -2,29 +2,26 @@
 //  ConnectionsView.swift
 //  Daisy
 //
-//  First-class sidebar destination for everything that touches the
-//  outside world: calendar sources, Notion, MCP server, auto-routing
-//  to other integrations. Previously these lived inside Settings as
-//  separate tabs (Integrations / MCP server), with calendar
-//  connection rows scattered into the General (formerly Capture) tab.
+//  Everything that touches the outside world: Notion, the MCP server,
+//  auto-routing to other integrations. Rendered as the Connections tab
+//  inside Settings.
 //
-//  Why a top-level destination instead of a Settings tab:
-//   • The Settings TabView was at 5 tabs and growing (Apple HIG: ≤5).
-//   • Calendar connections live in the same mental category as Notion
-//     and the MCP socket — "where Daisy talks to other systems" —
-//     not "how the recorder works". Splitting them by tab obscured
-//     that.
-//   • Users come back here regularly: to check whether Notion's still
-//     authed, what port the MCP server is on, whether Google Calendar
-//     re-needs consent. Settings-tab depth was wrong for that flow.
+//  History, because this page has moved twice and the reasons matter:
+//   • Originally separate Settings tabs (Integrations / MCP server).
+//   • 1.0.7.16 → a top-level sidebar destination, on the theory that
+//     people return here often (is Notion still authed? which port?)
+//     and that the Settings strip was at five tabs.
+//   • 2026-09-04 → back into Settings, at Egor's request. In practice
+//     it's configured once and rarely revisited, so a sidebar row next
+//     to Library and Notes gave it more weight than it earns, and the
+//     tab strip copes with six.
 //
-//  Layout: TabView with two tabs — MCP server (incoming) and
-//  Auto-routing (outgoing destinations: Notion + MCP integrations).
-//  External CTAs can deep-link via
+//  Layout: a segmented switch in the body (NOT the toolbar — Settings
+//  owns that slot) between MCP server (incoming) and Auto-routing
+//  (outgoing: Notion + MCP integrations). External CTAs deep-link via
 //  `AppNavigation.shared.openInConnections(.autoRouting)` /
-//  `.mcpServer`. The Notion destination moved here from Settings in
-//  1.0.7.16 — it's an outbound send-to destination, same class as the
-//  MCP integrations. Calendar SOURCES live in Settings → Permissions.
+//  `.mcpServer`, which lands on Settings → Connections and selects the
+//  card. Calendar SOURCES live in Settings → Permissions.
 //
 
 import SwiftUI
@@ -99,30 +96,33 @@ struct ConnectionsView: View {
         // calendar data from"). Connections is now strictly outbound
         // integrations: where Daisy SENDS data, not where it reads
         // from.
-        Group {
-            switch selectedSection {
-            case .autoRouting: autoRoutingTab
-            case .mcpServer:   mcpServerTab
+        VStack(spacing: 0) {
+            // The Auto-routing / MCP server switch lives in the body now,
+            // not the toolbar: since 2026-09-04 this page is a tab inside
+            // Settings, and the toolbar's principal slot already holds
+            // the Settings tab strip — a second one there would replace
+            // it. A plain segmented picker under the strip reads as the
+            // sub-level it is.
+            Picker("", selection: $selectedSection) {
+                Text("Auto-routing").tag(ConnectionSection.autoRouting)
+                Text("MCP server").tag(ConnectionSection.mcpServer)
             }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 320)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+
+            Group {
+                switch selectedSection {
+                case .autoRouting: autoRoutingTab
+                case .mcpServer:   mcpServerTab
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .scrollContentBackground(.hidden)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
         .background(Color.daisyBgPrimary)
-        // Text-only glass tab strip at toolbar level, replacing the
-        // native TabView chrome (system-locked per-cell padding). Order
-        // matches the old tab order: Auto-routing, then MCP server.
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                GlassSegmentedControl(
-                    selection: $selectedSection,
-                    segments: [
-                        .init(value: .autoRouting, title: String(localized: "Auto-routing")),
-                        .init(value: .mcpServer, title: String(localized: "MCP server")),
-                    ]
-                )
-            }
-        }
         .onAppear {
             mcpPortText = String(settings.mcpServerPort)
             refreshMCPClientEntryStates()
@@ -174,7 +174,7 @@ struct ConnectionsView: View {
     }
 
     /// One-shot deep-link consumer. AppNavigation writes a pending
-    /// section before flipping `section = .connections`; we read it
+    /// section before flipping to Settings → Connections; we read it
     /// here on appear / on change and flip the selected tab.
     private func consumePendingSection() {
         guard let pending = nav.pendingConnectionsSection else { return }

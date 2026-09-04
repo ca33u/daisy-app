@@ -21,7 +21,7 @@ import SwiftUI
 // MARK: - Section enum
 
 enum MainSection: String, Hashable, CaseIterable, Identifiable, Sendable {
-    case home, library, notes, dictation, voice, connections, settings, about
+    case home, library, notes, dictation, voice, settings, about
 
     var id: String { rawValue }
 
@@ -47,7 +47,6 @@ enum MainSection: String, Hashable, CaseIterable, Identifiable, Sendable {
         case .notes:       String(localized: "Notes")
         case .dictation:   String(localized: "Dictation")
         case .voice:       String(localized: "Voice")
-        case .connections: String(localized: "Connections")
         case .settings:    String(localized: "Settings")
         case .about:       String(localized: "About")
         }
@@ -80,7 +79,6 @@ enum MainSection: String, Hashable, CaseIterable, Identifiable, Sendable {
         // for their Integrations / Connections nav entries. Closest
         // SF Symbol to that visual without falling back to the
         // generic link icon (which we already use elsewhere).
-        case .connections: "arrow.triangle.branch"
         case .settings:    "gearshape"
         case .about:       "info.circle"
         }
@@ -118,6 +116,12 @@ enum SettingsTab: String, Hashable, Sendable {
     /// not about external service integrations. macOS convention —
     /// Granola, Wispr Flow et al. put permission dashboards here too.
     case permissions
+    /// Where Daisy talks to other systems — Notion, MCP server, the
+    /// send-to integrations. Was a top-level sidebar destination from
+    /// 1.0.7.16 until 2026-09-04; folded back into Settings at Egor's
+    /// request: it's configured once and rarely revisited, so a sidebar
+    /// row next to Library and Notes gave it more weight than it earns.
+    case connections
 }
 
 /// Sub-section inside the Connections page. Lets external CTAs
@@ -190,7 +194,8 @@ final class AppNavigation {
     /// the Home destination-discovery banner.
     func openInConnections(_ card: ConnectionSection) {
         pendingConnectionsSection = card
-        section = .connections
+        pendingSettingsTab = .connections
+        section = .settings
     }
 }
 
@@ -613,8 +618,6 @@ struct MainView: View {
             DictationView()
         case .voice:
             VoiceView(settings: settings)
-        case .connections:
-            ConnectionsView(settings: settings)
         case .settings:
             SettingsView(settings: settings)
         case .about:

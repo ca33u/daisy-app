@@ -173,6 +173,11 @@ final class NemotronLiveEngine {
                 if Task.isCancelled { break }
                 do {
                     _ = try await manager.process(samples: chunk)
+                } catch is CancellationError {
+                    // The session ended mid-chunk — that's the key being
+                    // released, not a failure. Logged as an error it
+                    // appeared on every dictation and read as one.
+                    break
                 } catch {
                     log.error("Nemotron live process failed: \(error.localizedDescription, privacy: .public)")
                     break

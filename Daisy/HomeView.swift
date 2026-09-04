@@ -461,8 +461,7 @@ struct HomeView: View {
                 // Deep-link straight to Connections → Auto-routing —
                 // landing on generic Settings left users hunting for
                 // where destinations actually live.
-                AppNavigation.shared.pendingConnectionsSection = .autoRouting
-                AppNavigation.shared.section = .connections
+                AppNavigation.shared.openInConnections(.autoRouting)
             } label: {
                 Text("Set up").frame(minWidth: 120)
                     .foregroundStyle(Color.daisyBannerActionText)

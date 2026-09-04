@@ -251,6 +251,7 @@ struct SettingsView: View {
             case .transcription: transcriptionTab
             case .summary:       summaryTab
             case .permissions:   PermissionsView(settings: settings)
+            case .connections:   ConnectionsView(settings: settings)
             }
         }
         .scrollContentBackground(.hidden)
@@ -264,6 +265,7 @@ struct SettingsView: View {
                         .init(value: .transcription, title: String(localized: "Transcription")),
                         .init(value: .summary, title: String(localized: "Summary")),
                         .init(value: .permissions, title: String(localized: "Permissions")),
+                        .init(value: .connections, title: String(localized: "Connections")),
                     ]
                 )
             }
@@ -1492,7 +1494,19 @@ struct SettingsView: View {
                     // Apple SpeechAnalyzer only exists on macOS 26 — hide
                     // the option below that so users can't pick a dead end.
                     if #available(macOS 26, *) {
-                        Text(DictationEngine.appleSpeech.displayName).tag(DictationEngine.appleSpeech)
+                        // Greyed out — not hidden — when Apple has no
+                        // model for the dictation language, with the
+                        // reason in the label. Selectable-but-inert was
+                        // the trap: "Apple works great on Russian" while
+                        // every word came from Whisper (2026-09-04, the
+                        // log finally proved it: installed=[en-* only]).
+                        if appleSpeechAvailability == .unsupported {
+                            Text("\(DictationEngine.appleSpeech.displayName) — not available for \(appleSpeechLanguageName)")
+                                .tag(DictationEngine.appleSpeech)
+                                .disabled(true)
+                        } else {
+                            Text(DictationEngine.appleSpeech.displayName).tag(DictationEngine.appleSpeech)
+                        }
                     }
                 } label: {
                     transcriptionRowLabel(
@@ -1958,10 +1972,10 @@ struct SettingsView: View {
     }
 
     private func refreshAppleSpeechLocaleSupport() async {
-        guard settings.dictationEngine == .appleSpeech else {
-            appleSpeechAvailability = nil
-            return
-        }
+        // Checked regardless of which engine is selected: the picker
+        // needs the verdict BEFORE the person picks Apple, to grey the
+        // option out, and the fallback below needs it when the language
+        // changes under an Apple selection.
         let id = effectiveDictationLocaleID
         // "Auto" and pre-26 already have their own copy under the picker;
         // these lines are only about a concrete language.
@@ -1980,8 +1994,7 @@ struct SettingsView: View {
         // answer would land last and stick until the next change,
         // warning about a language you aren't using. Only the answer
         // that still matches what's on screen is allowed to write.
-        guard !Task.isCancelled, id == effectiveDictationLocaleID,
-              settings.dictationEngine == .appleSpeech else { return }
+        guard !Task.isCancelled, id == effectiveDictationLocaleID else { return }
         switch availability {
         case .ready:
             appleSpeechAvailability = .ready
@@ -1990,11 +2003,27 @@ struct SettingsView: View {
             // Opening Settings is as good a moment as any to ask macOS
             // for the asset — the person is looking right at the line
             // that says it's missing.
-            await AppleSpeechEngine.ensureModelReady(locale: locale)
+            if settings.dictationEngine == .appleSpeech {
+                await AppleSpeechEngine.ensureModelReady(locale: locale)
+            }
         case .unsupported:
             appleSpeechAvailability = .unsupported
         case .frameworkUnavailable:
             appleSpeechAvailability = .frameworkUnavailable
+        }
+        // Apple selected, language it can't do: don't leave a selection
+        // that silently runs Whisper anyway. Fall back to Whisper — the
+        // engine that was actually producing the results — and say so.
+        // (Not Parakeet: that's a separate download the person didn't
+        // ask for.)
+        if settings.dictationEngine == .appleSpeech,
+           appleSpeechAvailability == .unsupported || appleSpeechAvailability == .frameworkUnavailable {
+            settings.dictationEngine = .whisper
+            ToastCenter.shared.show(
+                String(localized: "Apple’s speech engine can’t do \(appleSpeechLanguageName), so dictation is back on Whisper — the engine that was transcribing all along."),
+                style: .info,
+                duration: .seconds(8)
+            )
         }
     }
 
