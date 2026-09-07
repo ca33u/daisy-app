@@ -3626,6 +3626,76 @@
         }
       }
     },
+    "“%@” isn't an audio file Daisy can import." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@» — не аудиофайл, который Daisy может импортировать."
+          }
+        }
+      }
+    },
+    "Daisy couldn't read any audio from “%@”." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не смогла прочитать аудио из «%@»."
+          }
+        }
+      }
+    },
+    "Daisy couldn't write to the recordings folder. Choose its storage folder again in Settings." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не смогла записать в папку записей. Выберите папку хранения заново в Настройках."
+          }
+        }
+      }
+    },
+    "Copying “%@” didn't finish cleanly. The original was left untouched." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Копирование «%@» не завершилось корректно. Оригинал не тронут."
+          }
+        }
+      }
+    },
+    "Drop audio files (m4a, mp3, wav, …) to import them." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перетащите аудиофайлы (m4a, mp3, wav, …), чтобы импортировать их."
+          }
+        }
+      }
+    },
+    "Imported %lld, couldn't import %lld: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Импортировано %1$lld, не удалось импортировать %2$lld: %3$@"
+          }
+        }
+      }
+    },
+    "Imported “%@”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Импортировано «%@»"
+          }
+        }
+      }
+    },
     "Audio without transcript" : {
       "extractionState" : "manual",
       "localizations" : {

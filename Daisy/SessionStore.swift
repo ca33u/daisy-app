@@ -447,7 +447,12 @@ final class SessionStore {
         // re-transcribe would materialize a multi-GB .caf onto what is
         // likely an already-full disk.
         let audioEvicted = retainedAudio.all.contains(where: isCloudEvicted)
-        if (hasMic || hasSystem), !hasFinishedTranscript,
+        // Imported audio (`import.json` sidecar) is audio-only BY DESIGN
+        // until the user runs "Transcribe audio" — it never crashed, so
+        // it must not be routed into crash recovery, which would start
+        // an unasked-for full transcription of every dropped file.
+        let isImported = !hasMarker && ImportMarker.exists(in: directory)
+        if (hasMic || hasSystem), !hasFinishedTranscript, !isImported,
            !transcriptEvicted, !transcriptUnreadable, !audioEvicted,
            hasMarker || largestAudioBytes(retainedAudio.all) >= minRecoverableAudioBytes {
             return .interrupted(session)
@@ -1094,6 +1099,14 @@ final class SessionStore {
             locale = parsed.locale ?? locale
             transcriptBody = parsed.body
             transcriptPreview = Self.preview(from: parsed.body)
+        } else if let marker = ImportMarker.load(from: directory) {
+            // Imported audio waiting for its first transcript: the
+            // sidecar is the only place the file's own name/date live
+            // (the folder id may carry a collision suffix). Once
+            // "Transcribe audio" runs, the frontmatter takes over.
+            title = marker.title
+            startedAt = marker.startedAt
+            durationSec = marker.durationSec
         }
 
         // Load summary if present.
@@ -1155,6 +1168,10 @@ final class SessionStore {
             systemAudioStatus = parsedFm.systemAudioStatus
             micOnlyCause = parsedFm.micOnlyCause
             micAudioStatus = parsedFm.micAudioStatus
+        } else if let marker = ImportMarker.load(from: directory) {
+            // Project chosen at import time — carried into the
+            // frontmatter by the first "Transcribe audio" run.
+            folderSlug = marker.folderSlug
         }
 
         // speakers.json sidecar — just the centroid KEY set, not the

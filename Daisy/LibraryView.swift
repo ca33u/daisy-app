@@ -110,8 +110,54 @@ struct LibraryListColumn: View {
     @Bindable var model: LibraryModel
     @Bindable var store = SessionStore.shared
     @Bindable var folders = FolderStore.shared
+    @State private var isImportTargeted = false
 
     private var scope: LibraryScope { model.scope }
+
+    /// Import every supported audio file in `urls`, one after another
+    /// (each copy can be gigabytes; parallel copies just thrash the
+    /// disk). Returns whether the drop was accepted at all — Finder
+    /// animates a rejected drop back to its origin.
+    private func importDroppedFiles(_ urls: [URL]) -> Bool {
+        // Imports are recordings; under the Notes chip the new row
+        // would be filtered out and the toast would point at nothing.
+        guard scope != .notes else { return false }
+        let audio = urls.filter(AudioImporter.canImport)
+        guard !audio.isEmpty else {
+            ToastCenter.shared.show(
+                String(localized: "Drop audio files (m4a, mp3, wav, …) to import them."),
+                style: .warning
+            )
+            return false
+        }
+        let folder = model.folderFilter?.slug ?? SessionFolder.inbox.slug
+        Task {
+            var imported: [AudioImportResult] = []
+            var firstError: Error?
+            for url in audio {
+                do {
+                    imported.append(try await AudioImporter.importFile(url, into: folder))
+                } catch {
+                    if firstError == nil { firstError = error }
+                }
+            }
+            if imported.count == 1, let only = imported.first {
+                model.selectedIDs = [only.sessionID]
+            }
+            if let firstError {
+                let failed = audio.count - imported.count
+                let message = imported.isEmpty
+                    ? firstError.localizedDescription
+                    : String(localized: "Imported \(imported.count), couldn't import \(failed): \(firstError.localizedDescription)")
+                ToastCenter.shared.show(message, style: .warning, duration: .seconds(6))
+            } else if imported.count == 1 {
+                ToastCenter.shared.show(String(localized: "Imported “\(imported[0].title)”"), style: .success)
+            } else {
+                ToastCenter.shared.show(String(localized: "Imported \(imported.count) recordings"), style: .success)
+            }
+        }
+        return true
+    }
 
     var body: some View {
         sessionList
@@ -120,6 +166,22 @@ struct LibraryListColumn: View {
             // default. `.scrollContentBackground(.hidden)` on the inner
             // List (below) lets this show through.
             .background(Color.daisyBgPrimary)
+            // Drop audio files from Finder → imported as audio-only
+            // sessions (AudioImporter, design 2026-08-31 Ф0). The
+            // active project chip becomes the session's project.
+            .dropDestination(for: URL.self) { urls, _ in
+                importDroppedFiles(urls)
+            } isTargeted: { targeted in
+                isImportTargeted = targeted
+            }
+            .overlay {
+                if isImportTargeted {
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Color.daisyAccent, lineWidth: 2)
+                        .padding(6)
+                        .allowsHitTesting(false)
+                }
+            }
             .toolbar {
                 if tagGroups.contains(where: { !$0.name.isEmpty }) {
                     ToolbarItem(placement: .primaryAction) {

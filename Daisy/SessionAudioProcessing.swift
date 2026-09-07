@@ -31,13 +31,24 @@ nonisolated struct SessionAudioFiles: Sendable, Equatable {
         )
     }
 
+    /// Container formats a session folder may hold under the
+    /// `microphone` / `system_audio` name. Daisy itself only ever
+    /// writes `.caf`; the rest arrive through `AudioImporter` (as
+    /// `system_audio.<ext>`), which keeps the original container (no
+    /// lossy re-encode) and relies on
+    /// `AVAudioFile` reading all of these natively. Extend here AND in
+    /// `AudioImporter.supportedExtensions` together.
+    nonisolated static let audioExtensions: Set<String> = [
+        "caf", "m4a", "mp3", "wav", "aiff", "aif", "aac", "flac",
+    ]
+
     private static func parts(in entries: [URL], prefix: String) -> [URL] {
         entries
             .filter { url in
-                let name = url.lastPathComponent
-                guard url.pathExtension.lowercased() == "caf" else { return false }
-                if name == "\(prefix).caf" { return true }
+                let ext = url.pathExtension.lowercased()
+                guard audioExtensions.contains(ext) else { return false }
                 let stem = url.deletingPathExtension().lastPathComponent
+                if stem == prefix { return true }
                 let marker = "\(prefix).part"
                 guard stem.hasPrefix(marker) else { return false }
                 return Int(stem.dropFirst(marker.count)) != nil
@@ -421,6 +432,14 @@ final class SessionAudioProcessing {
                 key: "daisy_parent_session",
                 value: yamlQuote(session.id)
             )
+        } else if let marker = ImportMarker.load(from: session.directoryURL) {
+            // Provenance of an imported file moves from the sidecar
+            // into the transcript, where every other session field
+            // lives (see AudioImporter / design 2026-08-31 §1).
+            markdown = SessionStore.upsertFrontmatter(in: markdown, key: "daisy_imported", value: "true")
+            markdown = SessionStore.upsertFrontmatter(in: markdown, key: "daisy_import_source", value: yamlQuote(marker.sourcePath))
+            markdown = SessionStore.upsertFrontmatter(in: markdown, key: "daisy_import_mode", value: marker.mode.rawValue)
+            markdown = SessionStore.upsertFrontmatter(in: markdown, key: "daisy_import_original_name", value: yamlQuote(marker.originalName))
         }
         markdown = SessionStore.upsertFrontmatter(in: markdown, key: "daisy_transcription_model", value: yamlQuote(options.modelID))
         markdown = SessionStore.upsertFrontmatter(in: markdown, key: "daisy_transcription_language", value: options.language)

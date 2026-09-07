@@ -41,7 +41,10 @@ enum AudioRetentionSweep {
 
     /// Audio filenames the sweep is allowed to remove. Anything else
     /// in a session directory (transcript.md, summary.json,
-    /// speakers.json, screenshots/) is preserved.
+    /// speakers.json, screenshots/) is preserved. Deliberately `.caf`
+    /// only: imported audio (`system_audio.m4a` etc., see
+    /// `AudioImporter`) is the person's own file — for a `.move` import
+    /// it is the ONLY copy — so retention never touches it.
     nonisolated private static let purgeableNames: Set<String> = [
         "microphone.caf",
         "system_audio.caf",
