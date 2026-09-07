@@ -322,19 +322,25 @@ struct DaisyWidget: View {
 
         Divider()
 
-        Menu {
-            Button("Hide for 15 minutes") { onHideRequest(15 * 60) }
-            Button("Hide for 1 hour")     { onHideRequest(60 * 60) }
-            Button("Hide for today") {
-                // Hide until the next local midnight (reappears tomorrow),
-                // not a fixed 24h window — matches the "for today" intuition.
-                let nextMidnight = Calendar.current.startOfDay(
-                    for: Date().addingTimeInterval(24 * 60 * 60)
-                )
-                onHideRequest(nextMidnight.timeIntervalSinceNow)
-            }
+        // Flat, not a submenu. A nested `Menu` inside `.contextMenu` on a
+        // non-activating panel draws its highlight in the wrong
+        // appearance on macOS 27 (opaque white on a dark glass menu —
+        // Egor, 2026-09-06), and it's system-drawn, so there's nothing to
+        // fix on our side. Three rows in the parent menu cost two lines
+        // and remove a hover step nobody wanted on a 60 pt widget.
+        Button {
+            onHideRequest(15 * 60)
         } label: {
-            Label("Hide…", systemImage: "eye.slash")
+            Label("Hide for 15 minutes", systemImage: "eye.slash")
+        }
+        Button("Hide for 1 hour") { onHideRequest(60 * 60) }
+        Button("Hide for today") {
+            // Hide until the next local midnight (reappears tomorrow),
+            // not a fixed 24h window — matches the "for today" intuition.
+            let nextMidnight = Calendar.current.startOfDay(
+                for: Date().addingTimeInterval(24 * 60 * 60)
+            )
+            onHideRequest(nextMidnight.timeIntervalSinceNow)
         }
 
         Button {

@@ -1,6 +1,26 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Nothing here yet" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пока пусто"
+          }
+        }
+      }
+    },
+    "Recordings and notes will appear here as you make them." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Записи и заметки появятся здесь по мере того, как вы их делаете."
+          }
+        }
+      }
+    },
     "%@ — not available for %@" : {
       "localizations" : {
         "ru" : {

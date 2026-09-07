@@ -11,7 +11,7 @@
 //  a detail column — two separate view trees — share one selection, the
 //  former per-view `@State` (selection / query / filters / pending
 //  delete) is hoisted into `LibraryModel`, an `@Observable` owned by
-//  MainView (one instance for Library `.all`, one for Notes `.notes`).
+//  MainView (one instance; the kind filter lives inside the model).
 //
 //  `LibraryListColumn` and `LibraryDetailColumn` are the two column
 //  views MainView places in `content:` and `detail:`. `LibraryView`
@@ -30,19 +30,27 @@ import AppKit
 
 // MARK: - Scope
 
-/// Which slice of the corpus a Library surface shows. `.all` is the
-/// Library proper (every session with `kind == .recording`); `.notes` is
-/// the top-level Notes tab (every session with `kind == .note`). Both
-/// span ALL folders/projects — notes and recordings share the same
-/// taxonomy and are told apart by kind, not by folder. Same columns,
-/// same model, same detail pane, same folder + tag chips — just a
-/// scoped pool.
+/// Which kinds the Library shows. Since 2026-09-07 this is a FILTER the
+/// person flips inside one Library (a chip row above the list), not two
+/// sidebar tabs: notes and recordings were always the same model, the
+/// same folders and tags, the same on-disk files — told apart by one
+/// field, `kind` — and two entries in the sidebar made them look like
+/// two products (Egor). `.all` is the default and shows everything;
+/// `.recordings` and `.notes` narrow by kind. Nothing on disk changes.
 ///
-/// Was a nested `LibraryView.Scope`; lifted to a top-level enum so the
-/// shared `LibraryModel` (and the two column views) can name it without
-/// depending on the composite `LibraryView`. `LibraryView.Scope` stays
-/// as a typealias for source compatibility.
-enum LibraryScope: Equatable { case all, notes }
+/// `LibraryView.Scope` stays as a typealias for source compatibility.
+enum LibraryScope: String, Equatable, CaseIterable, Identifiable {
+    case all, recordings, notes
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all:        String(localized: "All")
+        case .recordings: String(localized: "Recordings")
+        case .notes:      String(localized: "Notes")
+        }
+    }
+}
 
 // MARK: - Shared selection model
 
@@ -59,7 +67,8 @@ enum LibraryScope: Equatable { case all, notes }
 @Observable
 @MainActor
 final class LibraryModel {
-    let scope: LibraryScope
+    /// Kind filter — see `LibraryScope`. Mutable: it's a chip now.
+    var scope: LibraryScope
     var query: String = ""
     /// Selected session IDs. Multi-select via Shift-click (range)
     /// and Cmd-click (toggle). When exactly one is selected, the
@@ -343,11 +352,14 @@ struct LibraryListColumn: View {
             // "All" chip sat right under the text-field's baseline.
             .padding(.bottom, 14)
 
-            // Both tabs get the SAME folder/project chip row now that notes
-            // and recordings share folders — the Notes tab is no longer a
-            // single fixed folder. The tag filter lives in the toolbar pill
-            // (see the `.toolbar` above) on both tabs, so folder + tag
-            // filtering are consistent across Library and Notes.
+            // Kind chips first (All / Recordings / Notes), then the folder
+            // chips. Notes used to be a separate sidebar tab; they share
+            // folders, tags, model and files with recordings, so they're
+            // a filter here now (2026-09-07). Reusing `FolderChip` keeps
+            // the two rows visually one family.
+            kindChips
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
             folderChips
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
@@ -395,11 +407,17 @@ struct LibraryListColumn: View {
                             systemImage: "note.text",
                             description: Text("Hold your dictation key, or use the voice-note shortcut, to capture a quick note. It'll land here.")
                         )
-                    } else {
+                    } else if scope == .recordings {
                         ContentUnavailableView(
                             "No recordings yet",
                             systemImage: "tray",
                             description: Text("When you stop a recording, it'll appear here.")
+                        )
+                    } else {
+                        ContentUnavailableView(
+                            "Nothing here yet",
+                            systemImage: "tray",
+                            description: Text("Recordings and notes will appear here as you make them.")
                         )
                     }
                 } else if filteredSessions.isEmpty && !model.query.isEmpty {
@@ -562,8 +580,9 @@ struct LibraryListColumn: View {
         // tab every note, each across ALL folders. (Was `folderSlug` vs the
         // Notes folder — the coupling this whole change removed.)
         switch scope {
-        case .all:   return store.sessions.filter { $0.kind == .recording }
-        case .notes: return store.sessions.filter { $0.kind == .note }
+        case .all:        return store.sessions
+        case .recordings: return store.sessions.filter { $0.kind == .recording }
+        case .notes:      return store.sessions.filter { $0.kind == .note }
         }
     }
 
@@ -693,6 +712,34 @@ struct LibraryListColumn: View {
             }
         }
         return rows
+    }
+
+    /// All / Recordings / Notes. Counts are of the whole corpus (before
+    /// folder/tag/search narrowing) so the person sees what each kind
+    /// holds, not what the current folder happens to contain.
+    private var kindChips: some View {
+        HStack(spacing: 6) {
+            ForEach(LibraryScope.allCases) { kind in
+                let count: Int = switch kind {
+                case .all:        store.sessions.count
+                case .recordings: store.sessions.filter { $0.kind == .recording }.count
+                case .notes:      store.sessions.filter { $0.kind == .note }.count
+                }
+                FolderChip(
+                    label: kind.title,
+                    count: count,
+                    isActive: model.scope == kind
+                ) {
+                    model.scope = kind
+                    // A selection from the other kind would leave the
+                    // detail pane showing a row the list no longer has.
+                    model.selectedIDs = model.selectedIDs.filter { id in
+                        scopedSessions.contains { $0.id == id }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
     }
 
     /// Horizontally-scrollable folder chips above the session list.

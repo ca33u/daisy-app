@@ -21,7 +21,7 @@ import SwiftUI
 // MARK: - Section enum
 
 enum MainSection: String, Hashable, CaseIterable, Identifiable, Sendable {
-    case home, library, notes, dictation, voice, settings, about
+    case home, library, dictation, voice, settings, about
 
     var id: String { rawValue }
 
@@ -44,7 +44,6 @@ enum MainSection: String, Hashable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .home:        String(localized: "Home")
         case .library:     String(localized: "Library")
-        case .notes:       String(localized: "Notes")
         case .dictation:   String(localized: "Dictation")
         case .voice:       String(localized: "Voice")
         case .settings:    String(localized: "Settings")
@@ -64,7 +63,6 @@ enum MainSection: String, Hashable, CaseIterable, Identifiable, Sendable {
         // note.text reads as "a jotted note" — sits below Library as
         // the lighter, quick-capture counterpart (voice notes) to the
         // curated meeting shelf above it.
-        case .notes:       "note.text"
         // character.cursor.ibeam reads as "type / insert text at the
         // caret" — the universal dictation/typing affordance (same
         // glyph the old Settings → Dictation tab used). Reframes this
@@ -215,7 +213,6 @@ struct MainView: View {
     /// navigates away and back. One model per scope keeps Library and
     /// Notes independent, mirroring the pre-refactor per-tab `@State`.
     @State private var libraryModel = LibraryModel(scope: .all)
-    @State private var notesModel = LibraryModel(scope: .notes)
 
     var body: some View {
         // The shell arity branches per section (see `splitShell`).
@@ -226,7 +223,7 @@ struct MainView: View {
         // HERE on the stable body so they survive both the split
         // subtree's remount when the user enters / leaves Library or
         // Notes AND the one-time onboarding → shell swap: state owned by
-        // MainView (`libraryModel`, `notesModel`, `sidebarSelection`)
+        // MainView (`libraryModel`, `sidebarSelection`)
         // lives above the branch, and the wiring `.onChange` handlers
         // stay registered while onboarding is on screen — which is what
         // makes the layout-fixer toggle on the onboarding's layout step
@@ -291,7 +288,7 @@ struct MainView: View {
     /// owned by MainView, above the branch.
     @ViewBuilder
     private var splitShell: some View {
-        if nav.section == .library || nav.section == .notes {
+        if nav.section == .library {
             threeColumnSplit
         } else {
             twoColumnSplit
@@ -323,7 +320,7 @@ struct MainView: View {
     /// column's default-selection / deep-link `onAppear` — the shared
     /// models, owned above, still persist each tab's selection.
     private var threeColumnSplit: some View {
-        let model = (nav.section == .notes) ? notesModel : libraryModel
+        let model = libraryModel
         return NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
                 .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
@@ -545,19 +542,25 @@ struct MainView: View {
         return Button {
             sidebarSelection = section
         } label: {
-            HStack(spacing: 8) {
+            // Same metrics as the sidebar `Label`s above: body text, a
+            // large-scale symbol in a fixed column. These rows were on
+            // `.callout` with an 18 pt icon slot, which read as a
+            // different, smaller family once they sat under the same
+            // list (Egor, 2026-09-07).
+            HStack(spacing: 10) {
                 Image(systemName: section.systemImage)
                     .symbolRenderingMode(.monochrome)
-                    .font(.callout)
-                    .frame(width: 18)
+                    .font(.body)
+                    .imageScale(.large)
+                    .frame(width: 24)
                 Text(section.title)
-                    .font(.callout)
+                    .font(.body)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(Color.daisySidebarInk)
             .padding(.horizontal, 8)
-            .padding(.vertical, 7)
+            .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -580,17 +583,20 @@ struct MainView: View {
             Button {
                 updater.checkForUpdates()
             } label: {
-                HStack(spacing: 8) {
+                // Same column and type as the rows it now sits above.
+                HStack(spacing: 10) {
                     Image(systemName: "arrowshape.down.circle.fill")
-                        .font(.callout)
+                        .font(.body)
+                        .imageScale(.large)
+                        .frame(width: 24)
                     Text(String(localized: "sidebar.update", defaultValue: "Update"))
-                        .font(.callout.weight(.medium))
+                        .font(.body.weight(.medium))
                         .lineLimit(1)
                     Spacer(minLength: 0)
                 }
                 .foregroundStyle(Color.daisyUpdateAccent)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
@@ -612,8 +618,6 @@ struct MainView: View {
             HomeView(session: session)
         case .library:
             LibraryView(scope: .all)
-        case .notes:
-            LibraryView(scope: .notes)
         case .dictation:
             DictationView()
         case .voice:
