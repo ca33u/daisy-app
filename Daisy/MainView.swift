@@ -179,6 +179,16 @@ final class AppNavigation {
         section = .library
     }
 
+    /// Files handed to the app from outside the Library drop target —
+    /// Finder "Open With", a drop on the Dock icon. The Library column
+    /// consumes them into the import dialog.
+    var pendingImportURLs: [URL]?
+
+    func importFiles(_ urls: [URL]) {
+        pendingImportURLs = urls
+        section = .library
+    }
+
     /// Convenience for `Open Settings → <tab>`. FirstRun + onboarding
     /// CTAs use this so the user lands exactly where the action they
     /// just read about is configured, not on the default General tab.

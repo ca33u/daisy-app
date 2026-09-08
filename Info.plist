@@ -45,6 +45,38 @@
     <key>LSMinimumSystemVersion</key>
     <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 
+    <!-- Audio and video files can be opened with Daisy (Finder "Open
+         With", a drop on the Dock icon) — they go straight to the
+         Library's import dialog. Alternate rank: Daisy never claims to
+         be the default player for anyone's music. -->
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Audio recording</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.audio</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Video recording</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.movie</string>
+            </array>
+        </dict>
+    </array>
+
     <!-- Copyright -->
     <key>NSHumanReadableCopyright</key>
     <string></string>

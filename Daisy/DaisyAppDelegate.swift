@@ -331,6 +331,21 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
     // hasVisibleWindows == false in that case; returning `true` tells
     // AppKit to handle the default reopen (it'll restore the closed
     // Window scene).
+    /// Finder "Open With → Daisy" and files dropped on the Dock icon
+    /// (CFBundleDocumentTypes: public.audio / public.movie). Routed into
+    /// the Library's import dialog; the main window is surfaced first
+    /// so the sheet has somewhere to appear.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        if let window = NSApp.windows.first(where: { $0.canBecomeMain }) {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            WidgetBubbleCenter.shared.openMainWindow?()
+        }
+        AppNavigation.shared.importFiles(urls)
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
             // Force activation policy back to .regular in case anything

@@ -188,6 +188,7 @@ struct LibraryListColumn: View {
             }
             .onAppear {
                 consumePendingSelection()
+                consumePendingImport()
                 if model.selectedIDs.isEmpty, let first = store.sessions.first?.id {
                     model.selectedIDs = [first]
                 }
@@ -196,6 +197,9 @@ struct LibraryListColumn: View {
             // specific session via `AppNavigation.openInLibrary(_:)`.
             // We react both on first appear (above) and any subsequent
             // arrivals while the column is already mounted.
+            .onChange(of: AppNavigation.shared.pendingImportURLs?.count) { _, _ in
+                consumePendingImport()
+            }
             .onChange(of: AppNavigation.shared.pendingLibrarySelection) { _, _ in
                 consumePendingSelection()
             }
@@ -268,6 +272,17 @@ struct LibraryListColumn: View {
     /// row, and clear the request so it doesn't fire again. Called
     /// on appear AND on changes — the latter handles deep-links
     /// while the Library tab is already the active one.
+    /// Files that arrived via Finder "Open With" / the Dock icon
+    /// (`AppNavigation.importFiles`) → the same dialog as a drop.
+    private func consumePendingImport() {
+        guard let urls = AppNavigation.shared.pendingImportURLs else { return }
+        AppNavigation.shared.pendingImportURLs = nil
+        // The drop path refuses under the Notes chip; a file opened
+        // from Finder must not vanish because of a filter.
+        if model.scope == .notes { model.scope = .all }
+        _ = importDroppedFiles(urls)
+    }
+
     private func consumePendingSelection() {
         guard let pending = AppNavigation.shared.pendingLibrarySelection else { return }
         if store.sessions.contains(where: { $0.id == pending }) {
