@@ -82,6 +82,7 @@ nonisolated enum AudioImportError: LocalizedError, Equatable {
     case unreadable(String)
     case noSessionsFolder
     case copyVerificationFailed(String)
+    case inCloud(String)
 
     var errorDescription: String? {
         switch self {
@@ -93,6 +94,8 @@ nonisolated enum AudioImportError: LocalizedError, Equatable {
             return String(localized: "Daisy couldn't write to the recordings folder. Choose its storage folder again in Settings.")
         case .copyVerificationFailed(let name):
             return String(localized: "Copying “\(name)” didn't finish cleanly. The original was left untouched.")
+        case .inCloud(let name):
+            return String(localized: "“\(name)” is in iCloud and not on this Mac yet. Download it in Finder first.")
         }
     }
 }
@@ -133,6 +136,10 @@ enum AudioImporter {
         // No-op for plain URLs.
         let scoped = source.startAccessingSecurityScopedResource()
         defer { if scoped { source.stopAccessingSecurityScopedResource() } }
+        // Dragging an existing session's own audio out of a Daisy folder
+        // with "move" would trash that session's only copy. Copy instead.
+        let effectiveMode: ImportMarker.Mode =
+            (mode == .move && source.path.contains("/Daisy/Sessions/")) ? .copy : mode
 
         let probe = try await Task.detached(priority: .userInitiated) {
             try await probeAudio(at: source)
@@ -152,7 +159,7 @@ enum AudioImporter {
             folderSlug: folderSlug,
             sourcePath: source.path,
             originalName: name,
-            mode: mode,
+            mode: effectiveMode,
             importedAt: Date()
         )
 
@@ -160,9 +167,48 @@ enum AudioImporter {
             try materialize(source: source, into: directory, marker: marker)
         }.value
 
-        log.info("Imported \(name, privacy: .private) as session \(sessionID, privacy: .private) (\(probe.durationSec)s, \(mode.rawValue, privacy: .public))")
+        log.info("Imported \(name, privacy: .private) as session \(sessionID, privacy: .private) (\(probe.durationSec)s, \(effectiveMode.rawValue, privacy: .public))")
         await SessionStore.shared.refresh()
         return AudioImportResult(sessionID: sessionID, directoryURL: directory, title: marker.title)
+    }
+
+    // MARK: - Inspection (for the import dialog)
+
+    nonisolated struct Candidate: Identifiable, Sendable, Equatable {
+        let url: URL
+        /// Seconds, or nil when the file can't be read.
+        let durationSec: Int?
+        let problem: String?
+        var id: URL { url }
+        var name: String { url.lastPathComponent }
+    }
+
+    /// Cheap look at each dropped file for the dialog: total duration
+    /// from the container header (no decode), plus an honest per-file
+    /// problem line for what can't be imported (design §6.8 — never a
+    /// silent skip). Runs off-main; unsupported files are reported, not
+    /// filtered, so the person sees why a file was left out.
+    nonisolated static func inspect(_ urls: [URL]) async -> [Candidate] {
+        await Task.detached(priority: .userInitiated) {
+            var out: [Candidate] = []
+            for url in urls {
+                let name = url.lastPathComponent
+                guard canImport(url) else {
+                    out.append(Candidate(url: url, durationSec: nil,
+                                         problem: AudioImportError.unsupportedType(name).errorDescription))
+                    continue
+                }
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                do {
+                    let probe = try await probeAudio(at: url)
+                    out.append(Candidate(url: url, durationSec: probe.durationSec, problem: nil))
+                } catch {
+                    out.append(Candidate(url: url, durationSec: nil, problem: error.localizedDescription))
+                }
+            }
+            return out
+        }.value
     }
 
     // MARK: - Pieces
@@ -176,6 +222,10 @@ enum AudioImporter {
     /// off-main (caller wraps in Task.detached).
     nonisolated private static func probeAudio(at url: URL) async throws -> Probe {
         let name = url.lastPathComponent
+        // An evicted iCloud file opens but reads fail halfway (and on a
+        // full disk the implicit download fails too) — see
+        // daisy-icloud-eviction-data-loss. Refuse up front instead.
+        guard !SessionStore.isCloudEvicted(url) else { throw AudioImportError.inCloud(name) }
         // `AVAudioFile` is what transcription will use later — if it
         // can't open the file now, the session would be a dead end.
         let frames: AVAudioFramePosition

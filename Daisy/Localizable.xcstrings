@@ -3696,6 +3696,216 @@
         }
       }
     },
+    "“%@” is in iCloud and not on this Mac yet. Download it in Finder first." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@» лежит в iCloud и ещё не загружен на этот Mac. Сначала скачайте его в Finder."
+          }
+        }
+      }
+    },
+    "An import is already running. Drop the files again when it finishes." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Импорт уже идёт. Перетащите файлы снова, когда он закончится."
+          }
+        }
+      }
+    },
+    "Importing %lld of %lld · %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Импорт %1$lld из %2$lld · %3$@"
+          }
+        }
+      }
+    },
+    "Transcribing %lld of %lld · %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Расшифровка %1$lld из %2$lld · %3$@"
+          }
+        }
+      }
+    },
+    "%lld transcribed" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "расшифровано: %lld"
+          }
+        }
+      }
+    },
+    "%lld left as audio" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "оставлено как аудио: %lld"
+          }
+        }
+      }
+    },
+    "Each file becomes its own recording in the Library. The date comes from the file, not from today." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Каждый файл станет отдельной записью в библиотеке. Дата берётся из файла, а не сегодняшняя."
+          }
+        }
+      }
+    },
+    "Files" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Файлы"
+          }
+        }
+      }
+    },
+    "Copy into Daisy's library" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скопировать в библиотеку Daisy"
+          }
+        }
+      }
+    },
+    "Move (originals go to the Trash after import)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перенести (оригиналы уйдут в Корзину после импорта)"
+          }
+        }
+      }
+    },
+    "Transcribe" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Расшифровать"
+          }
+        }
+      }
+    },
+    "Now" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сейчас"
+          }
+        }
+      }
+    },
+    "Later — keep in the Library as audio" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Позже — оставить в библиотеке как аудио"
+          }
+        }
+      }
+    },
+    "Reading files…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Читаю файлы…"
+          }
+        }
+      }
+    },
+    "Import 1 file" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Импортировать 1 файл"
+          }
+        }
+      }
+    },
+    "Import %lld files" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Импортировать файлов: %lld"
+          }
+        }
+      }
+    },
+    "a recording is in progress — transcribe them from the Library later" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "идёт запись — расшифруйте их из библиотеки позже"
+          }
+        }
+      }
+    },
+    "the Library hasn't picked up “%@” yet" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "библиотека ещё не увидела «%@»"
+          }
+        }
+      }
+    },
+    "%lld left as audio: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "оставлено как аудио: %1$lld (%2$@)"
+          }
+        }
+      }
+    },
+    "%lld couldn't be imported" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "не удалось импортировать: %lld"
+          }
+        }
+      }
+    },
+    "Drop audio files, not folders — for now." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пока что перетаскивайте аудиофайлы, а не папки."
+          }
+        }
+      }
+    },
     "Audio without transcript" : {
       "extractionState" : "manual",
       "localizations" : {

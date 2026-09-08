@@ -111,51 +111,43 @@ struct LibraryListColumn: View {
     @Bindable var store = SessionStore.shared
     @Bindable var folders = FolderStore.shared
     @State private var isImportTargeted = false
+    @State private var pendingImport: AudioImportBatch?
+    private var importRunner: AudioImportRunner { .shared }
 
     private var scope: LibraryScope { model.scope }
 
-    /// Import every supported audio file in `urls`, one after another
-    /// (each copy can be gigabytes; parallel copies just thrash the
-    /// disk). Returns whether the drop was accepted at all — Finder
-    /// animates a rejected drop back to its origin.
+    /// "Transcribing 2 of 5 · acme — Loading the selected model": the
+    /// batch position plus what the audio pipeline is doing right now
+    /// (a model download can take minutes).
+    private var importRunnerLine: String {
+        let inner = SessionAudioProcessing.shared.statusText
+        return inner.isEmpty ? importRunner.statusText : "\(importRunner.statusText) — \(inner)"
+    }
+
+    /// Finder drop → the import dialog (AudioImportSheet). Unsupported
+    /// files are not filtered here: the dialog lists them with a reason
+    /// (design §6.8). Returns whether the drop was accepted at all —
+    /// Finder animates a rejected drop back to its origin.
     private func importDroppedFiles(_ urls: [URL]) -> Bool {
-        // Imports are recordings; under the Notes chip the new row
-        // would be filtered out and the toast would point at nothing.
+        // Imports are recordings; under the Notes chip the new rows
+        // would be filtered out of view.
         guard scope != .notes else { return false }
-        let audio = urls.filter(AudioImporter.canImport)
-        guard !audio.isEmpty else {
+        guard !AudioImportRunner.shared.isRunning else {
             ToastCenter.shared.show(
-                String(localized: "Drop audio files (m4a, mp3, wav, …) to import them."),
+                String(localized: "An import is already running. Drop the files again when it finishes."),
                 style: .warning
             )
             return false
         }
-        let folder = model.folderFilter?.slug ?? SessionFolder.inbox.slug
-        Task {
-            var imported: [AudioImportResult] = []
-            var firstError: Error?
-            for url in audio {
-                do {
-                    imported.append(try await AudioImporter.importFile(url, into: folder))
-                } catch {
-                    if firstError == nil { firstError = error }
-                }
-            }
-            if imported.count == 1, let only = imported.first {
-                model.selectedIDs = [only.sessionID]
-            }
-            if let firstError {
-                let failed = audio.count - imported.count
-                let message = imported.isEmpty
-                    ? firstError.localizedDescription
-                    : String(localized: "Imported \(imported.count), couldn't import \(failed): \(firstError.localizedDescription)")
-                ToastCenter.shared.show(message, style: .warning, duration: .seconds(6))
-            } else if imported.count == 1 {
-                ToastCenter.shared.show(String(localized: "Imported “\(imported[0].title)”"), style: .success)
-            } else {
-                ToastCenter.shared.show(String(localized: "Imported \(imported.count) recordings"), style: .success)
-            }
+        let files = urls.filter { url in
+            (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory != true
         }
+        guard !files.isEmpty else {
+            // Folders → projects is Ф3; say so rather than bounce silently.
+            ToastCenter.shared.show(String(localized: "Drop audio files, not folders — for now."), style: .warning)
+            return false
+        }
+        pendingImport = AudioImportBatch(urls: files, folderSlug: model.folderFilter?.slug)
         return true
     }
 
@@ -181,6 +173,9 @@ struct LibraryListColumn: View {
                         .padding(6)
                         .allowsHitTesting(false)
                 }
+            }
+            .sheet(item: $pendingImport) { batch in
+                AudioImportSheet(batch: batch)
             }
             .toolbar {
                 if tagGroups.contains(where: { !$0.name.isEmpty }) {
@@ -425,6 +420,20 @@ struct LibraryListColumn: View {
             folderChips
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
+
+            if importRunner.isRunning {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(importRunnerLine)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
+            }
 
             // Manual selection model keeps the custom neutral highlight
             // while preserving Finder-style Shift / Cmd-click behaviour:
