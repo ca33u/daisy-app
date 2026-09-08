@@ -45,9 +45,16 @@ final class AudioImportRunner {
         var id: String { rawValue }
     }
 
-    struct Plan {
-        var urls: [URL]
+    struct Item {
+        var url: URL
         var folderSlug: String
+        /// Set when two files in the batch share a name (design §6.7):
+        /// "Interviews — recording" instead of two "recording" rows.
+        var title: String?
+    }
+
+    struct Plan {
+        var items: [Item]
         var mode: ImportMarker.Mode
         var transcription: Transcription
         /// For `.tonight`: the next occurrence of the chosen HH:MM.
@@ -81,14 +88,17 @@ final class AudioImportRunner {
     }
 
     private func execute(_ plan: Plan) async {
-        let total = plan.urls.count
+        let total = plan.items.count
         var imported: [AudioImportResult] = []
         var importFailures: [(name: String, reason: String)] = []
 
-        for (index, url) in plan.urls.enumerated() {
+        for (index, item) in plan.items.enumerated() {
+            let url = item.url
             statusText = String(localized: "Importing \(index + 1) of \(total) · \(url.lastPathComponent)")
             do {
-                imported.append(try await AudioImporter.importFile(url, into: plan.folderSlug, mode: plan.mode))
+                imported.append(try await AudioImporter.importFile(
+                    url, into: item.folderSlug, mode: plan.mode, title: item.title
+                ))
             } catch {
                 importFailures.append((url.lastPathComponent, error.localizedDescription))
             }
@@ -169,12 +179,23 @@ struct AudioImportSheet: View {
     @State private var language = "auto"
     @State private var diarize = true
 
+    /// Sentinel in the project picker: every dropped folder becomes (or
+    /// reuses) a project of its own name.
+    private static let byFolderTag = "\u{0}by-folder"
+
     init(batch: AudioImportBatch) {
         self.batch = batch
         _folderSlug = State(initialValue: batch.folderSlug ?? SessionFolder.inbox.slug)
     }
 
     private var importable: [AudioImporter.Candidate] { candidates.filter { $0.problem == nil } }
+    private var droppedFolderNames: [String] {
+        var seen: [String] = []
+        for c in candidates {
+            if let f = c.folderName, !seen.contains(f) { seen.append(f) }
+        }
+        return seen
+    }
     private var totalSeconds: Int { importable.compactMap(\.durationSec).reduce(0, +) }
 
     var body: some View {
@@ -192,6 +213,13 @@ struct AudioImportSheet: View {
 
             Form {
                 Picker("Project", selection: $folderSlug) {
+                    if !droppedFolderNames.isEmpty {
+                        Text(droppedFolderNames.count == 1
+                             ? String(localized: "“\(droppedFolderNames[0])” (from the folder name)")
+                             : String(localized: "By folder name (\(droppedFolderNames.count) projects)"))
+                            .tag(Self.byFolderTag)
+                        Divider()
+                    }
                     ForEach(projectRows, id: \.folder.slug) { row in
                         Text(row.isChild ? "    \(row.folder.name)" : row.folder.name)
                             .tag(row.folder.slug)
@@ -243,7 +271,7 @@ struct AudioImportSheet: View {
                     Section("Files") {
                         ForEach(candidates) { candidate in
                             HStack {
-                                Text(candidate.name)
+                                Text(rowName(for: candidate))
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                                 Spacer()
@@ -287,6 +315,12 @@ struct AudioImportSheet: View {
         .task {
             modelID = WhisperEngine.shared.modelID
             candidates = await AudioImporter.inspect(batch.urls)
+            // Folder drop → its name is the project unless the person
+            // had a project chip active (then that wins).
+            if batch.folderSlug == nil, !droppedFolderNames.isEmpty,
+               folderSlug == SessionFolder.inbox.slug {
+                folderSlug = Self.byFolderTag
+            }
             inspecting = false
         }
     }
@@ -313,6 +347,15 @@ struct AudioImportSheet: View {
         return rows
     }
 
+    /// "Interviews / acme.m4a" when several folders were dropped, so
+    /// same-named files from different folders stay tellable apart.
+    private func rowName(for candidate: AudioImporter.Candidate) -> String {
+        if droppedFolderNames.count > 1, let folder = candidate.folderName {
+            return "\(folder) / \(candidate.name)"
+        }
+        return candidate.name
+    }
+
     private var tonightSchedule: Date {
         let comps = Calendar.current.dateComponents([.hour, .minute], from: tonightTime)
         return ImportTranscriptionQueue.nextOccurrence(hour: comps.hour ?? 3, minute: comps.minute ?? 0)
@@ -325,9 +368,43 @@ struct AudioImportSheet: View {
     }
 
     private func start() {
+        // Chronological: the Library sorts by date, and a batch that
+        // lands in file order can be a day's interviews shuffled.
+        let ordered = importable.sorted {
+            ($0.startedAt ?? .distantFuture) < ($1.startedAt ?? .distantFuture)
+        }
+        // Duplicate names inside the batch → prefix with the folder
+        // (design §6.7: distinguish by parent, not by a counter).
+        var nameCounts: [String: Int] = [:]
+        for c in ordered { nameCounts[c.name.lowercased(), default: 0] += 1 }
+        let byFolder = folderSlug == Self.byFolderTag
+        var slugCache: [String: String] = [:]
+        let items: [AudioImportRunner.Item] = ordered.map { c in
+            let slug: String
+            if byFolder, let folder = c.folderName {
+                if let cached = slugCache[folder] {
+                    slug = cached
+                } else {
+                    // "Notes" is a kind, not a project; a folder by that
+                    // name lands in Inbox rather than among the notes.
+                    let created = FolderStore.shared.addFolder(named: folder)
+                    slug = created.slug == SessionFolder.notes.slug ? SessionFolder.inbox.slug : created.slug
+                    slugCache[folder] = slug
+                }
+            } else {
+                // A loose file next to dropped folders: the active chip
+                // if there was one, else Inbox.
+                slug = byFolder ? (batch.folderSlug ?? SessionFolder.inbox.slug) : folderSlug
+            }
+            var title: String?
+            if nameCounts[c.name.lowercased(), default: 0] > 1 {
+                let parent = c.url.deletingLastPathComponent().lastPathComponent
+                title = "\(parent) — \(AudioImporter.title(fromFileName: c.name))"
+            }
+            return AudioImportRunner.Item(url: c.url, folderSlug: slug, title: title)
+        }
         let plan = AudioImportRunner.Plan(
-            urls: importable.map(\.url),
-            folderSlug: folderSlug,
+            items: items,
             mode: mode,
             transcription: transcription,
             notBefore: transcription == .tonight ? tonightSchedule : nil,

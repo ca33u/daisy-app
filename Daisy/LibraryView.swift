@@ -142,15 +142,10 @@ struct LibraryListColumn: View {
             )
             return false
         }
-        let files = urls.filter { url in
-            (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory != true
-        }
-        guard !files.isEmpty else {
-            // Folders → projects is Ф3; say so rather than bounce silently.
-            ToastCenter.shared.show(String(localized: "Drop audio files, not folders — for now."), style: .warning)
-            return false
-        }
-        pendingImport = AudioImportBatch(urls: files, folderSlug: model.folderFilter?.slug)
+        guard !urls.isEmpty else { return false }
+        // Folders are expanded by the dialog (AudioImporter.expand):
+        // each becomes a project of its own name.
+        pendingImport = AudioImportBatch(urls: urls, folderSlug: model.folderFilter?.slug)
         return true
     }
 

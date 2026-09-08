@@ -3846,16 +3846,6 @@
         }
       }
     },
-    "Drop audio files, not folders — for now." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Пока что перетаскивайте аудиофайлы, а не папки."
-          }
-        }
-      }
-    },
     "Tonight" : {
       "localizations" : {
         "ru" : {
@@ -4022,6 +4012,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Остановить расшифровку"
+          }
+        }
+      }
+    },
+    "“%@” (from the folder name)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@» (по имени папки)"
+          }
+        }
+      }
+    },
+    "By folder name (%lld projects)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "По именам папок (проектов: %lld)"
           }
         }
       }

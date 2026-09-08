@@ -127,7 +127,8 @@ enum AudioImporter {
     static func importFile(
         _ source: URL,
         into folderSlug: String = SessionFolder.inbox.slug,
-        mode: ImportMarker.Mode = .copy
+        mode: ImportMarker.Mode = .copy,
+        title titleOverride: String? = nil
     ) async throws -> AudioImportResult {
         let name = source.lastPathComponent
         guard canImport(source) else { throw AudioImportError.unsupportedType(name) }
@@ -153,7 +154,7 @@ enum AudioImporter {
         let sessionID = uniqueSessionID(for: probe.startedAt, in: sessionsDir)
         let directory = sessionsDir.appendingPathComponent(sessionID, isDirectory: true)
         let marker = ImportMarker(
-            title: title(fromFileName: name),
+            title: titleOverride ?? title(fromFileName: name),
             startedAt: probe.startedAt,
             durationSec: probe.durationSec,
             folderSlug: folderSlug,
@@ -176,25 +177,75 @@ enum AudioImporter {
 
     nonisolated struct Candidate: Identifiable, Sendable, Equatable {
         let url: URL
+        /// Name of the dropped folder this file came from (its project),
+        /// nil for a file dropped on its own.
+        let folderName: String?
         /// Seconds, or nil when the file can't be read.
         let durationSec: Int?
+        /// The recording's own date (see `probeAudio`), for ordering a
+        /// batch chronologically.
+        let startedAt: Date?
         let problem: String?
         var id: URL { url }
         var name: String { url.lastPathComponent }
+    }
+
+    /// Turn a Finder drop into the flat file list the dialog works on.
+    /// A dropped folder contributes its audio files plus those of its
+    /// immediate subfolders (one level, design Ф3) and names the
+    /// project; deeper trees are left alone rather than swallowed.
+    /// Non-audio files inside a folder are skipped silently — a folder
+    /// of interviews usually carries notes and photos too, and listing
+    /// each as "not an audio file" would bury the real problems. A
+    /// directly dropped non-audio file IS listed, that one was deliberate.
+    nonisolated static func expand(_ urls: [URL]) -> [(url: URL, folderName: String?)] {
+        let fm = FileManager.default
+        var out: [(url: URL, folderName: String?)] = []
+        func isDirectory(_ url: URL) -> Bool {
+            (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+        }
+        func audioFiles(in directory: URL) -> [URL] {
+            ((try? fm.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )) ?? [])
+            .filter { !isDirectory($0) && canImport($0) }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        }
+        for url in urls {
+            guard isDirectory(url) else {
+                out.append((url, nil))
+                continue
+            }
+            let name = url.lastPathComponent
+            out.append(contentsOf: audioFiles(in: url).map { ($0, name) })
+            let subdirs = ((try? fm.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )) ?? []).filter(isDirectory)
+            for sub in subdirs.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                out.append(contentsOf: audioFiles(in: sub).map { ($0, name) })
+            }
+        }
+        return out
     }
 
     /// Cheap look at each dropped file for the dialog: total duration
     /// from the container header (no decode), plus an honest per-file
     /// problem line for what can't be imported (design §6.8 — never a
     /// silent skip). Runs off-main; unsupported files are reported, not
-    /// filtered, so the person sees why a file was left out.
+    /// filtered, so the person sees why a file was left out. Folders are
+    /// expanded first (see `expand`).
     nonisolated static func inspect(_ urls: [URL]) async -> [Candidate] {
         await Task.detached(priority: .userInitiated) {
             var out: [Candidate] = []
-            for url in urls {
+            for item in expand(urls) {
+                let url = item.url
                 let name = url.lastPathComponent
                 guard canImport(url) else {
-                    out.append(Candidate(url: url, durationSec: nil,
+                    out.append(Candidate(url: url, folderName: item.folderName, durationSec: nil, startedAt: nil,
                                          problem: AudioImportError.unsupportedType(name).errorDescription))
                     continue
                 }
@@ -202,9 +253,11 @@ enum AudioImporter {
                 defer { if scoped { url.stopAccessingSecurityScopedResource() } }
                 do {
                     let probe = try await probeAudio(at: url)
-                    out.append(Candidate(url: url, durationSec: probe.durationSec, problem: nil))
+                    out.append(Candidate(url: url, folderName: item.folderName, durationSec: probe.durationSec,
+                                         startedAt: probe.startedAt, problem: nil))
                 } catch {
-                    out.append(Candidate(url: url, durationSec: nil, problem: error.localizedDescription))
+                    out.append(Candidate(url: url, folderName: item.folderName, durationSec: nil, startedAt: nil,
+                                         problem: error.localizedDescription))
                 }
             }
             return out

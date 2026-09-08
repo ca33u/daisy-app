@@ -103,6 +103,25 @@ struct AudioImportTests {
         #expect(AudioImporter.title(fromFileName: "___.wav") == "___")
     }
 
+    @Test("A dropped folder expands one level and names the project")
+    func expand_folderOneLevel() throws {
+        let root = try makeDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("Interviews", isDirectory: true)
+        let sub = folder.appendingPathComponent("day2", isDirectory: true)
+        let deep = sub.appendingPathComponent("deeper", isDirectory: true)
+        try FileManager.default.createDirectory(at: deep, withIntermediateDirectories: true)
+        for path in ["b.m4a", "a.mp3", "notes.txt", "day2/c.wav", "day2/deeper/d.wav", "day2/.hidden.m4a"] {
+            try Data(count: 4).write(to: folder.appendingPathComponent(path))
+        }
+        let loose = root.appendingPathComponent("loose.flac")
+        try Data(count: 4).write(to: loose)
+
+        let items = AudioImporter.expand([folder, loose])
+        #expect(items.map(\.url.lastPathComponent) == ["a.mp3", "b.m4a", "c.wav", "loose.flac"])
+        #expect(items.map(\.folderName) == ["Interviews", "Interviews", "Interviews", nil])
+    }
+
     @Test("Only supported containers are importable")
     func canImport_whitelist() {
         #expect(AudioImporter.canImport(URL(fileURLWithPath: "/x/a.M4A")))
