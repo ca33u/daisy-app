@@ -24,8 +24,12 @@
 //      audio-only folder with no transcript otherwise looks exactly like
 //      one and would be sent to InterruptedRecordingRecovery).
 //
-//  Phase Ф0 has no dialog: drop → copy → session in `.audioOnly` state.
-//  Copy/move choice, the queue, folders→projects and video come later.
+//  Video (Ф4): mp4 / mov / m4v are accepted; only the audio track is
+//  kept (`system_audio.m4a`: the track alone in a composition, passed
+//  through when AAC, else re-encoded) — a library of webinars must not carry gigabytes of
+//  picture Daisy never shows. The original video is never trashed even
+//  in "move" mode, since the session holds only part of it. Containers
+//  macOS can't open (mkv, webm, avi) are refused with a reason.
 //
 
 import AVFoundation
@@ -83,6 +87,8 @@ nonisolated enum AudioImportError: LocalizedError, Equatable {
     case noSessionsFolder
     case copyVerificationFailed(String)
     case inCloud(String)
+    case containerUnsupported(String)
+    case noAudioTrack(String)
 
     var errorDescription: String? {
         switch self {
@@ -96,6 +102,10 @@ nonisolated enum AudioImportError: LocalizedError, Equatable {
             return String(localized: "Copying “\(name)” didn't finish cleanly. The original was left untouched.")
         case .inCloud(let name):
             return String(localized: "“\(name)” is in iCloud and not on this Mac yet. Download it in Finder first.")
+        case .containerUnsupported(let name):
+            return String(localized: "macOS can't read “\(name)”. Convert it to mp4 or m4a first.")
+        case .noAudioTrack(let name):
+            return String(localized: "“\(name)” has no audio track.")
         }
     }
 }
@@ -113,10 +123,26 @@ enum AudioImporter {
     /// Containers accepted on drop. Must stay a subset of
     /// `SessionAudioFiles.audioExtensions`, or the copied file would be
     /// invisible to the Library scan.
-    nonisolated static let supportedExtensions: Set<String> = SessionAudioFiles.audioExtensions
+    nonisolated static let supportedExtensions: Set<String> =
+        SessionAudioFiles.audioExtensions.union(videoExtensions)
+    /// Video containers AVFoundation opens; only the audio track is kept.
+    nonisolated static let videoExtensions: Set<String> = ["mp4", "mov", "m4v"]
+    /// Video containers people have and macOS can't open — refused with
+    /// a clear line instead of a generic "not an audio file".
+    nonisolated static let knownUnreadableExtensions: Set<String> = ["mkv", "webm", "avi", "wmv", "flv", "ogg", "opus"]
 
     nonisolated static func canImport(_ url: URL) -> Bool {
         supportedExtensions.contains(url.pathExtension.lowercased())
+    }
+
+    nonisolated static func isVideo(_ url: URL) -> Bool {
+        videoExtensions.contains(url.pathExtension.lowercased())
+    }
+
+    nonisolated static func rejection(for url: URL) -> AudioImportError {
+        knownUnreadableExtensions.contains(url.pathExtension.lowercased())
+            ? .containerUnsupported(url.lastPathComponent)
+            : .unsupportedType(url.lastPathComponent)
     }
 
     /// Import one file as a new audio-only session. Slow work (metadata
@@ -131,7 +157,7 @@ enum AudioImporter {
         title titleOverride: String? = nil
     ) async throws -> AudioImportResult {
         let name = source.lastPathComponent
-        guard canImport(source) else { throw AudioImportError.unsupportedType(name) }
+        guard canImport(source) else { throw rejection(for: source) }
         // Finder drops arrive with a security scope; hold it for the
         // whole probe + copy (same as MeetingPreparationSheet.importPlanFile).
         // No-op for plain URLs.
@@ -139,8 +165,10 @@ enum AudioImporter {
         defer { if scoped { source.stopAccessingSecurityScopedResource() } }
         // Dragging an existing session's own audio out of a Daisy folder
         // with "move" would trash that session's only copy. Copy instead.
+        // A video is never trashed either: the session keeps only its
+        // sound, so "move" would destroy the picture.
         let effectiveMode: ImportMarker.Mode =
-            (mode == .move && source.path.contains("/Daisy/Sessions/")) ? .copy : mode
+            (mode == .move && (source.path.contains("/Daisy/Sessions/") || isVideo(source))) ? .copy : mode
 
         let probe = try await Task.detached(priority: .userInitiated) {
             try await probeAudio(at: source)
@@ -165,7 +193,7 @@ enum AudioImporter {
         )
 
         try await Task.detached(priority: .userInitiated) {
-            try materialize(source: source, into: directory, marker: marker)
+            try await materialize(source: source, into: directory, marker: marker)
         }.value
 
         log.info("Imported \(name, privacy: .private) as session \(sessionID, privacy: .private) (\(probe.durationSec)s, \(effectiveMode.rawValue, privacy: .public))")
@@ -246,7 +274,7 @@ enum AudioImporter {
                 let name = url.lastPathComponent
                 guard canImport(url) else {
                     out.append(Candidate(url: url, folderName: item.folderName, durationSec: nil, startedAt: nil,
-                                         problem: AudioImportError.unsupportedType(name).errorDescription))
+                                         problem: rejection(for: url).errorDescription))
                     continue
                 }
                 let scoped = url.startAccessingSecurityScopedResource()
@@ -279,19 +307,37 @@ enum AudioImporter {
         // full disk the implicit download fails too) — see
         // daisy-icloud-eviction-data-loss. Refuse up front instead.
         guard !SessionStore.isCloudEvicted(url) else { throw AudioImportError.inCloud(name) }
-        // `AVAudioFile` is what transcription will use later — if it
-        // can't open the file now, the session would be a dead end.
-        let frames: AVAudioFramePosition
-        let sampleRate: Double
-        do {
-            let file = try AVAudioFile(forReading: url)
-            frames = file.length
-            sampleRate = file.processingFormat.sampleRate
-        } catch {
-            throw AudioImportError.unreadable(name)
+        let durationSec: Int
+        if isVideo(url) {
+            // Video: an audio track must exist; duration from the asset
+            // header (no decode).
+            let asset = AVURLAsset(url: url)
+            guard let tracks = try? await asset.loadTracks(withMediaType: .audio) else {
+                // The extension says mp4/mov, the bytes don't.
+                throw AudioImportError.unreadable(name)
+            }
+            guard !tracks.isEmpty else { throw AudioImportError.noAudioTrack(name) }
+            let duration = (try? await asset.load(.duration)) ?? .invalid
+            guard duration.isNumeric, duration.seconds.isFinite else {
+                throw AudioImportError.unreadable(name)
+            }
+            durationSec = Int(duration.seconds.rounded())
+            guard durationSec > 0 else { throw AudioImportError.unreadable(name) }
+        } else {
+            // `AVAudioFile` is what transcription will use later — if it
+            // can't open the file now, the session would be a dead end.
+            let frames: AVAudioFramePosition
+            let sampleRate: Double
+            do {
+                let file = try AVAudioFile(forReading: url)
+                frames = file.length
+                sampleRate = file.processingFormat.sampleRate
+            } catch {
+                throw AudioImportError.unreadable(name)
+            }
+            guard frames > 0, sampleRate > 0 else { throw AudioImportError.unreadable(name) }
+            durationSec = Int((Double(frames) / sampleRate).rounded())
         }
-        guard frames > 0, sampleRate > 0 else { throw AudioImportError.unreadable(name) }
-        let durationSec = Int((Double(frames) / sampleRate).rounded())
 
         // Recording date, most trustworthy first. Track metadata is what
         // Voice Memos / phones stamp; file dates survive plain copies but
@@ -352,10 +398,11 @@ enum AudioImporter {
         source: URL,
         into directory: URL,
         marker: ImportMarker
-    ) throws {
+    ) async throws {
         let fm = FileManager.default
         let name = source.lastPathComponent
-        let ext = source.pathExtension.lowercased()
+        let video = isVideo(source)
+        let ext = video ? "m4a" : source.pathExtension.lowercased()
         let staging = directory
             .deletingLastPathComponent()
             .appendingPathComponent(".daisy-import-\(UUID().uuidString)", isDirectory: true)
@@ -367,11 +414,15 @@ enum AudioImporter {
             if !committed { try? fm.removeItem(at: staging) }
         }
 
-        try fm.copyItem(at: source, to: destination)
-        let sourceSize = (try? source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? -1
-        let copiedSize = (try? destination.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? -2
-        guard sourceSize == copiedSize else {
-            throw AudioImportError.copyVerificationFailed(name)
+        if video {
+            try await extractAudioTrack(from: source, to: destination)
+        } else {
+            try fm.copyItem(at: source, to: destination)
+            let sourceSize = (try? source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? -1
+            let copiedSize = (try? destination.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? -2
+            guard sourceSize == copiedSize else {
+                throw AudioImportError.copyVerificationFailed(name)
+            }
         }
 
         try marker.write(to: staging)
@@ -387,5 +438,52 @@ enum AudioImporter {
                 log.warning("Imported copy is in place but the original couldn't be moved to Trash: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    /// Audio track of a video → `.m4a`. The track is lifted into a
+    /// composition of its own first: a passthrough export of the whole
+    /// asset would refuse `.m4a` (it carries every track), whereas the
+    /// audio-only composition passes through bit-exact when the track is
+    /// AAC — seconds instead of a re-encode. If passthrough can't take
+    /// the codec (LPCM, Opus in an mp4), fall back to an AAC re-encode.
+    /// Whatever comes out must open in `AVAudioFile`, which is what
+    /// transcription will use; otherwise the next preset is tried.
+    nonisolated private static func extractAudioTrack(from source: URL, to destination: URL) async throws {
+        let name = source.lastPathComponent
+        let asset = AVURLAsset(url: source)
+        guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
+            throw AudioImportError.noAudioTrack(name)
+        }
+        let composition = AVMutableComposition()
+        guard let lane = composition.addMutableTrack(
+            withMediaType: .audio,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        ) else { throw AudioImportError.noAudioTrack(name) }
+        let range = try await track.load(.timeRange)
+        try lane.insertTimeRange(range, of: track, at: .zero)
+
+        for preset in [AVAssetExportPresetPassthrough, AVAssetExportPresetAppleM4A] {
+            guard let export = AVAssetExportSession(asset: composition, presetName: preset),
+                  export.supportedFileTypes.contains(.m4a) else { continue }
+            try? FileManager.default.removeItem(at: destination)
+            do {
+                if #available(macOS 15.0, *) {
+                    try await export.export(to: destination, as: .m4a)
+                } else {
+                    export.outputURL = destination
+                    export.outputFileType = .m4a
+                    await export.export()
+                    if let error = export.error { throw error }
+                }
+                if let check = try? AVAudioFile(forReading: destination), check.length > 0 {
+                    return
+                }
+                log.info("Audio extraction with \(preset, privacy: .public) produced a file AVAudioFile can't read; trying the next preset")
+            } catch {
+                log.info("Audio extraction with \(preset, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        try? FileManager.default.removeItem(at: destination)
+        throw AudioImportError.noAudioTrack(name)
     }
 }

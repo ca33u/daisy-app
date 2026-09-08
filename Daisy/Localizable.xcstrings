@@ -4036,6 +4036,46 @@
         }
       }
     },
+    "macOS can't read “%@”. Convert it to mp4 or m4a first." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS не умеет читать «%@». Сначала сконвертируйте в mp4 или m4a."
+          }
+        }
+      }
+    },
+    "“%@” has no audio track." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В «%@» нет звуковой дорожки."
+          }
+        }
+      }
+    },
+    "audio only" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "только звук"
+          }
+        }
+      }
+    },
+    "Videos are never moved: Daisy keeps only their sound, so the originals stay where they are." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Видео не переносятся: Daisy оставляет только звук, поэтому оригиналы остаются на месте."
+          }
+        }
+      }
+    },
     "Audio without transcript" : {
       "extractionState" : "manual",
       "localizations" : {

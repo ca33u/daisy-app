@@ -231,6 +231,11 @@ struct AudioImportSheet: View {
                     Text("Move (originals go to the Trash after import)").tag(ImportMarker.Mode.move)
                 }
                 .pickerStyle(.radioGroup)
+                if mode == .move, importable.contains(where: { AudioImporter.isVideo($0.url) }) {
+                    Text("Videos are never moved: Daisy keeps only their sound, so the originals stay where they are.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
                 Picker("Transcribe", selection: $transcription) {
                     Text("Now").tag(AudioImportRunner.Transcription.now)
@@ -282,6 +287,11 @@ struct AudioImportSheet: View {
                                         .lineLimit(2)
                                         .multilineTextAlignment(.trailing)
                                 } else if let seconds = candidate.durationSec {
+                                    if AudioImporter.isVideo(candidate.url) {
+                                        Text("audio only")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
                                     Text(Self.duration(seconds))
                                         .foregroundStyle(.secondary)
                                         .monospacedDigit()

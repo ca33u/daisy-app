@@ -128,5 +128,11 @@ struct AudioImportTests {
         #expect(AudioImporter.canImport(URL(fileURLWithPath: "/x/a.flac")))
         #expect(!AudioImporter.canImport(URL(fileURLWithPath: "/x/a.mkv")))
         #expect(!AudioImporter.canImport(URL(fileURLWithPath: "/x/a")))
+        // Video: accepted (audio track only); mkv refused with the
+        // "macOS can't read this" reason rather than "not audio".
+        #expect(AudioImporter.canImport(URL(fileURLWithPath: "/x/webinar.MP4")))
+        #expect(AudioImporter.isVideo(URL(fileURLWithPath: "/x/webinar.mov")))
+        #expect(AudioImporter.rejection(for: URL(fileURLWithPath: "/x/a.mkv")) == .containerUnsupported("a.mkv"))
+        #expect(AudioImporter.rejection(for: URL(fileURLWithPath: "/x/a.pdf")) == .unsupportedType("a.pdf"))
     }
 }
