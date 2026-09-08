@@ -870,13 +870,26 @@ struct SessionDetailView: View {
                 Text(explanation)
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                if state == .audioOnly,
+                   let queued = ImportTranscriptionQueue.shared.rowLabel(forSession: session.id) {
+                    Text(queued)
+                        .font(.callout.weight(.medium))
+                }
                 HStack(spacing: 8) {
                     if state == .audioOnly {
-                        Button("Transcribe audio") {
-                            showRetranscriptionSheet = true
+                        if let queued = ImportTranscriptionQueue.shared.job(forSession: session.id) {
+                            let isActive = queued.id == ImportTranscriptionQueue.shared.activeJobID
+                            Button(isActive ? String(localized: "Stop transcribing") : String(localized: "Remove from queue")) {
+                                ImportTranscriptionQueue.shared.cancel(sessionID: session.id)
+                            }
+                            .buttonStyle(.bordered)
+                        } else {
+                            Button("Transcribe audio") {
+                                showRetranscriptionSheet = true
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(SessionAudioProcessing.shared.isRunning)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(SessionAudioProcessing.shared.isRunning)
                     }
                     if state == .inCloud {
                         Button("Download from iCloud") {

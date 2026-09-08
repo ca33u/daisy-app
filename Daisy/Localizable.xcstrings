@@ -3736,26 +3736,6 @@
         }
       }
     },
-    "%lld transcribed" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "расшифровано: %lld"
-          }
-        }
-      }
-    },
-    "%lld left as audio" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "оставлено как аудио: %lld"
-          }
-        }
-      }
-    },
     "Each file becomes its own recording in the Library. The date comes from the file, not from today." : {
       "localizations" : {
         "ru" : {
@@ -3856,36 +3836,6 @@
         }
       }
     },
-    "a recording is in progress — transcribe them from the Library later" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "идёт запись — расшифруйте их из библиотеки позже"
-          }
-        }
-      }
-    },
-    "the Library hasn't picked up “%@” yet" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "библиотека ещё не увидела «%@»"
-          }
-        }
-      }
-    },
-    "%lld left as audio: %@" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "оставлено как аудио: %1$lld (%2$@)"
-          }
-        }
-      }
-    },
     "%lld couldn't be imported" : {
       "localizations" : {
         "ru" : {
@@ -3902,6 +3852,176 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Пока что перетаскивайте аудиофайлы, а не папки."
+          }
+        }
+      }
+    },
+    "Tonight" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ночью"
+          }
+        }
+      }
+    },
+    "today" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "сегодня"
+          }
+        }
+      }
+    },
+    "tomorrow" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "завтра"
+          }
+        }
+      }
+    },
+    "Daisy keeps the queue on disk and waits for any recording to finish first. If the Mac is asleep at that time, the job runs when it wakes." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy хранит очередь на диске и сначала дожидается окончания любой записи. Если Mac в это время спит, расшифровка запустится после пробуждения."
+          }
+        }
+      }
+    },
+    "transcription queued" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "расшифровка в очереди"
+          }
+        }
+      }
+    },
+    "transcribes at %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "расшифровка в %@"
+          }
+        }
+      }
+    },
+    "%lld waiting for the recording to finish" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ждут окончания записи: %lld"
+          }
+        }
+      }
+    },
+    "%lld scheduled for %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "запланировано на %2$@: %1$lld"
+          }
+        }
+      }
+    },
+    "%lld waiting for the current transcription" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ждут текущую расшифровку: %lld"
+          }
+        }
+      }
+    },
+    "%lld queued for transcription" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "в очереди на расшифровку: %lld"
+          }
+        }
+      }
+    },
+    "Transcribing…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Расшифровка…"
+          }
+        }
+      }
+    },
+    "Transcribes at %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Расшифровка в %@"
+          }
+        }
+      }
+    },
+    "Queued for transcription" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В очереди на расшифровку"
+          }
+        }
+      }
+    },
+    "Couldn't transcribe “%@”: %@. It stays in the Library as audio." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось расшифровать «%1$@»: %2$@. Запись остаётся в библиотеке как аудио."
+          }
+        }
+      }
+    },
+    "Remove from queue" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Убрать из очереди"
+          }
+        }
+      }
+    },
+    "Start at" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Время"
+          }
+        }
+      }
+    },
+    "Stop transcribing" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остановить расшифровку"
           }
         }
       }

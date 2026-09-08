@@ -119,9 +119,12 @@ struct LibraryListColumn: View {
     /// "Transcribing 2 of 5 · acme — Loading the selected model": the
     /// batch position plus what the audio pipeline is doing right now
     /// (a model download can take minutes).
-    private var importRunnerLine: String {
-        let inner = SessionAudioProcessing.shared.statusText
-        return inner.isEmpty ? importRunner.statusText : "\(importRunner.statusText) — \(inner)"
+    private var importRunnerLine: String? {
+        if importRunner.isRunning {
+            let inner = SessionAudioProcessing.shared.statusText
+            return inner.isEmpty ? importRunner.statusText : "\(importRunner.statusText) — \(inner)"
+        }
+        return ImportTranscriptionQueue.shared.statusLine
     }
 
     /// Finder drop → the import dialog (AudioImportSheet). Unsupported
@@ -421,9 +424,15 @@ struct LibraryListColumn: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
 
-            if importRunner.isRunning {
+            if let importRunnerLine {
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    if importRunner.isRunning || ImportTranscriptionQueue.shared.activeJobID != nil {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "clock")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     Text(importRunnerLine)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -1047,7 +1056,9 @@ private struct SessionRow: View {
     private var contentLabel: String? {
         switch session.contentState {
         case .transcript: formattedDuration
-        case .audioOnly: String(localized: "Audio without transcript")
+        case .audioOnly:
+            ImportTranscriptionQueue.shared.rowLabel(forSession: session.id)
+                ?? String(localized: "Audio without transcript")
         case .empty: nil
         case .inCloud: String(localized: "Stored in iCloud")
         }

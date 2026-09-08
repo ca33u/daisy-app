@@ -487,6 +487,10 @@ final class SessionStore {
 
     /// Permanently delete a session's folder + its contents.
     func delete(_ session: StoredSession) async {
+        // A queued import transcription for this folder must not fire
+        // into a directory that no longer exists (it would also stop a
+        // running one).
+        ImportTranscriptionQueue.shared.cancel(sessionID: session.id)
         do {
             try FileManager.default.removeItem(at: session.directoryURL)
             await refresh()
@@ -502,6 +506,7 @@ final class SessionStore {
     func deleteMany(_ sessions: [StoredSession]) async {
         var firstError: String?
         for session in sessions {
+            ImportTranscriptionQueue.shared.cancel(sessionID: session.id)
             do {
                 try FileManager.default.removeItem(at: session.directoryURL)
             } catch {

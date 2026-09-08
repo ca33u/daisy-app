@@ -13,9 +13,9 @@
 //  in the Library and a toast at the end (design §6.8: a report, never
 //  a silent skip).
 //
-//  "Tonight at HH:MM" is deliberately absent until the persistent queue
-//  (Ф2/Ф5) exists — a scheduled job that lives only in memory would be a
-//  promise the app can't keep across a quit.
+//  Transcription itself is never run here: "now" and "tonight" both
+//  become jobs in `ImportTranscriptionQueue`, which is persistent, waits
+//  for a live recording to finish, and survives a quit (Ф2).
 //
 
 import SwiftUI
@@ -32,17 +32,16 @@ struct AudioImportBatch: Identifiable {
 // MARK: - Runner
 
 /// Executes one import batch sequentially: copy every file into a
-/// session, then (when asked) transcribe each new session in turn via
-/// `SessionAudioProcessing.retranscribe`. One batch at a time; a second
-/// drop while running is refused with a toast rather than queued —
-/// the persistent queue is Ф2.
+/// session, then hand the new sessions to `ImportTranscriptionQueue`
+/// (unless "later"). One batch at a time; a second drop while copying
+/// is refused with a toast.
 @Observable
 @MainActor
 final class AudioImportRunner {
     static let shared = AudioImportRunner()
 
     enum Transcription: String, CaseIterable, Identifiable {
-        case now, later
+        case now, later, tonight
         var id: String { rawValue }
     }
 
@@ -51,6 +50,8 @@ final class AudioImportRunner {
         var folderSlug: String
         var mode: ImportMarker.Mode
         var transcription: Transcription
+        /// For `.tonight`: the next occurrence of the chosen HH:MM.
+        var notBefore: Date?
         var options: SessionRetranscriptionOptions
     }
 
@@ -73,6 +74,9 @@ final class AudioImportRunner {
             await self?.execute(plan)
             self?.isRunning = false
             self?.statusText = ""
+            // The queue refuses to start while a batch is copying; now
+            // that it's done, don't make it wait for the next poll.
+            ImportTranscriptionQueue.shared.kick()
         }
     }
 
@@ -90,60 +94,30 @@ final class AudioImportRunner {
             }
         }
 
-        var transcribed = 0
-        var transcribeFailure: String?
-        if plan.transcription == .now, !imported.isEmpty {
-            let processor = SessionAudioProcessing.shared
-            if processor.isRunning || processor.recordingOrFinalizeIsActive {
-                // One honest line instead of N identical throws. The
-                // sessions are in the Library as audio; each has its own
-                // "Transcribe audio" button.
-                transcribeFailure = String(localized: "a recording is in progress — transcribe them from the Library later")
-            } else {
-                for (index, result) in imported.enumerated() {
-                    statusText = String(localized: "Transcribing \(index + 1) of \(imported.count) · \(result.title)")
-                    guard let session = await lookupSession(result.sessionID) else {
-                        transcribeFailure = String(localized: "the Library hasn't picked up “\(result.title)” yet")
-                        continue
-                    }
-                    do {
-                        _ = try await processor.retranscribe(session, options: plan.options)
-                        transcribed += 1
-                    } catch {
-                        if transcribeFailure == nil { transcribeFailure = error.localizedDescription }
-                    }
-                }
+        if plan.transcription != .later {
+            let queue = ImportTranscriptionQueue.shared
+            for result in imported {
+                queue.enqueue(
+                    sessionID: result.sessionID,
+                    directoryURL: result.directoryURL,
+                    title: result.title,
+                    options: plan.options,
+                    notBefore: plan.transcription == .tonight ? plan.notBefore : nil
+                )
             }
         }
 
-        report(
-            imported: imported,
-            importFailures: importFailures,
-            transcribed: transcribed,
-            transcribeFailure: transcribeFailure,
-            wanted: plan.transcription
-        )
+        report(imported: imported, importFailures: importFailures, plan: plan)
         if imported.count == 1, let only = imported.first,
            AppNavigation.shared.section == .library {
             AppNavigation.shared.openInLibrary(only.sessionID)
         }
     }
 
-    /// `SessionStore.refresh()` coalesces with a refresh already in
-    /// flight (the folder watcher starts its own during a batch), so the
-    /// list right after `importFile` can be one scan stale. Retry once.
-    private func lookupSession(_ id: String) async -> StoredSession? {
-        if let hit = SessionStore.shared.sessions.first(where: { $0.id == id }) { return hit }
-        await SessionStore.shared.refresh()
-        return SessionStore.shared.sessions.first(where: { $0.id == id })
-    }
-
     private func report(
         imported: [AudioImportResult],
         importFailures: [(name: String, reason: String)],
-        transcribed: Int,
-        transcribeFailure: String?,
-        wanted: Transcription
+        plan: Plan
     ) {
         var parts: [String] = []
         if imported.count == 1 {
@@ -151,14 +125,16 @@ final class AudioImportRunner {
         } else if !imported.isEmpty {
             parts.append(String(localized: "Imported \(imported.count) recordings"))
         }
-        if wanted == .now, !imported.isEmpty {
-            let leftAsAudio = imported.count - transcribed
-            if leftAsAudio == 0 {
-                parts.append(String(localized: "\(transcribed) transcribed"))
-            } else if let transcribeFailure {
-                parts.append(String(localized: "\(leftAsAudio) left as audio: \(transcribeFailure)"))
-            } else {
-                parts.append(String(localized: "\(leftAsAudio) left as audio"))
+        if !imported.isEmpty {
+            switch plan.transcription {
+            case .now:
+                parts.append(String(localized: "transcription queued"))
+            case .tonight:
+                if let at = plan.notBefore {
+                    parts.append(String(localized: "transcribes at \(ImportTranscriptionQueue.timeFormatter.string(from: at))"))
+                }
+            case .later:
+                break
             }
         }
         if !importFailures.isEmpty {
@@ -168,7 +144,7 @@ final class AudioImportRunner {
                 ? importFailures[0].reason
                 : String(localized: "\(importFailures.count) couldn't be imported"))
         }
-        let ok = importFailures.isEmpty && !imported.isEmpty && transcribeFailure == nil
+        let ok = importFailures.isEmpty && !imported.isEmpty
         ToastCenter.shared.show(parts.joined(separator: " · "), style: ok ? .success : .warning, duration: .seconds(ok ? 4 : 8))
     }
 }
@@ -186,6 +162,9 @@ struct AudioImportSheet: View {
     @State private var folderSlug: String
     @State private var mode: ImportMarker.Mode = .copy
     @State private var transcription: AudioImportRunner.Transcription = .now
+    /// Only the HH:MM matters; the date part is replaced by the next
+    /// occurrence at import time.
+    @State private var tonightTime: Date = Calendar.current.date(bySettingHour: 3, minute: 0, second: 0, of: Date()) ?? Date()
     @State private var modelID = WhisperEngine.defaultModelID
     @State private var language = "auto"
     @State private var diarize = true
@@ -227,11 +206,26 @@ struct AudioImportSheet: View {
 
                 Picker("Transcribe", selection: $transcription) {
                     Text("Now").tag(AudioImportRunner.Transcription.now)
+                    Text("Tonight").tag(AudioImportRunner.Transcription.tonight)
                     Text("Later — keep in the Library as audio").tag(AudioImportRunner.Transcription.later)
                 }
                 .pickerStyle(.radioGroup)
 
-                if transcription == .now {
+                if transcription == .tonight {
+                    LabeledContent("Start at") {
+                        HStack(spacing: 8) {
+                            DatePicker("", selection: $tonightTime, displayedComponents: .hourAndMinute)
+                                .labelsHidden()
+                            Text(Self.relativeDay(for: tonightSchedule))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Text("Daisy keeps the queue on disk and waits for any recording to finish first. If the Mac is asleep at that time, the job runs when it wakes.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if transcription != .later {
                     Picker("Model", selection: $modelID) {
                         ForEach(WhisperEngine.availableModels, id: \.id) { model in
                             Text(model.label).tag(model.id)
@@ -319,12 +313,24 @@ struct AudioImportSheet: View {
         return rows
     }
 
+    private var tonightSchedule: Date {
+        let comps = Calendar.current.dateComponents([.hour, .minute], from: tonightTime)
+        return ImportTranscriptionQueue.nextOccurrence(hour: comps.hour ?? 3, minute: comps.minute ?? 0)
+    }
+
+    nonisolated static func relativeDay(for date: Date) -> String {
+        Calendar.current.isDateInToday(date)
+            ? String(localized: "today")
+            : String(localized: "tomorrow")
+    }
+
     private func start() {
         let plan = AudioImportRunner.Plan(
             urls: importable.map(\.url),
             folderSlug: folderSlug,
             mode: mode,
             transcription: transcription,
+            notBefore: transcription == .tonight ? tonightSchedule : nil,
             options: SessionRetranscriptionOptions(modelID: modelID, language: language, diarize: diarize)
         )
         dismiss()

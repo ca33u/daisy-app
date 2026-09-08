@@ -153,6 +153,8 @@ struct SessionRetranscriptionSheet: View {
         Task {
             do {
                 let id = try await processor.retranscribe(session, options: options)
+                // A queued import job for this session is now moot.
+                ImportTranscriptionQueue.shared.cancel(sessionID: session.id)
                 ToastCenter.shared.show(
                     isFirstTranscript
                         ? String(localized: "Transcript created")

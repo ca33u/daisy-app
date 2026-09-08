@@ -252,6 +252,7 @@ enum ServiceWiring {
         applyCalendar(settings: settings, session: session)
         applyMCPServer(settings: settings)
         applyEndOfDaySummaries(settings: settings, session: session)
+        ImportTranscriptionQueue.shared.start()
         applyLayoutAutoFix(settings: settings)
         applyScreenshotNotes(settings: settings)
     }
