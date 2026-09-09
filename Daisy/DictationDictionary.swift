@@ -211,6 +211,27 @@ final class DictationDictionary {
         return out
     }
 
+    /// The vocabulary as the text `parseImport` reads back: one entry per
+    /// line, corrections as `wrong => right`, terms bare. A comment header
+    /// names the file; `#` lines are skipped on import. Terms and
+    /// corrections come out in their list order so a re-import keeps it.
+    nonisolated static func exportText(_ entries: [DictationReplacement]) -> String {
+        var lines = [
+            "# Daisy vocabulary — \(entries.count) entries",
+            "# A bare line is a term; `wrong => right` is a correction.",
+            "",
+        ]
+        for entry in entries {
+            switch entry.kind {
+            case .term:
+                lines.append(entry.to)
+            case .correction:
+                lines.append("\(entry.from) => \(entry.to)")
+            }
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
     /// Split a line on the first correction separator, if any. Order:
     /// `=>` / `→` (explicit), then tab, then comma. Returns nil for a
     /// bare word/phrase (→ treated as a term).

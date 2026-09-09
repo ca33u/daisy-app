@@ -17,6 +17,8 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
+import AppKit
 
 struct DictationView: View {
     private enum Tab: String, CaseIterable, Identifiable {
@@ -28,6 +30,27 @@ struct DictationView: View {
     @State private var tab: Tab = .vocabulary
     @State private var showingAddWord = false
     @State private var showingBulkImport = false
+
+    /// One text file, in the same shape Bulk import reads — so the
+    /// vocabulary can move to another Mac or into a teammate's Daisy.
+    private func exportVocabulary() {
+        let entries = DictationDictionary.shared.replacements
+        guard !entries.isEmpty else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "Daisy vocabulary.txt"
+        panel.allowedContentTypes = [.plainText]
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try DictationDictionary.exportText(entries).write(to: url, atomically: true, encoding: .utf8)
+            ToastCenter.shared.show(
+                String(localized: "Exported \(entries.count) vocabulary entries"),
+                style: .success
+            )
+        } catch {
+            ToastCenter.shared.show(error.localizedDescription, style: .error)
+        }
+    }
     // Observe history so the "Clear history" capsule appears / disappears
     // as entries are recorded or cleared.
     @Bindable private var history = DictationHistory.shared
@@ -65,6 +88,16 @@ struct DictationView: View {
             // Bulk import — vocabulary tab only (nothing to import into
             // History). Sits left of "Add word".
             if tab == .vocabulary {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        exportVocabulary()
+                    } label: {
+                        Text("Export vocabulary")
+                            .padding(.horizontal, 10)
+                    }
+                    .disabled(DictationDictionary.shared.replacements.isEmpty)
+                    .help("Save the vocabulary as a text file Daisy can import again")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showingBulkImport = true

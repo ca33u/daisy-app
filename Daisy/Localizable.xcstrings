@@ -4106,6 +4106,36 @@
         }
       }
     },
+    "Save the vocabulary as a text file Daisy can import again" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранить словарь текстовым файлом, который Daisy сможет импортировать обратно"
+          }
+        }
+      }
+    },
+    "Exported %lld vocabulary entries" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспортировано записей словаря: %lld"
+          }
+        }
+      }
+    },
+    "Export vocabulary" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспорт словаря"
+          }
+        }
+      }
+    },
     "Audio without transcript" : {
       "extractionState" : "manual",
       "localizations" : {
