@@ -4076,6 +4076,36 @@
         }
       }
     },
+    "Same person as…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Тот же человек, что и…"
+          }
+        }
+      }
+    },
+    "Split into separate speakers" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разделить на отдельных спикеров"
+          }
+        }
+      }
+    },
+    "Merge with another speaker, or split a merged one" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Объединить с другим спикером или разделить объединённого"
+          }
+        }
+      }
+    },
     "Audio without transcript" : {
       "extractionState" : "manual",
       "localizations" : {

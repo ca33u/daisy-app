@@ -1459,25 +1459,36 @@ struct SessionDetailView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                ForEach(detectedSpeakerInfo, id: \.id) { info in
+                let groups = speakerGroups
+                ForEach(groups, id: \.ids) { group in
                     SpeakerNameRow(
-                        speakerID: info.id,
-                        currentName: session.speakerMap[info.id] ?? "",
+                        speakerIDs: group.ids,
+                        currentName: group.name,
                         attendeeSuggestions: session.meetingAttendees,
                         attendeeSourceEventTitle: session.linkedEventTitle,
-                        segmentCount: info.count,
-                        hasCentroid: info.hasCentroid,
+                        segmentCount: group.count,
+                        hasCentroid: group.hasCentroid,
                         // Suggest-mode candidate for this label, if Daisy
                         // recognized it but (per the match mode) left it
                         // for the user to confirm. nil in Automatic/Off
                         // or when this label wasn't recognized.
-                        suggestion: speakerSuggestions[info.id],
-                        suggestionSource: speakerSuggestionSources[info.id],
+                        suggestion: speakerSuggestions[group.ids[0]],
+                        suggestionSource: speakerSuggestionSources[group.ids[0]],
+                        // "Same person as…" targets: every OTHER group.
+                        mergeTargets: groups
+                            .filter { $0.ids != group.ids }
+                            .map { (ids: $0.ids, label: $0.name.isEmpty ? Self.remoteLabel($0.ids) : $0.name) },
                         onCommit: { name in
-                            Task { await applyMapping(speakerID: info.id, name: name) }
+                            Task { await applyMapping(speakerIDs: group.ids, name: name) }
+                        },
+                        onMerge: { targetIDs in
+                            Task { await mergeSpeakers(group.ids, into: targetIDs) }
+                        },
+                        onSplit: {
+                            Task { await splitSpeakers(group.ids) }
                         },
                         onDismissSuggestion: {
-                            Task { await dismissSuggestion(speakerID: info.id) }
+                            Task { await dismissSuggestion(speakerID: group.ids[0]) }
                         }
                     )
                 }
@@ -1538,6 +1549,93 @@ struct SessionDetailView: View {
             }
     }
 
+    /// Speaker rows as the person sees them: labels that resolve to the
+    /// same name are ONE row (one person the diarizer split in two —
+    /// the 90% case of speaker pain, Egor). No new on-disk field:
+    /// "merged" simply means the same value in `daisy_speaker_map`.
+    /// For an unnamed pair, the secondary label maps to the literal
+    /// "Remote A" of the primary, so the transcript reads as one
+    /// speaker and a later rename of the row updates every label in
+    /// the group (`onCommit` writes all ids).
+    private var speakerGroups: [(ids: [String], name: String, count: Int, hasCentroid: Bool)] {
+        let infos = detectedSpeakerInfo
+        let known = Set(infos.map(\.id))
+        // Resolve each label to its group key: a real name, or the
+        // primary label it aliases ("Remote A"), or itself.
+        func key(for id: String) -> String {
+            guard let value = session.speakerMap[id], !value.isEmpty else { return "id:\(id)" }
+            if let alias = Self.aliasedLabel(value), known.contains(alias) {
+                if let primaryName = session.speakerMap[alias], !primaryName.isEmpty {
+                    return "name:\(primaryName)"
+                }
+                return "id:\(alias)"
+            }
+            return "name:\(value)"
+        }
+        var order: [String] = []
+        var groups: [String: (ids: [String], name: String, count: Int, hasCentroid: Bool)] = [:]
+        for info in infos {
+            let k = key(for: info.id)
+            if groups[k] == nil {
+                order.append(k)
+                let name = k.hasPrefix("name:") ? String(k.dropFirst(5)) : ""
+                groups[k] = ([], name, 0, false)
+            }
+            groups[k]!.ids.append(info.id)
+            groups[k]!.count += info.count
+            groups[k]!.hasCentroid = groups[k]!.hasCentroid || info.hasCentroid
+        }
+        return order.compactMap { groups[$0] }
+            .map { g in (ids: g.ids.sorted(), name: g.name, count: g.count, hasCentroid: g.hasCentroid) }
+            .sorted { $0.count != $1.count ? $0.count > $1.count : $0.ids[0] < $1.ids[0] }
+    }
+
+    /// "Remote A · B" for a merged, still-unnamed group.
+    private static func remoteLabel(_ ids: [String]) -> String {
+        String(localized: "Remote \(ids.joined(separator: " · "))")
+    }
+
+    /// If `value` is the literal label of another speaker ("Remote B"),
+    /// the letter; nil for a real name.
+    private static func aliasedLabel(_ value: String) -> String? {
+        guard let match = value.wholeMatch(of: #/Remote\s+([A-Z])/#) else { return nil }
+        return String(match.1)
+    }
+
+    /// Fold `sourceIDs` into the group of `targetIDs`: they take the
+    /// target's name, or — when the target is unnamed — alias its
+    /// primary label so the transcript reads as one voice.
+    private func mergeSpeakers(_ sourceIDs: [String], into targetIDs: [String]) async {
+        guard let primary = targetIDs.first else { return }
+        let targetName = session.speakerMap[primary].flatMap { $0.isEmpty ? nil : $0 }
+        let value = targetName ?? "Remote \(primary)"
+        var updated = session.speakerMap
+        for id in sourceIDs { updated[id] = value }
+        await SessionStore.shared.updateSpeakerMap(updated, for: session)
+    }
+
+    /// Undo a merge: every label but the first goes back to its own
+    /// row; the first keeps the name.
+    private func splitSpeakers(_ ids: [String]) async {
+        var updated = session.speakerMap
+        // Alias entries ("Remote C") can sit on ANY letter of the group
+        // — the source of a merge is whichever row the person clicked,
+        // not necessarily the later letter — so drop every alias, and of
+        // the real names keep only the first letter's.
+        var keptName = false
+        for id in ids {
+            guard let value = updated[id], !value.isEmpty else { continue }
+            if Self.aliasedLabel(value) != nil {
+                updated.removeValue(forKey: id)
+            } else if keptName {
+                updated.removeValue(forKey: id)
+            } else {
+                keptName = true
+            }
+        }
+        await SessionStore.shared.updateSpeakerMap(updated, for: session)
+    }
+
     /// The transcript SECTION only, for the accordion. `transcriptText`
     /// (and the on-disk transcript.md, written by MarkdownExporter) is the
     /// FULL document — `# title`, a `> recorded … · duration` line, the
@@ -1581,24 +1679,56 @@ struct SessionDetailView: View {
     private var mappedTranscriptText: String {
         let base = transcriptBodyForDisplay
         guard !session.speakerMap.isEmpty else { return base }
-        var text = base
-        for (speakerID, name) in session.speakerMap {
-            text = text.replacingOccurrences(
-                of: "Remote \(speakerID)",
-                with: name
-            )
+        // One pass with a lookup, not N sequential replacements: with a
+        // merged-then-named pair ({A: "Alice", B: "Remote A"}) the
+        // sequential form depends on dictionary order and could leave
+        // B's lines reading "Remote A" after A already became "Alice".
+        return base.replacing(#/\bRemote\s+([A-Z])\b/#) { match in
+            Self.resolvedSpeakerName(String(match.1), in: session.speakerMap) ?? String(match.0)
         }
-        return text
+    }
+
+    /// Display name for a label letter: its mapped name, following one
+    /// alias hop ("Remote A" → A's own name if A has one). nil when the
+    /// letter is unmapped.
+    private static func resolvedSpeakerName(_ id: String, in map: [String: String]) -> String? {
+        guard let value = map[id], !value.isEmpty else { return nil }
+        if let alias = aliasedLabel(value), let primary = map[alias], !primary.isEmpty {
+            return primary
+        }
+        return value
+    }
+
+    /// Name (or clear) every label of one row in ONE write, then enrol
+    /// the voice profile from the label with the most speech — a merged
+    /// group has several centroids and the minor fragment's is the
+    /// weaker fingerprint. One write also keeps the row's identity
+    /// (`ids`) stable, so the focused field isn't torn down mid-edit.
+    private func applyMapping(speakerIDs: [String], name: String?) async {
+        var updated = session.speakerMap
+        for id in speakerIDs {
+            if let name {
+                updated[id] = name
+            } else {
+                updated.removeValue(forKey: id)
+            }
+        }
+        await SessionStore.shared.updateSpeakerMap(updated, for: session)
+        let counts = Dictionary(uniqueKeysWithValues: detectedSpeakerInfo.map { ($0.id, $0.count) })
+        let strongest = speakerIDs
+            .filter { session.speakerCentroidIDs.contains($0) }
+            .max { (counts[$0] ?? 0) < (counts[$1] ?? 0) } ?? speakerIDs[0]
+        for id in speakerIDs where id != strongest { pruneSuggestion(for: id) }
+        await enrolProfile(speakerID: strongest, name: name)
     }
 
     private func applyMapping(speakerID: String, name: String?) async {
-        var updated = session.speakerMap
-        if let name {
-            updated[speakerID] = name
-        } else {
-            updated.removeValue(forKey: speakerID)
-        }
-        await SessionStore.shared.updateSpeakerMap(updated, for: session)
+        await applyMapping(speakerIDs: [speakerID], name: name)
+    }
+
+    /// Voice-profile side effects of naming `speakerID`; the map itself
+    /// is already written.
+    private func enrolProfile(speakerID: String, name: String?) async {
 
         // Voice fingerprint persistence — when the user assigns a
         // real name to a speaker, look up that speaker's centroid
@@ -2668,7 +2798,9 @@ extension CollapsibleBlock where Accessory == EmptyView {
 // Save button keeps the UX inline + intent-driven.
 
 private struct SpeakerNameRow: View {
-    let speakerID: String
+    /// One label, or several the person declared to be one voice.
+    let speakerIDs: [String]
+    var speakerID: String { speakerIDs[0] }
     let currentName: String
     let attendeeSuggestions: [String]
     /// Title of the calendar event the attendees came from. nil
@@ -2701,7 +2833,11 @@ private struct SpeakerNameRow: View {
     /// as a subtle caption on the suggestion chip so the user gauges
     /// confidence. nil hides the qualifier.
     let suggestionSource: String?
+    /// Other rows this one can be folded into ("Same person as…").
+    let mergeTargets: [(ids: [String], label: String)]
     let onCommit: (String?) -> Void
+    let onMerge: ([String]) -> Void
+    let onSplit: () -> Void
     /// User dismissed the suggestion without naming the speaker.
     let onDismissSuggestion: () -> Void
 
@@ -2709,7 +2845,7 @@ private struct SpeakerNameRow: View {
     @FocusState private var focused: Bool
 
     init(
-        speakerID: String,
+        speakerIDs: [String],
         currentName: String,
         attendeeSuggestions: [String],
         attendeeSourceEventTitle: String?,
@@ -2717,11 +2853,17 @@ private struct SpeakerNameRow: View {
         hasCentroid: Bool,
         suggestion: String? = nil,
         suggestionSource: String? = nil,
+        mergeTargets: [(ids: [String], label: String)] = [],
         onCommit: @escaping (String?) -> Void,
+        onMerge: @escaping ([String]) -> Void = { _ in },
+        onSplit: @escaping () -> Void = {},
         onDismissSuggestion: @escaping () -> Void = {}
     ) {
-        self.speakerID = speakerID
+        self.speakerIDs = speakerIDs
         self.currentName = currentName
+        self.mergeTargets = mergeTargets
+        self.onMerge = onMerge
+        self.onSplit = onSplit
         self.attendeeSuggestions = attendeeSuggestions
         self.attendeeSourceEventTitle = attendeeSourceEventTitle
         self.segmentCount = segmentCount
@@ -2795,6 +2937,31 @@ private struct SpeakerNameRow: View {
                             .map { String(localized: "Pick from attendees of \"\($0)\"") }
                             ?? String(localized: "Pick from event attendees")
                     )
+                }
+                // Merge / split. Diarization splitting one person into
+                // two labels is the common failure; folding the rows is
+                // the fix, and it is reversible.
+                if !mergeTargets.isEmpty || speakerIDs.count > 1 {
+                    Menu {
+                        if !mergeTargets.isEmpty {
+                            Section("Same person as…") {
+                                ForEach(mergeTargets, id: \.ids) { target in
+                                    Button(target.label) { onMerge(target.ids) }
+                                }
+                            }
+                        }
+                        if speakerIDs.count > 1 {
+                            Button("Split into separate speakers") { onSplit() }
+                        }
+                    } label: {
+                        Image(systemName: "person.2")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Merge with another speaker, or split a merged one")
                 }
             }
             suggestionChip
@@ -2890,7 +3057,7 @@ private struct SpeakerNameRow: View {
     @ViewBuilder
     private var speakerField: some View {
         HStack(spacing: 8) {
-            TextField("Remote \(speakerID)", text: $draft)
+            TextField(String(localized: "Remote \(speakerIDs.joined(separator: " · "))"), text: $draft)
                 .textFieldStyle(.plain)
                 .focused($focused)
                 .onSubmit { commit() }
