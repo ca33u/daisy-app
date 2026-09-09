@@ -57,6 +57,16 @@ cd daisy-app
 Omit the final speaker count to test Daisy's automatic count. Record both runs
 when evaluating the attendee-count hint; do not mix them into one result.
 
+By default the runner goes through the **production offline pipeline**
+(`SessionAudioProcessing.transcribeChannel`: 900-second blocks, Whisper per
+block, block diarization, merge by speaker) — the same code path behind
+"Transcribe audio", crash recovery and the post-Stop final pass. The output
+carries `"pipeline": "block"`. Set `DAISY_BENCHMARK_PATH=full` for the
+whole-file shortcut (single Whisper call + `diarizeFull`, honours the speaker
+count hint); it is labelled `"pipeline": "full"` and must not be published as
+the product's number. Numbers from before 2026-09-09 were produced by the
+`full` path.
+
 Humla and OpenWhispr hypotheses must be exported into the same JSON shape:
 
 ```json
@@ -114,3 +124,14 @@ Publish a comparison row only when all of these are present:
 - failures and unavailable features shown as such, not removed from the mean.
 
 Synthetic/TTS cases are harness smoke tests, never product accuracy evidence.
+
+## Crash recovery, end to end
+
+`Benchmarks/kill_recovery.sh [SECONDS] [OUTPUT_JSON]` launches the built app
+with `--benchmark-record` (the app starts a microphone recording on its own),
+waits, sends `kill -9`, relaunches, and waits for
+`InterruptedRecordingRecovery` to write `transcript.md`. The report gives the
+seconds recorded, the seconds of archive that survived on disk, the recovered
+transcript's `duration_sec`, and the coverage ratio. The 40-minute run is the
+published one; `120` is a smoke run. Play audio into the microphone while it
+runs — the scenario measures survival, not accuracy.

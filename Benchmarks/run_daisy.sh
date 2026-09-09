@@ -34,6 +34,7 @@ plutil -insert output_path -string "$result_path" "$request_path"
 plutil -insert original_audio_name -string "${audio_path:t}" "$request_path"
 plutil -insert language -string "$language" "$request_path"
 plutil -insert speaker_count -string "$speaker_count" "$request_path"
+plutil -insert path -string "${DAISY_BENCHMARK_PATH:-block}" "$request_path"
 
 xcodebuild \
   -project Daisy.xcodeproj \

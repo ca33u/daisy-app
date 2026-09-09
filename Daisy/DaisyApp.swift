@@ -71,6 +71,18 @@ struct DaisyApp: App {
         // user with a manual-check sheet, and ensures a newly published
         // release is discovered without waiting for the next hourly cadence.
         SparkleUpdater.shared.checkForUpdatesAfterLaunch()
+
+        // Benchmarks/kill_recovery.sh: `open -a Daisy --args --benchmark-record`
+        // starts a microphone recording as soon as the app is up, so the
+        // harness can kill -9 the process mid-meeting and measure what
+        // survives on relaunch. Nothing else reads this flag; a person
+        // never passes it by accident.
+        if CommandLine.arguments.contains("--benchmark-record") {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(3))
+                await sess.start()
+            }
+        }
     }
 
     var body: some Scene {

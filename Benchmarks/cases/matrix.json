@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "note": "The target matrix. A case is published only with its manifest run under reports/public; everything else stays not_measured on the site rather than being estimated.",
+  "cases": [
+    {"id": "ami-es2004a-mix-headset-auto", "language": "en", "duration_minutes": 17, "speakers": 4, "tags": ["public", "overlap"], "capture": "single-track", "status": "measured", "pipeline": "full", "report": "reports/public/2026-08-17-ami-es2004a.json", "todo": "re-run with pipeline=block (the production path) before the next publication"},
+    {"id": "en-2spk-15min-clean", "language": "en", "duration_minutes": 15, "speakers": 2, "tags": ["private"], "capture": "mic+system", "status": "not_measured"},
+    {"id": "ru-2spk-15min-clean", "language": "ru", "duration_minutes": 15, "speakers": 2, "tags": ["private"], "capture": "mic+system", "status": "not_measured"},
+    {"id": "ru-en-mixed-2spk-15min", "language": "ru+en", "duration_minutes": 15, "speakers": 2, "tags": ["private", "code-switching"], "capture": "mic+system", "status": "not_measured"},
+    {"id": "en-4spk-60min-overlap", "language": "en", "duration_minutes": 60, "speakers": 4, "tags": ["private", "overlap"], "capture": "mic+system", "status": "not_measured"},
+    {"id": "ru-6spk-60min", "language": "ru", "duration_minutes": 60, "speakers": 6, "tags": ["private"], "capture": "system", "status": "not_measured"},
+    {"id": "en-2spk-180min", "language": "en", "duration_minutes": 180, "speakers": 2, "tags": ["private", "long"], "capture": "mic+system", "status": "not_measured"},
+    {"id": "recovery-kill9-40min", "language": "any", "duration_minutes": 40, "speakers": 1, "tags": ["recovery"], "capture": "mic", "status": "not_measured", "script": "kill_recovery.sh", "metric": "coverage = archive seconds on disk / seconds recorded; transcript recovered on relaunch"}
+  ]
+}

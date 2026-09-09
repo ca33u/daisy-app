@@ -3,8 +3,17 @@
 //  DaisyTests
 //
 //  Opt-in executable benchmark surface. Normal test runs return immediately;
-//  Benchmarks/run_daisy.sh supplies an audio path and output path to exercise
-//  the exact archive decoder, Whisper final profile, and diarizer the app uses.
+//  Benchmarks/run_daisy.sh supplies an audio path and output path.
+//
+//  Two paths, chosen by DAISY_BENCHMARK_PATH (or `path` in the request):
+//    • `block` (default) — the PRODUCTION offline pipeline,
+//      `SessionAudioProcessing.transcribeChannel`: 900 s blocks through
+//      ArchiveBlockReader, Whisper `.full` per block, block diarization,
+//      merge by speaker. This is what "Transcribe audio", crash recovery
+//      and the post-Stop final pass run, so its numbers are the honest ones.
+//    • `full` — whole-file Whisper + `diarizeFull` in one go. Kept for
+//      comparison only (it accepts a speaker-count hint; the block path
+//      doesn't), and labelled as such in the output.
 //
 
 import Foundation
@@ -21,6 +30,7 @@ struct DaisyBenchmarkRunnerTests {
         let originalAudioName: String
         let language: String
         let speakerCount: String
+        var path: String?
 
         enum CodingKeys: String, CodingKey {
             case audioPath = "audio_path"
@@ -28,6 +38,7 @@ struct DaisyBenchmarkRunnerTests {
             case originalAudioName = "original_audio_name"
             case language
             case speakerCount = "speaker_count"
+            case path
         }
     }
 
@@ -50,6 +61,8 @@ struct DaisyBenchmarkRunnerTests {
         let version: String
         let build: String
         let engine: String
+        /// "block" (production pipeline) or "full" (whole-file shortcut).
+        let pipeline: String
         let language: String?
         let audioPath: String
         let audioSHA256: String
@@ -63,7 +76,7 @@ struct DaisyBenchmarkRunnerTests {
 
         enum CodingKeys: String, CodingKey {
             case schemaVersion = "schema_version"
-            case product, version, build, engine, language
+            case product, version, build, engine, pipeline, language
             case audioPath = "audio_path"
             case audioSHA256 = "audio_sha256"
             case audioDurationSeconds = "audio_duration_seconds"
@@ -89,7 +102,8 @@ struct DaisyBenchmarkRunnerTests {
                 outputPath: outputPath,
                 originalAudioName: URL(fileURLWithPath: audioPath).lastPathComponent,
                 language: environment["DAISY_BENCHMARK_LANGUAGE"] ?? "",
-                speakerCount: environment["DAISY_BENCHMARK_SPEAKER_COUNT"] ?? ""
+                speakerCount: environment["DAISY_BENCHMARK_SPEAKER_COUNT"] ?? "",
+                path: environment["DAISY_BENCHMARK_PATH"]
             )
         } else if let data = try? Data(contentsOf: URL(fileURLWithPath: "/tmp/daisy-benchmark-request.plist")) {
             request = try PropertyListDecoder().decode(Request.self, from: data)
@@ -117,35 +131,62 @@ struct DaisyBenchmarkRunnerTests {
         #expect(WhisperEngine.shared.isReady)
         #expect(DiarizationEngine.shared.isAvailable)
 
+        let useBlockPath = (request.path ?? "block") != "full"
         let processingStarted = Date()
-        async let whisperSegments = WhisperEngine.shared.transcribe(
-            samples: samples,
-            language: language,
-            profile: .full
-        )
-        async let diarization = DiarizationEngine.shared.diarizeFull(
-            samples: samples,
-            numSpeakers: requestedSpeakers
-        )
-        let (words, speakers) = try await (whisperSegments, diarization)
-        let processingSeconds = Date().timeIntervalSince(processingStarted)
-
-        let transcriptSegments = words.map { segment in
-            TranscriptSegment(
-                id: UUID(),
-                startedAt: Date(timeIntervalSince1970: segment.start),
-                text: segment.text,
-                isFinal: true,
+        let merged: [TranscriptSegment]
+        let spans: [DiarizedSpan]
+        var detectedSpeakers: Int
+        if useBlockPath {
+            // Production path — see the header. Vocabulary bias is left
+            // empty so the score doesn't depend on this Mac's dictionary.
+            let output = try await SessionAudioProcessing.shared.transcribeChannel(
+                [audioURL],
                 source: .systemAudio,
-                speakerId: nil,
-                endSec: segment.end,
-                startSec: segment.start
+                language: language,
+                modelID: WhisperEngine.shared.modelID,
+                diarize: true,
+                startedAt: Date(timeIntervalSince1970: 0),
+                biasTerms: []
             )
+            merged = output.segments
+            // The block path merges speakers into segments; its span
+            // list is the per-segment attribution.
+            spans = merged.compactMap { segment in
+                guard let id = segment.speakerId else { return nil }
+                return DiarizedSpan(speakerId: id, startSec: segment.startSec, endSec: segment.endSec)
+            }
+            detectedSpeakers = Set(spans.map(\.speakerId)).count
+        } else {
+            async let whisperSegments = WhisperEngine.shared.transcribe(
+                samples: samples,
+                language: language,
+                profile: .full
+            )
+            async let diarization = DiarizationEngine.shared.diarizeFull(
+                samples: samples,
+                numSpeakers: requestedSpeakers
+            )
+            let (words, speakers) = try await (whisperSegments, diarization)
+            let transcriptSegments = words.map { segment in
+                TranscriptSegment(
+                    id: UUID(),
+                    startedAt: Date(timeIntervalSince1970: segment.start),
+                    text: segment.text,
+                    isFinal: true,
+                    source: .systemAudio,
+                    speakerId: nil,
+                    endSec: segment.end,
+                    startSec: segment.start
+                )
+            }
+            merged = DiarizationEngine.mergeBySpeaker(
+                segments: transcriptSegments,
+                diarization: speakers.spans
+            )
+            spans = speakers.spans
+            detectedSpeakers = Set(spans.map(\.speakerId)).count
         }
-        let merged = DiarizationEngine.mergeBySpeaker(
-            segments: transcriptSegments,
-            diarization: speakers.spans
-        )
+        let processingSeconds = Date().timeIntervalSince(processingStarted)
 
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
@@ -155,15 +196,16 @@ struct DaisyBenchmarkRunnerTests {
             version: version,
             build: build,
             engine: "WhisperKit \(WhisperEngine.shared.modelID) + FluidAudio",
+            pipeline: useBlockPath ? "block" : "full",
             language: language,
             audioPath: request.originalAudioName,
             audioSHA256: try sha256(audioURL),
             audioDurationSeconds: Double(samples.count) / 16_000,
             modelLoadSeconds: modelLoadSeconds,
             processingSeconds: processingSeconds,
-            detectedSpeakers: Set(speakers.spans.map(\.speakerId)).count,
-            requestedSpeakerCount: requestedSpeakers,
-            diarizationSegments: speakers.spans.map {
+            detectedSpeakers: detectedSpeakers,
+            requestedSpeakerCount: useBlockPath ? nil : requestedSpeakers,
+            diarizationSegments: spans.map {
                 OutputDiarizationSegment(start: $0.startSec, end: $0.endSec, speaker: $0.speakerId)
             },
             segments: merged.map {

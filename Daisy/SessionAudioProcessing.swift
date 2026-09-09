@@ -300,12 +300,17 @@ final class SessionAudioProcessing {
         committed = true
     }
 
-    private struct ChannelOutput {
+    struct ChannelOutput {
         var segments: [TranscriptSegment]
         var centroids: [String: [Float]]
     }
 
-    private func transcribeChannel(
+    /// The production offline path for one channel: 900 s blocks via
+    /// `ArchiveBlockReader`, Whisper `.full` per block, block diarization
+    /// alongside, merge by speaker at the end. Internal (not private) so
+    /// the benchmark runner in DaisyTests measures THIS, not a
+    /// whole-file shortcut that never ships.
+    func transcribeChannel(
         _ urls: [URL],
         source: SegmentSource,
         language: String?,
