@@ -48,13 +48,15 @@ session="$sessions/$newdir"
 echo "      recording into $session"
 
 echo "[2/5] recording for ${record_seconds}s"
-started=$(date +%s)
 sleep "$record_seconds"
 
 echo "[3/5] kill -9"
 pkill -9 -x Daisy
 killed=$(date +%s)
-elapsed=$((killed - started + 15))
+# Seconds the recording actually ran: from the session folder's birth
+# time (the app creates it the moment capture starts) to the kill.
+created=$(stat -f %B "$session")
+elapsed=$((killed - created))
 sleep 2
 if [[ ! -f "$session/.recording" ]]; then
   echo "      warning: no .recording marker in $session (recovery relies on it or on archive size)"
@@ -75,7 +77,7 @@ done
 recovered=$(grep -m1 '^duration_sec:' "$session/transcript.md" 2>/dev/null | awk '{print $2}')
 recovered="${recovered:-0}"
 lines=$(grep -c '^\*\*\[' "$session/transcript.md" 2>/dev/null || echo 0)
-status=$([[ -f "$session/transcript.md" ]] && echo recovered || echo missing)
+outcome=$([[ -f "$session/transcript.md" ]] && echo recovered || echo missing)
 
 echo "[5/5] report → $output_path"
 cat > "$output_path" <<JSON
@@ -89,7 +91,7 @@ cat > "$output_path" <<JSON
   "recovered_duration_sec": $recovered,
   "recovered_segments": $lines,
   "coverage": $(awk -v a="$archive_seconds" -v e="$elapsed" 'BEGIN { if (e > 0) printf "%.3f", a / e; else print 0 }'),
-  "status": "$status",
+  "status": "$outcome",
   "measured_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 JSON
