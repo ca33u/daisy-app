@@ -171,6 +171,7 @@ struct HomeView: View {
                 }
                 .buttonStyle(.plain)
                 .background(.regularMaterial, in: Capsule())
+                .daisyHover(Capsule())
                 .overlay {
                     Capsule()
                         .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
@@ -726,6 +727,7 @@ struct HomeView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .daisyHoverRow()
         }
     }
 
@@ -1272,6 +1274,7 @@ struct HomeView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .daisyHoverRow()
             }
         }
         .meetingDashboardCard()

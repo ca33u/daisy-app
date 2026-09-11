@@ -2669,6 +2669,16 @@ private struct CollapsibleBlock<Accessory: View, Content: View>: View {
     let content: () -> Content
 
     @AppStorage private var isExpanded: Bool
+    /// Pointer is anywhere over the header. Drives the tint that says
+    /// "click to open me" — worth a little more ink while the card is
+    /// collapsed, since that's when the invitation matters.
+    ///
+    /// Hand-rolled rather than `daisyHover` only because the bleed here
+    /// is asymmetric (6pt sideways, 4pt vertically) and the shared
+    /// modifier insets evenly; the strengths and the 0.12s curve are
+    /// deliberately the same as the shared one, and so is the
+    /// `onDisappear` reset it documents.
+    @State private var headerHovering = false
 
     init(
         title: String,
@@ -2695,6 +2705,19 @@ private struct CollapsibleBlock<Accessory: View, Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+                // Highlight bleeds a few points past the header so the
+                // tint looks like a hovered row, not a box drawn tight
+                // around the words.
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color.primary.opacity(headerHovering ? (isExpanded ? 0.04 : 0.07) : 0))
+                        .padding(.horizontal, -6)
+                        .padding(.vertical, -4)
+                )
+                .animation(.easeInOut(duration: 0.12), value: headerHovering)
+                // A card scrolled out from under a stationary cursor
+                // never gets the exit event and would stay lit.
+                .onDisappear { headerHovering = false }
             if isExpanded {
                 content()
                     .padding(.top, 14)
@@ -2730,13 +2753,22 @@ private struct CollapsibleBlock<Accessory: View, Content: View>: View {
                     Text(title)
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.primary)
+                    // The Spacer lives INSIDE the button label, so the
+                    // whole strip left of the header's own buttons
+                    // toggles the block — aiming at a 12-point glyph to
+                    // reopen a collapsed card was precision nobody
+                    // should owe a disclosure triangle (Egor
+                    // 2026-09-10). Still a Button, so VoiceOver and Full
+                    // Keyboard Access keep the control they had; the
+                    // accessory and copy buttons sit outside the label
+                    // and keep their own clicks.
+                    Spacer(minLength: 8)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .onHover { headerHovering = $0 }
             .help(isExpanded ? String(localized: "Collapse") : String(localized: "Expand"))
-
-            Spacer()
 
             accessory()
 
@@ -2755,9 +2787,16 @@ private struct CollapsibleBlock<Accessory: View, Content: View>: View {
                 } label: {
                     Image(systemName: "doc.on.doc")
                         .font(.callout)
+                        .padding(4)
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
+                // Bare glyph, no fill of its own: paint under it, or 5%
+                // ink lands on the symbol and greys it out.
+                .daisyHover(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous),
+                    overContent: false
+                )
                 .help(copyLabel)
             }
         }

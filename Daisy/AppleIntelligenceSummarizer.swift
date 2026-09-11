@@ -195,7 +195,7 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
         case .voiceProfile:
             throw SummaryProviderError.modelUnavailable(
                 provider: "Apple Intelligence",
-                reason: "Voice profile generation isn't supported on Apple Intelligence yet. Switch the summary provider in Settings → Summary."
+                reason: "Style-profile generation isn't supported on Apple Intelligence yet. Switch the summary provider in Settings → Summary."
             )
         case .meeting(let force):
             forceFollowUp = force

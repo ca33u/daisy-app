@@ -61,9 +61,9 @@ enum LibraryScope: String, Equatable, CaseIterable, Identifiable {
 /// the instance (`@State`) so the state survives the split's remount
 /// when the user navigates away and back.
 ///
-/// `scope` is immutable per instance (Library vs Notes get their own
-/// model), so leaving the two tabs' selections independent — matching
-/// the pre-refactor behaviour where each tab was a fresh `LibraryView`.
+/// Nothing here is persisted: kind, project, tag and query all start
+/// unfiltered on relaunch, so a filter set last week can never hide
+/// today's recordings from someone who forgot about it.
 @Observable
 @MainActor
 final class LibraryModel {
@@ -84,8 +84,32 @@ final class LibraryModel {
     /// Pending delete confirmation. Carries the sessions about to
     /// be removed (1 for context-menu, N for multi-select).
     var pendingDelete: [StoredSession] = []
+    /// IDs the list is actually showing right now, published by the list
+    /// column on every filter change.
+    ///
+    /// `selectedIDs` deliberately survives a filter change — you can
+    /// narrow the list without losing your place. That makes every bulk
+    /// action a hazard, because the selection can name rows that are no
+    /// longer on screen, and Delete removes audio, transcript, summary
+    /// and screenshots for good. So every bulk action resolves through
+    /// `visibleSelection` instead. Staleness is safe in one direction
+    /// only: a lagging set can under-include (the action does less than
+    /// asked), never over-include.
+    var visibleIDs: Set<StoredSession.ID> = []
 
     init(scope: LibraryScope) { self.scope = scope }
+
+    /// The selection narrowed to what the user can see. The one way any
+    /// bulk action should resolve `selectedIDs` into sessions.
+    func visibleSelection(in pool: [StoredSession]) -> [StoredSession] {
+        pool.filter { selectedIDs.contains($0.id) && visibleIDs.contains($0.id) }
+    }
+
+    /// How many rows a bulk action would actually touch. Labels and
+    /// counts read this so the number matches the deed.
+    var visibleSelectionCount: Int {
+        selectedIDs.intersection(visibleIDs).count
+    }
 
     /// Single selected session, used as a derived view for the detail
     /// pane. `nil` when 0 or >1 selected. Reads `SessionStore` so the
@@ -132,9 +156,6 @@ struct LibraryListColumn: View {
     /// (design §6.8). Returns whether the drop was accepted at all —
     /// Finder animates a rejected drop back to its origin.
     private func importDroppedFiles(_ urls: [URL]) -> Bool {
-        // Imports are recordings; under the Notes chip the new rows
-        // would be filtered out of view.
-        guard scope != .notes else { return false }
         guard !AudioImportRunner.shared.isRunning else {
             ToastCenter.shared.show(
                 String(localized: "An import is already running. Drop the files again when it finishes."),
@@ -143,14 +164,34 @@ struct LibraryListColumn: View {
             return false
         }
         guard !urls.isEmpty else { return false }
+        // Imports are recordings, so under the Notes chip the new rows
+        // would land outside the filter. Rejecting the drop was worse:
+        // Finder just animates the files back with no explanation, and
+        // Notes is now one chip away in the same row as the projects,
+        // so you can be sitting on it without meaning to. Step aside to
+        // All instead — same thing `consumePendingImport` does.
+        //
+        // Read the destination project BEFORE stepping aside:
+        // `selectKind` clears `folderFilter`, and taking the slug after
+        // it would quietly import into no project at all.
+        let destination = model.folderFilter?.slug
+        if scope == .notes { selectKind(.all) }
         // Folders are expanded by the dialog (AudioImporter.expand):
         // each becomes a project of its own name.
-        pendingImport = AudioImportBatch(urls: urls, folderSlug: model.folderFilter?.slug)
+        pendingImport = AudioImportBatch(urls: urls, folderSlug: destination)
         return true
     }
 
     var body: some View {
         sessionList
+            // Publish what's on screen so bulk actions — including the
+            // ones in the detail column, which can't see this list —
+            // can never touch a row a filter is hiding. Keyed on the
+            // IDs rather than the sessions so an in-place row rewrite
+            // (the post-Stop summary write) doesn't churn it.
+            .onChange(of: filteredSessions.map(\.id), initial: true) { _, ids in
+                model.visibleIDs = Set(ids)
+            }
             // List column paper tone (Home surface), NOT the frosted
             // content-column material a NavigationSplitView paints by
             // default. `.scrollContentBackground(.hidden)` on the inner
@@ -176,7 +217,9 @@ struct LibraryListColumn: View {
                 AudioImportSheet(batch: batch)
             }
             .toolbar {
-                if tagGroups.contains(where: { !$0.name.isEmpty }) {
+                // Shown whenever ANY session anywhere carries a tag, or a
+                // tag filter is active — never yanked away mid-filter.
+                if store.sessions.contains(where: { !$0.tag.isEmpty }) || model.tagFilter != nil {
                     ToolbarItem(placement: .primaryAction) {
                         tagSelector
                     }
@@ -235,7 +278,7 @@ struct LibraryListColumn: View {
                     .keyboardShortcut(.delete, modifiers: .command)
                 }
                 .hidden()
-                .disabled(model.selectedIDs.isEmpty)
+                .disabled(selectedSessions.isEmpty)
             }
             .alert(
                 deleteAlertTitle,
@@ -357,14 +400,16 @@ struct LibraryListColumn: View {
         }
         Divider()
         Button(role: .destructive) {
-            let multi = store.sessions.filter { model.selectedIDs.contains($0.id) }
+            // Visible selection only — a right-click must never sweep up
+            // rows the current filter is hiding.
+            let multi = model.visibleSelection(in: store.sessions)
             if multi.count > 1, multi.contains(where: { $0.id == session.id }) {
                 model.pendingDelete = multi
             } else {
                 model.pendingDelete = [session]
             }
         } label: {
-            let multi = model.selectedIDs.count
+            let multi = model.visibleSelectionCount
             if multi > 1 && model.selectedIDs.contains(session.id) {
                 Label(String(localized: "Delete \(multi) selected"), systemImage: "trash")
             } else {
@@ -422,15 +467,12 @@ struct LibraryListColumn: View {
             // "All" chip sat right under the text-field's baseline.
             .padding(.bottom, 14)
 
-            // Kind chips first (All / Recordings / Notes), then the folder
-            // chips. Notes used to be a separate sidebar tab; they share
-            // folders, tags, model and files with recordings, so they're
-            // a filter here now (2026-09-07). Reusing `FolderChip` keeps
-            // the two rows visually one family.
-            kindChips
-                .padding(.horizontal, 12)
-                .padding(.bottom, 6)
-            folderChips
+            // One row: All · Recordings · Notes · projects. Notes used
+            // to be a separate sidebar tab; they share folders, tags,
+            // model and files with recordings, so kind is a chip here
+            // now (2026-09-07), sitting in the same row as the projects
+            // rather than in a second row of its own (Egor 2026-09-10).
+            filterChips
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
 
@@ -512,25 +554,33 @@ struct LibraryListColumn: View {
                     }
                 } else if filteredSessions.isEmpty && !model.query.isEmpty {
                     ContentUnavailableView.search(text: model.query)
-                } else if filteredSessions.isEmpty, let f = model.folderFilter {
-                    // Kind-aware noun: the Notes tab also has folder chips now.
-                    if scope == .notes {
-                        ContentUnavailableView(
-                            "No notes in \(f.name)",
-                            systemImage: "folder",
-                            description: Text("Move a note into this folder from its detail view.")
-                        )
-                    } else {
-                        ContentUnavailableView(
-                            "No recordings in \(f.name)",
-                            systemImage: "folder",
-                            description: Text("Move a recording into this folder from its detail view.")
-                        )
-                    }
+                } else if filteredSessions.isEmpty, model.tagFilter == nil, let f = model.folderFilter {
+                    // Kind-neutral: a project holds recordings and notes
+                    // alike now that kind is a chip in the same row.
+                    // Only claim the project is empty when no tag is
+                    // narrowing it — otherwise the tag is what emptied
+                    // the pane, and "move something in" is bad advice.
+                    ContentUnavailableView(
+                        "Nothing in \(f.name)",
+                        systemImage: "folder",
+                        description: Text("Move a recording or a note into this project from its detail view.")
+                    )
+                } else if filteredSessions.isEmpty, let tag = model.tagFilter {
+                    // A tag that matches nothing under the current chip
+                    // used to leave a blank pane with no explanation.
+                    ContentUnavailableView(
+                        tag.isEmpty
+                            ? String(localized: "Nothing untagged here")
+                            : String(localized: "Nothing tagged “\(tag)” here"),
+                        systemImage: "tag",
+                        description: Text("Pick another tag, or choose All tags to clear the filter.")
+                    )
                 }
             }
 
-            if model.selectedIDs.count > 1 {
+            // Counted over the visible selection, so the bar never
+            // offers to act on rows a filter is hiding.
+            if selectedSessions.count > 1 {
                 bulkSelectionBar
             }
         }
@@ -549,7 +599,7 @@ struct LibraryListColumn: View {
             }
             .help(allVisibleSelected ? String(localized: "Deselect all") : String(localized: "Select all"))
 
-            Text(String(localized: "\(model.selectedIDs.count) selected"))
+            Text(String(localized: "\(selectedSessions.count) selected"))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
@@ -569,7 +619,7 @@ struct LibraryListColumn: View {
             } label: {
                 Label("Move", systemImage: "folder")
             }
-            .disabled(model.selectedIDs.isEmpty)
+            .disabled(selectedSessions.isEmpty)
 
             Button(role: .destructive) {
                 requestBulkDelete()
@@ -579,7 +629,7 @@ struct LibraryListColumn: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(Color.daisyDestructiveControl)
-            .disabled(model.selectedIDs.isEmpty)
+            .disabled(selectedSessions.isEmpty)
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 12)
@@ -592,8 +642,16 @@ struct LibraryListColumn: View {
         }
     }
 
+    /// The selection, narrowed to what's actually on screen.
+    ///
+    /// Every bulk action reads this, and that narrowing is the whole
+    /// point: `selectedIDs` survives a filter change, so selecting four
+    /// rows under All and then picking a tag only one of them carries
+    /// used to leave Delete acting on three sessions the user could no
+    /// longer see. Filters are not a weaker promise than the list —
+    /// what you can't see, you can't destroy.
     private var selectedSessions: [StoredSession] {
-        store.sessions.filter { model.selectedIDs.contains($0.id) }
+        filteredSessions.filter { model.selectedIDs.contains($0.id) }
     }
 
     private var allVisibleSelected: Bool {
@@ -660,15 +718,17 @@ struct LibraryListColumn: View {
         }
     }
 
-    /// Corpus narrowed to this tab's scope, BEFORE the user's own
-    /// folder/tag/search filters. Every derived surface (list, folder
-    /// chips, tag groups, counts) reads from this so scope stays
-    /// consistent across all of them.
+    /// Corpus narrowed to the selected KIND chip, BEFORE the user's own
+    /// project/tag/search filters. The list and `visibleBeforeTagFilter`
+    /// read from this. The chip counts and the tag menu deliberately do
+    /// NOT: a chip that showed its own count would read zero the moment
+    /// you stood on a filter that empties it, and a tag would vanish
+    /// from the menu you were using — both bugs we already shipped once.
     private var scopedSessions: [StoredSession] {
-        // Split by KIND, not by folder: recordings and notes now share the
-        // same projects, so the Library shows every recording and the Notes
-        // tab every note, each across ALL folders. (Was `folderSlug` vs the
-        // Notes folder — the coupling this whole change removed.)
+        // Split by KIND, not by folder: recordings and notes share the
+        // same projects, so each kind chip spans ALL projects. (Was
+        // `folderSlug` vs the Notes folder — the coupling this whole
+        // change removed.)
         switch scope {
         case .all:        return store.sessions
         case .recordings: return store.sessions.filter { $0.kind == .recording }
@@ -697,14 +757,24 @@ struct LibraryListColumn: View {
         return pool
     }
 
-    /// All tags present across sessions, sorted by count desc then
-    /// alphabetically. "Untagged" (empty tag) is appended last so
-    /// it's visually demoted but still reachable from the selector.
-    /// Powers both the toolbar selector and the autocomplete inside
-    /// SessionDetail's tag editor.
+    /// Every tag in the corpus, carrying its count under the CURRENT
+    /// chip — so an entry can legitimately read zero rather than
+    /// disappear. Sorted by count desc then alphabetically; "Untagged"
+    /// (empty tag) is appended last so it's visually demoted but still
+    /// reachable. Powers the toolbar selector.
     var tagGroups: [(name: String, count: Int)] {
+        // Which tags EXIST comes from the whole corpus; how many rows
+        // each one has right now comes from the current chip. Counting
+        // both from the current chip made the toolbar pill vanish the
+        // moment you switched to a kind or project with no tags — taking
+        // an active tag filter out of sight while it kept filtering
+        // (Egor 2026-09-10). A tag that has nothing under this chip
+        // stays listed with a zero.
         var counts: [String: Int] = [:]
-        for s in scopedSessions {
+        for s in store.sessions {
+            counts[s.tag, default: 0] = 0
+        }
+        for s in visibleBeforeTagFilter {
             counts[s.tag, default: 0] += 1
         }
         let tagged = counts
@@ -715,10 +785,23 @@ struct LibraryListColumn: View {
                 return $0.name.lowercased() < $1.name.lowercased()
             }
         let untaggedCount = counts[""] ?? 0
-        if untaggedCount > 0 {
+        // Same rule as the named tags: listed when the corpus has any
+        // untagged session at all, or while it IS the active filter —
+        // otherwise the pill would read "Untagged" with nothing checked
+        // in the menu behind it.
+        let untaggedExists = store.sessions.contains { $0.tag.isEmpty }
+        if untaggedCount > 0 || untaggedExists || model.tagFilter == "" {
             return tagged + [(name: "", count: untaggedCount)]
         }
         return tagged
+    }
+
+    /// Rows the current kind/project chip shows before the tag filter
+    /// narrows them — the denominator for tag counts.
+    private var visibleBeforeTagFilter: [StoredSession] {
+        guard let f = model.folderFilter else { return scopedSessions }
+        let scope = folders.slugScope(for: f)
+        return scopedSessions.filter { scope.contains($0.folderSlug) }
     }
 
     /// Single-selection dropdown listing every tag in use, with
@@ -788,7 +871,8 @@ struct LibraryListColumn: View {
     }
 
     /// Folders flattened for the chip row in hierarchy order: each root
-    /// followed by its children. Shared by both tabs. The system Notes
+    /// followed by its children, after the kind chips in the same row.
+    /// The system Notes
     /// folder is dropped from the chip row (it's still a valid move
     /// target): it's a legacy home for pre-split notes, redundant now
     /// that notes are identified by kind and default to Inbox — "All"
@@ -804,65 +888,95 @@ struct LibraryListColumn: View {
         return rows
     }
 
-    /// All / Recordings / Notes. Counts are of the whole corpus (before
-    /// folder/tag/search narrowing) so the person sees what each kind
-    /// holds, not what the current folder happens to contain.
-    private var kindChips: some View {
-        HStack(spacing: 6) {
-            ForEach(LibraryScope.allCases) { kind in
-                let count: Int = switch kind {
-                case .all:        store.sessions.count
-                case .recordings: store.sessions.filter { $0.kind == .recording }.count
-                case .notes:      store.sessions.filter { $0.kind == .note }.count
-                }
-                FolderChip(
-                    label: kind.title,
-                    count: count,
-                    isActive: model.scope == kind
-                ) {
-                    model.scope = kind
-                    // A selection from the other kind would leave the
-                    // detail pane showing a row the list no longer has.
-                    model.selectedIDs = model.selectedIDs.filter { id in
-                        scopedSessions.contains { $0.id == id }
-                    }
-                }
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    /// Horizontally-scrollable folder chips above the session list.
-    /// "All" + each folder; counts are live per-folder.
-    private var folderChips: some View {
+    /// ONE chip row: All · Recordings · Notes · then the projects
+    /// (Egor 2026-09-10 — two rows both starting with "All" read as a
+    /// muddle). Kind and project are one exclusive choice here, not two
+    /// independent filters: picking a kind clears the project and vice
+    /// versa, which is what a row of chips looks like it does. Kind
+    /// chips hide themselves when that kind is empty, so a person who
+    /// never dictates never sees "Notes".
+    private var filterChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 FolderChip(
                     label: String(localized: "All"),
-                    count: scopedSessions.count,
-                    isActive: model.folderFilter == nil
+                    count: store.sessions.count,
+                    isActive: model.scope == .all && model.folderFilter == nil
                 ) {
-                    model.folderFilter = nil
+                    selectKind(.all)
+                }
+                ForEach(kindChipCases, id: \.self) { kind in
+                    FolderChip(
+                        label: kind.title,
+                        count: kindCount(kind),
+                        isActive: model.scope == kind && model.folderFilter == nil
+                    ) {
+                        selectKind(kind)
+                    }
                 }
                 // Project hierarchy, flattened for the horizontal chip
                 // row: each root, immediately followed by its child
                 // folders (prefixed "↳"). A parent's count aggregates its
                 // children (matches what selecting it shows); a leaf
-                // counts only itself. Notes has its own top-level tab, so
-                // it's dropped from the Library chips.
+                // counts only itself. Notes is a kind chip above, not a
+                // project, so its folder is dropped from this list.
                 ForEach(chipRows, id: \.folder.slug) { row in
                     let f = row.folder
                     let scope = row.isChild ? [f.slug] : folders.slugScope(for: f)
-                    let count = scopedSessions.filter { scope.contains($0.folderSlug) }.count
+                    let count = store.sessions.filter { scope.contains($0.folderSlug) }.count
                     FolderChip(
                         label: row.isChild ? "↳ \(f.name)" : f.name,
                         count: count,
                         isActive: model.folderFilter?.slug == f.slug
                     ) {
-                        model.folderFilter = (model.folderFilter?.slug == f.slug) ? nil : f
+                        if model.folderFilter?.slug == f.slug {
+                            selectKind(.all)
+                        } else {
+                            model.scope = .all
+                            model.folderFilter = f
+                            pruneSelectionToVisibleRows()
+                        }
                     }
                 }
             }
+        }
+    }
+
+    /// Kind chips worth showing: a kind with nothing in it is noise —
+    /// unless it's the active filter, because hiding the chip a person
+    /// is currently standing on would strand them on an empty list with
+    /// no way back.
+    private var kindChipCases: [LibraryScope] {
+        [.recordings, .notes].filter { kindCount($0) > 0 || model.scope == $0 }
+    }
+
+    /// Counts are of the whole corpus (before project/tag/search
+    /// narrowing) so the person sees what each kind holds, not what the
+    /// current project happens to contain.
+    private func kindCount(_ kind: LibraryScope) -> Int {
+        switch kind {
+        case .all:        store.sessions.count
+        case .recordings: store.sessions.filter { $0.kind == .recording }.count
+        case .notes:      store.sessions.filter { $0.kind == .note }.count
+        }
+    }
+
+    private func selectKind(_ kind: LibraryScope) {
+        model.scope = kind
+        model.folderFilter = nil
+        pruneSelectionToVisibleRows()
+    }
+
+    /// A selection made under another filter would leave the detail pane
+    /// showing a row the list no longer has.
+    private func pruneSelectionToVisibleRows() {
+        // Against the kind AND project narrowing, not just the kind:
+        // otherwise picking a project leaves a selection from another
+        // one alive, and the detail pane shows a row the list doesn't
+        // have.
+        let visible = visibleBeforeTagFilter
+        model.selectedIDs = model.selectedIDs.filter { id in
+            visible.contains { $0.id == id }
         }
     }
 
@@ -881,7 +995,7 @@ struct LibraryDetailColumn: View {
     var body: some View {
         if let session = model.singleSelected {
             SessionDetailView(initialSession: session)
-        } else if model.selectedIDs.count > 1 {
+        } else if model.visibleSelectionCount > 1 {
             multiSelectDetail
         } else {
             emptyDetail
@@ -895,9 +1009,9 @@ struct LibraryDetailColumn: View {
             Text("Move or delete the selection using the actions below the list.")
         } actions: {
             Button(role: .destructive) {
-                model.pendingDelete = store.sessions.filter { model.selectedIDs.contains($0.id) }
+                model.pendingDelete = model.visibleSelection(in: store.sessions)
             } label: {
-                Label(String(localized: "Delete \(model.selectedIDs.count) sessions…"), systemImage: "trash")
+                Label(String(localized: "Delete \(model.visibleSelectionCount) sessions…"), systemImage: "trash")
             }
             .buttonStyle(.borderedProminent)
             .tint(Color.daisyDestructiveControl)
@@ -906,7 +1020,7 @@ struct LibraryDetailColumn: View {
     }
 
     private var selectionTitle: String {
-        String(localized: "\(model.selectedIDs.count) selected")
+        String(localized: "\(model.visibleSelectionCount) selected")
     }
 
     private var emptyDetail: some View {
@@ -1107,6 +1221,10 @@ private struct FolderChip: View {
                         lineWidth: isActive ? 1 : 0.5
                     )
             )
+            // Inert chips gave no sign they were clickable until you
+            // clicked one (Egor 2026-09-10). Skipped on the active chip,
+            // which already carries the selection fill.
+            .daisyHover(Capsule(), isEnabled: !isActive)
             .foregroundStyle(Color.daisyTextPrimary)
         }
         .buttonStyle(.plain)

@@ -57,7 +57,7 @@ struct VoiceImportView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Set up your Voice Profile")
+            Text("Set up your style profile")
                 .font(.title3.weight(.semibold))
 
             // Same glass tab strip as the rest of the app (Dictation /
@@ -175,12 +175,12 @@ struct VoiceImportView: View {
                 // Per LANGUAGE: 60 Spanish words don't become "ready to
                 // generate" just because Russian passed 300 long ago.
                 ToastCenter.shared.show(
-                    String(localized: "Added \(result.words) words — your Voice Profile is ready to generate."),
+                    String(localized: "Added \(result.words) words — your style profile is ready to generate."),
                     style: .success
                 )
             } else {
                 ToastCenter.shared.show(
-                    String(localized: "Added \(result.words) words toward your Voice Profile."),
+                    String(localized: "Added \(result.words) words toward your style profile."),
                     style: .success
                 )
             }

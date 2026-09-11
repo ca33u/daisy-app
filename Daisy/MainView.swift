@@ -45,7 +45,7 @@ enum MainSection: String, Hashable, CaseIterable, Identifiable, Sendable {
         case .home:        String(localized: "Home")
         case .library:     String(localized: "Library")
         case .dictation:   String(localized: "Dictation")
-        case .voice:       String(localized: "Voice")
+        case .voice:       String(localized: "My style")
         case .settings:    String(localized: "Settings")
         case .about:       String(localized: "About")
         }
@@ -423,7 +423,13 @@ struct MainView: View {
                         .padding(.vertical, 14)
                         .foregroundStyle(Color.daisyTextPrimary)
                         .background(
-                            Capsule(style: .continuous).fill(Color.daisyBgElevated)
+                            Capsule(style: .continuous)
+                                .fill(Color.daisyBgElevated)
+                                // Hover tints the capsule's own fill,
+                                // never the label: painting 5% white
+                                // over the destructive ink below would
+                                // pink the red exactly where it matters.
+                                .daisyHover(Capsule(style: .continuous))
                         )
                         .overlay(
                             Capsule(style: .continuous).strokeBorder(Color.daisyDivider, lineWidth: 0.5)
@@ -462,7 +468,13 @@ struct MainView: View {
                         .padding(.vertical, 14)
                         .foregroundStyle(Color.daisyError)
                         .background(
-                            Capsule(style: .continuous).fill(Color.daisyBgElevated)
+                            Capsule(style: .continuous)
+                                .fill(Color.daisyBgElevated)
+                                // Hover tints the capsule's own fill,
+                                // never the label: painting 5% white
+                                // over the destructive ink below would
+                                // pink the red exactly where it matters.
+                                .daisyHover(Capsule(style: .continuous))
                         )
                         .overlay(
                             Capsule(style: .continuous).strokeBorder(Color.daisyDivider, lineWidth: 0.5)
@@ -576,6 +588,7 @@ struct MainView: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(isSelected ? Color.daisySidebarSelection : Color.clear)
             )
+            .daisyHover(isEnabled: !isSelected, overContent: false)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -608,6 +621,7 @@ struct MainView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .daisyHover(overContent: false)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

@@ -4136,6 +4136,126 @@
         }
       }
     },
+    "My style" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мой стиль"
+          }
+        }
+      }
+    },
+    "Daisy is learning your style" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy изучает ваш стиль"
+          }
+        }
+      }
+    },
+    "Keep dictating — your style profile unlocks automatically once Daisy has heard enough of you." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Продолжайте диктовать — профиль стиля откроется сам, когда Daisy услышит вас достаточно."
+          }
+        }
+      }
+    },
+    "Your style profile is ready!" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Профиль стиля готов!"
+          }
+        }
+      }
+    },
+    "Select text anywhere, tap to rewrite it in your tone (needs a style profile)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выделите текст где угодно и нажмите, чтобы переписать его в вашей манере (нужен профиль стиля)"
+          }
+        }
+      }
+    },
+    "Rewrites just the follow-up draft using your style profile, after the summary is written. One extra request per meeting that has one." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переписывает только черновик письма, используя профиль стиля, уже после саммари. Один дополнительный запрос на встречу, у которой оно есть."
+          }
+        }
+      }
+    },
+    "Needs a style profile first — open My style in the sidebar. Rewrites just the follow-up draft, at the cost of one extra request per meeting that has one." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сначала нужен профиль стиля — откройте «Мой стиль» в боковом меню. Переписывает только черновик письма, ценой одного дополнительного запроса на встречу, у которой оно есть."
+          }
+        }
+      }
+    },
+    "Style-profile generation isn't supported on Apple Intelligence yet. Switch the summary provider in Settings → Summary." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Intelligence пока не умеет строить профиль стиля. Смените провайдера саммари в Настройках → Саммари."
+          }
+        }
+      }
+    },
+    "Generate your style profile first — open My style in the sidebar." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сначала создайте профиль стиля — откройте «Мой стиль» в боковом меню."
+          }
+        }
+      }
+    },
+    "Set up your style profile" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Настройте профиль стиля"
+          }
+        }
+      }
+    },
+    "Added %lld words — your style profile is ready to generate." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавлено слов: %lld — профиль стиля можно создавать."
+          }
+        }
+      }
+    },
+    "Added %lld words toward your style profile." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавлено слов в копилку профиля стиля: %lld."
+          }
+        }
+      }
+    },
     "Audio without transcript" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -10957,6 +11077,16 @@
         }
       }
     },
+    "Move a recording or a note into this project from its detail view." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перенесите запись или заметку в этот проект из окна деталей."
+          }
+        }
+      }
+    },
     "Move a recording into this folder from its detail view." : {
       "localizations" : {
         "ru" : {
@@ -11789,12 +11919,32 @@
         }
       }
     },
+    "Nothing in %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В проекте «%@» пусто"
+          }
+        }
+      }
+    },
     "Nothing in the last 24 hours." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ничего за последние 24 часа."
+          }
+        }
+      }
+    },
+    "Nothing tagged “%@” here" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Здесь нет ничего с тегом «%@»"
           }
         }
       }
@@ -11835,6 +11985,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Нечего отмечать — Daisy не записывает."
+          }
+        }
+      }
+    },
+    "Nothing untagged here" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Здесь нет ничего без тега"
           }
         }
       }
@@ -12934,6 +13094,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выберите глобальное сочетание для каждого режима записи. Их можно изменить позже: «Настройки → Запись → Сочетания клавиш»."
+          }
+        }
+      }
+    },
+    "Pick another tag, or choose All tags to clear the filter." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выберите другой тег или «Все теги», чтобы снять фильтр."
           }
         }
       }

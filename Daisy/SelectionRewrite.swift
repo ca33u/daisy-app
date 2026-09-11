@@ -53,7 +53,7 @@ final class SelectionRewrite {
         // language is known — this only checks that any exists.)
         guard VoiceProfileStore.shared.hasProfile else {
             ToastCenter.shared.show(
-                String(localized: "Generate your Voice Profile first — open the Voice section."),
+                String(localized: "Generate your style profile first — open My style in the sidebar."),
                 style: .warning
             )
             return
@@ -93,7 +93,7 @@ final class SelectionRewrite {
         guard let style else {
             PasteboardProxy.shared.giveBack(borrow)
             ToastCenter.shared.show(
-                String(localized: "Generate your Voice Profile first — open the Voice section."),
+                String(localized: "Generate your style profile first — open My style in the sidebar."),
                 style: .warning
             )
             return

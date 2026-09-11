@@ -2,7 +2,11 @@
 //  VoiceView.swift
 //  Daisy
 //
-//  The "Voice" sidebar section. Generates a local voice profile from the
+//  The "My style" sidebar section (called "Voice" until 2026-09-10 —
+//  the word described the input, dictation, rather than what the person
+//  gets: text that sounds like them). Types, file names and the
+//  `.voice` section case keep the old name; only the copy changed.
+//  Generates a local style profile from the
 //  user's own dictations and lets them turn on "polish dictation in my
 //  voice" (a per-dictation rewrite conditioned on the profile).
 //
@@ -140,7 +144,7 @@ struct VoiceView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Your Voice")
+            Text("My style")
                 // Serif display title, matching the Home greeting.
                 .font(.system(.largeTitle, design: .serif).weight(.medium))
                 .foregroundStyle(.primary)
@@ -194,6 +198,9 @@ struct VoiceView: View {
                 Color.gray.opacity(isSelected ? 0.16 : 0.06),
                 in: Capsule()
             )
+            // The 6% backdrop is all but transparent and the count is
+            // .tertiary, so the tint goes underneath rather than over.
+            .daisyHover(Capsule(), isEnabled: !isSelected, overContent: false)
             .foregroundStyle(hasProfile ? .primary : .secondary)
         }
         .buttonStyle(.plain)
@@ -283,14 +290,14 @@ struct VoiceView: View {
         let progress = code.map { store.unlockProgress(for: $0) } ?? store.unlockProgress
         card {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Daisy is learning your voice")
+                Text("Daisy is learning your style")
                     .font(.headline)
                 if let code {
                     Text(VoiceLanguage.label(for: code))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                Text("Keep dictating — your Voice Profile unlocks automatically once Daisy has heard enough of you.")
+                Text("Keep dictating — your style profile unlocks automatically once Daisy has heard enough of you.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -404,7 +411,7 @@ struct VoiceView: View {
     private func emptyCard(language code: String? = nil) -> some View {
         card {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Your Voice Profile is ready!")
+                Text("Your style profile is ready!")
                     .font(.headline)
                 if let code {
                     Text(VoiceLanguage.label(for: code))

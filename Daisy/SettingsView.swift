@@ -1245,7 +1245,7 @@ struct SettingsView: View {
                 )
                 shortcutRow(
                     title: "Rewrite in my voice",
-                    caption: "Select text anywhere, tap to rewrite it in your tone (needs a Voice Profile)",
+                    caption: "Select text anywhere, tap to rewrite it in your tone (needs a style profile)",
                     binding: $settings.rewriteSelectionHotkey,
                     slot: .rewrite
                 )
@@ -2202,6 +2202,7 @@ struct SettingsView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .daisyHoverRow()
                         Button("Forget") {
                             speakerStore.forget(profile.id)
                         }
@@ -2593,8 +2594,8 @@ struct SettingsView: View {
                 Toggle(isOn: $settings.followUpsInMyVoice) {
                     Text("Write follow-ups in my voice")
                     Text(voiceProfileExists
-                         ? "Rewrites just the follow-up draft using your Voice Profile, after the summary is written. One extra request per meeting that has one."
-                         : "Needs a Voice Profile first — open Voice in the sidebar. Rewrites just the follow-up draft, at the cost of one extra request per meeting that has one.")
+                         ? "Rewrites just the follow-up draft using your style profile, after the summary is written. One extra request per meeting that has one."
+                         : "Needs a style profile first — open My style in the sidebar. Rewrites just the follow-up draft, at the cost of one extra request per meeting that has one.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
