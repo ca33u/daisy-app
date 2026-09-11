@@ -134,14 +134,14 @@ struct AboutView: View {
                 aboutLinkRow(
                     icon: "chevron.left.forwardslash.chevron.right",
                     title: "Source code",
-                    detail: "github.com/addicted-studio/daisy-app",
-                    url: URL(string: "https://github.com/addicted-studio/daisy-app")
+                    detail: "github.com/ca33u/daisy-app",
+                    url: URL(string: "https://github.com/ca33u/daisy-app")
                 )
                 aboutLinkRow(
                     icon: "bubble.left.and.bubble.right",
                     title: "Community",
                     detail: "Q&A, ideas, show-and-tell",
-                    url: URL(string: "https://github.com/addicted-studio/daisy-app/discussions")
+                    url: URL(string: "https://github.com/ca33u/daisy-app/discussions")
                 )
                 aboutLinkRow(
                     icon: "person.2.wave.2",
@@ -153,7 +153,7 @@ struct AboutView: View {
                     icon: "doc.text",
                     title: "License",
                     detail: "Apache 2.0 — open source",
-                    url: URL(string: "https://github.com/addicted-studio/daisy-app/blob/main/LICENSE")
+                    url: URL(string: "https://github.com/ca33u/daisy-app/blob/main/LICENSE")
                 )
                 aboutLinkRow(
                     icon: "lock.shield",
