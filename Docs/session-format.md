@@ -234,6 +234,61 @@ Speaker labels: the microphone stream uses the user's configured display
 name, or `Me` when unset; the system stream uses `Remote A`, `Remote B`,
 …, or bare `Remote` when diarization produced nothing.
 
+### 3.4 The minimal profile: screenshot notes
+
+Not every session is a meeting. A screenshot note is created by a
+keystroke, holds one picture and possibly a line of dictated context, and
+has no audio, no speakers and no summary. It is the **same kind of
+session** — one directory, one `transcript.md` — written with a much
+smaller set of fields.
+
+It is marked by one key:
+
+```yaml
+daisy_screenshot_note: true
+```
+
+When that key is present and true, the following are **legitimately
+absent**, and a reader must not treat their absence as corruption:
+
+- `type`, `source`, `locale`, `tags` — the fixed literals §3.1 calls
+  "always"
+- `daisy_speaker_map` — nothing was diarized, so there is nothing to map
+- `daisy_system_audio_status`, `daisy_mic_audio_status` — nothing was
+  captured
+- the `## Transcript` heading, and every other body section
+
+What such a note does carry, in this order: `title`, `started`,
+`duration_sec: 0`, `daisy_kind: note`, `daisy_folder`, and the marker
+key.
+
+The body is a heading, an optional paragraph of dictated context, and a
+relative image link:
+
+```markdown
+# Screenshot — 2026-09-12 09:14
+
+The pricing table they showed on the call.
+
+![2026-09-12 09:14](screenshots/001.png)
+```
+
+Two details a second implementation must match. The image goes in
+`screenshots/001.<ext>`, never as a loose file in the session root —
+that folder and the numeric name are what make the picture visible in
+the Library at all. And the link is **relative**, unlike the absolute
+paths the meeting renderer writes for its screenshot section.
+
+This shape is by far the most common thing in a real library: in the
+author's own, 75 of 90 sessions are screenshot notes. Any tool that
+walks a sessions directory and expects §3.1's "always" fields will be
+wrong about most of what it sees.
+
+The general rule this is an instance of: **`daisy_kind: note` sessions
+have no audio-derived fields.** A voice note is a note with audio and a
+transcript; a screenshot note is a note with neither. Both are notes,
+and neither owes the meeting shape anything.
+
 ---
 
 ## 4. `summary.json`
