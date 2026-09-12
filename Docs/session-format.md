@@ -289,6 +289,66 @@ have no audio-derived fields.** A voice note is a note with audio and a
 transcript; a screenshot note is a note with neither. Both are notes,
 and neither owes the meeting shape anything.
 
+### 3.5 The other minimal profile: recovered recordings
+
+Crash recovery writes an even smaller file than a screenshot note. It
+runs after a crash or a power loss, from audio and nothing else: there
+was no clean stop, so there is no summary, no diarization and no capture
+statistics to record. Its marker is:
+
+```yaml
+daisy_recovered: true
+```
+
+It writes exactly `title`, `started`, `daisy_recovered`, `daisy_kind:
+recording`, `duration_sec`, and — **only when the user has configured a
+default meeting project** — `daisy_folder`. Everything else §3.1 calls
+"always" is absent, and legitimately so. A reader must not treat a
+missing `daisy_folder` here as data loss: absent means `inbox`, which is
+what it would have meant anyway.
+
+The body carries a heading, an explanatory quote, any moment markers
+that survived in `markers.json`, and then one section per stream:
+
+```markdown
+## Your side
+
+…what the microphone caught…
+
+## Other side
+
+…what the system audio caught…
+```
+
+When neither stream produced speech, the body says so in one italic
+line instead.
+
+Three things a second implementation must get right here.
+
+**Those two headings are localized.** A Russian recovery writes «Ваша
+сторона» and «Другая сторона». Never key on them. This is the exact
+opposite of `## Transcript` (§3.3), which is never translated in any
+language because the retention sweep finds real content by that literal
+— and a recovered transcript deliberately has no such heading, which is
+why the sweep leaves its audio alone. That is the design working, not a
+gap: the raw audio is the only good copy of a recording nobody finished
+processing.
+
+**`duration_sec` here is rounded, not truncated**, which contradicts
+§3.1. That is a bug in the Mac app, not a licence: a second
+implementation truncates. A checker may tolerate the rounding on
+recovered sessions until the Mac app is fixed, and should stop
+tolerating it afterwards. The difference is under a second and harms
+nobody — it is listed because an undocumented inconsistency is how two
+implementations start drifting.
+
+**The profile is a claim, not an inference.** It applies because the
+marker says so, never because fields happen to be missing. A file with
+`daisy_recovered: false`, or without the key, is judged as a full
+recording no matter how little it carries. Same rule for §3.4. When a
+file somehow carries both markers, the screenshot-note profile wins,
+because it is the one that describes a shape the app still writes today.
+
 ---
 
 ## 4. `summary.json`
