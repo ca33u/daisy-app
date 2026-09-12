@@ -5,38 +5,35 @@
 //  Post-Stop handling for DICTATION mode, lifted out of the giant `stop()`
 //  in RecordingSession.swift (architecture cleanup — behaviour unchanged).
 //  Dictation is fully ephemeral: transcribe the held mic buffer (fast
-//  engine → Whisper fallback), optionally rewrite it in the user's voice,
-//  record usage, paste, and tear the session down. Nothing is saved to
-//  Library.
+//  engine → Whisper fallback), apply the user's vocabulary, record usage,
+//  paste, and tear the session down. Nothing is saved to Library, and
+//  nothing leaves the machine.
 //
 
 import Foundation
 import os
 
 extension RecordingSession {
-    /// Which language this dictation is in, for picking the voice
-    /// profile that rewrites it. A pinned locale is the answer whenever
-    /// there is one — the person said it themselves; otherwise the
-    /// detector reads the text we just produced. nil when neither can
-    /// say, which the store reads as "no known mismatch" and so applies
-    /// no cross-language guard.
-    static func dictationLanguage(of text: String, settings: AppSettings) -> String? {
-        let pinned = settings.dictationLocale.isEmpty
-            ? settings.defaultTranscriptionLocale
-            : settings.dictationLocale
-        if let code = VoiceCorpusClassifier.normalized(pinned) { return code }
-        return LanguageDetector.detect(text)
-    }
-
     /// Finalize a `.dictation` session and paste the result. `durSec` is
     /// the recorded length (passed from `stop()`, which already computed
     /// it). Runs INLINE on Stop — the paste waits on it — so every step is
-    /// latency-conscious (lite decode, an 8 s polish deadline).
+    /// latency-conscious: lite decode, and nothing that leaves the machine.
+    ///
+    /// There used to be an optional "rewrite in my voice" LLM pass here,
+    /// between recognition and paste. Removed 2026-09-12: it cost ~7.5 s
+    /// against an 8 s deadline on every dictation and sent each one to
+    /// the cloud provider, in a feature whose whole value is that the
+    /// text appears the instant you let go of the key. It was also
+    /// circular — the voice profile is learned from dictations, so
+    /// applying it back to a dictation was an expensive identity. Styling
+    /// belongs on text that is NOT already in the person's voice: a
+    /// follow-up (`FollowUpVoice`) or whatever they select and hit the
+    /// rewrite hotkey on (`SelectionRewrite`). Both still exist.
     func finishDictation(durSec: Int) async {
         let signposter = OSSignposter(subsystem: "app.essazanov.Daisy", category: "Dictation")
         func ms(_ start: Date) -> Int { Int(Date().timeIntervalSince(start) * 1000) }
 
-        var transcriptText: String
+        let transcriptText: String
         let samples = micTranscriber.capturedSamples
 
         // Fast-engine attempt (Parakeet or Apple SpeechAnalyzer) — both
@@ -117,78 +114,6 @@ extension RecordingSession {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        // What the VOICE PROFILE learns from — captured here, before the
-        // polish branch below can overwrite `transcriptText` with the
-        // model's rewrite. The profile has to learn from the person, not
-        // from its own previous output (see `DictationPaste.prepare`).
-        let rawText = transcriptText
-
-        // Optional: rewrite in the user's voice via the local profile
-        // before pasting. Opt-in (adds one LLM pass); no-op without a
-        // generated profile. Failure / timeout → keep the un-polished text.
-        //
-        // The profile is picked by the language of THIS text: a pinned
-        // dictation locale if there is one, otherwise the detector (only
-        // run when the polish is actually going to happen — it costs an
-        // NL pass). With no profile for that language the store falls
-        // back (universal, then largest corpus) and flags it, which puts
-        // the cross-language guard into the prompt.
-        if settings.polishDictationInMyVoice, !transcriptText.isEmpty,
-           let style = VoiceProfileStore.shared.resolveStyle(
-               forTextIn: Self.dictationLanguage(of: transcriptText, settings: settings)
-           ) {
-            let instruction = style.promptInstruction
-            if style.isCrossLanguage {
-                VoiceProfileStore.shared.noteCrossLanguagePolish(target: style.targetLanguage)
-            }
-            let polishState = signposter.beginInterval("dictation_polish", id: signposter.makeSignpostID())
-            let t_polish = Date()
-            if let polished = await Self.polishWithDeadline(
-                text: transcriptText, instruction: instruction, seconds: 8
-            ), !polished.isEmpty {
-                // Count words the rewrite changed (insertions in a word-level
-                // diff) for the "fixes made by Daisy" widget.
-                let before = transcriptText.split(whereSeparator: { $0.isWhitespace })
-                let after = polished.split(whereSeparator: { $0.isWhitespace })
-                let changed = after.difference(from: before).insertions.count
-                UsageStats.shared.recordFixes(polished: changed)
-
-                // Auto-suggest (Egor 2026-07-25): the polish LLM just
-                // restored a Latin brand name we don't cover (not in
-                // the built-in table, not in the user's rules) — offer
-                // to save it as a permanent Vocabulary correction. Once
-                // saved it works on EVERY engine, polish on or off.
-                let triggers = Set(
-                    DictationDictionary.shared.replacements.map { $0.from.lowercased() }
-                )
-                if let pair = BrandCorrections.suggestRestoredBrand(
-                    original: transcriptText, polished: polished, userTriggers: triggers
-                ) {
-                    ToastCenter.shared.showAction(
-                        String(localized: "Noticed “\(pair.from)” → “\(pair.to)”. Save as a dictation correction?"),
-                        actionLabel: String(localized: "Save"),
-                        style: .info
-                    ) {
-                        DictationDictionary.shared.add(
-                            DictationReplacement(kind: .correction, from: pair.from, to: pair.to)
-                        )
-                    }
-                }
-
-                transcriptText = polished
-            }
-            signposter.endInterval("dictation_polish", polishState)
-            log.info("post-stop dictation_polish: \(ms(t_polish), privacy: .public)ms")
-        }
-
-        // nil when the polish didn't run or changed nothing: `prepare`
-        // then feeds the corpus the very text it already corrected,
-        // instead of correcting an identical string a second time inside
-        // the Stop→paste window.
-        func corpusText(_ raw: String) -> String? {
-            raw == transcriptText ? nil : raw
-        }
-
         // Local usage stats (powers the Home words/min · total words ·
         // activity widgets). Dictation is otherwise ephemeral, so this is
         // the only record of it — count words + the held duration.
@@ -211,7 +136,7 @@ extension RecordingSession {
             // Routing around `handle` must not mean routing around those:
             // a note is not a second-class destination, and this dictation
             // still counts toward the profile unlock.
-            let prepared = DictationPaste.shared.prepare(transcriptText, corpusText: corpusText(rawText))
+            let prepared = DictationPaste.shared.prepare(transcriptText)
             if ScreenshotNoteCapture.shared.attach(context: prepared, to: pending) {
                 ScreenshotNoteCapture.shared.announceAttached(pending)
                 if let dir = sessionDirectory {
@@ -258,7 +183,7 @@ extension RecordingSession {
             reset()
             return
         }
-        DictationPaste.shared.handle(transcript: transcriptText, corpusText: corpusText(rawText))
+        DictationPaste.shared.handle(transcript: transcriptText)
         if let dir = sessionDirectory {
             try? FileManager.default.removeItem(at: dir)
         }

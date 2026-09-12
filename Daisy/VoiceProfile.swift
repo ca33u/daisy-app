@@ -7,9 +7,12 @@
 //  selected summary provider. Two jobs:
 //    • display — a readable profile (tone, signature phrases, quirks) in
 //      the Voice section, reusing the MeetingSummary outline shape;
-//    • function — a compact `styleInstruction` that conditions the
-//      optional "polish dictation in my voice" rewrite (AppSettings
-//      `polishDictationInMyVoice`).
+//    • function — a compact `styleInstruction` that conditions the two
+//      rewrites that apply it: a follow-up drafted as the user
+//      (`FollowUpVoice`) and the rewrite-selection hotkey
+//      (`SelectionRewrite`). It is NOT applied to dictation itself: the
+//      profile is learned from dictations, so that would be a costly
+//      identity (removed 2026-09-12, see `finishDictation`).
 //
 //  100% local when the provider is local. The corpus is the user's own
 //  dictation history (never leaves the Mac unless a cloud provider is
@@ -230,9 +233,11 @@ final class VoiceProfileStore {
         loadOrMigrate()
         // The rolling 24-hour `DictationHistory` used to seed an empty
         // corpus here. It no longer does, and that is the point: history
-        // holds the text as PASTED, so with "polish in my voice" on it is
-        // the model's rewrite, and feeding it back is exactly the
-        // feedback loop this version exists to close. Upgraders are
+        // holds the text as PASTED, and at the time an opt-in LLM pass
+        // could rewrite the paste in the model's taste — feeding that
+        // back was exactly the feedback loop this version exists to
+        // close. That pass is gone (2026-09-12); the rule stays, because
+        // it is what keeps the corpus the person's own. Upgraders are
         // covered by the migration above; a brand-new user is 300 words
         // away either way.
     }
@@ -671,12 +676,14 @@ final class VoiceProfileStore {
     /// locale, an import the user labelled); nil means "work it out" —
     /// pinned setting, then the detector, then stickiness, then `und`.
     ///
-    /// The text MUST be the RAW transcript, before any "polish in my
-    /// voice" rewrite. Feeding polished text back in is a feedback loop:
-    /// the profile then learns from what the model already rewrote to its
-    /// own taste, and the style drifts toward the provider rather than
-    /// toward the person. `finishDictation` keeps the raw text aside for
-    /// exactly this and passes it down as `corpusText`.
+    /// The text MUST be the person's own words — spelling corrections
+    /// applied, no LLM rewrite. Feeding rewritten text back in is a
+    /// feedback loop: the profile then learns from what a model already
+    /// rewrote to its own taste, and the style drifts toward the provider
+    /// rather than toward the person. Today nothing on the dictation path
+    /// rewrites before this call (the opt-in polish was removed
+    /// 2026-09-12); if a rewrite ever returns there, it must not be what
+    /// lands here.
     func appendDictation(_ text: String, language: String? = nil) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }

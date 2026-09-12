@@ -431,6 +431,16 @@
         }
       }
     },
+    "Until this language has its own profile, rewrites use the one you already have — your manner carries over, your words don’t." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пока у этого языка нет своего профиля, переписывание использует тот, что уже есть: манера переносится, слова — нет."
+          }
+        }
+      }
+    },
     "Until this language has its own profile, Daisy polishes it with the one you already have — your manner carries over, your words don’t." : {
       "localizations" : {
         "ru" : {
@@ -7061,6 +7071,16 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "Daisy has heard enough of your dictation to learn your tone, phrasing, and quirks — so follow-ups and the rewrite shortcut can sound like you." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy услышала достаточно ваших диктовок, чтобы понять тон, формулировки и особенности — теперь follow-up’ы и шорткат переписывания будут звучать как вы."
           }
         }
       }
@@ -14660,6 +14680,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Для переписывания нужен доступ «Универсальный доступ». Предоставьте его в Системных настройках и повторите попытку."
+          }
+        }
+      }
+    },
+    "Rewritten in your voice. Noticed “%@” → “%@” — save as a dictation correction?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Текст переписан вашим голосом. Замечено «%@» → «%@» — сохранить как поправку для диктовки?"
           }
         }
       }

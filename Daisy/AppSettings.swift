@@ -330,14 +330,6 @@ final class AppSettings {
     /// Parakeet the dictation engine?". Derived from `dictationEngine`.
     var dictationUseParakeet: Bool { dictationEngine == .parakeet }
 
-    /// When ON, each finished dictation is rewritten in the user's own
-    /// voice (via the local Voice Profile) before it's pasted. Adds one
-    /// LLM pass to the paste path, so it's opt-in and default OFF. No-op
-    /// until a voice profile has been generated (Voice section).
-    var polishDictationInMyVoice: Bool {
-        didSet { defaults.set(polishDictationInMyVoice, forKey: Self.k_polishDictationInMyVoice) }
-    }
-
     /// Built-in dictation layer restoring transliterated product names
     /// to their Latin spelling («фигма» → "Figma") on every engine —
     /// Parakeet can't be vocabulary-biased, so this is the only way it
@@ -1287,8 +1279,10 @@ final class AppSettings {
         }
         // Defaults to false (Whisper live preview) when the key is absent.
         self.dictationUseNemotronLive = defaults.bool(forKey: Self.k_dictationUseNemotronLive)
-        // Opt-in voice-polish of dictation. Default OFF.
-        self.polishDictationInMyVoice = defaults.bool(forKey: Self.k_polishDictationInMyVoice)
+        // "Polish dictation in my voice" was removed 2026-09-12; its key
+        // is cleared so a stale `true` can never come back to life if the
+        // feature is ever reintroduced under the same name.
+        defaults.removeObject(forKey: "daisy.polishDictationInMyVoice")
         self.fixBrandNamesInDictation = defaults.object(forKey: BrandCorrections.defaultsKey) as? Bool ?? true
         // Decode HotkeyChoice from UserDefaults JSON. Fall back to
         // ⌃⌥⌘R default if missing/corrupt. (Old enum-based string
@@ -1701,7 +1695,6 @@ final class AppSettings {
     nonisolated private static let k_dictationLocale = "daisy.dictationLocale"
     private static let k_dictationUseParakeet = "daisy.dictationUseParakeet"  // legacy — read once for migration into k_dictationEngine
     private static let k_dictationEngine = "daisy.dictationEngine"
-    private static let k_polishDictationInMyVoice = "daisy.polishDictationInMyVoice"
     private static let k_dictationUseNemotronLive = "daisy.dictationUseNemotronLive"
     private static let k_recordHotkey = "daisy.recordHotkey"
     private static let k_voiceNoteHotkey = "daisy.voiceNoteHotkey"

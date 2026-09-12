@@ -311,11 +311,13 @@ nonisolated enum BrandCorrections {
         return (result, fixes)
     }
 
-    /// Post-polish brand-restoration detector (auto-suggest layer).
-    /// When the voice-polish LLM restored a Latin name we DON'T cover
-    /// (not in this table, not in the user's rules), surface it so one
-    /// tap turns it into a permanent Vocabulary correction — after
-    /// which it works on every engine, polish enabled or not.
+    /// Post-rewrite brand-restoration detector (auto-suggest layer).
+    /// When an LLM rewrite restored a Latin name we DON'T cover (not in
+    /// this table, not in the user's rules), surface it so one tap turns
+    /// it into a permanent Vocabulary correction — after which it works
+    /// on every engine, with no rewrite involved. Fed by the
+    /// rewrite-selection hotkey (`SelectionRewrite`), the one place a
+    /// person's original and a model's rewrite of it still meet.
     ///
     /// Heuristic on purpose: exactly one new Latin token in the
     /// polished text + exactly one dropped Cyrillic token of plausible

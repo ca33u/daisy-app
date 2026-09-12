@@ -34,8 +34,9 @@ final class SelectionRewrite {
 
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "SelectionRewrite")
 
-    /// Provider deadline — selections can be longer than a dictation, so
-    /// a bit more headroom than the dictation polish (8 s).
+    /// Provider deadline. A selection can be a whole email, and unlike a
+    /// dictation nobody is standing there waiting for a paste — the
+    /// person chose to wait when they hit the hotkey.
     private static let rewriteDeadlineSeconds: Double = 15
     /// Re-entrancy guard — a second hotkey press while a rewrite is in
     /// flight is ignored (the first one owns the clipboard).
@@ -126,10 +127,41 @@ final class SelectionRewrite {
         // 5. Paste the result over the (still-active) selection; the
         //    proxy gives the user's clipboard back a beat later.
         PasteboardProxy.shared.pasteAndReturn(rewritten, borrow)
-        ToastCenter.shared.show(
-            String(localized: "Rewritten in your voice — your clipboard is coming right back."),
-            style: .success
+
+        // 6. Auto-suggest (Egor 2026-07-25): the rewrite just restored a
+        //    Latin brand name we don't cover — not in the built-in table,
+        //    not in the user's rules. Offer to save it as a permanent
+        //    Vocabulary correction, after which it works on every engine
+        //    with no rewrite in the loop. This used to hang off the
+        //    always-on dictation polish; with that gone (2026-09-12) the
+        //    hotkey is the only place an original and its rewrite meet.
+        //
+        //    ONE toast either way. ToastCenter is single-slot, so a
+        //    success toast followed by a suggestion toast would just be
+        //    the suggestion — the person would never see that their
+        //    clipboard is coming back. When there is something to
+        //    suggest, the suggestion carries the success line with it.
+        let triggers = Set(
+            DictationDictionary.shared.replacements.map { $0.from.lowercased() }
         )
+        if let pair = BrandCorrections.suggestRestoredBrand(
+            original: selection, polished: rewritten, userTriggers: triggers
+        ) {
+            ToastCenter.shared.showAction(
+                String(localized: "Rewritten in your voice. Noticed “\(pair.from)” → “\(pair.to)” — save as a dictation correction?"),
+                actionLabel: String(localized: "Save"),
+                style: .success
+            ) {
+                DictationDictionary.shared.add(
+                    DictationReplacement(kind: .correction, from: pair.from, to: pair.to)
+                )
+            }
+        } else {
+            ToastCenter.shared.show(
+                String(localized: "Rewritten in your voice — your clipboard is coming right back."),
+                style: .success
+            )
+        }
     }
 
 }

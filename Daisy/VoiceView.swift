@@ -6,9 +6,11 @@
 //  the word described the input, dictation, rather than what the person
 //  gets: text that sounds like them). Types, file names and the
 //  `.voice` section case keep the old name; only the copy changed.
-//  Generates a local style profile from the
-//  user's own dictations and lets them turn on "polish dictation in my
-//  voice" (a per-dictation rewrite conditioned on the profile).
+//  Generates a local style profile from the user's own dictations. The
+//  profile is consumed by two rewrites elsewhere — follow-ups
+//  (`FollowUpVoice`) and the rewrite-selection hotkey
+//  (`SelectionRewrite`). It is deliberately NOT applied to dictation
+//  itself any more (2026-09-12, see `finishDictation`).
 //
 //  One screen, one language at a time: a strip of language chips picks
 //  which bucket is on show, and the card underneath is the same state
@@ -89,18 +91,15 @@ struct VoiceView: View {
         .sheet(isPresented: $showingImport) {
             VoiceImportView(initialLanguage: language)
         }
-        // Update + the polish toggle live as toolbar pills (CTA style, like
-        // the other sections) — only once a profile exists.
+        // Edit + Update live as toolbar pills (CTA style, like the other
+        // sections) — only once a profile exists. There is deliberately no
+        // "apply to every dictation" switch here: the profile is learned
+        // FROM dictations, so applying it back to them is an expensive
+        // no-op (and it was — ~7.5 s and a cloud round trip per dictation,
+        // 2026-09-12). The style goes where the text is not already the
+        // person's own: follow-ups, and the rewrite hotkey on a selection.
         .toolbar {
             if store.hasProfile {
-                ToolbarItem(placement: .primaryAction) {
-                    Toggle(isOn: $settings.polishDictationInMyVoice) {
-                        Text("Polish in my voice")
-                            .padding(.horizontal, 10)
-                    }
-                    .toggleStyle(.button)
-                    .help("Rewrite each dictation in your voice before it's pasted")
-                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showingEdit = true
@@ -309,7 +308,7 @@ struct VoiceView: View {
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
                 if code != nil, store.hasProfile {
-                    Text("Until this language has its own profile, Daisy polishes it with the one you already have — your manner carries over, your words don’t.")
+                    Text("Until this language has its own profile, rewrites use the one you already have — your manner carries over, your words don’t.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -418,7 +417,7 @@ struct VoiceView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                Text("Daisy has heard enough of your dictation to learn your tone, phrasing, and quirks — so it can polish future dictations to sound like you.")
+                Text("Daisy has heard enough of your dictation to learn your tone, phrasing, and quirks — so follow-ups and the rewrite shortcut can sound like you.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
