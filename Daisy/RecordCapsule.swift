@@ -91,6 +91,22 @@ struct RecordCapsule: View {
             .background(
                 Capsule(style: .continuous)
                     .fill(fill)
+                    // Hover sits INSIDE the background, on top of the
+                    // capsule's own fill: `fill` is a real colour, and
+                    // tinting over the label would wash out the glyph and
+                    // the timer instead of lighting the button.
+                    //
+                    // White ink, not `.primary`: this capsule is dark in
+                    // BOTH colour schemes, so in light mode `.primary`
+                    // would be 5% black on near-black — invisible — and
+                    // while recording it would dim the orange rather than
+                    // lift it. Disabled means nothing will happen on
+                    // click, so nothing lights.
+                    .daisyHover(
+                        Capsule(style: .continuous),
+                        isEnabled: !isDisabled,
+                        ink: .white
+                    )
             )
             .overlay(
                 Capsule(style: .continuous)

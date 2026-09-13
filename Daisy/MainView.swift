@@ -374,6 +374,37 @@ struct MainView: View {
                         // Native sidebar label styles otherwise colour the
                         // symbol independently through the environment tint.
                         .tint(Color.daisySidebarInk)
+                        // `List(.sidebar)` draws the SELECTION chip for us
+                        // but no hover — these rows sat inert under the
+                        // cursor while Settings and About, which are
+                        // hand-drawn below the list, lit up (Egor,
+                        // 2026-09-13).
+                        //
+                        // Geometry is the same trick RecordCapsule uses
+                        // below: `List(.sidebar)` adds ~8pt of implicit
+                        // horizontal inset, so a row filling its content
+                        // frame is 8pt narrower per side than the chip.
+                        // Negative row insets cancel that, and the 8pt goes
+                        // back on the label — glyphs don't move, and the
+                        // hover pill lands exactly on the chip instead of
+                        // jumping wider the moment you click.
+                        //
+                        // `contentShape` BEFORE `daisyHover`: the tint opts
+                        // out of hit testing, so without a shape underneath
+                        // the hover region would be just the icon and the
+                        // words, and most of the row would stay dead.
+                        // Paint UNDER, so the label's ink is untouched, and
+                        // nothing lights on the selected row — it already
+                        // carries the chip, and a second highlight reads as
+                        // a second selection.
+                        .padding(.horizontal, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .daisyHover(
+                            isEnabled: sidebarSelection != section,
+                            overContent: false
+                        )
+                        .listRowInsets(EdgeInsets(top: 2, leading: -8, bottom: 2, trailing: -8))
                         .tag(section)
                 }
             }
@@ -426,9 +457,11 @@ struct MainView: View {
                             Capsule(style: .continuous)
                                 .fill(Color.daisyBgElevated)
                                 // Hover tints the capsule's own fill,
-                                // never the label: painting 5% white
-                                // over the destructive ink below would
-                                // pink the red exactly where it matters.
+                                // never the label: 5% ink over the
+                                // destructive red below would mute it
+                                // exactly where it matters. Scheme ink is
+                                // right here — unlike the record capsule,
+                                // this fill follows the colour scheme.
                                 .daisyHover(Capsule(style: .continuous))
                         )
                         .overlay(
@@ -471,9 +504,11 @@ struct MainView: View {
                             Capsule(style: .continuous)
                                 .fill(Color.daisyBgElevated)
                                 // Hover tints the capsule's own fill,
-                                // never the label: painting 5% white
-                                // over the destructive ink below would
-                                // pink the red exactly where it matters.
+                                // never the label: 5% ink over the
+                                // destructive red below would mute it
+                                // exactly where it matters. Scheme ink is
+                                // right here — unlike the record capsule,
+                                // this fill follows the colour scheme.
                                 .daisyHover(Capsule(style: .continuous))
                         )
                         .overlay(

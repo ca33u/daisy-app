@@ -21,6 +21,17 @@ import SwiftUI
 struct DaisyHoverHighlight<S: Shape>: ViewModifier {
     let shape: S
     let strength: Double
+    /// The ink the tint is made of.
+    ///
+    /// `.primary` is right almost everywhere, because it follows the
+    /// colour scheme and so stays visible on both. The exception is a
+    /// control that is dark in BOTH schemes — the record capsule and the
+    /// two Stop capsules paint themselves near-black or orange whatever
+    /// the system is doing. In light mode `.primary` resolves to black,
+    /// and 5% black on near-black is nothing at all; on orange it reads
+    /// as dimming, which is the opposite of an invitation. Those pass
+    /// `.white`.
+    let ink: Color
     /// Hover is pointless on a control that can't be clicked, and a
     /// highlight under an already-selected row just muddies it.
     let isEnabled: Bool
@@ -43,6 +54,13 @@ struct DaisyHoverHighlight<S: Shape>: ViewModifier {
             // scroll never gets the exit event, and would otherwise stay
             // lit while the pointer is somewhere else.
             .onDisappear { hovering = false }
+            // Same problem through a different door: a control disabled
+            // under the pointer (Record, while it says "Preparing…") may
+            // never deliver the exit, and would light up the moment it
+            // came back — with the cursor long gone.
+            .onChange(of: isEnabled) { _, on in
+                if !on { hovering = false }
+            }
             .animation(.easeInOut(duration: 0.12), value: hovering)
     }
 
@@ -50,7 +68,7 @@ struct DaisyHoverHighlight<S: Shape>: ViewModifier {
     /// cursor untouched whichever layer this lands in.
     private var tint: some View {
         shape
-            .fill(Color.primary.opacity(hovering && isEnabled ? strength : 0))
+            .fill(ink.opacity(hovering && isEnabled ? strength : 0))
             .allowsHitTesting(false)
     }
 }
@@ -65,15 +83,26 @@ extension View {
     ///     chip; a collapsed card header asks for a bit more, since
     ///     inviting the click is the whole point there.
     ///   - isEnabled: pass `false` for a selected or disabled control.
+    ///   - ink: pass `.white` on a control that is dark in BOTH colour
+    ///     schemes; the default follows the scheme and suits everything
+    ///     that sits on the app's own background.
+    ///
+    /// Put anything that makes the control hit-testable — its own
+    /// `.background`, or a `.contentShape` — BEFORE this. The tint opts
+    /// out of hit testing on purpose, so the hover region is whatever
+    /// was already there; a `.contentShape` added afterwards widens
+    /// nothing and the row lights only under its glyphs.
     func daisyHover<S: Shape>(
         _ shape: S,
         strength: Double = 0.05,
         isEnabled: Bool = true,
-        overContent: Bool = true
+        overContent: Bool = true,
+        ink: Color = .primary
     ) -> some View {
         modifier(DaisyHoverHighlight(
             shape: shape,
             strength: strength,
+            ink: ink,
             isEnabled: isEnabled,
             overContent: overContent
         ))
@@ -83,13 +112,15 @@ extension View {
     func daisyHover(
         strength: Double = 0.05,
         isEnabled: Bool = true,
-        overContent: Bool = true
+        overContent: Bool = true,
+        ink: Color = .primary
     ) -> some View {
         daisyHover(
             RoundedRectangle(cornerRadius: 8, style: .continuous),
             strength: strength,
             isEnabled: isEnabled,
-            overContent: overContent
+            overContent: overContent,
+            ink: ink
         )
     }
 
