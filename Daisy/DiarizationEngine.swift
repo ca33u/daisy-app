@@ -69,6 +69,7 @@ final class DiarizationEngine {
     /// `diarize` calls return an empty array — transcripts still ship,
     /// just without speaker labels.
     private(set) var isAvailable: Bool = false
+    private(set) var lastLoadError: String?
 
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "Diarizer")
 
@@ -138,6 +139,7 @@ final class DiarizationEngine {
 
     private func performLoad() async {
         guard manager == nil else { return }
+        lastLoadError = nil
         do {
             // One-time download of the CoreML diarization bundle from
             // HuggingFace (cached in app container after first run).
@@ -173,6 +175,7 @@ final class DiarizationEngine {
         } catch {
             log.error("Diarizer init failed: \(error.localizedDescription, privacy: .public)")
             self.isAvailable = false
+            self.lastLoadError = error.localizedDescription
         }
     }
     #endif
@@ -489,7 +492,11 @@ enum FluidAudioNetworkGuard {
     static func withDownloadsAllowed<T>(
         _ operation: String,
         _ body: @MainActor () async throws -> T
-    ) async rethrows -> T {
+    ) async throws -> T {
+        let required: Int64 = 2 * 1_073_741_824
+        if let free = DiskSpace.freeBytes(at: FileManager.default.homeDirectoryForCurrentUser), free < required {
+            throw ModelDownloadDiskError(required: required, available: free)
+        }
         openWindows += 1
         ModelHub.offlineMode = false
         log.info("FluidAudio download window OPEN: \(operation, privacy: .public)")

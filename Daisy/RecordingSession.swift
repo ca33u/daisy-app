@@ -850,7 +850,9 @@ final class RecordingSession {
         // test at "waiting for workers to materialize" without running one.
         let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
         if !isRunningTests {
-            Task { await WhisperEngine.shared.ensureLoaded() }
+            if settings.hasShownFirstRun {
+                Task { await WhisperEngine.shared.ensureLoaded() }
+            }
             // The diarizer is NOT preloaded any more. It's needed only
             // once a meeting with system audio is under way, and both
             // entry points (`makeBlockPass`, `diarizeFull`) load it
@@ -1373,6 +1375,33 @@ final class RecordingSession {
     }
 
     func start() async {
+        guard settings.hasShownFirstRun else {
+            pendingMode = nil
+            pendingBoundMeeting = nil
+            pendingFolderHint = nil
+            pendingMeetingPreparation = nil
+            ToastCenter.shared.show(String(localized: "Finish preparing Daisy before recording."), style: .info)
+            return
+        }
+        let fastDictationMissing = pendingMode == .dictation && settings.dictationEngine == .parakeet
+            && !ParakeetEngine.shared.isReady
+        if !WhisperEngine.shared.isReady || fastDictationMissing || ModelPreparation.activePreparations > 0 {
+            // Cold reload after memory pressure is allowed, but never starts a
+            // recording later without another explicit user action.
+            if ModelPreparation.activePreparations == 0, case .notLoaded = WhisperEngine.shared.state {
+                Task { await WhisperEngine.shared.ensureLoaded() }
+            }
+            pendingMode = nil
+            pendingBoundMeeting = nil
+            pendingFolderHint = nil
+            pendingMeetingPreparation = nil
+            let message = String(localized: "The speech model is not ready. Open Settings → Transcription to prepare or repair it.")
+            ToastCenter.shared.show(message, style: .warning)
+            WidgetBubbleCenter.shared.present(WidgetBubbleContent(text: message),
+                notificationTitle: String(localized: "Prepare Daisy"))
+            AppNavigation.shared.openInSettings(.transcription)
+            return
+        }
         // Stored-audio re-transcription temporarily owns the shared
         // Whisper engine and can load a second CoreML graph. Starting a
         // live capture in the middle of that job would make both workflows

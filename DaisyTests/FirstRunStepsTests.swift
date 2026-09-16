@@ -20,18 +20,18 @@ struct FirstRunStepsTests {
     // MARK: - Exact orders (also proves folder/vocab are gone and the
     // rest of the order didn't move)
 
-    @Test("Full path with one layout: 6 steps, no separate final screen")
+    @Test("Full path ends with model preparation")
     func fullPathSingleLayout() {
         #expect(FirstRunView.steps(for: .full, installedLayoutCount: 1) == [
             .purpose, .name, .permissions,
-            .hotkeys, .calendar, .model,
+            .hotkeys, .calendar, .model, .preparation,
         ])
     }
 
-    @Test("Dictation-only path with one layout: 3 steps")
+    @Test("Dictation-only path also requires model preparation")
     func dictationPathSingleLayout() {
         #expect(FirstRunView.steps(for: .dictationOnly, installedLayoutCount: 1) == [
-            .purpose, .permissions, .hotkeys,
+            .purpose, .permissions, .hotkeys, .preparation,
         ])
     }
 

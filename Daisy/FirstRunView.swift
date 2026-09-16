@@ -17,8 +17,8 @@
 //  accessibility / screen as rows — the set depends on the setup path,
 //  and Screen Recording is deliberately last, see `permissionsStep`),
 //  hotkeys, the layout-fixer step (only with 2+ installed keyboard layouts),
-//  calendar, summaries. There is no separate final "you're set" screen
-//  — the last step's own primary button reads "Start using Daisy" and
+//  calendar, summaries, and mandatory model preparation. The final preparation screen
+//  enables "Start using Daisy" only after the selected models are verified and
 //  calls `finish()` (see `isLastStep`); the one useful line that used
 //  to live there (where recording actually starts) moved to Home's
 //  empty state, where it's needed exactly when it's needed.
@@ -182,6 +182,7 @@ struct FirstRunView: View {
         // "Continue" footer — no action is forced.
         case calendar
         case model
+        case preparation
 
         /// Short name shown in the step rail / used by both columns.
         var railTitle: String {
@@ -193,6 +194,7 @@ struct FirstRunView: View {
             case .layout:          String(localized: "Keyboard layout")
             case .calendar:        String(localized: "Calendar")
             case .model:           String(localized: "Summaries")
+            case .preparation:     String(localized: "Prepare Daisy")
             }
         }
     }
@@ -225,13 +227,14 @@ struct FirstRunView: View {
         switch path {
         case .full:
             return [.purpose, .name, .permissions,
-                    .hotkeys] + layoutFixer + [.calendar, .model]
+                    .hotkeys] + layoutFixer + [.calendar, .model, .preparation]
         case .dictationOnly:
             return [.purpose, .permissions, .hotkeys]
-                    + layoutFixer
+                    + layoutFixer + [.preparation]
         }
     }
 
+    @State private var preparation = ModelPreparation()
     @State private var step: Step
     /// Permission state lives in `SystemPermissions.shared` (@Observable,
     /// same façade Settings → Permissions reads), refreshed on step
@@ -377,7 +380,7 @@ struct FirstRunView: View {
                     state: index < current ? .done
                          : index == current ? .current : .upcoming
                 ) {
-                    step = s
+                    if !preparation.isRunning { step = s }
                 }
             }
             Spacer(minLength: 0)
@@ -469,6 +472,9 @@ struct FirstRunView: View {
             case .layout: layoutStep
             case .calendar: calendarStep
             case .model: modelStep
+            case .preparation:
+                ModelPreparationView(settings: settings, preparation: preparation,
+                                     includeSpeakers: setupPath == .full)
             }
         }
         .padding(.horizontal, 32)
@@ -1131,6 +1137,7 @@ struct FirstRunView: View {
                     }
                 }
                 .buttonStyle(DaisyStepButtonStyle(filled: false))
+                .disabled(preparation.isRunning)
             }
             Spacer()
             // Step-specific footer right side:
@@ -1144,12 +1151,13 @@ struct FirstRunView: View {
             switch step {
             case .purpose:
                 EmptyView()
-            case .name, .permissions, .hotkeys, .layout, .calendar, .model:
+            case .name, .permissions, .hotkeys, .layout, .calendar, .model, .preparation:
                 Button(isLastStep ? String(localized: "Start using Daisy") : String(localized: "Continue")) {
                     advance()
                 }
                 .buttonStyle(DaisyStepButtonStyle(filled: true))
                 .keyboardShortcut(.defaultAction)
+                .disabled(step == .preparation && !preparation.canFinish(settings: settings, includeSpeakers: setupPath == .full))
             }
         }
         .padding(.horizontal, 24)
@@ -1241,6 +1249,11 @@ struct FirstRunView: View {
     /// to the visible screen so the larger frame never ends up
     /// half off-screen.
     private func finish() {
+        guard step == .preparation,
+              preparation.canFinish(settings: settings, includeSpeakers: setupPath == .full) else {
+            step = .preparation
+            return
+        }
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
             var frame = window.frame
             if frame.width < MainWindowShellFloor.width
@@ -1263,6 +1276,7 @@ struct FirstRunView: View {
         // not leave a step behind for a future "show onboarding again"
         // to resume into.
         Resume.clear()
+        UserDefaults.standard.removeObject(forKey: "daisy.preparation.started")
         settings.hasShownFirstRun = true
     }
 

@@ -60,7 +60,10 @@ final class WhisperEngine {
         didSet {
             guard oldValue != modelID else { return }
             UserDefaults.standard.set(modelID, forKey: Self.modelKey)
-            Task { await self.reload() }
+            if !RecordingSession.isCapturingOrTranscribing { state = .notLoaded }
+            if UserDefaults.standard.bool(forKey: "daisy.hasShownFirstRun") {
+                Task { await self.reload() }
+            }
         }
     }
 
@@ -86,6 +89,7 @@ final class WhisperEngine {
 
     @ObservationIgnored
     private var kitBox: WhisperKitBox?
+    private var loadedModelID: String?
     /// Job-scoped model used by explicit re-transcription. Kept separate
     /// from `modelID` so choosing a model in the session sheet never
     /// changes the user's default meeting model or UserDefaults. Only one
@@ -155,7 +159,7 @@ final class WhisperEngine {
     // MARK: - Lifecycle
 
     func ensureLoaded() async {
-        if case .ready = state, kitBox != nil { return }
+        if isReady { return }
         if let existing = loadTask {
             await existing.value
             return
@@ -169,12 +173,49 @@ final class WhisperEngine {
     }
 
     func reload() async {
+        if let existing = loadTask { await existing.value }
         stopLoadProgressClock()
         kitBox = nil
         state = .notLoaded
         downloadProgress = 0
         loadProgress = 0
         await ensureLoaded()
+    }
+
+    func downloadAgain() async {
+        guard !RecordingSession.isCapturingOrTranscribing,
+              !SessionAudioProcessing.shared.isRunning, !isBusy else { return }
+        if let existing = loadTask { await existing.value }
+        guard !RecordingSession.isCapturingOrTranscribing,
+              !SessionAudioProcessing.shared.isRunning, !isBusy else { return }
+        let required = ModelPreparationPolicy.requiredFreeBytes(downloadMB: activeModelSizeMB)
+        if let free = Self.availableDiskBytes(), free < required {
+            state = .failed(ModelPreparationPolicy.diskMessage(required: required, available: free))
+            return
+        }
+        do {
+            if let root = Self.whisperCacheRoot() {
+                let folder = root.appendingPathComponent("openai_whisper-\(modelID)")
+                if FileManager.default.fileExists(atPath: folder.path) {
+                    let recovery = root.deletingLastPathComponent().appendingPathComponent("Daisy-model-recovery")
+                    try FileManager.default.createDirectory(at: recovery, withIntermediateDirectories: true)
+                    try FileManager.default.moveItem(at: folder, to: recovery.appendingPathComponent("\(modelID)-\(UUID().uuidString)"))
+                }
+            }
+            await reload()
+        } catch {
+            state = .failed(error.localizedDescription)
+        }
+    }
+
+    func prepareSpeechDetection() async -> Bool {
+        #if canImport(FluidAudio)
+        ensureVADLoadStarted()
+        if let task = vadLoadTask { await task.value }
+        return vadBox != nil
+        #else
+        return true
+        #endif
     }
 
     /// Register a one-shot auto-retry: when the network returns, load the
@@ -207,7 +248,7 @@ final class WhisperEngine {
     }
 
     var isReady: Bool {
-        if case .ready = state { return kitBox != nil }
+        if case .ready = state { return kitBox != nil && loadedModelID == modelID }
         return false
     }
 
@@ -236,9 +277,12 @@ final class WhisperEngine {
         // error, no recovery, the user thinks the model is
         // "loading forever". Refuse early with a concrete number
         // the user can act on.
-        if let available = Self.availableDiskBytes(),
-           available < Self.minRequiredDiskBytes {
-            let neededGB = Double(Self.minRequiredDiskBytes) / 1_073_741_824.0
+        let cachedFolder = Self.cachedModelFolder(variant: variant)
+        let required = ModelPreparationPolicy.requiredFreeBytes(
+            downloadMB: cachedFolder == nil ? activeModelSizeMB : 0
+        )
+        if cachedFolder == nil, let available = Self.availableDiskBytes(), available < required {
+            let neededGB = Double(required) / 1_073_741_824.0
             let haveGB = Double(available) / 1_073_741_824.0
             let msg = String(
                 format: String(localized: "Not enough disk space to download the transcription model — need %.1f GB free, only %.2f GB available. Free some space and try again."),
@@ -271,7 +315,7 @@ final class WhisperEngine {
         // compiled artefacts to actually be there, so a partial folder
         // falls through and gets re-fetched exactly as before.
         let folder: URL
-        if let cached = Self.cachedModelFolder(variant: variant) {
+        if let cached = cachedFolder {
             state = .loading(status: String(localized: "Loading transcription model…"))
             folder = cached
             log.info("Whisper model resolved from cache — no download check")
@@ -328,6 +372,7 @@ final class WhisperEngine {
         do {
             let kit = try await Self.loadKit(folder: folder)
             self.kitBox = WhisperKitBox(kit)
+            self.loadedModelID = variant
             let loadSec = Date().timeIntervalSince(loadStart)
             finishLoadProgressClock(successfulDuration: loadSec, variant: variant)
             self.state = .ready
@@ -352,7 +397,7 @@ final class WhisperEngine {
         // specialization + tokenizer init on top of the actual decode;
         // for dictation that cost lands on the user's first hotkey
         // release. Pay it here instead, against 1 s of silence.
-        warmUpIfNeeded()
+        didWarmUp = true
     }
 
     /// Starts the UI-only estimate for CoreML loading. `WhisperKit` and
@@ -555,10 +600,7 @@ final class WhisperEngine {
     nonisolated static func cachedModelFolder(variant: String) -> URL? {
         guard let root = whisperCacheRoot() else { return nil }
         let folder = root.appendingPathComponent("openai_whisper-\(variant)")
-        guard let contents = try? FileManager.default.contentsOfDirectory(atPath: folder.path)
-        else { return nil }
-        let compiled = contents.filter { $0.hasSuffix(".mlmodelc") }
-        return compiled.count >= 3 ? folder : nil
+        return ModelPreparationPolicy.isCompleteWhisperFolder(folder) ? folder : nil
     }
 
     nonisolated static func cachedModels() -> [CachedModel] {
@@ -797,7 +839,13 @@ final class WhisperEngine {
             load: true,
             download: false
         )
-        return try await WhisperKit(config)
+        let kit = try await WhisperKit(config)
+        _ = try await kit.transcribe(
+            audioArray: [Float](repeating: 0, count: 16_000),
+            decodeOptions: DecodingOptions(language: "en", temperatureFallbackCount: 0,
+                                          sampleLength: 8, detectLanguage: false)
+        )
+        return kit
     }
 
     // MARK: - In-actor semaphore

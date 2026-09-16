@@ -69,6 +69,7 @@ struct SettingsView: View {
     /// nudge the task watches; we bump it after Remove unused so
     /// the UI re-reads the freshly-shrunk cache.
     @State private var cachedModelsCount: Int = 0
+    @State private var modelPreparation = ModelPreparation()
     @State private var cachedModelsBytes: Int64 = 0
     /// True when "Remove unused" has something to free: >1 Whisper variant,
     /// or a Parakeet model on disk that dictation isn't currently using.
@@ -1462,6 +1463,9 @@ struct SettingsView: View {
 
     private var transcriptionTab: some View {
         Form {
+            Section {
+                ModelPreparationView(settings: settings, preparation: modelPreparation, includeSpeakers: true)
+            }
             // One "Transcription" block, two rows. Friendly names (no model
             // IDs / engine vendor names), no helper captions, no separate
             // status rows or buttons — each row's status (and model download
@@ -1487,6 +1491,7 @@ struct SettingsView: View {
                     )
                 }
                 .pickerStyle(.menu)
+                .disabled(modelPreparation.isRunning || RecordingSession.isCapturingOrTranscribing || SessionAudioProcessing.shared.isRunning)
 
                 Picker(selection: $settings.dictationEngine) {
                     Text(DictationEngine.whisper.displayName).tag(DictationEngine.whisper)

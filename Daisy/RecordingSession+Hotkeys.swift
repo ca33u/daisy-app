@@ -148,6 +148,10 @@ extension RecordingSession {
     /// History entry). On release, the transcript is copied to
     /// the clipboard and a toast prompts ⌘V. Wispr-Flow-lite.
     func startDictationHotkey() async {
+        guard settings.hasShownFirstRun, WhisperEngine.shared.isReady else {
+            await start()
+            return
+        }
         switch status {
         case .idle, .finished, .failed:
             pendingMode = .dictation

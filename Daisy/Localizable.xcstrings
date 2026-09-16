@@ -18057,6 +18057,292 @@
           }
         }
       }
+    },
+    "Prepare Daisy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подготовка Daisy"
+          }
+        }
+      }
+    },
+    "Finish preparing Daisy before recording." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Завершите подготовку Daisy перед записью."
+          }
+        }
+      }
+    },
+    "The speech model is not ready. Open Settings → Transcription to prepare or repair it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Модель распознавания не готова. Откройте Настройки → Расшифровка, чтобы подготовить или восстановить её."
+          }
+        }
+      }
+    },
+    "Not enough disk space — need %.1f GB free, only %.2f GB available. Free some space and try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Недостаточно места: нужно %.1f ГБ, доступно %.2f ГБ. Освободите место и повторите попытку."
+          }
+        }
+      }
+    },
+    "Wait for recording and transcription to finish before preparing models." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дождитесь завершения записи и расшифровки перед подготовкой моделей."
+          }
+        }
+      }
+    },
+    "Preparing speech recognition…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подготавливаем распознавание речи…"
+          }
+        }
+      }
+    },
+    "The speech model is not ready. Try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Модель распознавания не готова. Повторите попытку."
+          }
+        }
+      }
+    },
+    "Preparing speech detection…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подготавливаем определение речи…"
+          }
+        }
+      }
+    },
+    "Couldn’t prepare speech detection. Check your connection and try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось подготовить определение речи. Проверьте подключение к интернету и повторите попытку."
+          }
+        }
+      }
+    },
+    "Preparing fast dictation…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подготавливаем быструю диктовку…"
+          }
+        }
+      }
+    },
+    "Couldn’t prepare fast dictation. Try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось подготовить быструю диктовку. Повторите попытку."
+          }
+        }
+      }
+    },
+    "Preparing Apple dictation…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подготавливаем диктовку Apple…"
+          }
+        }
+      }
+    },
+    "Apple dictation is unavailable for this language. Choose Standard in Settings → Transcription and try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Диктовка Apple недоступна для этого языка. Выберите стандартный движок диктовки и повторите попытку."
+          }
+        }
+      }
+    },
+    "Preparing speaker separation…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подготавливаем разделение спикеров…"
+          }
+        }
+      }
+    },
+    "Couldn’t prepare speaker separation. Try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось подготовить разделение спикеров. Повторите попытку."
+          }
+        }
+      }
+    },
+    "Download the speech models, then let Daisy check that they work. Keep this window open until preparation is complete." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скачайте речевые модели — Daisy проверит, что они работают. Дождитесь завершения подготовки."
+          }
+        }
+      }
+    },
+    "Speech model" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Модель распознавания"
+          }
+        }
+      }
+    },
+    "Separate speakers" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разделять спикеров"
+          }
+        }
+      }
+    },
+    "Loading and checking models…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Загружаем и проверяем модели…"
+          }
+        }
+      }
+    },
+    "Daisy is ready" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy готова к работе"
+          }
+        }
+      }
+    },
+    "Preparation failed. You can retry, choose another model, or download the speech model again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подготовка не завершена. Повторите попытку, выберите другую модель или скачайте модель распознавания заново."
+          }
+        }
+      }
+    },
+    "Download and check" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скачать и проверить"
+          }
+        }
+      }
+    },
+    "Download speech model again" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скачать модель заново"
+          }
+        }
+      }
+    },
+    "Downloading again keeps the previous model files for diagnostics and needs additional free space." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "При повторном скачивании прежние файлы модели сохраняются для диагностики. Для новой копии понадобится дополнительное место."
+          }
+        }
+      }
+    },
+    "Preparing live dictation…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подготавливаем живую диктовку…"
+          }
+        }
+      }
+    },
+    "Couldn’t prepare live dictation. Turn off live preview in Settings → Transcription or try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось подготовить живую диктовку. Отключите предпросмотр в настройках транскрипции или повторите попытку."
+          }
+        }
+      }
     }
   },
   "version" : "1.1"
