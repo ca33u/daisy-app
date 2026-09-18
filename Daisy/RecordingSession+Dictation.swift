@@ -52,13 +52,28 @@ extension RecordingSession {
         case .whisper:
             break
         case .parakeet:
-            do {
-                fastText = try await ParakeetEngine.shared.transcribe(samples: samples)
-                if fastText?.isEmpty != false {
-                    log.info("Dictation fast-engine miss: Parakeet returned empty — Whisper fallback")
+            // `transcribe` awaits `ensureLoaded` internally, so on a
+            // first-ever use it would hold this RELEASE for the whole
+            // ~600 MB download the hotkey handler just kicked off. Not
+            // this time: the download keeps going in the background and
+            // Whisper takes this one. (`start()` already waited for a
+            // cached model to load, so the common case reaches here
+            // `.ready`.)
+            let parakeetIsDownloading: Bool = {
+                if case .downloading = ParakeetEngine.shared.state { return true }
+                return !ParakeetEngine.shared.isReady && !ParakeetEngine.hasCompleteModel()
+            }()
+            if parakeetIsDownloading {
+                log.info("Dictation fast-engine miss: Parakeet is still downloading — Whisper fallback")
+            } else {
+                do {
+                    fastText = try await ParakeetEngine.shared.transcribe(samples: samples)
+                    if fastText?.isEmpty != false {
+                        log.info("Dictation fast-engine miss: Parakeet returned empty — Whisper fallback")
+                    }
+                } catch {
+                    log.warning("Dictation fast-engine miss: Parakeet error \(error.localizedDescription, privacy: .public) — Whisper fallback")
                 }
-            } catch {
-                log.warning("Dictation fast-engine miss: Parakeet error \(error.localizedDescription, privacy: .public) — Whisper fallback")
             }
         case .appleSpeech:
             // SpeechTranscriber needs a concrete language and macOS 26.

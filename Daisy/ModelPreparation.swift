@@ -38,19 +38,46 @@ final class ModelPreparation {
     private(set) var isRunning = false
     private(set) var stage = ""
     private(set) var error: String?
+    /// Something optional didn't come down — speech detection or
+    /// speaker separation. Daisy works without either (Whisper decodes
+    /// the whole buffer; transcripts ship without speaker labels), so
+    /// this is shown, not blocking, and the engines retry on their own
+    /// the next time they're needed.
+    private(set) var notice: String?
     private var preparedKey: String?
+
+    /// Finish preparing after the user chose "Skip for now" in
+    /// onboarding. Runs on a fresh instance held alive by its own task,
+    /// so it outlives the onboarding view that asked for it. Best
+    /// effort by design: if a recording starts first, `prepare` steps
+    /// aside and `start()` loads what it needs itself; if there's no
+    /// network, Whisper's own reconnect hook picks the download up
+    /// later. Nothing here is a user-visible failure — the user already
+    /// said "later".
+    static func completeInBackground(settings: AppSettings, includeSpeakers: Bool) {
+        Task { @MainActor in
+            let preparation = ModelPreparation()
+            await preparation.prepare(settings: settings, includeSpeakers: includeSpeakers)
+        }
+    }
 
     private func key(settings: AppSettings, includeSpeakers: Bool) -> String {
         "\(WhisperEngine.shared.modelID)|\(settings.dictationEngine.rawValue)|\(settings.dictationLocale)|\(settings.defaultTranscriptionLocale)|\(includeSpeakers)|\(settings.diarizeRemoteSpeakers)|\(settings.diarizeMicrophone)|\(settings.dictationUseNemotronLive)"
     }
 
+    /// Ready to leave onboarding: the engines the user's choices REQUIRE
+    /// are loaded and verified. Speech detection and speaker separation
+    /// are deliberately absent from this list — both are optional at
+    /// runtime (`WhisperEngine` decodes without VAD, `DiarizationEngine`
+    /// reports `isAvailable == false` and transcripts ship unlabelled),
+    /// and requiring them here turned a new user without 2 GB free, or
+    /// without network for the diarizer bundle, into one who could not
+    /// finish onboarding at all.
     func canFinish(settings: AppSettings, includeSpeakers: Bool) -> Bool {
         !isRunning && preparedKey == key(settings: settings, includeSpeakers: includeSpeakers)
             && WhisperEngine.shared.isReady
             && (!settings.dictationUseNemotronLive || NemotronLiveEngine.shared.isReady)
             && (settings.dictationEngine != .parakeet || ParakeetEngine.shared.isReady)
-            && (!includeSpeakers || (!settings.diarizeRemoteSpeakers && !settings.diarizeMicrophone)
-                || DiarizationEngine.shared.isAvailable)
     }
 
     func prepare(settings: AppSettings, includeSpeakers: Bool, downloadAgain: Bool = false) async {
@@ -62,6 +89,7 @@ final class ModelPreparation {
         isRunning = true
         Self.activePreparations += 1
         error = nil
+        notice = nil
         preparedKey = nil
         let requestedKey = key(settings: settings, includeSpeakers: includeSpeakers)
         defer { isRunning = false; stage = ""; Self.activePreparations -= 1 }
@@ -75,10 +103,11 @@ final class ModelPreparation {
             else { error = String(localized: "The speech model is not ready. Try again.") }
             return
         }
+        // Optional from here on: a miss is a notice, not a failure.
         stage = String(localized: "Preparing speech detection…")
-        guard await whisper.prepareSpeechDetection() else {
-            error = String(localized: "Couldn’t prepare speech detection. Check your connection and try again.")
-            return
+        let speechDetectionReady = await whisper.prepareSpeechDetection()
+        if !speechDetectionReady {
+            notice = String(localized: "Speech detection isn’t downloaded yet — Daisy works without it and will fetch it when the network is back.")
         }
         if settings.dictationEngine == .parakeet {
             stage = String(localized: "Preparing fast dictation…")
@@ -110,9 +139,10 @@ final class ModelPreparation {
         if includeSpeakers && (settings.diarizeRemoteSpeakers || settings.diarizeMicrophone) {
             stage = String(localized: "Preparing speaker separation…")
             await DiarizationEngine.shared.ensureLoaded()
-            guard DiarizationEngine.shared.isAvailable else {
-                error = DiarizationEngine.shared.lastLoadError ?? String(localized: "Couldn’t prepare speaker separation. Try again.")
-                return
+            if !DiarizationEngine.shared.isAvailable {
+                let line = String(localized: "Speaker separation isn’t downloaded yet — meetings will record without speaker labels until it is.")
+                // Both optional pieces can be missing at once; say so.
+                notice = notice.map { "\($0)\n\(line)" } ?? line
             }
         }
         guard !Task.isCancelled, requestedKey == key(settings: settings, includeSpeakers: includeSpeakers) else { return }
@@ -129,7 +159,7 @@ struct ModelPreparationView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Prepare Daisy").font(.title2.weight(.semibold))
-            Text("Download the speech models, then let Daisy check that they work. Keep this window open until preparation is complete.")
+            Text("Download the speech models, then let Daisy check that they work. If you’d rather not wait, skip for now — they finish in the background, and your first recording waits for them.")
                 .foregroundStyle(.secondary)
             if !settings.hasShownFirstRun {
                 Picker("Speech model", selection: $whisper.modelID) {
@@ -167,6 +197,10 @@ struct ModelPreparationView: View {
                 Label("Daisy is ready", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(Color.daisyAccent)
             }
+            if let notice = preparation.notice, preparation.error == nil {
+                Text(notice).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let error = preparation.error {
                 Text("Preparation failed. You can retry, choose another model, or download the speech model again.")
                     .foregroundStyle(Color.daisyWarning)
@@ -193,8 +227,16 @@ struct ModelPreparationView: View {
             }
         }
         .task {
+            // Unstructured on purpose: `.task` is cancelled when this
+            // view leaves the hierarchy, and "Skip for now" does exactly
+            // that mid-preparation. The engines don't stop on
+            // cancellation anyway, but the Apple-dictation step would,
+            // and a resumed preparation should finish like one the
+            // button started.
             if !settings.hasShownFirstRun, UserDefaults.standard.bool(forKey: "daisy.preparation.started") {
-                await preparation.prepare(settings: settings, includeSpeakers: includeSpeakers)
+                Task { @MainActor in
+                    await preparation.prepare(settings: settings, includeSpeakers: includeSpeakers)
+                }
             }
         }
     }

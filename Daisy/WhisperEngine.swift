@@ -197,9 +197,17 @@ final class WhisperEngine {
             if let root = Self.whisperCacheRoot() {
                 let folder = root.appendingPathComponent("openai_whisper-\(modelID)")
                 if FileManager.default.fileExists(atPath: folder.path) {
-                    let recovery = root.deletingLastPathComponent().appendingPathComponent("Daisy-model-recovery")
+                    let recovery = Self.modelRecoveryRoot(cacheRoot: root)
                     try FileManager.default.createDirectory(at: recovery, withIntermediateDirectories: true)
-                    try FileManager.default.moveItem(at: folder, to: recovery.appendingPathComponent("\(modelID)-\(UUID().uuidString)"))
+                    let parked = recovery.appendingPathComponent("\(modelID)-\(UUID().uuidString)")
+                    try FileManager.default.moveItem(at: folder, to: parked)
+                    // A same-volume move is a rename and keeps the folder's
+                    // mtime — the DOWNLOAD date, months old for any model
+                    // that's been in use. Pruning judges age by mtime, so
+                    // without this stamp the copy just parked "for
+                    // diagnostics" would be deleted on the next line.
+                    try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: parked.path)
+                    Self.pruneModelRecovery()
                 }
             }
             await reload()
@@ -370,9 +378,11 @@ final class WhisperEngine {
         loadStartedAt = loadStart
         startLoadProgressClock(startedAt: loadStart, variant: variant)
         do {
-            let kit = try await Self.loadKit(folder: folder)
+            let kit = try await Self.loadKit(folder: folder, verify: true)
             self.kitBox = WhisperKitBox(kit)
             self.loadedModelID = variant
+            // Disk work; off the main actor. Nothing waits on it.
+            Task.detached(priority: .utility) { Self.pruneModelRecovery() }
             let loadSec = Date().timeIntervalSince(loadStart)
             finishLoadProgressClock(successfulDuration: loadSec, variant: variant)
             self.state = .ready
@@ -597,6 +607,48 @@ final class WhisperEngine {
     /// "Complete" = the compiled CoreML bundles are present. WhisperKit
     /// needs the mel/encoder/decoder trio, so fewer than three
     /// `.mlmodelc` entries means an interrupted download, not a model.
+    /// Where "Download speech model again" parks the previous model
+    /// folder. Sibling of the WhisperKit cache root, not inside it, so
+    /// WhisperKit's own listing never mistakes a parked copy for a model.
+    nonisolated static func modelRecoveryRoot(cacheRoot: URL) -> URL {
+        cacheRoot.deletingLastPathComponent().appendingPathComponent("Daisy-model-recovery")
+    }
+
+    /// Parked copies are kept "for diagnostics" — which means days, not
+    /// forever. Each one is a full model (626 MB to 1.5 GB), and until
+    /// this existed nothing ever removed them: three repair attempts
+    /// left ~4.5 GB behind on a disk the user was told was already too
+    /// full. Keeps the newest `modelRecoveryKeepCount`, drops anything
+    /// older than `modelRecoveryMaxAge`. Best-effort and silent.
+    nonisolated static let modelRecoveryKeepCount = 2
+    nonisolated static let modelRecoveryMaxAge: TimeInterval = 7 * 24 * 3600
+
+    nonisolated static func pruneModelRecovery(now: Date = Date()) {
+        guard let root = whisperCacheRoot() else { return }
+        pruneModelRecovery(at: modelRecoveryRoot(cacheRoot: root), now: now)
+    }
+
+    /// Split out so the policy is testable against a scratch folder.
+    nonisolated static func pruneModelRecovery(at recovery: URL, now: Date) {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: recovery,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        let dated: [(url: URL, date: Date)] = entries.compactMap { url in
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isDirectoryKey])
+            guard values?.isDirectory == true else { return nil }
+            return (url, values?.contentModificationDate ?? .distantPast)
+        }
+        .sorted { $0.date > $1.date }   // newest first
+        for (index, entry) in dated.enumerated() {
+            let tooMany = index >= modelRecoveryKeepCount
+            let tooOld = now.timeIntervalSince(entry.date) > modelRecoveryMaxAge
+            if tooMany || tooOld { try? fm.removeItem(at: entry.url) }
+        }
+    }
+
     nonisolated static func cachedModelFolder(variant: String) -> URL? {
         guard let root = whisperCacheRoot() else { return nil }
         let folder = root.appendingPathComponent("openai_whisper-\(variant)")
@@ -817,7 +869,15 @@ final class WhisperEngine {
 
     /// Off-main CoreML init — heavy CPU/Neural Engine work. Stays off
     /// MainActor so it doesn't freeze the UI.
-    nonisolated private static func loadKit(folder: URL) async throws -> WhisperKit {
+    ///
+    /// `verify` runs one short decode over silence before returning, so
+    /// "loaded" means "can transcribe" and not merely "Core ML accepted
+    /// the files" — a truncated download can pass the latter and fail
+    /// the former. It's on for the app's own model (that decode is also
+    /// the warm-up the first real pass would otherwise pay) and off for
+    /// the job-scoped re-transcription model, which is about to decode
+    /// hours of real audio anyway and would only be paying twice.
+    nonisolated private static func loadKit(folder: URL, verify: Bool) async throws -> WhisperKit {
         // `prewarm: false` (was `true`). In WhisperKit, `prewarm` runs a
         // SEPARATE `loadModels(prewarmMode: true)` pass BEFORE the real
         // `loadModels()` — the 626 MB model is instantiated TWICE per
@@ -840,11 +900,13 @@ final class WhisperEngine {
             download: false
         )
         let kit = try await WhisperKit(config)
-        _ = try await kit.transcribe(
-            audioArray: [Float](repeating: 0, count: 16_000),
-            decodeOptions: DecodingOptions(language: "en", temperatureFallbackCount: 0,
-                                          sampleLength: 8, detectLanguage: false)
-        )
+        if verify {
+            _ = try await kit.transcribe(
+                audioArray: [Float](repeating: 0, count: 16_000),
+                decodeOptions: DecodingOptions(language: "en", temperatureFallbackCount: 0,
+                                              sampleLength: 8, detectLanguage: false)
+            )
+        }
         return kit
     }
 
@@ -1057,7 +1119,7 @@ final class WhisperEngine {
             )
         }
         try Task.checkCancellation()
-        let box = WhisperKitBox(try await Self.loadKit(folder: folder))
+        let box = WhisperKitBox(try await Self.loadKit(folder: folder, verify: false))
         alternateModelID = requestedModelID
         alternateKitBox = box
         return box

@@ -4,8 +4,11 @@ import Testing
 
 @Suite("Model preparation safety")
 struct ModelPreparationTests {
-    @Test("Every onboarding path ends with mandatory preparation")
-    func preparationCannotBeSkipped() {
+    @Test("Every onboarding path ends on the preparation step")
+    func preparationIsTheLastStep() {
+        // Last, and exactly once. It can be SKIPPED ("Skip for now",
+        // models finish in the background) but never bypassed — every
+        // path still lands on it, and `finish()` redirects there.
         for path in [FirstRunView.SetupPath.full, .dictationOnly] {
             for layouts in [1, 2, 5] {
                 let steps = FirstRunView.steps(for: path, installedLayoutCount: layouts)

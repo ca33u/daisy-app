@@ -8024,6 +8024,16 @@
         }
       }
     },
+    "Dictation engine" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Движок диктовки"
+          }
+        }
+      }
+    },
     "Dictation had nowhere to land. Keep it?" : {
       "localizations" : {
         "ru" : {
@@ -15648,6 +15658,16 @@
         }
       }
     },
+    "Speaker separation isn’t downloaded yet — meetings will record without speaker labels until it is." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разделение спикеров ещё не загружено — встречи будут записываться без меток спикеров, пока оно не появится."
+          }
+        }
+      }
+    },
     "Speakers" : {
       "localizations" : {
         "ru" : {
@@ -15757,6 +15777,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Начать запись?"
+          }
+        }
+      }
+    },
+    "Start using Daisy now. The speech models finish downloading in the background, and the first recording waits for them if they aren’t ready yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Начать пользоваться Daisy сейчас. Речевые модели догрузятся в фоне, а первая запись дождётся их, если они ещё не готовы."
           }
         }
       }
@@ -18223,13 +18253,23 @@
         }
       }
     },
-    "Download the speech models, then let Daisy check that they work. Keep this window open until preparation is complete." : {
+    "Download the speech models, then let Daisy check that they work. If you’d rather not wait, skip for now — they finish in the background, and your first recording waits for them." : {
       "extractionState" : "manual",
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Скачайте речевые модели — Daisy проверит, что они работают. Дождитесь завершения подготовки."
+            "value" : "Скачайте речевые модели — Daisy проверит, что они работают. Не хотите ждать — пропустите пока: они догрузятся в фоне, а первая запись их дождётся."
+          }
+        }
+      }
+    },
+    "Speech detection isn’t downloaded yet — Daisy works without it and will fetch it when the network is back." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Определение речи ещё не загружено — Daisy работает и без него и скачает его, когда появится сеть."
           }
         }
       }

@@ -210,8 +210,22 @@ final class ParakeetEngine {
     }
 
     /// Number of cached Parakeet model folders (usually 0 or 1).
+    ///
+    /// A FOLDER count, and only that: FluidAudio creates the repo
+    /// folder before it fetches the first file, so this is 1 from the
+    /// first second of a download and after any interrupted one. Fine
+    /// for the Settings storage line it was written for; not a
+    /// readiness signal. Use `hasCompleteModel()` for that.
     nonisolated static func cachedModelCount() -> Int {
         fluidAudioParakeetDirs().count
+    }
+
+    /// True when every file the v3 int8 model needs is on disk — the
+    /// check that distinguishes "a few seconds of Core ML load away"
+    /// from "a ~600 MB download away". Same directory and precision
+    /// `performLoad` uses, so the two can't disagree.
+    nonisolated static func hasCompleteModel() -> Bool {
+        AsrModels.modelsExist(at: AsrModels.defaultCacheDirectory(for: .v3), version: .v3)
     }
 
     /// Delete the cached Parakeet model(s) and drop the live engine so a
@@ -267,6 +281,7 @@ final class ParakeetEngine {
     #else
     nonisolated static func cachedModelBytes() -> Int64 { 0 }
     nonisolated static func cachedModelCount() -> Int { 0 }
+    nonisolated static func hasCompleteModel() -> Bool { false }
     @MainActor static func removeCachedModel() -> Int64 { 0 }
     #endif
 }

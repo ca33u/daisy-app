@@ -17,8 +17,10 @@
 //  accessibility / screen as rows — the set depends on the setup path,
 //  and Screen Recording is deliberately last, see `permissionsStep`),
 //  hotkeys, the layout-fixer step (only with 2+ installed keyboard layouts),
-//  calendar, summaries, and mandatory model preparation. The final preparation screen
-//  enables "Start using Daisy" only after the selected models are verified and
+//  calendar, summaries, and model preparation. The final preparation
+//  screen enables "Start using Daisy" once the selected models are
+//  verified, and offers "Skip for now" until then — the models finish
+//  in the background and the first recording waits for them. Either
 //  calls `finish()` (see `isLastStep`); the one useful line that used
 //  to live there (where recording actually starts) moved to Home's
 //  empty state, where it's needed exactly when it's needed.
@@ -1152,6 +1154,22 @@ struct FirstRunView: View {
             case .purpose:
                 EmptyView()
             case .name, .permissions, .hotkeys, .layout, .calendar, .model, .preparation:
+                // Preparation is the one step that can genuinely be
+                // impossible to complete right now — no network, not
+                // enough free disk — and a new user must never be
+                // parked there. "Skip for now" hands them the app;
+                // preparation carries on in the background and
+                // `start()` waits for the model on the first recording.
+                // Hidden once the models are verified: at that point
+                // the primary button is the shorter path.
+                if step == .preparation,
+                   !preparation.canFinish(settings: settings, includeSpeakers: setupPath == .full) {
+                    Button("Skip for now") {
+                        finish(skippingPreparation: true)
+                    }
+                    .buttonStyle(DaisyStepButtonStyle(filled: false))
+                    .help("Start using Daisy now. The speech models finish downloading in the background, and the first recording waits for them if they aren’t ready yet.")
+                }
                 Button(isLastStep ? String(localized: "Start using Daisy") : String(localized: "Continue")) {
                     advance()
                 }
@@ -1248,11 +1266,29 @@ struct FirstRunView: View {
     /// window that already fits. Growing leftward/downward is clamped
     /// to the visible screen so the larger frame never ends up
     /// half off-screen.
-    private func finish() {
-        guard step == .preparation,
-              preparation.canFinish(settings: settings, includeSpeakers: setupPath == .full) else {
+    private func finish(skippingPreparation: Bool = false) {
+        // Onboarding ends on the preparation step, verified or
+        // explicitly skipped. Any other way of getting here (a stale
+        // Resume snapshot, a step vanishing mid-flow) lands on that
+        // step instead of past it.
+        guard step == .preparation else {
             step = .preparation
             return
+        }
+        if skippingPreparation {
+            // Whatever is in flight keeps going: both ways a preparation
+            // starts (the button, the `.task` resume) spawn an
+            // unstructured Task that holds `preparation` alive past this
+            // view. If nothing is running, start the rest in the
+            // background so a user with network gets the models before
+            // their first recording rather than during it.
+            if !preparation.isRunning {
+                ModelPreparation.completeInBackground(settings: settings, includeSpeakers: setupPath == .full)
+            }
+        } else {
+            guard preparation.canFinish(settings: settings, includeSpeakers: setupPath == .full) else {
+                return
+            }
         }
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
             var frame = window.frame

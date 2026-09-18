@@ -1118,8 +1118,13 @@ final class RecordingSession {
         // anchored to, and a whole-pill tap is an ACCEPT gesture we
         // don't want to mean "stop". Falls back to the actionable
         // banner when no panel host exists. Gated on the per-class
-        // toggle in Settings → General → Notifications.
-        if settings.notifyOnAutoStart {
+        // toggle in Settings → General → Notifications — and on the
+        // recording having actually started: `start()` can refuse (model
+        // can't load, mic denied) or fail, and its own bubble says so.
+        // `show` replaces whatever bubble is up, so announcing
+        // "Recording started" here unconditionally would paint over
+        // that explanation with a claim that nothing is recording.
+        if settings.notifyOnAutoStart, status == .recording {
             let shown = WidgetBubbleCenter.shared.show(WidgetBubbleContent(
                 text: String(localized: "Recording started"),
                 tag: "recording-started"
@@ -1374,32 +1379,84 @@ final class RecordingSession {
         }
     }
 
+    /// What `start()` decides before it touches any state: go ahead, or
+    /// refuse — and why. Pure, so the refusals can be tested without a
+    /// microphone, a model on disk, or a network.
+    ///
+    /// The only two refusals are the ones where waiting cannot help. A
+    /// model that is merely not loaded yet — the first seconds after
+    /// launch, a cold reload after memory pressure, a download in
+    /// flight — is NOT a refusal: `start()` waits for it further down,
+    /// with the explainer toast and the cold-start retries. Refusing
+    /// there is what 1.0.7.71 did, and it meant a calendar auto-start a
+    /// minute after the Mac booted silently recorded nothing.
+    nonisolated enum StartPreflight: Equatable {
+        case proceed
+        /// Onboarding was never completed — not finished, not skipped.
+        case onboardingIncomplete
+        /// The speech model isn't on disk and there's no network to
+        /// fetch it. Nothing `start()` could wait for would change that.
+        case modelCannotLoad
+
+        static func decide(
+            hasShownFirstRun: Bool,
+            whisperState: WhisperEngine.LoadState,
+            modelIsCached: Bool,
+            isOnline: Bool
+        ) -> StartPreflight {
+            guard hasShownFirstRun else { return .onboardingIncomplete }
+            if case .ready = whisperState { return .proceed }
+            if !modelIsCached && !isOnline { return .modelCannotLoad }
+            return .proceed
+        }
+    }
+
+    /// Drop everything a hotkey or calendar trigger queued for this
+    /// start. A refused start must not leave `.dictation` pending for
+    /// the next Record click to pick up.
+    private func clearPendingStart() {
+        pendingMode = nil
+        pendingBoundMeeting = nil
+        pendingFolderHint = nil
+        pendingMeetingPreparation = nil
+    }
+
+    /// The speech model can't be used and won't become usable on its
+    /// own: say so where the user is (toast in-app, a bubble +
+    /// notification when the trigger came from a hotkey or the calendar
+    /// with no window in front), and open the screen that repairs it.
+    private func presentSpeechModelUnavailable() {
+        let message = String(localized: "The speech model is not ready. Open Settings → Transcription to prepare or repair it.")
+        ToastCenter.shared.show(message, style: .warning)
+        WidgetBubbleCenter.shared.present(WidgetBubbleContent(text: message),
+            notificationTitle: String(localized: "Prepare Daisy"))
+        AppNavigation.shared.openInSettings(.transcription)
+    }
+
     func start() async {
-        guard settings.hasShownFirstRun else {
-            pendingMode = nil
-            pendingBoundMeeting = nil
-            pendingFolderHint = nil
-            pendingMeetingPreparation = nil
+        let whisperState = WhisperEngine.shared.state
+        // The cache check reads a dozen files; a ready model doesn't
+        // need it (the decision is `.proceed` either way), and that's
+        // the state nearly every start sees.
+        let modelIsCached = whisperState == .ready
+            || WhisperEngine.cachedModelFolder(variant: WhisperEngine.shared.modelID) != nil
+        let preflight = StartPreflight.decide(
+            hasShownFirstRun: settings.hasShownFirstRun,
+            whisperState: whisperState,
+            modelIsCached: modelIsCached,
+            isOnline: NetworkMonitor.shared.isOnline
+        )
+        switch preflight {
+        case .proceed:
+            break
+        case .onboardingIncomplete:
+            clearPendingStart()
             ToastCenter.shared.show(String(localized: "Finish preparing Daisy before recording."), style: .info)
             return
-        }
-        let fastDictationMissing = pendingMode == .dictation && settings.dictationEngine == .parakeet
-            && !ParakeetEngine.shared.isReady
-        if !WhisperEngine.shared.isReady || fastDictationMissing || ModelPreparation.activePreparations > 0 {
-            // Cold reload after memory pressure is allowed, but never starts a
-            // recording later without another explicit user action.
-            if ModelPreparation.activePreparations == 0, case .notLoaded = WhisperEngine.shared.state {
-                Task { await WhisperEngine.shared.ensureLoaded() }
-            }
-            pendingMode = nil
-            pendingBoundMeeting = nil
-            pendingFolderHint = nil
-            pendingMeetingPreparation = nil
-            let message = String(localized: "The speech model is not ready. Open Settings → Transcription to prepare or repair it.")
-            ToastCenter.shared.show(message, style: .warning)
-            WidgetBubbleCenter.shared.present(WidgetBubbleContent(text: message),
-                notificationTitle: String(localized: "Prepare Daisy"))
-            AppNavigation.shared.openInSettings(.transcription)
+        case .modelCannotLoad:
+            clearPendingStart()
+            log.error("Start refused — speech model not cached and offline")
+            presentSpeechModelUnavailable()
             return
         }
         // Stored-audio re-transcription temporarily owns the shared
@@ -1407,6 +1464,7 @@ final class RecordingSession {
         // live capture in the middle of that job would make both workflows
         // compete for the same serialized decoder and memory budget.
         guard !SessionAudioProcessing.shared.isRunning else {
+            clearPendingStart()
             ToastCenter.shared.show(
                 String(localized: "Wait for stored audio processing to finish."),
                 style: .info
@@ -1425,7 +1483,12 @@ final class RecordingSession {
         summaryTask?.cancel()
         summaryTask = nil
 
-        guard status == .idle || status == .finished || isFailed else { return }
+        guard status == .idle || status == .finished || isFailed else {
+            // A hotkey pressed mid-recording queued `.dictation`; it must
+            // not lie in wait for the next Record click.
+            clearPendingStart()
+            return
+        }
 
         // A discard flag left over from a previous take. Cleared HERE and
         // not in `reset()`: reset runs in the middle of this function,
@@ -1447,11 +1510,13 @@ final class RecordingSession {
             log.warning("Mic permission notDetermined at capture start — prompting")
             await SystemPermissions.shared.requestMicrophone()
             if SystemPermissions.micAuthorization() != .authorized {
+                clearPendingStart()
                 showMicBlockedToast()
                 return
             }
         case .denied, .restricted:
             log.error("Mic permission is \(SystemPermissions.micAuthorizationDescription(), privacy: .public) — refusing to start a silent recording")
+            clearPendingStart()
             showMicBlockedToast()
             return
         case .authorized:
@@ -1655,12 +1720,49 @@ final class RecordingSession {
             await WhisperEngine.shared.ensureLoaded()
         }
         if case .failed(let msg) = WhisperEngine.shared.state {
+            // We waited and retried; it still can't load. This is the
+            // "loading is impossible" case (no disk, offline with no
+            // cache, a broken download) — the one refusal worth pointing
+            // at the repair screen, and worth a notification for a
+            // calendar auto-start nobody is watching.
             await failFast(String(localized: "Whisper model failed to load: \(msg)"))
+            presentSpeechModelUnavailable()
             return
         }
         guard WhisperEngine.shared.isReady else {
             await failFast(String(localized: "Whisper model isn't ready yet — try again in a moment."))
             return
+        }
+
+        // Fast dictation engine. Parakeet is NOT preloaded at launch
+        // (Whisper is), so on the first dictation after every launch it
+        // sits in `.notLoaded` — and 1.0.7.71 refused the whole dictation
+        // for that. Wait for it the way Whisper is waited for above, but
+        // only when the model is COMPLETE on disk and not mid-download:
+        // a cached load is a few seconds, while a first-ever ~600 MB
+        // download is not worth holding the hotkey for. (The hotkey
+        // handler already kicked that download off; it'll be ready next
+        // time, and `finishDictation` goes straight to Whisper for this
+        // one.) `hasCompleteModel`, not `cachedModelCount`: the folder
+        // exists from the first second of a download, so the count is
+        // 1 exactly when waiting would be wrong. Never a refusal — the
+        // Whisper fallback makes a failed Parakeet a slower dictation,
+        // not a lost one.
+        if currentMode == .dictation, settings.dictationEngine == .parakeet,
+           !ParakeetEngine.shared.isReady {
+            switch ParakeetEngine.shared.state {
+            case .downloading:
+                break
+            case .notLoaded, .loading, .failed:
+                if ParakeetEngine.hasCompleteModel() {
+                    await ParakeetEngine.shared.ensureLoaded()
+                    if case .failed(let reason) = ParakeetEngine.shared.state {
+                        log.warning("Parakeet unavailable for this dictation — Whisper fallback: \(reason, privacy: .public)")
+                    }
+                }
+            case .ready:
+                break
+            }
         }
 
         // Session directory for archive + screenshots.

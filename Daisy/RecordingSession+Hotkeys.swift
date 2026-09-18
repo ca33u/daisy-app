@@ -148,10 +148,13 @@ extension RecordingSession {
     /// History entry). On release, the transcript is copied to
     /// the clipboard and a toast prompts ⌘V. Wispr-Flow-lite.
     func startDictationHotkey() async {
-        guard settings.hasShownFirstRun, WhisperEngine.shared.isReady else {
-            await start()
-            return
-        }
+        // No readiness gate here. `start()` owns that: it refuses an
+        // unfinished onboarding, refuses a model that cannot load, and
+        // WAITS for one that merely hasn't loaded yet. A gate at this
+        // level that fell through to `start()` without setting
+        // `pendingMode` would begin a MEETING recording the moment the
+        // model finished loading — which is what 1.0.7.71 shipped, saved
+        // only by `start()` refusing everything at the time.
         switch status {
         case .idle, .finished, .failed:
             pendingMode = .dictation
