@@ -207,7 +207,9 @@ final class WhisperEngine {
                     // without this stamp the copy just parked "for
                     // diagnostics" would be deleted on the next line.
                     try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: parked.path)
-                    Self.pruneModelRecovery()
+                    // Same as `performLoad`: directory listing plus removal of
+                    // gigabyte folders is disk work, and nothing waits on it.
+                    Task.detached(priority: .utility) { Self.pruneModelRecovery() }
                 }
             }
             await reload()

@@ -163,6 +163,36 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     private var autoRestartCount: Int = 0
     private static let maxAutoRestarts = 3
 
+    /// Second chance after the restart budget is spent: a stream that
+    /// died because macOS had no display to capture from (screen asleep,
+    /// lid shut on a Mac on AirPods — tester log 2026-09-16, `Failed to
+    /// find any displays or windows to capture`) comes back the moment a
+    /// display does. The three in-band restarts are gone within seconds
+    /// of that death; this listens for the display instead and retries
+    /// on every screen-parameter / wake edge, up to `maxDisplayReturnRetries`
+    /// per capture, 5 s apart. Disarmed by `stop()` and by a successful
+    /// rebuild.
+    private var displayReturnObservers: [NSObjectProtocol] = []
+    private var displayReturnGeneration: Int = -1
+    private var displayReturnRetries: Int = 0
+    private var lastDisplayReturnAttemptAt: Date?
+    private static let maxDisplayReturnRetries = 10
+    /// Wall-clock moment the far side went missing, so the archive can
+    /// be padded with silence for the gap when it comes back — the
+    /// archive is one contiguous file and the final pass reads time as
+    /// file offset, so an unpadded gap would shift every later remark
+    /// earlier and interleave it with the wrong microphone turns.
+    private var gapStartedAt: Date?
+    private var displayReturnPausedBySession = false
+    /// The "lost the other side" toast + notification go out once per
+    /// capture; a display that flaps would otherwise re-announce every
+    /// edge.
+    private var gaveUpNoticeShown = false
+    /// Told once when a capture that had given up is live again, so the
+    /// session can say so — the person was already told they'd lost the
+    /// other side.
+    var onCaptureRecovered: (@MainActor () -> Void)?
+
     /// Bumped by every capture-lifetime edge (start / pause / stop).
     /// `rebuildStream` snapshots it before its awaits and drops the
     /// freshly built stream if the generation moved meanwhile —
@@ -365,6 +395,9 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             lastSampleAt = nil
             hasReceivedAudio = false
             autoRestartCount = 0
+            gaveUpNoticeShown = false
+            gapStartedAt = nil
+            displayReturnPausedBySession = false
             silenceWarningFired = false
             lastAudibleSampleAt = nil
             receivedAudibleAudio = false
@@ -1028,6 +1061,116 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// Extracted from the route-change handler (2026-08-10) so the
     /// delegate's `didStopWithError` can reuse the exact same recovery
     /// instead of only recording the corpse.
+    /// Write `seconds` of silence into the archive so the timeline stays
+    /// wall-clock-true across an outage. Fenced through `outputQueue`
+    /// like every writer mutation; one-second buffers so a long gap
+    /// doesn't allocate a giant one.
+    private func padArchiveGap(seconds: TimeInterval) {
+        guard seconds > 0.5 else { return }
+        outputQueue.sync {
+            guard let writer = archiveWriter else { return }
+            let format = writer.processingFormat
+            let rate = format.sampleRate
+            var remaining = Int(seconds * rate)
+            let chunk = Int(rate)
+            while remaining > 0 {
+                let n = min(chunk, remaining)
+                guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(n)) else { return }
+                buffer.frameLength = AVAudioFrameCount(n)   // zero-filled on allocation
+                do {
+                    try writer.write(from: buffer)
+                    archiveFramesWritten &+= UInt64(n)
+                } catch {
+                    log.error("Couldn't pad the archive gap: \(error.localizedDescription, privacy: .public)")
+                    return
+                }
+                remaining -= n
+            }
+        }
+        log.notice("Padded the system-audio archive with \(Int(seconds), privacy: .public)s of silence for the outage")
+    }
+
+    private func armDisplayReturnRecovery() {
+        if gapStartedAt == nil { gapStartedAt = lastSampleAt ?? Date() }
+        guard displayReturnObservers.isEmpty else { return }
+        displayReturnGeneration = captureGeneration
+        displayReturnRetries = 0
+        // Wake notifications arrive in a burst, and SCShareableContent may
+        // not know about the display yet on the first one — so besides
+        // the immediate try, one more 15 s later.
+        let handler: (Notification) -> Void = { [weak self] _ in
+            Task { @MainActor [weak self] in await self?.retryAfterDisplayReturn() }
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(15))
+                await self?.retryAfterDisplayReturn()
+            }
+        }
+        displayReturnObservers = [
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didChangeScreenParametersNotification,
+                object: nil, queue: .main, using: handler
+            ),
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.screensDidWakeNotification,
+                object: nil, queue: .main, using: handler
+            ),
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification,
+                object: nil, queue: .main, using: handler
+            ),
+        ]
+        log.notice("System audio capture gave up — waiting for a display to come back before trying again")
+    }
+
+    private func disarmDisplayReturnRecovery() {
+        for observer in displayReturnObservers {
+            NotificationCenter.default.removeObserver(observer)
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        displayReturnObservers = []
+    }
+
+    private func retryAfterDisplayReturn() async {
+        guard !displayReturnObservers.isEmpty else { return }
+        // The capture this was armed for is over — a later session arms
+        // its own if it needs to.
+        guard captureGeneration == displayReturnGeneration, state == .stopped else {
+            disarmDisplayReturnRecovery()
+            return
+        }
+        guard !outputRestartInFlight else { return }
+        if let last = lastDisplayReturnAttemptAt, Date().timeIntervalSince(last) < 5 { return }
+        guard displayReturnRetries < Self.maxDisplayReturnRetries else {
+            log.error("Display came back but the capture would not — stopped retrying after \(Self.maxDisplayReturnRetries, privacy: .public) attempts")
+            disarmDisplayReturnRecovery()
+            return
+        }
+        displayReturnRetries += 1
+        lastDisplayReturnAttemptAt = Date()
+        outputRestartInFlight = true
+        defer { outputRestartInFlight = false }
+        log.notice("Display returned — system audio capture retry \(self.displayReturnRetries, privacy: .public)/\(Self.maxDisplayReturnRetries, privacy: .public)")
+        if await rebuildStream(reason: "display-returned-\(displayReturnRetries)") {
+            state = .capturing
+            lastError = nil
+            if let since = gapStartedAt {
+                padArchiveGap(seconds: Date().timeIntervalSince(since))
+                gapStartedAt = nil
+            }
+            // The in-band budget is per outage, not per capture, now that
+            // an outage can end: the next death gets its three quick
+            // tries again before falling back to waiting for a display.
+            autoRestartCount = 0
+            disarmDisplayReturnRecovery()
+            // A later death in this same session is a distinct outage and
+            // deserves its own notice, not silence because we already
+            // warned once before this recovery.
+            gaveUpNoticeShown = false
+            log.notice("System audio capture is back after the display returned")
+            onCaptureRecovered?()
+        }
+    }
+
     private func rebuildStream(reason: String) async -> Bool {
         let generation = captureGeneration
         // Tear down the current engine cleanly. Failures here don't block
@@ -1132,7 +1275,9 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             lastError = error.localizedDescription
             state = .stopped
             onCaptureGaveUp?()
-            if !quietDiagnostics {
+            armDisplayReturnRecovery()
+            if !quietDiagnostics, !gaveUpNoticeShown {
+                gaveUpNoticeShown = true
                 CaptureProblemNotification.post(
                     title: String(localized: "Daisy stopped hearing the other side"),
                     body: String(localized: "System audio capture stopped and couldn’t be restarted. Your microphone is still being recorded.")
@@ -1163,7 +1308,9 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         lastError = error.localizedDescription
         state = .stopped
         onCaptureGaveUp?()
-        if !quietDiagnostics {
+        armDisplayReturnRecovery()
+        if !quietDiagnostics, !gaveUpNoticeShown {
+            gaveUpNoticeShown = true
             CaptureProblemNotification.post(
                 title: String(localized: "Daisy stopped hearing the other side"),
                 body: String(localized: "System audio capture stopped and couldn’t be restarted. Your microphone is still being recorded.")
@@ -1267,6 +1414,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
 
     func stop() async {
         captureGeneration &+= 1   // strand any rebuild in flight
+        disarmDisplayReturnRecovery()
         stopSilenceMonitor()
         removeOutputDeviceListener()
         captureStartedAt = nil
@@ -1316,6 +1464,15 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// native pause — we rebuild a fresh stream in `resume()` and
     /// route it to the same continuation.
     func pause() async {
+        // A capture that gave up mid-session and is waiting for a display
+        // must not come back while the session is paused — it would
+        // record the far side into a recording the person believes is
+        // paused. Disarm here; `resume()` re-arms.
+        if state == .stopped, !displayReturnObservers.isEmpty {
+            disarmDisplayReturnRecovery()
+            displayReturnPausedBySession = true
+            return
+        }
         guard state == .capturing, stream != nil || tap != nil else { return }
         captureGeneration &+= 1   // strand any rebuild in flight
         stopSilenceMonitor()
@@ -1343,6 +1500,12 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// Resume after `pause()`: build a new SCStream with the same
     /// config and route its output to the existing continuation.
     func resume() async throws {
+        if state == .stopped, displayReturnPausedBySession {
+            displayReturnPausedBySession = false
+            armDisplayReturnRecovery()
+            await retryAfterDisplayReturn()
+            return
+        }
         guard state == .paused else { return }
         // Re-run the full discover + filter + config dance — display
         // topology can change while we were paused (Mac plugged into

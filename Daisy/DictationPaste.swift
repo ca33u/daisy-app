@@ -5,13 +5,18 @@
 //  Glue between dictation-mode end-of-recording and the user's
 //  active text field. Three jobs:
 //
-//   1. Save the current clipboard contents (text + any other
-//      pasteboard types) before we trample them.
-//   2. Write the transcript and (if Accessibility permission is
-//      granted) simulate ⌘V so the text lands in whatever field
-//      the user has focused — true "Wispr Flow parity". When
-//      permission is missing or the user denies, fall back to a
-//      toast prompting manual ⌘V.
+//   0. Insert straight into the focused field via Accessibility, or —
+//      when the field refuses (web views, Electron) — TYPE the text as
+//      synthetic key events. Neither touches the clipboard. This is the
+//      normal path (2026-09-18: "if I have something copied, dictation
+//      must not replace it" — Egor).
+//   1. Only when neither is possible (no Accessibility permission, or the
+//      person opted into the clipboard route for an app that autocompletes
+//      as you type): save the current clipboard contents (text + any
+//      other pasteboard types) before we trample them.
+//   2. Write the transcript and simulate ⌘V so the text lands in whatever
+//      field the user has focused. When permission is missing, fall back
+//      to a toast prompting manual ⌘V.
 //   3. After a 10 s grace window, restore the previous clipboard
 //      so the user's existing copy/paste state isn't permanently
 //      clobbered by a one-off dictation. Skipped if the user has
@@ -235,6 +240,55 @@ final class DictationPaste {
             return
         }
 
+        // 0b. Second-best path, and the one Electron / web views actually
+        //     take: TYPE the text as synthetic key events, the way the
+        //     layout fixer already re-types a corrected word. Still no
+        //     pasteboard involvement. Chromium accepts a key-down carrying
+        //     a Unicode string as typed text, which is exactly what AX
+        //     refuses to do for it. Skipped when the person asked for the
+        //     clipboard route (apps that autocomplete as you type can
+        //     mangle typed text — the paste lands whole), and when
+        //     Accessibility is missing, since event posting needs it too.
+        //
+        //     `.noFocusedField` still goes through here: Chromium reports
+        //     no focus even with a caret blinking, so "no field" is not a
+        //     reason to skip. Typing into a true void is as harmless as
+        //     the ⌘V into a void was — and the "landed nowhere" bubble
+        //     below still fires for that case.
+        let clipboardRoute = UserDefaults.standard.bool(forKey: AppSettings.k_dictationPastesViaClipboard)
+
+        // A true void — desktop, Daisy itself, nothing in front — gets
+        // neither typed into (Finder would take the letters as
+        // type-to-select) nor written to the clipboard. The bubble names
+        // the re-paste hotkey; the text is in the history either way.
+        if !clipboardRoute, axOutcome == .noFocusedField, Self.frontmostIsVoid() {
+            if context == .repaste {
+                ToastCenter.shared.show(
+                    String(localized: "Click into a text field first, then paste again."),
+                    style: .info
+                )
+            }
+            presentLandedNowhereBubbleIfNeeded(transcript, context: context, axOutcome: axOutcome)
+            return
+        }
+
+        // Type only when AX found a field that refused the write. With
+        // NO focused element in an app that isn't a void, typed letters
+        // are single-key shortcuts — Gmail archives on `e`, YouTube
+        // seeks — whereas a ⌘V with nothing focused does nothing. So
+        // `.noFocusedField` keeps the clipboard route, restore and all.
+        if !clipboardRoute,
+           axOutcome == .refused,
+           AXIsProcessTrusted(),
+           attemptTypeInsert(transcript) {
+            ToastCenter.shared.show(
+                String(localized: "Dictation inserted — clipboard untouched."),
+                style: .success
+            )
+            presentLandedNowhereBubbleIfNeeded(transcript, context: context, axOutcome: axOutcome)
+            return
+        }
+
         // 1. Snapshot the user's real prior clipboard, BEFORE we write.
         //
         //    Back-to-back clipboard-route deliveries (a dictation that
@@ -312,14 +366,21 @@ final class DictationPaste {
             }
         }
 
-        // Dictated into the void: no field had focus, so the ⌘V landed
-        // nowhere and the clipboard is about to revert. Surface a bubble
-        // from the widget (Wispr's "copy last transcript") offering to
-        // keep the text — only for a fresh dictation, and only when we're
-        // sure there was no target.
-        //
-        // `.refused` means a field exists but won't take an AX write; ⌘V
-        // almost certainly reached it, so no prompt there. And
+        presentLandedNowhereBubbleIfNeeded(transcript, context: context, axOutcome: axOutcome)
+    }
+
+    /// Dictated into the void: no field had focus, so the text landed
+    /// nowhere (typed or pasted — same outcome). Surface a bubble from the
+    /// widget (Wispr's "copy last transcript") offering to keep the text —
+    /// only for a fresh dictation, and only when we're sure there was no
+    /// target.
+    private func presentLandedNowhereBubbleIfNeeded(
+        _ transcript: String,
+        context: DeliveryContext,
+        axOutcome: AXInsertOutcome
+    ) {
+        // `.refused` means a field exists but won't take an AX write; the
+        // typed text / ⌘V almost certainly reached it, so no prompt there. And
         // `.noFocusedField` LIES in Chromium/Electron apps — they don't
         // build an AX focus tree without AXManualAccessibility, so Claude
         // / Slack / Notion always look focus-less even though ⌘V lands
@@ -468,10 +529,10 @@ final class DictationPaste {
                 log.warning("AX write reported success but the field is unchanged — clipboard + ⌘V fallback (web/Electron no-op)")
                 return .refused
             }
-            log.info("Dictation inserted via AX (verified by value change) — clipboard untouched")
+            log.notice("Dictation inserted via AX (verified by value change) — clipboard untouched")
             return .inserted
         }
-        log.info("Dictation inserted via AX (unverified — field exposes no readable value) — clipboard untouched")
+        log.notice("Dictation inserted via AX (unverified — field exposes no readable value) — clipboard untouched")
         return .inserted
     }
 
@@ -582,6 +643,82 @@ final class DictationPaste {
         return .pasted
     }
 
+    /// Type `text` into the frontmost app as synthetic key events — the
+    /// clipboard-free route for fields that refuse an AX write. Each
+    /// key-down carries up to 20 UTF-16 units of the text (the documented
+    /// ceiling for `keyboardSetUnicodeString`); a newline goes out as
+    /// ⇧Return, which is "new line, don't send" in every chat app and a
+    /// plain newline everywhere else — a bare Return would SEND the
+    /// message in Claude / Slack / Telegram, the apps this path exists for.
+    ///
+    /// Events carry the `SyntheticEvents.marker` so the layout fixer's tap
+    /// ignores them; otherwise it would try to "correct" a Russian
+    /// dictation typed under an English layout. Same `.privateState`
+    /// source as the fixer, so the person physically holding ⇧ or ⌥ at
+    /// the moment doesn't get their modifiers stamped onto our text.
+    ///
+    /// Returns false only when events can't be built — the caller then
+    /// takes the clipboard route. Delivery itself is unverifiable, the
+    /// same as ⌘V was.
+    private func attemptTypeInsert(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
+        guard let source = CGEventSource(stateID: .privateState) else {
+            log.error("Couldn't create CGEventSource for typed insert")
+            return false
+        }
+        var events: [CGEvent] = []
+        events.reserveCapacity(text.utf16.count / 10 + 4)
+
+        func appendText(_ units: [UInt16]) -> Bool {
+            var start = 0
+            while start < units.count {
+                var end = min(start + 20, units.count)
+                // Never split a surrogate pair across two events — half an
+                // emoji arrives as U+FFFD.
+                if end < units.count, UTF16.isLeadSurrogate(units[end - 1]) { end -= 1 }
+                let chunk = Array(units[start..<end])
+                guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
+                      let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
+                else { return false }
+                down.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
+                up.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
+                events.append(down)
+                events.append(up)
+                start = end
+            }
+            return true
+        }
+        func appendNewline() -> Bool {
+            guard let down = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Return), keyDown: true),
+                  let up = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Return), keyDown: false)
+            else { return false }
+            down.flags = .maskShift
+            up.flags = .maskShift
+            events.append(down)
+            events.append(up)
+            return true
+        }
+
+        // Split on line breaks; everything between them is plain text.
+        let lines = text.split(omittingEmptySubsequences: false) { $0.isNewline }
+        for (index, line) in lines.enumerated() {
+            if index > 0, !appendNewline() { return false }
+            if !line.isEmpty, !appendText(Array(line.utf16)) { return false }
+        }
+        for event in events {
+            event.setIntegerValueField(.eventSourceUserData, value: SyntheticEvents.marker)
+        }
+
+        // Same settle delay as the ⌘V path, same reason: focus may not
+        // have finished moving back to the person's field yet.
+        Thread.sleep(forTimeInterval: 0.08)
+        let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "<unknown>"
+        log.notice("Typing dictation as \(events.count / 2, privacy: .public) key events — frontmost app: \(frontmost, privacy: .private)")
+        let tap = CGEventTapLocation.cgSessionEventTap
+        for event in events { event.post(tap: tap) }
+        return true
+    }
+
     /// Why the automatic ⌘V did or didn't happen. `.needsAccessibility`
     /// is separated from `.failed` because only it has an action the
     /// person can take.
@@ -626,12 +763,12 @@ final class DictationPaste {
         guard let snapshot = pendingSnapshot else { return }
         let currentCount = NSPasteboard.general.changeCount
         if currentCount != snapshot.changeCountAfterOurWrite {
-            log.info("Pasteboard changed during retention window — skipping restore (\(currentCount, privacy: .public) vs \(snapshot.changeCountAfterOurWrite, privacy: .public))")
+            log.notice("Pasteboard changed during retention window — skipping restore (\(currentCount, privacy: .public) vs \(snapshot.changeCountAfterOurWrite, privacy: .public))")
             return
         }
         NSPasteboard.general.clearContents()
         if snapshot.items.isEmpty {
-            log.info("Restored empty pasteboard (no prior contents)")
+            log.notice("Restored empty pasteboard (no prior contents)")
             return
         }
         let nsItems: [NSPasteboardItem] = snapshot.items.map { typeMap in
@@ -642,7 +779,7 @@ final class DictationPaste {
             return item
         }
         NSPasteboard.general.writeObjects(nsItems)
-        log.info("Restored pasteboard with \(nsItems.count, privacy: .public) item(s) after dictation grace window")
+        log.notice("Restored pasteboard with \(nsItems.count, privacy: .public) item(s) after dictation grace window")
     }
 
     /// Cancel any pending restore — used when a NEW dictation

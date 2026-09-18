@@ -251,6 +251,21 @@ extension RecordingSession {
             return
         }
 
+        // Quiet on the channels we can hear — but can we hear the other
+        // side at all? A loopback stream that died (display asleep, lid
+        // shut — tester log 2026-09-16: `sys=empty`, stream dead after
+        // 25 s) makes "quiet" mean "the person is listening", and the
+        // pill fired in the middle of their call. With the far side
+        // unknown, don't guess: only the hard overrun above asks.
+        // `.stopped` specifically: a capture that never started (Screen
+        // Recording denied → mic-only by preflight) leaves the state at
+        // `.idle`, and there the mic is the honest, only channel.
+        if currentMode == .meeting, settings.captureSystemAudio, systemAudio.state == .stopped {
+            autoStopLastAudibleAt = now
+            autoStopLog.debug("eval: far side not captured (\(String(describing: self.systemAudio.state), privacy: .public)) — silence ask suppressed")
+            return
+        }
+
         // Silent right now. Two quiet thresholds:
         //   past endDate+grace → 120 s (meeting is over, wrap up fast)
         //   before endDate     → 10 min (everyone left early; long
@@ -276,7 +291,16 @@ extension RecordingSession {
         guard status == .recording || status == .paused, !autoStopSuppressed else { return }
         autoStopLog.notice("Auto-stop performing stop() — user confirmed the end-of-meeting ask; the SESSION SUMMARY that follows is this one")
         ToastCenter.shared.show(String(localized: "Meeting ended — stopping & saving."), style: .info, duration: .seconds(2))
+        // A next meeting waiting behind this ask starts right after the
+        // stop — same as the old silent rotation, including its one
+        // trade-off: the final pass for THIS session is skipped, because
+        // issue #7 showed that cancelling it after the fact kills the
+        // new session's transcription instead. The live transcript is
+        // on disk; the archive stays, so a re-transcribe recovers the
+        // full-quality pass later.
+        if hasPendingLiveCalendarMeeting { skipFinalPassOnNextStop = true }
         await stop()
+        await startPendingCalendarMeetingIfLive()
     }
 
     // MARK: - The end-of-meeting ask

@@ -15,7 +15,7 @@
     },
     "NSAudioCaptureUsageDescription" : {
       "comment" : "Privacy - Audio Capture Usage Description",
-      "extractionState" : "extracted_with_value",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -45,6 +45,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Daisy читает ваш календарь, чтобы находить предстоящие встречи и предлагать автозапись, когда они начинаются. Данные не покидают ваш Mac."
+          }
+        }
+      }
+    },
+    "NSDownloadsFolderUsageDescription" : {
+      "comment" : "Privacy - Downloads Folder Usage Description",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Daisy saves the log report you asked for into your Downloads folder. Nothing else is read or written there, and nothing leaves your Mac."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy сохраняет запрошенный вами отчёт с логами в папку «Загрузки». Больше ничего там не читается и не записывается, и ничего не покидает ваш Mac."
           }
         }
       }

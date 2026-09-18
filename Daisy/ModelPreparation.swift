@@ -80,8 +80,27 @@ final class ModelPreparation {
             && (settings.dictationEngine != .parakeet || ParakeetEngine.shared.isReady)
     }
 
+    /// True once a recording or transcription began while a background
+    /// preparation was mid-way. The remaining steps are skipped — a 600 MB
+    /// download and a CoreML load next to a live recording is memory
+    /// pressure exactly when it hurts most — and `start()` loads what it
+    /// needs itself; the rest comes down the next time it's asked for.
+    private var steppedAside: Bool {
+        RecordingSession.isCapturingOrTranscribing || SessionAudioProcessing.shared.isRunning
+    }
+
+    private func noteSteppedAside() {
+        notice = String(localized: "A recording started — the rest downloads after it ends.")
+    }
+
     func prepare(settings: AppSettings, includeSpeakers: Bool, downloadAgain: Bool = false) async {
-        guard !isRunning, Self.activePreparations == 0 else { return }
+        guard !isRunning else { return }
+        guard Self.activePreparations == 0 else {
+            // A background completion (after "Skip for now") is still
+            // running; a silent return here read as a dead button.
+            error = String(localized: "Daisy is already preparing models in the background — give it a minute.")
+            return
+        }
         guard !RecordingSession.isCapturingOrTranscribing, !SessionAudioProcessing.shared.isRunning else {
             error = String(localized: "Wait for recording and transcription to finish before preparing models.")
             return
@@ -104,11 +123,13 @@ final class ModelPreparation {
             return
         }
         // Optional from here on: a miss is a notice, not a failure.
+        if steppedAside { noteSteppedAside(); return }
         stage = String(localized: "Preparing speech detection…")
         let speechDetectionReady = await whisper.prepareSpeechDetection()
         if !speechDetectionReady {
             notice = String(localized: "Speech detection isn’t downloaded yet — Daisy works without it and will fetch it when the network is back.")
         }
+        if steppedAside { noteSteppedAside(); return }
         if settings.dictationEngine == .parakeet {
             stage = String(localized: "Preparing fast dictation…")
             await ParakeetEngine.shared.ensureLoaded()
@@ -128,6 +149,7 @@ final class ModelPreparation {
                 }
             }
         }
+        if steppedAside { noteSteppedAside(); return }
         if settings.dictationUseNemotronLive {
             stage = String(localized: "Preparing live dictation…")
             await NemotronLiveEngine.shared.ensureLoaded()
@@ -136,6 +158,7 @@ final class ModelPreparation {
                 return
             }
         }
+        if steppedAside { noteSteppedAside(); return }
         if includeSpeakers && (settings.diarizeRemoteSpeakers || settings.diarizeMicrophone) {
             stage = String(localized: "Preparing speaker separation…")
             await DiarizationEngine.shared.ensureLoaded()

@@ -178,6 +178,7 @@ final class SessionAudioProcessing {
             processingFiles.microphone,
             source: .microphone,
             language: language,
+            totalSec: Double(session.durationSec),
             modelID: options.modelID,
             diarize: options.diarize && processingFiles.system.isEmpty,
             startedAt: session.startedAt,
@@ -189,6 +190,7 @@ final class SessionAudioProcessing {
             processingFiles.system,
             source: .systemAudio,
             language: language,
+            totalSec: Double(session.durationSec),
             modelID: options.modelID,
             diarize: options.diarize,
             startedAt: session.startedAt,
@@ -314,6 +316,7 @@ final class SessionAudioProcessing {
         _ urls: [URL],
         source: SegmentSource,
         language: String?,
+        totalSec: Double? = nil,
         modelID: String,
         diarize: Bool,
         startedAt: Date,
@@ -329,6 +332,21 @@ final class SessionAudioProcessing {
             operation: { reader.nextBlock() }
         ).value {
             try Task.checkCancellation()
+            // Progress for the sheet: a two-hour lecture behind a bare
+            // spinner reads as hung (Egor, 2026-09-18). Minutes reached
+            // of minutes total; the block reader knows only offsets, so
+            // the total comes from the session's own duration.
+            if let totalSec, totalSec > 0 {
+                let base = source == .microphone
+                    ? String(localized: "Transcribing microphone audio")
+                    : String(localized: "Transcribing system audio")
+                // Reached = end of the block being decoded, capped at the total.
+                let reachedSec = min(block.startSec + Double(block.samples.count) / Double(ArchiveBlockReader.sampleRate), totalSec)
+                statusText = String(
+                    format: String(localized: "%@ — %d of %d min"),
+                    base, Int((reachedSec / 60).rounded(.up)), Int((totalSec / 60).rounded(.up))
+                )
+            }
             async let diarization: Void = { [diarizationPass] in
                 guard let diarizationPass else { return }
                 await Task.detached(priority: .userInitiated) {

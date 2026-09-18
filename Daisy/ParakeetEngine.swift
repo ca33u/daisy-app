@@ -46,7 +46,15 @@ final class ParakeetEngine {
 
     static let shared = ParakeetEngine()
 
-    private(set) var state: LoadState = .notLoaded
+    private(set) var state: LoadState = .notLoaded {
+        didSet { if case .failed = state { lastFailureAt = Date() } }
+    }
+    /// When the last load attempt ended in `.failed`. `start()` uses it to
+    /// stop paying a full failed CoreML load on every dictation: a model
+    /// that failed a minute ago is not going to succeed now, and the
+    /// Whisper fallback is right there.
+    private(set) var lastFailureAt: Date?
+    static let failureBackoff: TimeInterval = 5 * 60
 
     #if canImport(FluidAudio)
     @ObservationIgnored

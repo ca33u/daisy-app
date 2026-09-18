@@ -342,6 +342,17 @@ final class AppSettings {
         didSet { defaults.set(fixBrandNamesInDictation, forKey: BrandCorrections.defaultsKey) }
     }
 
+    /// Deliver dictation through the clipboard + ⌘V instead of typing it
+    /// as key events when a field refuses a direct Accessibility insert
+    /// (web views, Electron). Default OFF: typed text never touches what
+    /// the person has copied (Egor 2026-09-18). ON is for apps that
+    /// autocomplete or auto-format as you type — an IDE, Notion — where a
+    /// paste lands whole and typed text can be mangled. The prior
+    /// clipboard still comes back after a few seconds on that route.
+    var dictationPastesViaClipboard: Bool {
+        didSet { defaults.set(dictationPastesViaClipboard, forKey: Self.k_dictationPastesViaClipboard) }
+    }
+
     /// EXPERIMENTAL: stream the DICTATION live preview through FluidAudio's
     /// Nemotron 3.5 multilingual streaming ASR (560 ms chunks, Neural
     /// Engine) instead of the Whisper rolling-window pass. Preview-only —
@@ -1284,6 +1295,7 @@ final class AppSettings {
         // feature is ever reintroduced under the same name.
         defaults.removeObject(forKey: "daisy.polishDictationInMyVoice")
         self.fixBrandNamesInDictation = defaults.object(forKey: BrandCorrections.defaultsKey) as? Bool ?? true
+        self.dictationPastesViaClipboard = defaults.bool(forKey: Self.k_dictationPastesViaClipboard)
         // Decode HotkeyChoice from UserDefaults JSON. Fall back to
         // ⌃⌥⌘R default if missing/corrupt. (Old enum-based string
         // values from pre-v1.1 installs are now invalid and will
@@ -1704,6 +1716,9 @@ final class AppSettings {
     private static let k_layoutFixHotkey = "daisy.layoutFixHotkey"
     private static let k_markMomentHotkey = "daisy.markMomentHotkey"
     private static let k_repasteLastHotkey = "daisy.repasteLastHotkey"
+    /// Read straight from UserDefaults by `DictationPaste`, which holds no
+    /// AppSettings reference — same arrangement as `BrandCorrections.defaultsKey`.
+    static let k_dictationPastesViaClipboard = "daisy.dictationPastesViaClipboard"
     private static let k_screenshotNotesEnabled = "daisy.screenshotNotesEnabled"
     private static let k_layoutFixAuto = "daisy.layoutFixAuto"
     private static let k_layoutFixSwitchesSource = "daisy.layoutFixSwitchesSource"

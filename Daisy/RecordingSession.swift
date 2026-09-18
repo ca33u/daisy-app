@@ -217,7 +217,7 @@ final class RecordingSession {
     /// state — issue #7, back-to-back meetings). Consumed (reset to
     /// false) by the next stop().
     @ObservationIgnored
-    private var skipFinalPassOnNextStop = false
+    var skipFinalPassOnNextStop = false
 
     /// True when the most recent `start()` skipped system audio
     /// because `CGPreflightScreenCaptureAccess()` returned false.
@@ -755,6 +755,12 @@ final class RecordingSession {
     }
     @ObservationIgnored
     private var pendingAutoStartTrigger: PendingAutoStartTrigger?
+    /// The back-to-back meeting we've already asked about (its
+    /// `localID`), so the 15 s calendar re-tick doesn't re-raise the
+    /// «Next meeting — switch recording?» pill every time. Cleared with
+    /// the rest of the pending state in `reset()`.
+    private var rotationAskedFor: String?
+    static let rotationAskBubbleTag = "autostart-rotate"
 
     /// Weak app-wide handle to the live session, set by `DaisyApp.init`.
     /// Lets the terminate handler (DaisyAppDelegate.applicationShouldTerminate)
@@ -830,6 +836,20 @@ final class RecordingSession {
         // would be a retain cycle.
         self.systemAudio.onCaptureGaveUp = { [weak self] in
             self?.recordMicOnlyDegradation(cause: .systemAudioFailed)
+        }
+        // The display came back and so did the loopback. The person was
+        // told they'd lost the other side; tell them it's back, where
+        // they are — the bubble, not the window.
+        self.systemAudio.onCaptureRecovered = { [weak self] in
+            guard let self, self.status == .recording else { return }
+            self.log.notice("System audio capture recovered mid-session")
+            WidgetBubbleCenter.shared.present(
+                WidgetBubbleContent(
+                    text: String(localized: "The other side is being recorded again."),
+                    autoDismiss: 7
+                ),
+                notificationTitle: String(localized: "Daisy hears the other side again")
+            )
         }
 
         // The mic recorder can decide to stop on its own — a route
@@ -1026,7 +1046,9 @@ final class RecordingSession {
             return
         }
 
-        await performStartFromMeeting(meeting, preparation: preparation)
+        // A person who pressed Start in the preparation sheet while a
+        // recording is running has already answered "switch?".
+        await performStartFromMeeting(meeting, preparation: preparation, rotateWithoutAsking: userInitiated)
     }
 
     /// The actual calendar-bound start (and back-to-back rotation),
@@ -1035,7 +1057,8 @@ final class RecordingSession {
     /// when the user taps Record in Prompt mode.
     private func performStartFromMeeting(
         _ meeting: DaisyMeeting,
-        preparation suppliedPreparation: MeetingPreparationSnapshot? = nil
+        preparation suppliedPreparation: MeetingPreparationSnapshot? = nil,
+        rotateWithoutAsking: Bool = false
     ) async {
         // Same event re-fired — no-op rather than stamping title/
         // binding on top of an already-running session.
@@ -1050,7 +1073,51 @@ final class RecordingSession {
         // with M1's bindings.
         if status == .recording || status == .paused {
             let oldTitle = self.boundMeeting?.title ?? self.title
-            log.warning("Calendar fired \(meeting.title, privacy: .private) while still recording \(oldTitle, privacy: .private). Auto-rotating sessions.")
+            // Back-to-back meetings: ASK before rotating (tester report,
+            // 2026-09-15). Rotating silently ended the first call's
+            // recording while the person was still on it — the only
+            // notice was a toast in a window they weren't looking at —
+            // and the next session collected the tail of the wrong
+            // conversation. Tap the pill to switch; ✕ or ignore keeps
+            // recording the current one. Asked once per meeting (the
+            // calendar fires each event once; the latch is for the
+            // preparation sheet's second press).
+            //
+            // The widget has ONE bubble slot, and the end-of-meeting
+            // «Stop & save?» for the current meeting arrives at about
+            // the same moment by construction. Whichever pill is up,
+            // the trigger stays pending: answering «Stop & save» while a
+            // next meeting waits starts that meeting right after the
+            // stop (`startPendingCalendarMeetingIfLive`), so neither
+            // order loses the second recording.
+            if !rotateWithoutAsking {
+                guard rotationAskedFor != meeting.localID else { return }
+                rotationAskedFor = meeting.localID
+                pendingAutoStartTrigger = .calendar(meeting)
+                log.notice("Calendar fired \(meeting.title, privacy: .private) while still recording \(oldTitle, privacy: .private) — asking before rotating")
+                if autoStopWarned {
+                    log.info("End-of-meeting ask is already up — the next meeting waits behind it")
+                    return
+                }
+                let text = String(localized: "Next meeting — switch recording?")
+                let shown = WidgetBubbleCenter.shared.show(WidgetBubbleContent(
+                    text: text,
+                    actionTitle: String(localized: "Switch"),
+                    actionSymbol: "arrow.triangle.2.circlepath",
+                    autoDismiss: 30,
+                    tag: Self.rotationAskBubbleTag,
+                    action: { [weak self] in
+                        Task { @MainActor [weak self] in
+                            await self?.consumePendingAutoStartTrigger()
+                        }
+                    }
+                ))
+                if !shown {
+                    AutoStartPromptNotification.post(subject: meeting.title)
+                }
+                return
+            }
+            log.warning("Rotating sessions: \(oldTitle, privacy: .private) → \(meeting.title, privacy: .private) (user confirmed)")
             ToastCenter.shared.show(
                 String(localized: "Previous meeting saved — starting new session for \(meeting.title)."),
                 style: .info
@@ -1223,6 +1290,25 @@ final class RecordingSession {
         }
     }
 
+    /// After a stop that the person confirmed while a back-to-back
+    /// meeting was waiting behind the ask: start that meeting now, if
+    /// it is still in progress. This is what the silent rotation used
+    /// to do — minus the part where it cut the first call short.
+    var hasPendingLiveCalendarMeeting: Bool {
+        if case .calendar(let meeting)? = pendingAutoStartTrigger { return Date() < meeting.endDate }
+        return false
+    }
+
+    func startPendingCalendarMeetingIfLive() async {
+        guard case .calendar(let meeting)? = pendingAutoStartTrigger,
+              Date() < meeting.endDate else { return }
+        pendingAutoStartTrigger = nil
+        WidgetBubbleCenter.shared.dismiss(tag: Self.rotationAskBubbleTag)
+        AutoStartPromptNotification.cancel()
+        log.notice("Starting the meeting that waited behind the end-of-meeting ask: \(meeting.title, privacy: .private)")
+        await performStartFromMeeting(meeting, rotateWithoutAsking: true)
+    }
+
     /// User tapped "Record" on the prompt — start whatever was pending.
     /// No-op (with a cancel of any stray banner) if the trigger is gone
     /// or we're somehow already recording, so a stale tap can't double-
@@ -1230,13 +1316,16 @@ final class RecordingSession {
     private func consumePendingAutoStartTrigger() async {
         AutoStartPromptNotification.cancel()
         WidgetBubbleCenter.shared.dismiss(tag: Self.autoStartAskBubbleTag)
+        WidgetBubbleCenter.shared.dismiss(tag: Self.rotationAskBubbleTag)
         guard let trigger = pendingAutoStartTrigger else { return }
         pendingAutoStartTrigger = nil
         switch trigger {
         case .calendar(let meeting):
             // Re-use the full calendar path (binding, auto-stop arming,
             // back-to-back rotation) — just bypassing the prompt gate.
-            await performStartFromMeeting(meeting)
+            // The person tapped: if we're still recording, that tap IS
+            // the answer to «switch?», so rotate without asking again.
+            await performStartFromMeeting(meeting, rotateWithoutAsking: true)
         case .appLaunch:
             // Generic start, same as the Always/Selective app-launch path.
             guard status == .idle || status == .finished || isFailed else { return }
@@ -1715,6 +1804,12 @@ final class RecordingSession {
         // not-ready path pays this; a warm engine skips it entirely.
         var whisperRetries = 0
         while !WhisperEngine.shared.isReady && whisperRetries < 2 {
+            // A hard `.failed` after a completed load is a broken model or
+            // a CoreML refusal, and repeating a full large-v3 load twice
+            // more just triples the wait under "1–3 minutes". One retry
+            // covers the cold-restart race; the second only ever ran for
+            // deterministic failures.
+            if case .failed = WhisperEngine.shared.state, whisperRetries >= 1 { break }
             whisperRetries += 1
             try? await Task.sleep(for: .milliseconds(300))
             await WhisperEngine.shared.ensureLoaded()
@@ -1753,6 +1848,10 @@ final class RecordingSession {
             switch ParakeetEngine.shared.state {
             case .downloading:
                 break
+            case .failed where ParakeetEngine.shared.lastFailureAt.map({ Date().timeIntervalSince($0) < ParakeetEngine.failureBackoff }) == true:
+                // Failed within the last few minutes — don't pay the
+                // load again on every dictation; Whisper takes this one.
+                log.info("Parakeet failed recently — skipping the reload for this dictation")
             case .notLoaded, .loading, .failed:
                 if ParakeetEngine.hasCompleteModel() {
                     await ParakeetEngine.shared.ensureLoaded()
@@ -3202,6 +3301,8 @@ final class RecordingSession {
         // Drop any unanswered Prompt-mode trigger + retract its banner —
         // starting/resetting supersedes a pending ask.
         pendingAutoStartTrigger = nil
+        rotationAskedFor = nil
+        WidgetBubbleCenter.shared.dismiss(tag: Self.rotationAskBubbleTag)
         AutoStartPromptNotification.cancel()
         WidgetBubbleCenter.shared.dismiss(tag: Self.autoStartAskBubbleTag)
         status = .idle

@@ -1389,6 +1389,11 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.menu)
                 .disabled(!hasAnyCalendarSource)
+                // A tester read "5 minutes after" as a timer (2026-09-15).
+                // It's a condition: the pill asks once the meeting is past
+                // its end AND the call has gone quiet; Daisy never stops
+                // by itself.
+                .help("Daisy asks with a pill on the widget once the meeting is past its scheduled end and both sides have been quiet for a couple of minutes — or, at the latest, 30 minutes after the end. Ignoring the pill keeps recording; Daisy never stops on its own. If the next calendar meeting starts while you're still recording, it asks before switching.")
             } header: {
                 Text("Meetings")
             } footer: {
@@ -1578,6 +1583,15 @@ struct SettingsView: View {
                     Text("Fix product names")
                 }
                 .help("Restores product names spoken in another script to their Latin spelling — «фигма» becomes Figma, «гитхаб» becomes GitHub. Applies to dictation and to recorded meetings, on every engine; your own Vocabulary rules always win.")
+
+                // Off by default (Egor 2026-09-18): dictation must never
+                // replace what the person has copied. Typed key events do
+                // that; the clipboard route is kept for apps whose
+                // as-you-type autocomplete mangles typed text.
+                Toggle(isOn: $settings.dictationPastesViaClipboard) {
+                    Text("Paste through the clipboard")
+                }
+                .help("When a field won't take a direct insert, Daisy types your dictation as keystrokes so your clipboard is never touched. Turn this on for apps that autocomplete or auto-format as you type — the text is pasted whole instead, and what you had copied comes back a few seconds later.")
 
                 // Streaming live preview for dictation (Nemotron 3.5,
                 // on-device). The badge doubles as the model-download
