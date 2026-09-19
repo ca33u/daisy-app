@@ -23,11 +23,7 @@ import SwiftUI
 /// they share one source for padding/font instead of two hand-tuned
 /// copies drifting apart. Capsule shape gives the radius for free (a
 /// capsule is always fully round) — nothing to name for that part.
-enum DaisyCapsuleMetrics {
-    static let horizontalPadding: CGFloat = 12
-    static let verticalPadding: CGFloat = 14
-    static let font: Font = .callout.weight(.medium)
-}
+// `DaisyCapsuleMetrics` lives in the shared DaisyDesign package (E-1).
 
 struct RecordCapsule: View {
     @Bindable var session: RecordingSession

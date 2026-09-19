@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		B9895A7E2FBC19FC0028BF24 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = B9895A7D2FBC19FC0028BF24 /* Sparkle */; };
 		B9BBC7332FB863E90016C22C /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = B9BBC7322FB863E90016C22C /* FluidAudio */; };
+		B9D5000000000000000000D3 /* DaisyDesign in Frameworks */ = {isa = PBXBuildFile; productRef = B9D5000000000000000000D2 /* DaisyDesign */; };
 		B9F5F19B2FB75DA300E26A7A /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = B9F5F19A2FB75DA300E26A7A /* WhisperKit */; };
 /* End PBXBuildFile section */
 
@@ -48,6 +49,7 @@
 				B9895A7E2FBC19FC0028BF24 /* Sparkle in Frameworks */,
 				B9BBC7332FB863E90016C22C /* FluidAudio in Frameworks */,
 				B9F5F19B2FB75DA300E26A7A /* WhisperKit in Frameworks */,
+				B9D5000000000000000000D3 /* DaisyDesign in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -102,6 +104,7 @@
 				B9F5F19A2FB75DA300E26A7A /* WhisperKit */,
 				B9BBC7322FB863E90016C22C /* FluidAudio */,
 				B9895A7D2FBC19FC0028BF24 /* Sparkle */,
+				B9D5000000000000000000D2 /* DaisyDesign */,
 			);
 			productName = Daisy;
 			productReference = B9F5F11C2FB74D9F00E26A7A /* Daisy.app */;
@@ -163,6 +166,7 @@
 				B9F5F1992FB75DA300E26A7A /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
 				B9BBC7312FB863E90016C22C /* XCRemoteSwiftPackageReference "FluidAudio" */,
 				B9895A7C2FBC19FC0028BF24 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				B9D5000000000000000000D1 /* XCLocalSwiftPackageReference "../DaisyLite/Packages/DaisyCore" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B9F5F11D2FB74D9F00E26A7A /* Products */;
@@ -519,6 +523,13 @@
 		};
 /* End XCRemoteSwiftPackageReference section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		B9D5000000000000000000D1 /* XCLocalSwiftPackageReference "../DaisyLite/Packages/DaisyCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../DaisyLite/Packages/DaisyCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		B9895A7D2FBC19FC0028BF24 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -534,6 +545,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = B9F5F1992FB75DA300E26A7A /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
 			productName = WhisperKit;
+		};
+		B9D5000000000000000000D2 /* DaisyDesign */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DaisyDesign;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
