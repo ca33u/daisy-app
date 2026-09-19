@@ -57,5 +57,31 @@
 	     non-sandboxed под Hardened Runtime. -->
 	<key>com.apple.security.network.server</key>
 	<true/>
+
+	<!-- Общая keychain-группа с iPhone-приложением DaisyLite
+	     (2026-09-19). Нужна, чтобы ключ провайдера саммари, введённый
+	     на Маке, сам приезжал на телефон через iCloud Keychain и
+	     человек не вводил его дважды.
+
+	     Два условия, без которых это не работает, и оба неочевидны:
+
+	     1. `kSecUseDataProtectionKeychain: true` в KeychainStore.
+	        Без него macOS пишет в legacy login.keychain, который в
+	        iCloud не синхронизируется ВООБЩЕ и не понимает
+	        team-prefixed группы. Переключение делает старые элементы
+	        невидимыми — отсюда миграция в KeychainStore.
+	     2. Префикс `$(AppIdentifierPrefix)` — это Team ID (LW64FQXZCU),
+	        подставляется на сборке. В коде нужен литерал целиком, он
+	        лежит в `KeychainStore.accessGroup`; менять только парой.
+
+	     Daisy подписана Developer ID и не sandboxed — сочетание
+	     рабочее, но ошибка подписи проявится не на сборке, а в рантайме
+	     как errSecMissingEntitlement. KeychainStore это переживает:
+	     откатывается на legacy-связку, приложение работает, синка с
+	     телефоном просто нет. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)app.essazanov.Daisy.shared</string>
+	</array>
 </dict>
 </plist>

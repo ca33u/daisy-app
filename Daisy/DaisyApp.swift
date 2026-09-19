@@ -32,6 +32,15 @@ struct DaisyApp: App {
         // migrated values are read in this same launch.
         UserDefaultsMigration.runIfNeeded()
 
+        // Secrets moved from the legacy login.keychain to the data
+        // protection keychain so the iPhone app can see them through
+        // iCloud Keychain. Before AppSettings, for the same reason as
+        // above: it reads tokens in its own init, and reading them
+        // from the old keychain would look like a first launch with
+        // everything disconnected. `get` also migrates lazily, so a
+        // failure here costs nothing.
+        KeychainStore.migrateLegacyItems()
+
         // Belarusian systems fall back to Russian, once, on a fresh
         // install — must run before anything resolves a localized
         // string, or the choice only lands on the NEXT launch. There
