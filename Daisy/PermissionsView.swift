@@ -417,9 +417,8 @@ struct PermissionsView: View {
         switch status {
         case .notDetermined:
             Button("Request") { requestAction() }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.daisyPrimary)
                 .controlSize(.small)
-                .tint(Color.daisyAccent)
         case .denied, .insufficient, .restricted:
             // .restricted = managed device, the user can't toggle but
             // surfacing the deeplink anyway in case an admin can act.

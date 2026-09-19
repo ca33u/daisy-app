@@ -314,9 +314,11 @@ struct MainView: View {
                 .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
         } detail: {
             detail
-                // Keep the product accent inside the content pane. The split
-                // view itself uses a neutral tint for native sidebar selection.
-                .tint(Color.daisyAccent)
+                // 2026-09-19 — inherited tint is ink, not amber: it lands on
+                // every plain/bordered button in the pane, and buttons are
+                // black and gray. Controls that genuinely signal live capture
+                // (progress bars, the record capsule) tint themselves.
+                .tint(Color.daisyTextPrimary)
         }
         .modifier(MainWindowChrome())
     }
@@ -345,7 +347,7 @@ struct MainView: View {
                 // Sane minimum so the transcript pane isn't over-wide at
                 // its floor; flexes to fill the remaining window width.
                 .navigationSplitViewColumnWidth(min: 420, ideal: 640)
-                .tint(Color.daisyAccent)
+                .tint(Color.daisyTextPrimary)
                 .id(nav.section)
         }
         .modifier(MainWindowChrome())
@@ -363,48 +365,53 @@ struct MainView: View {
                 // Settings / About are NOT here — they live in the
                 // bottom inset below, under the update row.
                 ForEach(MainSection.primaryCases) { section in
-                    Label {
-                        Text(section.title)
-                            .foregroundStyle(Color.daisySidebarInk)
-                    } icon: {
-                        Image(systemName: section.systemImage)
-                            .symbolRenderingMode(.monochrome)
-                            .foregroundStyle(Color.daisySidebarInk)
-                    }
-                        // Native sidebar label styles otherwise colour the
-                        // symbol independently through the environment tint.
-                        .tint(Color.daisySidebarInk)
-                        // `List(.sidebar)` draws the SELECTION chip for us
-                        // but no hover — these rows sat inert under the
-                        // cursor while Settings and About, which are
-                        // hand-drawn below the list, lit up (Egor,
-                        // 2026-09-13).
-                        //
-                        // Geometry is the same trick RecordCapsule uses
-                        // below: `List(.sidebar)` adds ~8pt of implicit
-                        // horizontal inset, so a row filling its content
-                        // frame is 8pt narrower per side than the chip.
-                        // Negative row insets cancel that, and the 8pt goes
-                        // back on the label — glyphs don't move, and the
-                        // hover pill lands exactly on the chip instead of
-                        // jumping wider the moment you click.
-                        //
-                        // `contentShape` BEFORE `daisyHover`: the tint opts
-                        // out of hit testing, so without a shape underneath
-                        // the hover region would be just the icon and the
-                        // words, and most of the row would stay dead.
-                        // Paint UNDER, so the label's ink is untouched, and
-                        // nothing lights on the selected row — it already
-                        // carries the chip, and a second highlight reads as
-                        // a second selection.
-                        .padding(.horizontal, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    // `List(.sidebar)` draws the SELECTION chip for us
+                    // but no hover — these rows sat inert under the
+                    // cursor while Settings and About, which are
+                    // hand-drawn below the list, lit up (Egor,
+                    // 2026-09-13).
+                    //
+                    // Geometry is the same trick RecordCapsule uses
+                    // below: `List(.sidebar)` adds ~8pt of implicit
+                    // horizontal inset, so a row filling its content
+                    // frame is 8pt narrower per side than the chip.
+                    // Negative row insets cancel that, and the 8pt goes
+                    // back on the row body — glyphs don't move, and the
+                    // hover pill lands exactly on the chip instead of
+                    // jumping wider the moment you click.
+                    //
+                    // The row paints its own selection, the same
+                    // rounded fill `utilityRow` uses, and an opaque
+                    // row background hides AppKit's chip underneath.
+                    // The chip's metrics aren't ours to set: it ran
+                    // 2pt taller and 3pt narrower than the Settings
+                    // pill, the hover was a text-high sliver on a bare
+                    // `Label`, and the footer pill was a third size —
+                    // three shapes for one sidebar (Egor, 2026-09-18).
+                    // Selection still lives in `List(selection:)`, so
+                    // keyboard, focus and accessibility are untouched.
+                    // The 1pt row insets keep this group's pitch equal
+                    // to the footer's `VStack(spacing: 2)`.
+                    //
+                    // `contentShape` BEFORE `daisyHover`: the tint opts
+                    // out of hit testing, so without a shape underneath
+                    // the hover region would be just the icon and the
+                    // words, and most of the row would stay dead.
+                    // Paint UNDER, so the ink is untouched, and nothing
+                    // lights on the selected row — a second highlight
+                    // reads as a second selection.
+                    sidebarRowBody(section)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(sidebarSelection == section ? Color.daisySidebarSelection : Color.clear)
+                        )
                         .contentShape(Rectangle())
                         .daisyHover(
                             isEnabled: sidebarSelection != section,
                             overContent: false
                         )
-                        .listRowInsets(EdgeInsets(top: 2, leading: -8, bottom: 2, trailing: -8))
+                        .listRowBackground(Color.daisyBgSidebar)
+                        .listRowInsets(EdgeInsets(top: 1, leading: -8, bottom: 1, trailing: -8))
                         .tag(section)
                 }
             }
@@ -594,37 +601,45 @@ struct MainView: View {
     /// as one sidebar: same ink, same selection fill, same 8pt outer
     /// inset. Selection still flows through `sidebarSelection`, so
     /// keyboard focus, the menu bar and the widget keep working.
+    /// The one row body both sidebar groups draw — the `List` rows on
+    /// top and the hand-drawn Settings / About below. Body text, a
+    /// large-scale symbol in a fixed 24pt column, 8×6 padding: the
+    /// Settings row is the reference and the list rows follow it, so
+    /// the text column, the pill height and the hover all line up.
+    /// The bottom rows were once `.callout` with an 18pt icon slot and
+    /// read as a smaller family (Egor, 2026-09-07); the top rows were
+    /// a bare `Label` whose text sat ~4pt further left than Settings'
+    /// and whose hover was text-high (Egor, 2026-09-18).
+    private func sidebarRowBody(_ section: MainSection) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: section.systemImage)
+                .symbolRenderingMode(.monochrome)
+                .font(.body)
+                .imageScale(.large)
+                .frame(width: 24)
+            Text(section.title)
+                .font(.body)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(Color.daisySidebarInk)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func utilityRow(_ section: MainSection) -> some View {
         let isSelected = sidebarSelection == section
         return Button {
             sidebarSelection = section
         } label: {
-            // Same metrics as the sidebar `Label`s above: body text, a
-            // large-scale symbol in a fixed column. These rows were on
-            // `.callout` with an 18 pt icon slot, which read as a
-            // different, smaller family once they sat under the same
-            // list (Egor, 2026-09-07).
-            HStack(spacing: 10) {
-                Image(systemName: section.systemImage)
-                    .symbolRenderingMode(.monochrome)
-                    .font(.body)
-                    .imageScale(.large)
-                    .frame(width: 24)
-                Text(section.title)
-                    .font(.body)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(Color.daisySidebarInk)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? Color.daisySidebarSelection : Color.clear)
-            )
-            .daisyHover(isEnabled: !isSelected, overContent: false)
-            .contentShape(Rectangle())
+            sidebarRowBody(section)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(isSelected ? Color.daisySidebarSelection : Color.clear)
+                )
+                .daisyHover(isEnabled: !isSelected, overContent: false)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 8)

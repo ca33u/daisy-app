@@ -70,8 +70,7 @@ struct BulkImportVocabularyView: View {
 
                 Button("Import") { runImport() }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.daisyAccent)
+                    .buttonStyle(.daisyPrimary)
                     .disabled(parsed.isEmpty)
             }
         }

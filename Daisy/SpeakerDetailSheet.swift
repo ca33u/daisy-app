@@ -284,8 +284,7 @@ struct SpeakerDetailSheet: View {
             Button("Cancel", role: .cancel) { dismiss() }
                 .keyboardShortcut(.cancelAction)
             Button("Save") { save() }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.daisyAccent)
+                .buttonStyle(.daisyPrimary)
                 .keyboardShortcut(.defaultAction)
         }
         .padding(16)
@@ -317,8 +316,7 @@ struct SpeakerDetailSheet: View {
             Text("This speaker was removed.")
                 .font(.callout)
             Button("Done") { dismiss() }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.daisyAccent)
+                .buttonStyle(.daisyPrimary)
                 .keyboardShortcut(.defaultAction)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

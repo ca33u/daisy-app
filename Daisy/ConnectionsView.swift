@@ -360,8 +360,7 @@ struct ConnectionsView: View {
                         Button("Test connection") {
                             Task { await testNotion() }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(Color.daisyAccent)
+                        .buttonStyle(.daisyPrimary)
                         .disabled(notionTestResult == .testing || !settings.hasNotionCredentials)
                     }
 
@@ -666,9 +665,8 @@ struct ConnectionsView: View {
                 Button { Task { await installToClaudeDesktop() } } label: {
                     Label(claudeDesktopButtonTitle, systemImage: "sparkles")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.daisyPrimary)
                 .controlSize(.small)
-                .tint(Color.daisyAccent)
                 .disabled(claudeInstallInProgress || !isServerRunning || claudeEntryState == .malformed)
             }
         }
@@ -693,9 +691,8 @@ struct ConnectionsView: View {
                 Button { Task { await installToCodex() } } label: {
                     Label(codexButtonTitle, systemImage: "sparkles")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.daisyPrimary)
                 .controlSize(.small)
-                .tint(Color.daisyAccent)
                 .disabled(codexInstallInProgress || !isServerRunning || codexEntryState == .codexNotInstalled)
             }
         }
@@ -718,9 +715,8 @@ struct ConnectionsView: View {
                 Button { Task { await installToCursor() } } label: {
                     Label(cursorButtonTitle, systemImage: "sparkles")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.daisyPrimary)
                 .controlSize(.small)
-                .tint(Color.daisyAccent)
                 .disabled(cursorInstallInProgress || !isServerRunning || cursorEntryState == .malformed)
             }
         }

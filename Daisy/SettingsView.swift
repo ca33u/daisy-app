@@ -2458,8 +2458,7 @@ struct SettingsView: View {
                         Button("Test summary") {
                             Task { await testSummaryProvider() }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(Color.daisyAccent)
+                        .buttonStyle(.daisyPrimary)
                         .disabled(testSummaryButtonDisabled)
                         Spacer()
                         summaryTestStatusView
@@ -3726,8 +3725,7 @@ private struct SummaryAccountConnectionRows: View {
                 Button("Connect account") {
                     Task { await connect() }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.daisyAccent)
+                .buttonStyle(.daisyPrimary)
             }
 
         case .connecting:

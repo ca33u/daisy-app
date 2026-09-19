@@ -314,8 +314,7 @@ struct AudioImportSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Import") { start() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.daisyAccent)
+                    .buttonStyle(.daisyPrimary)
                     .keyboardShortcut(.defaultAction)
                     .disabled(inspecting || importable.isEmpty)
             }

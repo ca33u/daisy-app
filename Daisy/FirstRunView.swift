@@ -674,10 +674,8 @@ struct FirstRunView: View {
                     .foregroundStyle(Color.daisySuccess)
             case .notDetermined:
                 Button("Allow") { allow() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.daisyPrimary)
                     .controlSize(.small)
-                    .tint(Color.daisyAccent)
-                    .foregroundStyle(Color.daisyTextOnAccent)
             case .denied, .restricted, .insufficient:
                 Button("Open Settings…") { openSettings() }
                     .buttonStyle(.bordered)
@@ -972,10 +970,8 @@ struct FirstRunView: View {
                         Text("Connect")
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.daisyPrimary)
                 .controlSize(.small)
-                .tint(Color.daisyAccent)
-                .foregroundStyle(Color.daisyTextOnAccent)
                 .disabled(googleConnecting)
             }
         }
@@ -1138,7 +1134,7 @@ struct FirstRunView: View {
                         step = steps[i - 1]
                     }
                 }
-                .buttonStyle(DaisyStepButtonStyle(filled: false))
+                .buttonStyle(Self.stepButtonStyle(filled: false))
                 .disabled(preparation.isRunning)
             }
             Spacer()
@@ -1167,13 +1163,13 @@ struct FirstRunView: View {
                     Button("Skip for now") {
                         finish(skippingPreparation: true)
                     }
-                    .buttonStyle(DaisyStepButtonStyle(filled: false))
+                    .buttonStyle(Self.stepButtonStyle(filled: false))
                     .help("Start using Daisy now. The speech models finish downloading in the background, and the first recording waits for them if they aren’t ready yet.")
                 }
                 Button(isLastStep ? String(localized: "Start using Daisy") : String(localized: "Continue")) {
                     advance()
                 }
-                .buttonStyle(DaisyStepButtonStyle(filled: true))
+                .buttonStyle(Self.stepButtonStyle(filled: true))
                 .keyboardShortcut(.defaultAction)
                 .disabled(step == .preparation && !preparation.canFinish(settings: settings, includeSpeakers: setupPath == .full))
             }
@@ -1182,36 +1178,14 @@ struct FirstRunView: View {
         .padding(.vertical, 14)
     }
 
-    /// Onboarding's Back/Continue actions, sharing RecordCapsule's
-    /// geometry (see `DaisyCapsuleMetrics`) so the "next" action carries
-    /// the same visual weight as the app's other primary action. No new
-    /// colors — `filled` picks between the existing accent capsule
-    /// (Continue) and the same shape with no fill (Back), both already
-    /// used elsewhere in the app.
-    private struct DaisyStepButtonStyle: ButtonStyle {
-        var filled: Bool
-
-        func makeBody(configuration: Configuration) -> some View {
-            configuration.label
-                .font(DaisyCapsuleMetrics.font)
-                .padding(.horizontal, DaisyCapsuleMetrics.horizontalPadding)
-                .padding(.vertical, DaisyCapsuleMetrics.verticalPadding)
-                // Ink-on-accent: the system's white label fails WCAG on
-                // the amber fill (≈2:1 in dark).
-                .foregroundStyle(filled ? Color.daisyTextOnAccent : Color.daisyTextPrimary)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(filled ? Color.daisyAccent : Color.clear)
-                )
-                .overlay(
-                    Capsule(style: .continuous)
-                        .strokeBorder(
-                            filled ? Color.white.opacity(0.12) : Color.daisyDivider,
-                            lineWidth: 0.5
-                        )
-                )
-                .opacity(configuration.isPressed ? 0.85 : 1)
-        }
+    /// Onboarding's Back/Continue actions. Pill geometry from
+    /// `DaisyCapsuleMetrics` so "Continue" carries the same visual weight
+    /// as the app's other big action; paint from the design system's
+    /// button vocabulary (`DaisyButtonStyles.swift`), so Continue is ink
+    /// and Back is the neutral surface — 2026-09-19, when the amber fill
+    /// that used to sit here went away with every other orange button.
+    private static func stepButtonStyle(filled: Bool) -> DaisyButtonStyle {
+        DaisyButtonStyle(tone: filled ? .primary : .secondary, shape: .capsule)
     }
 
     // MARK: - Permission refresh

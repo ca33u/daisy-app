@@ -498,8 +498,7 @@ struct VoiceView: View {
                 Text(title)
                     .frame(minWidth: 140)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Color.daisyAccent)
+            .buttonStyle(.daisyPrimary)
             .controlSize(.regular)
         }
     }

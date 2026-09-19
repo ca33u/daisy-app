@@ -199,6 +199,22 @@ extension Color {
         dark:  Color(hex: 0x0D100E)
     )
 
+    // ─── Controls ────────────────────────────────────────────────────
+    //
+    // Buttons are black and gray (Egor, 2026-09-19). Amber means "a
+    // microphone is live"; a Save or Share button is not a live
+    // microphone, so prominent actions take the same high-contrast ink
+    // pair the Home banner CTA already used — near-black on light,
+    // paper on dark. Aliases rather than new hexes, so the banner and
+    // every other primary control stay the same button by definition.
+    // See `DaisyButtonStyles.swift`.
+
+    /// Fill of a primary (solid) control.
+    static var daisyControlFill: Color { daisyBannerAction }
+
+    /// Ink for text and glyphs sitting ON `daisyControlFill`.
+    static var daisyControlLabel: Color { daisyBannerActionText }
+
     // ─── Content selection ──────────────────────────────────────────
     //
     // Selected rows and filter chips stay neutral. Orange remains a

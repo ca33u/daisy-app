@@ -134,8 +134,7 @@ struct SessionRetranscriptionSheet: View {
                 ) {
                     startRetranscription()
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.daisyAccent)
+                .buttonStyle(.daisyPrimary)
                 .keyboardShortcut(.defaultAction)
                 .disabled(processor.isRunning || !audioFiles.hasAny)
             }

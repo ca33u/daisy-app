@@ -67,7 +67,8 @@ struct AnalyticsShareSheet: View {
 
             HStack(spacing: 10) {
                 Button("Close") { dismiss() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.daisyQuiet)
+                    .keyboardShortcut(.cancelAction)
 
                 Spacer()
 
@@ -76,15 +77,14 @@ struct AnalyticsShareSheet: View {
                 } label: {
                     Label("Save PNG", systemImage: "arrow.down.to.line")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.daisySecondary)
 
                 Button {
                     shareCard()
                 } label: {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.daisyHomeAccent)
+                .buttonStyle(.daisyPrimary)
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 18)

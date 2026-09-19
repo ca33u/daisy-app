@@ -1945,9 +1945,8 @@ struct SessionDetailView: View {
             } label: {
                 Text("Got it").frame(minWidth: 120)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.daisyPrimary)
             .controlSize(.regular)
-            .tint(Color.daisyAccent)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -3041,9 +3040,8 @@ private struct SpeakerNameRow: View {
                         .labelStyle(.titleAndIcon)
                         .font(.caption.weight(.medium))
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.daisyPrimary)
                 .controlSize(.mini)
-                .tint(Color.daisyAccent)
                 Button {
                     onDismissSuggestion()
                 } label: {

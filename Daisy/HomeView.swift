@@ -127,7 +127,11 @@ struct HomeView: View {
                 Task { await openAIAccount.refreshStatus() }
             }
         }
-        .tint(Color.daisyHomeAccent)
+        // 2026-09-19 — was daisyHomeAccent, which every plain and bordered
+        // button inside Home (and inside its sheets) inherited as its label
+        // colour. Buttons are ink; amber stays on the things it describes,
+        // which paint themselves explicitly.
+        .tint(Color.daisyTextPrimary)
         .sheet(item: $selectedMeeting) { meeting in
             MeetingPreparationSheet(
                 meeting: meeting,
