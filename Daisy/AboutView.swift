@@ -241,7 +241,7 @@ struct AboutView: View {
                 aboutLinkRow(
                     icon: "building.2",
                     title: "Made by",
-                    detail: "Addicted Studio",
+                    detail: "addicted",
                     url: URL(string: "https://addicted.sh")
                 )
             } header: {

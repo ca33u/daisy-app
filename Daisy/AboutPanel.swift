@@ -4,7 +4,7 @@
 //
 //  Replacement for the default `NSApplication.orderFrontStandardAboutPanel`.
 //  System default shows just the bundle version and reads "we forgot
-//  to fill in copyright". This one names Addicted Studio, lists a
+//  to fill in copyright". This one names addicted, lists a
 //  contact email and a website, and keeps the standard macOS panel
 //  chrome so it still feels like the platform's About dialog (no
 //  custom window, no SwiftUI sheet — that would feel off-brand for a
@@ -34,7 +34,7 @@ enum AboutPanel {
             // but we override here so it stays consistent with the
             // string the in-app About view shows.
             NSApplication.AboutPanelOptionKey(rawValue: "Copyright"):
-                String(localized: "Made by Addicted Studio. Open source under Apache 2.0.")
+                String(localized: "Made by addicted. Open source under Apache 2.0.")
         ])
     }
 
@@ -70,7 +70,7 @@ enum AboutPanel {
             attributes: base
         ))
         result.append(.init(
-            string: String(localized: "Built by Addicted Studio\n"),
+            string: String(localized: "Built by addicted\n"),
             attributes: base
         ))
         result.append(link("addicted.sh", url: "https://addicted.sh", base: base))

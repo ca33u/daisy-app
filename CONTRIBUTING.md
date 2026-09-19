@@ -4,7 +4,7 @@ Thanks for thinking about contributing. Daisy is open source under the Apache 2.
 
 ## Direction is set by the maintainer
 
-Daisy is shaped by one person (Egor, Addicted Studio) and a small handful of advisors. That means:
+Daisy is shaped by one person (Egor, addicted) and a small handful of advisors. That means:
 
 - The roadmap is opinionated. Some features are deliberately out of scope (cloud sync, account system, multi-user collaboration) and won't be merged regardless of code quality.
 - **Substantial changes should be discussed first.** Please open a [Discussion in Ideas](https://github.com/ca33u/daisy-app/discussions/categories/ideas) before writing the PR. I'll tell you upfront whether the direction fits, and we can iterate on the approach before you spend hours coding.
