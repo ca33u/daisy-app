@@ -75,6 +75,44 @@
                 <string>public.movie</string>
             </array>
         </dict>
+        <!-- A session exported by Daisy for iPhone (a zip of the session
+             folder, `.daisysession`). Owner rank: nobody else opens
+             these. SessionArchiveImporter unpacks it into Sessions. -->
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Daisy session</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.daisy.session</string>
+            </array>
+        </dict>
+    </array>
+    <!-- The iPhone app EXPORTS this type (its Info.plist); the Mac only
+         imports it, so both declarations agree and neither owns the
+         other's copy. -->
+    <key>UTImportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.daisy.session</string>
+            <key>UTTypeDescription</key>
+            <string>Daisy session</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.zip-archive</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>daisysession</string>
+                </array>
+            </dict>
+        </dict>
     </array>
 
     <!-- Copyright -->

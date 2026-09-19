@@ -164,6 +164,14 @@ struct LibraryListColumn: View {
             return false
         }
         guard !urls.isEmpty else { return false }
+        // `.daisysession` from the iPhone: not an audio import, the folder
+        // already IS a session — unpack it into Sessions (backlog 4, C).
+        let archives = urls.filter(SessionArchiveImporter.isSessionArchive)
+        if !archives.isEmpty {
+            Task { @MainActor in await SessionArchiveImporter.importAndReport(archives) }
+        }
+        let urls = urls.filter { !SessionArchiveImporter.isSessionArchive($0) }
+        guard !urls.isEmpty else { return true }
         // Imports are recordings, so under the Notes chip the new rows
         // would land outside the filter. Rejecting the drop was worse:
         // Finder just animates the files back with no explanation, and

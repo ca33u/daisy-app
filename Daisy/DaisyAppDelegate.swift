@@ -343,7 +343,17 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         } else {
             WidgetBubbleCenter.shared.openMainWindow?()
         }
-        AppNavigation.shared.importFiles(urls)
+        // `.daisysession` archives from the iPhone go straight into the
+        // sessions folder (backlog 4, part C); everything else is audio
+        // for the import dialog.
+        let archives = urls.filter(SessionArchiveImporter.isSessionArchive)
+        let others = urls.filter { !SessionArchiveImporter.isSessionArchive($0) }
+        if !archives.isEmpty {
+            Task { @MainActor in await SessionArchiveImporter.importAndReport(archives) }
+        }
+        if !others.isEmpty {
+            AppNavigation.shared.importFiles(others)
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
