@@ -48,6 +48,23 @@ nonisolated enum SessionArchiveImporter {
         url.pathExtension.lowercased() == fileExtension
     }
 
+    /// Debug builds only: `log show` is unreliable on this machine, so
+    /// the open/import path leaves a file trail that can be read back.
+    static func trace(_ text: String) {
+        #if DEBUG
+        guard let dir = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return }
+        let url = dir.appendingPathComponent("Daisy/open-debug.log")
+        let line = "\(Date()): \(text)\n"
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+            try? handle.close()
+        } else {
+            try? Data(line.utf8).write(to: url)
+        }
+        #endif
+    }
+
     /// Finder "Open With", Dock drop, Library drop: unpack into the
     /// configured sessions folder and rescan the Library.
     @MainActor
@@ -72,9 +89,12 @@ nonisolated enum SessionArchiveImporter {
         var failures: [String] = []
         for archive in archives {
             do {
-                _ = try await importArchive(archive)
+                trace("importing \(archive.path)")
+                let directory = try await importArchive(archive)
+                trace("imported → \(directory.path)")
                 imported += 1
             } catch {
+                trace("failed: \(error)")
                 failures.append(error.localizedDescription)
             }
         }
