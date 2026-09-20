@@ -343,7 +343,14 @@ public final class WhisperEngine: Transcribing {
     /// Transcribe 16 kHz mono Float samples → timed segments plus the
     /// detected language. Auto-detects the language (the Mac's `auto`)
     /// unless `language` pins it. Throws if the engine isn't available.
-    public func run(samples: [Float], profile: Profile = .full, language: String? = nil) async throws -> Transcription {
+    /// `onProgress` gets the fraction of the audio decoded so far (0…1),
+    /// from WhisperKit's segment-discovery callback — for the system's
+    /// continued-processing UI (backlog 7 A-1), which expires a task that
+    /// looks stalled.
+    public func run(
+        samples: [Float], profile: Profile = .full, language: String? = nil,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> Transcription {
         await load()
         guard let box else { throw WhisperEngineError.notReady }
         guard Double(samples.count) / 16_000 >= 0.2 else {
@@ -357,6 +364,17 @@ public final class WhisperEngine: Transcribing {
             // The Mac's `DecodeProfile`, minus the bias prompt.
             // `concurrentWorkerCount` 4, not the Mac's 16: a phone has
             // one Neural Engine and a sixth of the memory.
+            //
+            // DECISION (backlog 7 A-3, Egor, 2026-09-20): the temperature
+            // fallback STAYS. It is stochastic — a segment that fails the
+            // logprob / compression thresholds is re-decoded at a higher
+            // temperature, so two passes over the same mumbled audio can
+            // differ by a few words, even on one machine (seen 2026-09-20:
+            // phone, Mac app and this class on the Mac all disagreed on a
+            // 20-second mumble, agreed word for word on clear speech).
+            // That is the price of not printing a hallucinated repeat
+            // loop into the transcript, which is worse. Do not "fix" the
+            // nondeterminism by setting temperatureFallbackCount to 0.
             let options = DecodingOptions(
                 task: .transcribe,
                 language: language,
@@ -372,7 +390,17 @@ public final class WhisperEngine: Transcribing {
                 concurrentWorkerCount: 4,
                 chunkingStrategy: profile.chunking
             )
-            let results = try await box.kit.transcribe(audioArray: samples, decodeOptions: options)
+            let audioSeconds = Double(samples.count) / 16_000
+            var segmentCallback: SegmentDiscoveryCallback?
+            if let report = onProgress {
+                segmentCallback = { (segments: [TranscriptionSegment]) in
+                    guard let last = segments.map(\.end).max() else { return }
+                    report(min(1, Double(last) / audioSeconds))
+                }
+            }
+            let results = try await box.kit.transcribe(
+                audioArray: samples, decodeOptions: options, segmentCallback: segmentCallback
+            )
             var segments: [RawSegment] = []
             var language: String?
             for result in results {
