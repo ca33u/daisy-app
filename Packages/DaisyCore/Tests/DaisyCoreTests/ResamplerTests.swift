@@ -70,3 +70,12 @@ struct ResamplerTests {
         #expect(WhisperEngine.segments(from: [], origin: origin).isEmpty)
     }
 }
+
+@Suite("LanguageDetector")
+struct LanguageDetectorTests {
+    @Test func russianTextIsRussianWhateverWhisperSaid() {
+        #expect(LanguageDetector.detect("Ох, жди цапи, что там делают... Гигиена утренняя очень важна всем. Ну подкаст...") == "ru")
+        #expect(LanguageDetector.detect("Let us talk about the quarterly numbers and the roadmap for next year.") == "en")
+        #expect(LanguageDetector.detect("ok") == nil)
+    }
+}
