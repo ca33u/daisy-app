@@ -71,12 +71,12 @@ sweep).
 |---|---|
 | `transcript.md` | The document. UTF-8, YAML frontmatter + Markdown body. §3 |
 | `summary.json` | AI summary. §4 |
-| `microphone.caf` | The user's own voice |
+| `microphone.caf` | The user's own voice — on the Mac. On a phone session (§3.6) it is the whole room |
 | `microphone.part2.caf`, `.part3.caf`, … | Continuation files after a mid-recording format change |
 | `system_audio.caf` | Everyone else. Never split |
 | `system_audio.<ext>` | Imported audio, keeping its original container |
 | `screenshots/001.jpg` … | Captured frames, `%03d` + extension |
-| `screenshots/index.json` | `{"001.jpg": 12.0}` — filename → seconds into the recording |
+| `screenshots/index.json` | `{"001.jpg": 12.0}` — filename → seconds into the recording; a value past `duration_sec` means the frame was added after the recording ended (§3.3) |
 | `screenshots/highlights.json` | `["001.jpg", …]` — frames OCR found visually distinct |
 | `markers.json` | Moments the user marked by hotkey, written as they happen |
 | `import.json` | Present iff this session came from a file the user imported. §5 |
@@ -93,10 +93,16 @@ Audio extensions a reader must recognise: `caf`, `m4a`, `mp3`, `wav`,
 
 ### 2.1 Which stream is which
 
-The microphone stream **is the user, by definition.** Its segments are
-labelled with the user's display name and are never diarized into
-separate people. The system-audio stream is the other side, and that is
-what gets diarized into `Remote A`, `Remote B`, and so on.
+The microphone stream **is the user, by definition** — on the Mac. Its
+segments are labelled with the user's display name and are never diarized
+into separate people. The system-audio stream is the other side, and that
+is what gets diarized into `Remote A`, `Remote B`, and so on.
+
+**This rule does not apply to a phone session** (`daisy_origin: iphone`,
+§3.6). A phone records a meeting in a room with one microphone, and both
+people are in it. Reading the Mac rule against that file would stamp the
+owner's name on every word the other person said — see §3.6 for what a
+reader does instead.
 
 This is why imported audio is written as `system_audio.<ext>` and never
 as `microphone`. An imported interview is other people talking; filing it
@@ -147,8 +153,16 @@ Other writers add: `daisy_recovered: true` (crash recovery);
 `daisy_parent_session`, `daisy_imported`, `daisy_import_source`,
 `daisy_import_mode`, `daisy_import_original_name`,
 `daisy_transcription_model`, `daisy_transcription_language`,
-`daisy_diarization`, `daisy_audio_files` (import and re-transcription).
+`daisy_diarization`, `daisy_audio_files` (import and re-transcription);
+`daisy_origin` and `daisy_diag_*` (the phone, §3.6).
 `daisy_client` is a read-only legacy alias for `daisy_tag`.
+
+**Quoting.** A quoted value is `"` + the text with `\` written as `\\`
+and `"` written as `\"` + `"`. A reader that strips the surrounding
+quotes must also undo those two escapes, in that order reversed. Only
+`title`, `daisy_tag`, `daisy_transcription_model`, the `daisy_import_*`
+strings, `daisy_parent_session` and the `daisy_event_*` strings are
+quoted; every other value is bare.
 
 To change one field, replace the first line whose prefix is `key:`, or
 insert before the closing `---`. Never re-render the whole file to change
@@ -232,7 +246,21 @@ timestamp and speaker is `·` (U+00B7) with a space on each side.
 
 Speaker labels: the microphone stream uses the user's configured display
 name, or `Me` when unset; the system stream uses `Remote A`, `Remote B`,
-…, or bare `Remote` when diarization produced nothing.
+…, or bare `Remote` when diarization produced nothing. On a phone session
+(§3.6) the microphone stream carries everyone, so after diarization its
+labels follow the system-stream rule — `Remote A`, `Remote B`, … — except
+the cluster recognised as the owner's voice, which takes the display
+name. Before diarization the phone writes every segment as `Me` (or the
+display name): honest for a voice note, provisional for a meeting.
+
+Screenshot timecodes in `## Screenshots` and `## Marked moments` come
+from `screenshots/index.json`. A frame whose value is **greater than
+`duration_sec`** was added after the recording ended (a card photographed
+a week later, a note attached from the library): the value is the seconds
+between the session's `started` and the moment of adding, so it stays a
+number on the same clock, sorts to the end, and is never a fake position
+inside the conversation. Render it as *added later*, not as a timecode.
+The field is never used for anything else.
 
 ### 3.4 The minimal profile: screenshot notes
 
@@ -348,6 +376,58 @@ marker says so, never because fields happen to be missing. A file with
 recording no matter how little it carries. Same rule for §3.4. When a
 file somehow carries both markers, the screenshot-note profile wins,
 because it is the one that describes a shape the app still writes today.
+
+### 3.6 The phone profile: sessions recorded on iPhone
+
+Daisy for iPhone writes sessions into the same folders, with the same
+`transcript.md`, so the Mac Library reads them like any other. The
+marker is:
+
+```yaml
+daisy_origin: iphone
+```
+
+written right after `daisy_kind`. A session without the key is a Mac
+session; `daisy_origin: mac` is not written and must not be required.
+
+What a phone session carries when it arrives:
+
+| Key / file | Value on arrival |
+|---|---|
+| `daisy_kind` | `recording` |
+| `daisy_origin` | `iphone` |
+| `microphone.caf` (+ `.partN`) | the **whole room**: owner and everyone present, one channel, at the phone's native rate (48 kHz float32 today; readers must not assume 16 kHz — resample as for any `.caf`) |
+| `system_audio.*` | never present; `daisy_system_audio_status: off` |
+| `daisy_mic_audio_status` | `captured (N B)` / `truncated (…)` / `empty`, as §3.1 |
+| `daisy_speaker_map` | `{}` — the phone does not diarize |
+| `daisy_transcription_model`, `daisy_transcription_language`, `detected_locale` | the phone transcribes with the Mac's default Whisper model and writes the same three keys the Mac writes on re-transcription |
+| `daisy_event_*` | when the recording was started from a calendar meeting |
+| `daisy_diag_*` | battery, thermal state, background start, queue wait, decode time, real-time factor, peak memory — the phone's own field-day telemetry; ignored by every other reader |
+| `screenshots/` | photos taken from the record screen (§2), indexed by media second |
+| body | `**[m:ss · Me]**` (or the display name) on every segment |
+
+**The rule of §2.1 does not apply.** On a phone session the microphone
+track is not the owner; it is the meeting. A reader that diarizes such a
+session diarizes the microphone track **whole**, and then:
+
+1. finds the owner's voice by comparing each cluster's centroid with the
+   owner's stored `SpeakerProfile` (the 256-dimensional embedding the Mac
+   already keeps for named speakers; the owner's is enrolled from Mac
+   recordings, where the microphone *is* the owner). The best cluster above
+   the match threshold takes the display name;
+2. labels every other cluster `Remote A`, `Remote B`, … in order of first
+   appearance, exactly as system-stream clusters on the Mac, and writes
+   their centroids to `speakers.json` so they can be named, merged and
+   enrolled the usual way;
+3. when no cluster matches the owner — no profile yet, or the owner did
+   not speak — labels **all** clusters `Remote …` and says nothing about
+   who is who. An unlabelled owner is recoverable by renaming; an
+   owner's name on someone else's words is not.
+
+The phone's own transcript (every segment `Me`) is a first pass, not a
+claim about who spoke; a diarized re-transcription on the Mac replaces
+it in a child session (`daisy_parent_session`), as any re-transcription
+does.
 
 ---
 
@@ -483,6 +563,14 @@ overwrite, **re-read the file from disk and adopt** `title`,
 it. The user's value wins. Rendering from memory destroys their edits,
 and they will not know why.
 
+Edits made by a person — a corrected word, a renamed speaker, a title —
+**survive "Transcribe again"**: it never overwrites the edited file, it
+writes a child session (`daisy_parent_session`) and leaves the parent as
+edited. When two copies of the same session meet during synchronisation
+(a phone and a Mac editing the same folder), the copy with the later
+modification time wins and the losing copy is kept beside it, never
+deleted — the merge is a person's decision, not the sync's.
+
 ### 7.3 Never publish a half-written folder
 
 Build imports and re-transcriptions inside a **hidden** staging directory
@@ -515,6 +603,19 @@ Frame files are a zero-padded number plus a readable image extension, and
 nothing else — `001 copy.jpg` and `._001.jpg` are not frames. Order them
 **numerically**, not lexically: the padding stops at 1000, so `999.jpg`
 sorts after `1000.jpg` as text.
+
+A frame added after the recording takes the next free number and an
+`index.json` value past `duration_sec` (§3.3). Numbering therefore keeps
+capture order, and "after the recording" frames are at the end both by
+number and by value; a reader sorting by either gets the same result.
+
+### 7.7 `duration_sec`
+
+Truncated to a whole second — `Int(duration)`, never rounded — on every
+profile. §3.5 records the one Mac writer that rounds; the phone
+truncates. Two implementations that disagree here drift by a second on
+half of all sessions, and a checker that compares durations across copies
+will never settle.
 
 ---
 

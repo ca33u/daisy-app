@@ -262,7 +262,7 @@ enum MarkdownExporter {
                 ScreenshotIndex.load(from: $0.deletingLastPathComponent())
             } ?? [:]
             for url in shots {
-                let caption = ScreenshotIndex.timecode(for: url, offsets: shotOffsets)
+                let caption = ScreenshotIndex.caption(for: url, offsets: shotOffsets, durationSec: Int(session.elapsed))
                     ?? url.lastPathComponent
                 lines.append("![\(caption)](\(url.path))")
                 lines.append("")

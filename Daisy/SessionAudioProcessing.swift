@@ -172,9 +172,16 @@ final class SessionAudioProcessing {
         statusText = String(localized: "Loading the selected model")
         let language = Self.whisperLanguage(options.language)
         let biasTerms = DictationDictionary.shared.biasTerms()
+        // session-format.md §3.6: a phone session's microphone track is
+        // the whole room, not the owner — diarized whole, owner found by
+        // voice profile, everyone else `Remote`.
+        let originalMarkdown = session.transcriptURL.flatMap {
+            try? String(contentsOf: $0, encoding: .utf8)
+        } ?? ""
+        let isPhoneSession = Self.frontmatterValue("daisy_origin", in: originalMarkdown) == "iphone"
 
         statusText = String(localized: "Transcribing microphone audio")
-        let microphoneOutput = try await transcribeChannel(
+        var microphoneOutput = try await transcribeChannel(
             processingFiles.microphone,
             source: .microphone,
             language: language,
@@ -197,6 +204,27 @@ final class SessionAudioProcessing {
             biasTerms: biasTerms
         )
 
+        if isPhoneSession, options.diarize {
+            let owner = SpeakerProfileStore.shared.ownerProfile?.embedding
+            let assigned = PhoneSpeakerAssignment.apply(
+                segments: microphoneOutput.segments,
+                centroids: microphoneOutput.centroids,
+                owner: owner
+            )
+            log.notice("Phone session: \(microphoneOutput.centroids.count, privacy: .public) cluster(s), owner \(assigned.ownerCluster ?? "not found", privacy: .public) (score \(String(format: "%.2f", assigned.ownerScore), privacy: .public), profile \(owner == nil ? "absent" : "present", privacy: .public))")
+            microphoneOutput = ChannelOutput(segments: assigned.segments, centroids: assigned.centroids)
+        } else if !isPhoneSession, !processingFiles.microphone.isEmpty {
+            // A Mac session: the mic IS the owner (§2.1) — the one place
+            // the owner's voice can be learnt from without asking.
+            let micFiles = processingFiles.microphone
+            let displayName = RecordingSession.current?.settings.userDisplayName ?? ""
+            Task.detached(priority: .utility) {
+                if let embedding = await OwnerVoice.embedding(fromMicrophoneArchives: micFiles) {
+                    await MainActor.run { SpeakerProfileStore.shared.enrolOwner(embedding: embedding, displayName: displayName) }
+                }
+            }
+        }
+
         var segments = (microphoneOutput.segments + systemOutput.segments)
             .sorted { $0.startSec < $1.startSec }
         let corrections = MeetingVocabulary.corrections(
@@ -212,14 +240,13 @@ final class SessionAudioProcessing {
                 return copy
             }
         }
-        if RecordingSession.current?.settings.suppressAcousticEcho == true {
+        // Echo dedup pairs the mic against the system stream; a phone
+        // session has one track wearing both labels — nothing to dedup.
+        if !isPhoneSession, RecordingSession.current?.settings.suppressAcousticEcho == true {
             segments = AcousticEchoDedup.filter(segments)
         }
 
         statusText = String(localized: "Writing the new transcript")
-        let originalMarkdown = session.transcriptURL.flatMap {
-            try? String(contentsOf: $0, encoding: .utf8)
-        } ?? ""
         let markdown = Self.renderDerivedTranscript(
             originalMarkdown: originalMarkdown,
             session: session,
@@ -386,6 +413,25 @@ final class SessionAudioProcessing {
             diarization: diarization.spans
         )
         return ChannelOutput(segments: merged, centroids: diarization.centroids)
+    }
+
+    /// One frontmatter value by the contract's parse rule (§3.1): first
+    /// `:`, trimmed, surrounding quotes stripped. Enough for a marker key.
+    nonisolated static func frontmatterValue(_ key: String, in markdown: String) -> String? {
+        var inside = false
+        for line in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line == "---" {
+                if inside { return nil }
+                inside = true
+                continue
+            }
+            guard inside, let colon = line.firstIndex(of: ":") else { continue }
+            guard line[..<colon] == key[...] else { continue }
+            var value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            if value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 { value = String(value.dropFirst().dropLast()) }
+            return value
+        }
+        return nil
     }
 
     nonisolated static func derivedSessionID(parentID: String, now: Date = Date()) -> String {

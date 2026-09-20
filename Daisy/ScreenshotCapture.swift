@@ -475,6 +475,28 @@ nonisolated enum ScreenshotIndex {
     /// predates the index, or the frame somehow isn't in it.
     static func timecode(for screenshot: URL, offsets: [String: Double]) -> String? {
         guard let seconds = offsets[screenshot.lastPathComponent] else { return nil }
+        return timecode(seconds: seconds)
+    }
+
+    /// session-format.md §3.3 / §7.6: an index value past the session's
+    /// `duration_sec` means the frame was added after the recording
+    /// ended — a card photographed a week later. That is not a position
+    /// in the conversation and must not be shown as one.
+    static func isAddedLater(_ screenshot: URL, offsets: [String: Double], durationSec: Int) -> Bool {
+        guard let seconds = offsets[screenshot.lastPathComponent], durationSec > 0 else { return false }
+        return seconds > Double(durationSec) + 1
+    }
+
+    /// The timecode, or the localized "added later" caption for a frame
+    /// past the end of the recording.
+    static func caption(for screenshot: URL, offsets: [String: Double], durationSec: Int) -> String? {
+        if isAddedLater(screenshot, offsets: offsets, durationSec: durationSec) {
+            return String(localized: "added later")
+        }
+        return timecode(for: screenshot, offsets: offsets)
+    }
+
+    static func timecode(seconds: Double) -> String {
         let total = Int(seconds.rounded())
         let hours = total / 3_600
         let minutes = (total % 3_600) / 60

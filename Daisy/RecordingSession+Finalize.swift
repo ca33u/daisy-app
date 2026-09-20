@@ -234,6 +234,19 @@ extension RecordingSession {
         applySpeakerProfileMatches()
         signposter.endInterval("speaker_match", matchState)
         log.info("post-stop speaker_match: \(ms(t_match), privacy: .public)ms")
+        // session-format.md §3.6 (backlog 7 B-1): this mic track is the
+        // owner by definition — learn the owner's voice from it, off the
+        // critical path, so a phone session (everyone in one track) can
+        // find "Me" by profile instead of by stream.
+        if !micArchiveURLs.isEmpty {
+            let micFiles = micArchiveURLs
+            let displayName = settings.userDisplayName
+            Task.detached(priority: .utility) {
+                if let embedding = await OwnerVoice.embedding(fromMicrophoneArchives: micFiles) {
+                    await MainActor.run { SpeakerProfileStore.shared.enrolOwner(embedding: embedding, displayName: displayName) }
+                }
+            }
+        }
 
         // ── Stage 2b: Transcript second pass ─────────────────────────
         //

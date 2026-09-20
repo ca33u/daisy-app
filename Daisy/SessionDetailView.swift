@@ -389,7 +389,10 @@ struct SessionDetailView: View {
             HStack(spacing: 8) {
                 Image(systemName: "photo")
                     .foregroundStyle(.secondary)
-                if let timecode = ScreenshotIndex.timecode(
+                if ScreenshotIndex.isAddedLater(url, offsets: session.screenshotOffsets, durationSec: session.durationSec) {
+                    Text("Added after the recording")
+                        .font(.headline)
+                } else if let timecode = ScreenshotIndex.timecode(
                     for: url, offsets: session.screenshotOffsets
                 ) {
                     Text("On screen at \(timecode)")
@@ -1316,8 +1319,8 @@ struct SessionDetailView: View {
                     // which is the whole point: read a moment in the
                     // transcript, find the picture. Absent for sessions
                     // recorded before the index existed.
-                    timecode: ScreenshotIndex.timecode(
-                        for: url, offsets: session.screenshotOffsets
+                    timecode: ScreenshotIndex.caption(
+                        for: url, offsets: session.screenshotOffsets, durationSec: session.durationSec
                     ),
                     isHighlighted: stripTarget == url,
                     onOpen: { openFrame(url) },

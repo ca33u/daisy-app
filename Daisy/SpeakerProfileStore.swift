@@ -293,6 +293,60 @@ final class SpeakerProfileStore {
         return new
     }
 
+    // MARK: - The owner (session-format.md §3.6, backlog 7 B-1)
+
+    /// The profile that is the user's own voice. Ordinary profiles are
+    /// people the user named; this one is enrolled by the app from Mac
+    /// recordings, where the microphone is the owner by definition, and
+    /// is what a phone session (everyone in one track) is matched
+    /// against to find which cluster is "Me".
+    static let ownerDefaultsKey = "daisy.ownerSpeakerProfileID"
+
+    var ownerProfile: SpeakerProfile? {
+        ensureLoaded()
+        guard let raw = UserDefaults.standard.string(forKey: Self.ownerDefaultsKey),
+              let id = UUID(uuidString: raw) else { return nil }
+        return profiles[id]
+    }
+
+    /// Blend a fresh embedding into the owner's profile (0.7 old /
+    /// 0.3 new, re-normalised) or create it. Never renames or touches
+    /// another profile: an owner who sounds like a named contact today
+    /// must not overwrite that contact.
+    @discardableResult
+    func enrolOwner(embedding: [Float], displayName: String) -> SpeakerProfile? {
+        ensureLoaded()
+        guard !embedding.isEmpty else { return nil }
+        let name = displayName.trimmingCharacters(in: .whitespaces).isEmpty ? "Me" : displayName.trimmingCharacters(in: .whitespaces)
+        if var owner = ownerProfile {
+            if owner.embedding.count == embedding.count {
+                var blended = zip(owner.embedding, embedding).map { $0 * 0.7 + $1 * 0.3 }
+                let norm = blended.reduce(0) { $0 + $1 * $1 }.squareRoot()
+                if norm > 0 { blended = blended.map { $0 / norm } }
+                owner.embedding = blended
+            } else {
+                owner.embedding = embedding
+            }
+            owner.name = name
+            owner.lastSeenAt = Date()
+            owner.sessionCount += 1
+            profiles[owner.id] = owner
+            write(owner)
+            log.info("Owner voice updated (\(owner.sessionCount, privacy: .public) sessions)")
+            return owner
+        }
+        guard !hasUnreadableProfiles else {
+            log.error("Not creating the owner profile — some profiles on disk are unreadable")
+            return nil
+        }
+        let owner = SpeakerProfile(name: name, embedding: embedding, notes: "Your own voice — learnt from your Mac recordings.")
+        profiles[owner.id] = owner
+        write(owner)
+        UserDefaults.standard.set(owner.id.uuidString, forKey: Self.ownerDefaultsKey)
+        log.info("Owner voice enrolled as profile \(owner.id, privacy: .public)")
+        return owner
+    }
+
     // MARK: - Metadata edit (detail UI)
 
     /// Replace a profile's editable CRM metadata — display name,
