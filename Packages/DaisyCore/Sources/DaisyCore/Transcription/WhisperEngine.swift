@@ -75,6 +75,8 @@ public final class WhisperEngine: Transcribing {
     /// Seconds the last `load()` took (diagnostics; the first load on a
     /// device compiles for the Neural Engine and can run minutes).
     public private(set) var lastLoadSeconds: Double?
+    /// Seconds the post-load warm-up decode took.
+    public private(set) var lastWarmUpSeconds: Double?
 
     @ObservationIgnored private var box: KitBox?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
@@ -122,6 +124,21 @@ public final class WhisperEngine: Transcribing {
         loadTask = nil
     }
 
+    /// The Mac's `warmUpIfNeeded`: one second of silence through the
+    /// decoder right after the load, off the critical path, so the
+    /// first REAL decode (the live sheet's first window, the finishing
+    /// pass) doesn't pay the decoder's own first-run specialization.
+    /// Goes through the slot like any pass, so it never overlaps one.
+    private func warmUp() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let started = Date()
+            _ = try? await run(samples: [Float](repeating: 0, count: 16_000), profile: .live, language: "en")
+            lastWarmUpSeconds = Date().timeIntervalSince(started)
+            log.info("Whisper warm-up: \(String(format: "%.1f", self.lastWarmUpSeconds ?? 0), privacy: .public) s")
+        }
+    }
+
     /// Drop the loaded model (memory pressure, model removed).
     public func unload() {
         if let box {
@@ -155,6 +172,7 @@ public final class WhisperEngine: Transcribing {
             lastLoadSeconds = Date().timeIntervalSince(started)
             state = .ready
             log.info("Whisper ready in \(Int(self.lastLoadSeconds ?? 0), privacy: .public) s")
+            warmUp()
         } catch {
             box = nil
             if error is CancellationError || Task.isCancelled {
