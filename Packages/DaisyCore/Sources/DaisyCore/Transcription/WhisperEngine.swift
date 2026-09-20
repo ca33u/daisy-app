@@ -78,6 +78,43 @@ public final class WhisperEngine: Transcribing {
     /// Seconds the post-load warm-up decode took.
     public private(set) var lastWarmUpSeconds: Double?
 
+    /// Load progress for the UI. Core ML gives no progress inside one
+    /// model's compilation, but the load has four stages of known
+    /// weight (by bytes: mel 0.4 MB, text decoder 203 MB, audio encoder
+    /// 423 MB, tokenizer); WhisperKit announces each boundary in its
+    /// log, which `stageObserver` reads. Inside a stage the bar moves
+    /// with the clock against that stage's duration LAST time (kept in
+    /// UserDefaults), so a warm start fills in seconds and a cold one
+    /// in minutes — both honest, neither stuck at 0.
+    public nonisolated struct LoadProgress: Sendable, Equatable {
+        public var fraction: Double = 0
+        public var stage: String = "Preparing…"
+        public var elapsedSeconds: Int = 0
+        /// How long the whole load took last time, if known.
+        public var lastTotalSeconds: Int?
+    }
+    public private(set) var loadProgress = LoadProgress()
+
+    private nonisolated struct Stage: Sendable {
+        let marker: String      // WhisperKit log line that starts it
+        let name: String
+        let from: Double        // fraction at start
+        let to: Double          // fraction at end
+        let key: String         // UserDefaults key for its last duration
+        let defaultSeconds: Double
+    }
+    private nonisolated static let stages: [Stage] = [
+        Stage(marker: "Loading feature extractor", name: "Mel spectrogram", from: 0.00, to: 0.03, key: "mel", defaultSeconds: 2),
+        Stage(marker: "Loading text decoder", name: "Text decoder (203 MB)", from: 0.03, to: 0.35, key: "decoder", defaultSeconds: 40),
+        Stage(marker: "Loading audio encoder", name: "Audio encoder (423 MB)", from: 0.35, to: 0.95, key: "encoder", defaultSeconds: 90),
+        Stage(marker: "Loading tokenizer", name: "Tokenizer", from: 0.95, to: 1.00, key: "tokenizer", defaultSeconds: 2),
+    ]
+    private nonisolated static let stageDefaultsPrefix = "daisy.whisper.loadStageSeconds."
+    private nonisolated static let totalDefaultsKey = "daisy.whisper.loadTotalSeconds"
+    @ObservationIgnored private var stageIndex = -1
+    @ObservationIgnored private var stageStartedAt = Date()
+    @ObservationIgnored private var progressTicker: Task<Void, Never>?
+
     @ObservationIgnored private var box: KitBox?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     /// One decode at a time: the finishing pass and the live preview
@@ -124,6 +161,66 @@ public final class WhisperEngine: Transcribing {
         loadTask = nil
     }
 
+    // MARK: - Load progress
+
+    private func beginProgress(startedAt: Date) {
+        stageIndex = -1
+        stageStartedAt = startedAt
+        let lastTotal = UserDefaults.standard.double(forKey: Self.totalDefaultsKey)
+        loadProgress = LoadProgress(fraction: 0, stage: "Preparing…", elapsedSeconds: 0,
+                                    lastTotalSeconds: lastTotal > 0 ? Int(lastTotal.rounded()) : nil)
+        // WhisperKit's log is the only place the stage boundaries show.
+        Logging.shared.loggingCallback = { [weak self] message in
+            guard let index = Self.stages.firstIndex(where: { message.contains($0.marker) }) else { return }
+            Task { @MainActor [weak self] in self?.enterStage(index) }
+        }
+        progressTicker = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                self?.tickProgress(startedAt: startedAt)
+            }
+        }
+    }
+
+    private func enterStage(_ index: Int) {
+        guard index > stageIndex else { return }
+        // Close the stage we were in: remember how long it took.
+        if stageIndex >= 0 {
+            let stage = Self.stages[stageIndex]
+            UserDefaults.standard.set(Date().timeIntervalSince(stageStartedAt), forKey: Self.stageDefaultsPrefix + stage.key)
+        }
+        stageIndex = index
+        stageStartedAt = Date()
+        loadProgress.stage = Self.stages[index].name
+        loadProgress.fraction = Self.stages[index].from
+    }
+
+    private func tickProgress(startedAt: Date) {
+        loadProgress.elapsedSeconds = Int(Date().timeIntervalSince(startedAt))
+        guard stageIndex >= 0 else { return }
+        let stage = Self.stages[stageIndex]
+        let stored = UserDefaults.standard.double(forKey: Self.stageDefaultsPrefix + stage.key)
+        let expected = stored > 0 ? stored : stage.defaultSeconds
+        let inStage = min(0.97, Date().timeIntervalSince(stageStartedAt) / expected)
+        loadProgress.fraction = max(loadProgress.fraction, stage.from + (stage.to - stage.from) * inStage)
+    }
+
+    private func endProgress(startedAt: Date, succeeded: Bool) {
+        progressTicker?.cancel()
+        progressTicker = nil
+        Logging.shared.loggingCallback = nil
+        Logging.shared.logLevel = .error
+        if succeeded {
+            if stageIndex >= 0 {
+                UserDefaults.standard.set(Date().timeIntervalSince(stageStartedAt), forKey: Self.stageDefaultsPrefix + Self.stages[stageIndex].key)
+            }
+            UserDefaults.standard.set(Date().timeIntervalSince(startedAt), forKey: Self.totalDefaultsKey)
+            loadProgress.fraction = 1
+            loadProgress.stage = "Ready"
+        }
+        loadProgress.elapsedSeconds = Int(Date().timeIntervalSince(startedAt))
+    }
+
     /// The Mac's `warmUpIfNeeded`: one second of silence through the
     /// decoder right after the load, off the critical path, so the
     /// first REAL decode (the live sheet's first window, the finishing
@@ -155,13 +252,14 @@ public final class WhisperEngine: Transcribing {
         let tokenizerFolder = tokenizerDirectory
         let started = Date()
         log.info("Whisper: loading \(Self.modelID, privacy: .public) from \(folder.lastPathComponent, privacy: .public)…")
+        beginProgress(startedAt: started)
         do {
             let loaded = try await Task.detached(priority: .userInitiated) { () throws -> KitBox in
                 let config = WhisperKitConfig(
                     modelFolder: folder.path,
                     tokenizerFolder: tokenizerFolder,
-                    verbose: false,
-                    logLevel: .error,
+                    verbose: true,
+                    logLevel: .debug,
                     prewarm: false,
                     load: true,
                     download: false
@@ -170,10 +268,12 @@ public final class WhisperEngine: Transcribing {
             }.value
             box = loaded
             lastLoadSeconds = Date().timeIntervalSince(started)
+            endProgress(startedAt: started, succeeded: true)
             state = .ready
             log.info("Whisper ready in \(Int(self.lastLoadSeconds ?? 0), privacy: .public) s")
             warmUp()
         } catch {
+            endProgress(startedAt: started, succeeded: false)
             box = nil
             if error is CancellationError || Task.isCancelled {
                 state = .idle
