@@ -1,0 +1,71 @@
+// swift-tools-version: 6.2
+import PackageDescription
+
+// DaisyCore — platform-free heart of Daisy for iPhone: the session
+// format contract (writer / reader / classifier), audio resampling and
+// the on-device Parakeet engine. No UIKit, no AppKit, no `#if os(...)`.
+// Lives in daisy-app (public) and is referenced by DaisyLite (private)
+// as `../Daisy/Packages/DaisyCore` — the public repository must build
+// from a clone on its own.
+// Same defaults as the app target: Swift 6 language mode, MainActor as
+// the default isolation, strict concurrency.
+//
+// DaisyPalette / DaisyDesign (backlog 5 E-1) — the colour tokens and
+// the button vocabulary SHARED with the Mac app (`daisy-app` links
+// `DaisyDesign` from this package): `DaisyPalette` is data only (hex
+// pairs, metrics numbers), `DaisyDesign` is the thin SwiftUI layer on
+// top. The macOS floor is 14 because the Mac app ships for macOS 14+;
+// the iOS-26-only App Intents API in `DaisyCore` is availability-gated
+// instead of raising the whole package's floor.
+let package = Package(
+    name: "DaisyCore",
+    platforms: [
+        .iOS(.v26),
+        .macOS(.v14),
+    ],
+    products: [
+        .library(name: "DaisyCore", targets: ["DaisyCore"]),
+        .library(name: "DaisyPalette", targets: ["DaisyPalette"]),
+        .library(name: "DaisyDesign", targets: ["DaisyDesign"]),
+    ],
+    dependencies: [
+        // Same pin as daisy-app (Daisy.xcodeproj Package.resolved).
+        .package(
+            url: "https://github.com/FluidInference/FluidAudio",
+            revision: "6428e29186573c6d33c598e25d460e6690bc0ee1"
+        ),
+    ],
+    targets: [
+        .target(
+            name: "DaisyCore",
+            dependencies: [
+                .product(name: "FluidAudio", package: "FluidAudio"),
+            ],
+            swiftSettings: [
+                .defaultIsolation(MainActor.self),
+                .enableUpcomingFeature("MemberImportVisibility"),
+            ]
+        ),
+        .target(
+            name: "DaisyPalette",
+            swiftSettings: [
+                .enableUpcomingFeature("MemberImportVisibility"),
+            ]
+        ),
+        .target(
+            name: "DaisyDesign",
+            dependencies: ["DaisyPalette"],
+            swiftSettings: [
+                .enableUpcomingFeature("MemberImportVisibility"),
+            ]
+        ),
+        .testTarget(
+            name: "DaisyCoreTests",
+            dependencies: ["DaisyCore", "DaisyPalette", "DaisyDesign"],
+            swiftSettings: [
+                .defaultIsolation(MainActor.self),
+            ]
+        ),
+    ],
+    swiftLanguageModes: [.v6]
+)

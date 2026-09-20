@@ -166,7 +166,7 @@
 				B9F5F1992FB75DA300E26A7A /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
 				B9BBC7312FB863E90016C22C /* XCRemoteSwiftPackageReference "FluidAudio" */,
 				B9895A7C2FBC19FC0028BF24 /* XCRemoteSwiftPackageReference "Sparkle" */,
-				B9D5000000000000000000D1 /* XCLocalSwiftPackageReference "../DaisyLite/Packages/DaisyCore" */,
+				B9D5000000000000000000D1 /* XCLocalSwiftPackageReference "Packages/DaisyCore" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B9F5F11D2FB74D9F00E26A7A /* Products */;
@@ -524,9 +524,9 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		B9D5000000000000000000D1 /* XCLocalSwiftPackageReference "../DaisyLite/Packages/DaisyCore" */ = {
+		B9D5000000000000000000D1 /* XCLocalSwiftPackageReference "Packages/DaisyCore" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../DaisyLite/Packages/DaisyCore;
+			relativePath = Packages/DaisyCore;
 		};
 /* End XCLocalSwiftPackageReference section */
 

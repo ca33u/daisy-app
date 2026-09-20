@@ -12,7 +12,7 @@
 //  Daisy's warm amber signal echoes the familiar macOS recording cue and
 //  the flower's yellow-orange centre. It is reserved for live capture.
 //
-//  Package: /Users/ca33u/Develop/DaisyLite/Packages/DaisyCore
+//  Package: Packages/DaisyCore in this repository (shared with DaisyLite)
 //  (product DaisyDesign). Change a colour THERE, never here.
 //
 
