@@ -13,6 +13,9 @@
         }
       }
     },
+    "Daisy session" : {
+
+    },
     "NSAudioCaptureUsageDescription" : {
       "comment" : "Privacy - Audio Capture Usage Description",
       "extractionState" : "stale",

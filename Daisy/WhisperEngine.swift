@@ -955,6 +955,17 @@ final class WhisperEngine {
         /// Temperature-fallback retries when the anti-hallucination
         /// filters trip. `.full` keeps the historical 3 (see the
         /// trade-off note in `transcribe`).
+        ///
+        /// DECISION (backlog 7 A-3, Egor, 2026-09-20): the fallback STAYS,
+        /// and it is stochastic by design — a segment that fails the
+        /// logprob / compression thresholds is re-decoded at a higher
+        /// temperature, so two passes over the same mumbled audio can
+        /// differ by a few words even on one machine (2026-09-20: this
+        /// app, the phone, and the phone's engine run on this Mac all
+        /// disagreed on a 20-second mumble and agreed word for word on
+        /// clear speech). A hallucinated repeat loop in the transcript is
+        /// worse than that. Do not "fix" the nondeterminism by dropping
+        /// the count to 0.
         var temperatureFallbackCount: Int {
             switch self {
             case .full:           return 3
