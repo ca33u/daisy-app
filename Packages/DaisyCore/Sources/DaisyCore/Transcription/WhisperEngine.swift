@@ -253,6 +253,7 @@ public final class WhisperEngine: Transcribing {
         let started = Date()
         log.info("Whisper: loading \(Self.modelID, privacy: .public) from \(folder.lastPathComponent, privacy: .public)…")
         beginProgress(startedAt: started)
+        IntentBreadcrumb.log("Whisper load begin")
         do {
             let loaded = try await Task.detached(priority: .userInitiated) { () throws -> KitBox in
                 let config = WhisperKitConfig(
@@ -271,6 +272,7 @@ public final class WhisperEngine: Transcribing {
             endProgress(startedAt: started, succeeded: true)
             state = .ready
             log.info("Whisper ready in \(Int(self.lastLoadSeconds ?? 0), privacy: .public) s")
+            IntentBreadcrumb.log("Whisper load done in \(Int(self.lastLoadSeconds ?? 0)) s")
             warmUp()
         } catch {
             endProgress(startedAt: started, succeeded: false)
@@ -281,6 +283,7 @@ public final class WhisperEngine: Transcribing {
             }
             state = .failed(error.localizedDescription)
             log.error("Whisper load failed: \(error.localizedDescription, privacy: .public)")
+            IntentBreadcrumb.log("Whisper load FAILED: \(error.localizedDescription)")
         }
     }
 
