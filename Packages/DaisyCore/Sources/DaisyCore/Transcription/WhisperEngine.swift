@@ -78,6 +78,11 @@ public final class WhisperEngine: Transcribing {
 
     @ObservationIgnored private var box: KitBox?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
+    /// One decode at a time: the finishing pass and the live preview
+    /// (backlog 6 F-3) share this instance, and WhisperKit isn't
+    /// reentrant. Same shape as the Mac's in-actor semaphore.
+    @ObservationIgnored private var isBusy = false
+    @ObservationIgnored private var waiters: [CheckedContinuation<Void, Never>] = []
     @ObservationIgnored private let log = Logger(subsystem: DaisyCore.logSubsystem, category: "Whisper")
     /// Where the model is. Set once; `ModelStore.directory`.
     public let modelDirectory: URL
@@ -184,28 +189,59 @@ public final class WhisperEngine: Transcribing {
         try await run(samples: samples).segments
     }
 
+    /// Which knobs a pass runs with — the Mac's `DecodeProfile`, two of
+    /// its three: `.full` for the transcript that goes on disk, `.live`
+    /// for the preview in the live sheet (backlog 6 F-3), where a
+    /// second of latency matters more than a fallback retry.
+    public nonisolated enum Profile: Sendable, Equatable {
+        case full
+        case live
+        var temperatureFallbackCount: Int { self == .full ? 3 : 0 }
+        var topK: Int { self == .full ? 5 : 1 }
+        var chunking: ChunkingStrategy { self == .full ? .vad : .none }
+    }
+
+    private func acquireSlot() async {
+        if !isBusy {
+            isBusy = true
+            return
+        }
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            waiters.append(cont)
+        }
+    }
+
+    private func releaseSlot() {
+        if waiters.isEmpty {
+            isBusy = false
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+
     /// Transcribe 16 kHz mono Float samples → timed segments plus the
-    /// detected language. Auto-detects the language (the Mac's `auto`),
-    /// the `.full` profile's knobs otherwise. Throws if the engine isn't
-    /// available.
-    public func run(samples: [Float]) async throws -> Transcription {
+    /// detected language. Auto-detects the language (the Mac's `auto`)
+    /// unless `language` pins it. Throws if the engine isn't available.
+    public func run(samples: [Float], profile: Profile = .full, language: String? = nil) async throws -> Transcription {
         await load()
         guard let box else { throw WhisperEngineError.notReady }
         guard Double(samples.count) / 16_000 >= 0.2 else {
             return Transcription(segments: [], language: nil, realTimeFactor: 0)
         }
+        await acquireSlot()
+        defer { releaseSlot() }
         let origin = Date()
         let started = Date()
         let raw = try await Task.detached(priority: .userInitiated) { () throws -> RawPass in
-            // The Mac's `DecodeProfile.full`, minus the bias prompt.
+            // The Mac's `DecodeProfile`, minus the bias prompt.
             // `concurrentWorkerCount` 4, not the Mac's 16: a phone has
             // one Neural Engine and a sixth of the memory.
             let options = DecodingOptions(
                 task: .transcribe,
-                language: nil,
-                temperatureFallbackCount: 3,
-                topK: 5,
-                detectLanguage: true,
+                language: language,
+                temperatureFallbackCount: profile.temperatureFallbackCount,
+                topK: profile.topK,
+                detectLanguage: language == nil,
                 skipSpecialTokens: true,
                 withoutTimestamps: false,
                 wordTimestamps: false,
@@ -213,7 +249,7 @@ public final class WhisperEngine: Transcribing {
                 logProbThreshold: -1.0,
                 noSpeechThreshold: 0.4,
                 concurrentWorkerCount: 4,
-                chunkingStrategy: .vad
+                chunkingStrategy: profile.chunking
             )
             let results = try await box.kit.transcribe(audioArray: samples, decodeOptions: options)
             var segments: [RawSegment] = []
