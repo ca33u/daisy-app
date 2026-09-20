@@ -74,4 +74,34 @@ public nonisolated enum ScreenshotIndex {
         let data = try JSONEncoder().encode(offsets)
         try data.write(to: url(in: directory), options: .atomic)
     }
+
+    /// Save one JPEG into `<session>/screenshots/` under the next free
+    /// number and stamp `offsetSeconds` in `index.json`. During a
+    /// recording that is the media second; for a photo added after the
+    /// recording it is the seconds between `started` and now — past
+    /// `duration_sec`, which is how a reader knows it was added later
+    /// (session-format.md §3.3, §7.6).
+    @discardableResult
+    public static func append(jpeg: Data, to session: URL, offsetSeconds: Double) throws -> URL {
+        let dir = directory(in: session)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let name = self.name(number: nextNumber(in: dir))
+        let file = dir.appendingPathComponent(name)
+        try jpeg.write(to: file, options: .atomic)
+        var offsets = load(from: dir)
+        offsets[name] = (offsetSeconds * 10).rounded() / 10
+        try write(offsets, to: dir)
+        return file
+    }
+
+    /// Seconds a photo added right now carries: on the session's clock,
+    /// counted from `started`.
+    public static func offsetForAddingNow(started: Date, now: Date = Date()) -> Double {
+        max(0, now.timeIntervalSince(started))
+    }
+
+    /// session-format.md §3.3: past the end of the recording = added later.
+    public static func isAddedLater(offset: Double, durationSec: Int) -> Bool {
+        durationSec > 0 && offset > Double(durationSec) + 1
+    }
 }

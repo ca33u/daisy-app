@@ -36,3 +36,19 @@ struct ScreenshotIndexTests {
         #expect(ScreenshotIndex.load(from: tmp).isEmpty)
     }
 }
+
+extension ScreenshotIndexTests {
+    @Test func appendNumbersAndStampsAndAddedLaterIsPastTheEnd() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("shots2-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let first = try ScreenshotIndex.append(jpeg: Data([0xFF, 0xD8]), to: tmp, offsetSeconds: 14.12)
+        let second = try ScreenshotIndex.append(jpeg: Data([0xFF, 0xD8]), to: tmp, offsetSeconds: 604_800)
+        #expect(first.lastPathComponent == "001.jpg" && second.lastPathComponent == "002.jpg")
+        let offsets = ScreenshotIndex.load(from: ScreenshotIndex.directory(in: tmp))
+        #expect(offsets == ["001.jpg": 14.1, "002.jpg": 604_800])
+        #expect(!ScreenshotIndex.isAddedLater(offset: 14.1, durationSec: 134))
+        #expect(ScreenshotIndex.isAddedLater(offset: 604_800, durationSec: 134))
+        let started = Date(timeIntervalSince1970: 1_000)
+        #expect(ScreenshotIndex.offsetForAddingNow(started: started, now: Date(timeIntervalSince1970: 1_500)) == 500)
+    }
+}
