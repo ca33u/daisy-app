@@ -87,15 +87,24 @@ struct SessionRoundTripTests {
         fm.speakerMap = ["A": "Alex"]
         fm.audioParts = ["microphone.caf", "microphone.part2.caf"]
         fm.micOnlyCause = "permission"
+        fm.transcriptionModel = "large-v3-v20240930_626MB"
+        fm.transcriptionLanguage = "auto"
         let parsed = SessionDocument.parseFrontmatter(in: fm.render() + "\n\n# T\n")
         #expect(parsed.keyOrder == [
             "title", "type", "source", "locale", "detected_locale", "started",
             "duration_sec", "daisy_folder", "daisy_kind", "daisy_origin", "daisy_tag",
+            "daisy_transcription_model", "daisy_transcription_language",
             "daisy_speaker_map", "daisy_audio_parts",
             "daisy_system_audio_status", "daisy_mic_audio_status", "daisy_mic_only", "tags",
         ])
         #expect(parsed.speakerMap == ["A": "Alex"])
         #expect(parsed["daisy_audio_parts"] == "[\"microphone.caf\", \"microphone.part2.caf\"]")
+        // backlog 6 F-1: the Mac's own keys, quoted the Mac's way, read back.
+        #expect(parsed["daisy_transcription_model"] == "large-v3-v20240930_626MB")
+        #expect(fm.render().contains("daisy_transcription_model: \"large-v3-v20240930_626MB\""))
+        let back = SessionFrontmatter.parse(fm.render() + "\n\n# T\n")
+        #expect(back?.transcriptionModel == "large-v3-v20240930_626MB")
+        #expect(back?.transcriptionLanguage == "auto")
     }
 
     @Test func speakerMapReaderStripsQuotedKeysToo() {

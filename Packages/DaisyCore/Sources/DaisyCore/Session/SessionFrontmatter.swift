@@ -85,6 +85,15 @@ public nonisolated struct SessionFrontmatter: Sendable, Equatable {
     /// backlog 5 E-4: the calendar event this recording was started from
     /// (`daisy_event_*`, rendered after `daisy_tag`, before the speaker map).
     public var event: MeetingBinding?
+    /// backlog 6 F-1: the Mac's `daisy_transcription_model` /
+    /// `daisy_transcription_language` (SessionAudioProcessing, 1.0.7.72)
+    /// — the model id (`large-v3-v20240930_626MB`, quoted) and the
+    /// language SETTING (`auto`; what was heard goes to
+    /// `detected_locale`). Rendered where the Mac upserts them: after the
+    /// event keys, before `daisy_speaker_map`. Nil renders nothing, so
+    /// an audio-only session carries neither until it is transcribed.
+    public var transcriptionModel: String?
+    public var transcriptionLanguage: String?
     public var speakerMap: [String: String] = [:]
     public var audioParts: [String] = []
     public var systemAudioStatus: AudioArchiveStatus = .off
@@ -153,6 +162,12 @@ public nonisolated struct SessionFrontmatter: Sendable, Equatable {
         if let event {
             lines.append(contentsOf: event.frontmatterLines())
         }
+        if let transcriptionModel {
+            lines.append("daisy_transcription_model: \(SessionDocument.yamlQuote(transcriptionModel))")
+        }
+        if let transcriptionLanguage {
+            lines.append("daisy_transcription_language: \(transcriptionLanguage)")
+        }
         lines.append("daisy_speaker_map: \(SessionDocument.yamlInlineDict(speakerMap))")
         if audioParts.count > 1 {
             let parts = audioParts.map { SessionDocument.yamlQuote($0) }.joined(separator: ", ")
@@ -195,6 +210,8 @@ public nonisolated struct SessionFrontmatter: Sendable, Equatable {
         fm.origin = p["daisy_origin"]
         fm.tag = p.tag
         fm.event = MeetingBinding.parse(p)
+        fm.transcriptionModel = p["daisy_transcription_model"]
+        fm.transcriptionLanguage = p["daisy_transcription_language"]
         fm.speakerMap = p.speakerMap
         fm.audioParts = p["daisy_audio_parts"].map(SessionDocument.parseYAMLArray) ?? []
         fm.systemAudioStatus = p.systemAudioStatus.flatMap(AudioArchiveStatus.parse) ?? .off

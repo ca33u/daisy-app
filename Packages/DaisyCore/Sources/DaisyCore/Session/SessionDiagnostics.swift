@@ -24,6 +24,12 @@ public nonisolated struct SessionDiagnostics: Codable, Sendable, Equatable {
     public var queueWaitSec: Int?
     /// Seconds the transcription itself took.
     public var transcribeSec: Int?
+    /// backlog 6 F-1: decode time over audio time (0.10 = ten minutes
+    /// of audio in one minute), and the process's peak physical
+    /// footprint after the pass, in MB — the two numbers the backlog
+    /// wants from the real phone, per session, not from a one-off run.
+    public var transcribeRTF: Double?
+    public var peakMemoryMB: Int?
 
     public init() {}
 
@@ -35,6 +41,8 @@ public nonisolated struct SessionDiagnostics: Codable, Sendable, Equatable {
         public static let background = "daisy_diag_background"
         public static let queueWaitSec = "daisy_diag_queue_wait_sec"
         public static let transcribeSec = "daisy_diag_transcribe_sec"
+        public static let transcribeRTF = "daisy_diag_transcribe_rtf"
+        public static let peakMemoryMB = "daisy_diag_peak_memory_mb"
     }
 
     /// Frontmatter lines, in a fixed order, only for the values known.
@@ -47,6 +55,8 @@ public nonisolated struct SessionDiagnostics: Codable, Sendable, Equatable {
         if let v = startedInBackground { out.append(.init(key: Key.background, value: v ? "true" : "false")) }
         if let v = queueWaitSec { out.append(.init(key: Key.queueWaitSec, value: String(v))) }
         if let v = transcribeSec { out.append(.init(key: Key.transcribeSec, value: String(v))) }
+        if let v = transcribeRTF { out.append(.init(key: Key.transcribeRTF, value: String(format: "%.3f", v))) }
+        if let v = peakMemoryMB { out.append(.init(key: Key.peakMemoryMB, value: String(v))) }
         return out
     }
 
@@ -59,7 +69,25 @@ public nonisolated struct SessionDiagnostics: Codable, Sendable, Equatable {
         d.startedInBackground = p[Key.background].map { $0 == "true" }
         d.queueWaitSec = p[Key.queueWaitSec].flatMap(Int.init)
         d.transcribeSec = p[Key.transcribeSec].flatMap(Int.init)
+        d.transcribeRTF = p[Key.transcribeRTF].flatMap(Double.init)
+        d.peakMemoryMB = p[Key.peakMemoryMB].flatMap(Int.init)
         return d
+    }
+
+    /// The process's peak physical footprint so far, in MB (the number
+    /// Xcode's memory gauge and Jetsam look at), or nil where the kernel
+    /// won't say.
+    public static func peakFootprintMB() -> Int? {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return nil }
+        let peak = info.ledger_phys_footprint_peak > 0 ? info.ledger_phys_footprint_peak : Int64(info.phys_footprint)
+        return Int(peak / 1_048_576)
     }
 
     public var isEmpty: Bool { fields().isEmpty }

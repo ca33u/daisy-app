@@ -2,13 +2,15 @@
 //  TranscriptLanguage.swift
 //  DaisyCore
 //
-//  The phone's transcriber (Parakeet) does not report a language, so
-//  the summary prompt gets no `detected_locale` hint and a cloud model
-//  happily answers a Russian meeting in English (seen on the first
-//  on-device run, 2026-09-19). Script is enough to fix the common case:
-//  a Cyrillic-dominant transcript is Russian for Egor's purposes.
-//  Latin text stays unhinted — the prompt then follows the transcript's
-//  own language, which is right for English, German, Spanish alike.
+//  Fallback for a transcript without `detected_locale`: sessions from
+//  the Parakeet era (it reported no language, and a cloud model then
+//  happily answered a Russian meeting in English — first on-device run,
+//  2026-09-19). Whisper (backlog 6 F-1) writes `detected_locale`
+//  itself, so this only runs for old files. Script is enough for the
+//  common case: a Cyrillic-dominant transcript is Russian for Egor's
+//  purposes. Latin text stays unhinted — the prompt then follows the
+//  transcript's own language, which is right for English, German,
+//  Spanish alike.
 //
 
 import Foundation

@@ -2,35 +2,25 @@
 //  ModelStore.swift
 //  DaisyCore
 //
-//  Where the Parakeet TDT v3 model lives on the phone, and whether it is
-//  all there. NOT in the app bundle (~600 MB): downloaded on request
-//  into `Application Support/Models/parakeet-tdt-0.6b-v3/`.
+//  Where the Whisper model lives on the phone, and whether it is all
+//  there. NOT in the app bundle (626 MB): downloaded on request into
+//  `Application Support/Models/openai_whisper-large-v3-v20240930_626MB/`
+//  — the variant folder named exactly as in `argmaxinc/whisperkit-coreml`,
+//  so the download and the load can never disagree about the path.
 //
-//  The folder name is FluidAudio's (`AsrModels.load(from:)` derives the
-//  repo folder from its parent + `repo.folderName`, which for v3 is the
-//  HuggingFace repo name minus `-coreml`), so a download that lands
-//  there and the load can never disagree about the path.
+//  This type ONLY answers "is the model on disk and intact" — the
+//  transfer that survives the app being killed lives in the app
+//  target's `ModelDownloader` (a background `URLSessionConfiguration`),
+//  which calls `writeManifest(at:)` once every required file is on disk.
 //
-//  This type ONLY answers "is the model on disk and intact" — it no
-//  longer downloads anything itself (backlog B-2). The transfer that
-//  survives the app being killed lives in the app target's
-//  `ModelDownloader` (a background `URLSessionConfiguration`, since
-//  FluidAudio's own `AsrModels.download` runs a plain foreground
-//  session that dies with the process). `ModelDownloader` calls
-//  `writeManifest(at:)` once every required file is on disk.
-//
-//  Integrity: FluidAudio's `modelsExist` (every required top-level file
-//  present) plus a byte-count manifest written after a successful
-//  download, so a half-copied or truncated model reads `.missing`, not
-//  `.ready`, even though `modelsExist` only checks presence.
+//  Integrity: the three Core ML bundles and the tokenizer present, plus
+//  a byte-count manifest written after a successful download, so a
+//  half-copied or truncated model reads `.missing`, not `.ready`.
 //
 
 import Foundation
 import Observation
 import os
-#if canImport(FluidAudio)
-import FluidAudio
-#endif
 
 @MainActor
 @Observable
@@ -41,9 +31,9 @@ public final class ModelStore {
         case failed(String)
     }
 
-    /// Approximate download size for the UI ("Model not downloaded — 600 MB").
-    public static let approximateBytes: Int64 = 600 * 1_048_576
-    public static let folderName = "parakeet-tdt-0.6b-v3"   // FluidAudio: repo name minus "-coreml"
+    /// Approximate download size for the UI ("Model not downloaded — 626 MB").
+    public nonisolated static let approximateBytes: Int64 = 626 * 1_000_000
+    public nonisolated static let folderName = WhisperEngine.variantFolderName
 
     public private(set) var state: State = .missing
     /// Bytes on disk right now (0 when missing).
@@ -52,15 +42,18 @@ public final class ModelStore {
     public let directory: URL
     @ObservationIgnored private let log = Logger(subsystem: DaisyCore.logSubsystem, category: "ModelStore")
 
-    /// `Application Support/Models/<folderName>`.
-    public static func defaultDirectory() -> URL {
+    /// `Application Support/Models`.
+    public nonisolated static func modelsDirectory() -> URL {
         let appSupport = (try? FileManager.default.url(
             for: .applicationSupportDirectory, in: .userDomainMask,
             appropriateFor: nil, create: true
         )) ?? FileManager.default.temporaryDirectory
-        return appSupport
-            .appendingPathComponent("Models", isDirectory: true)
-            .appendingPathComponent(folderName, isDirectory: true)
+        return appSupport.appendingPathComponent("Models", isDirectory: true)
+    }
+
+    /// `Application Support/Models/<folderName>`.
+    public nonisolated static func defaultDirectory() -> URL {
+        modelsDirectory().appendingPathComponent(folderName, isDirectory: true)
     }
 
     public init(directory: URL = ModelStore.defaultDirectory()) {
@@ -96,6 +89,31 @@ public final class ModelStore {
         return size
     }
 
+    // MARK: - Legacy (backlog 6 F-1)
+
+    /// Folders the Parakeet era left under `Models/` — the model itself
+    /// and its download staging. Removed once on update; the user is
+    /// told in one line how much came back.
+    public nonisolated static let legacyFolderNames = [
+        "parakeet-tdt-0.6b-v3", ".download-parakeet-tdt-0.6b-v3",
+    ]
+
+    /// Delete every legacy folder under `modelsDirectory`. Returns the
+    /// bytes freed (0 when there was nothing — a clean install).
+    @discardableResult
+    public nonisolated static func removeLegacyModels(in modelsDirectory: URL = ModelStore.modelsDirectory()) -> Int64 {
+        var freed: Int64 = 0
+        for name in legacyFolderNames {
+            let url = modelsDirectory.appendingPathComponent(name, isDirectory: true)
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            let size = directorySize(at: url)
+            if (try? FileManager.default.removeItem(at: url)) != nil {
+                freed += size
+            }
+        }
+        return freed
+    }
+
     // MARK: - Integrity
 
     public nonisolated static let manifestName = "manifest.json"
@@ -106,16 +124,19 @@ public final class ModelStore {
         var files: [String: Int64]
     }
 
-    /// Every required file present (FluidAudio's own check) AND the
-    /// byte total matches what we recorded after the download. Without
-    /// a manifest (model copied in by hand) the presence check alone
-    /// decides.
+    /// The three Core ML bundles and the tokenizer present AND every
+    /// top-level item's size matches what we recorded after the
+    /// download. Without a manifest (model copied in by hand) the
+    /// presence check alone decides.
     public nonisolated static func verify(at directory: URL) -> Bool {
-        #if canImport(FluidAudio)
-        guard AsrModels.modelsExist(at: directory, version: .v3) else { return false }
-        #else
-        guard FileManager.default.fileExists(atPath: directory.path) else { return false }
-        #endif
+        let fm = FileManager.default
+        for item in WhisperEngine.requiredModelItems {
+            guard fm.fileExists(atPath: directory.appendingPathComponent(item).path) else { return false }
+        }
+        let tokenizer = directory.appendingPathComponent(WhisperEngine.tokenizerRelativePath, isDirectory: true)
+        for file in WhisperEngine.tokenizerFiles {
+            guard fm.fileExists(atPath: tokenizer.appendingPathComponent(file).path) else { return false }
+        }
         guard let data = try? Data(contentsOf: directory.appendingPathComponent(manifestName)),
               let manifest = try? JSONDecoder().decode(Manifest.self, from: data) else {
             return true
@@ -137,7 +158,7 @@ public final class ModelStore {
         for name in entries where name != manifestName && !name.hasPrefix(".") {
             files[name] = itemSize(at: directory.appendingPathComponent(name))
         }
-        let manifest = Manifest(version: "v3", bytes: files.values.reduce(0, +), files: files)
+        let manifest = Manifest(version: WhisperEngine.modelID, bytes: files.values.reduce(0, +), files: files)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try? encoder.encode(manifest).write(to: directory.appendingPathComponent(manifestName), options: .atomic)

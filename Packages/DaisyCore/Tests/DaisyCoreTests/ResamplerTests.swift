@@ -3,7 +3,7 @@
 //  DaisyCoreTests
 //
 //  N-2 DoD: a 440 Hz sine at 48 kHz → 16 kHz keeps its length (÷3) and
-//  its peak. Plus the segmenter over synthetic token timings.
+//  its peak. Plus the Whisper segment mapping over synthetic segments.
 //
 
 import Testing
@@ -54,17 +54,19 @@ struct ResamplerTests {
         #expect(Resampler.decodeToMono16k(urls: [url.appendingPathExtension("missing")]) == nil)
     }
 
-    @Test func segmenterSplitsAtPausesAndKeepsWords() {
-        let t: [ParakeetEngine.Timing] = [
-            .init(token: "▁Hel", start: 0.5, end: 0.7), .init(token: "lo", start: 0.7, end: 0.9),
-            .init(token: "▁world", start: 1.0, end: 1.4),
-            .init(token: "▁Next", start: 3.0, end: 3.3), .init(token: "▁one", start: 3.4, end: 3.6),
+    @Test func whisperSegmentsAreSortedTrimmedAndDeduplicated() {
+        let origin = Date()
+        let raw: [WhisperEngine.RawSegment] = [
+            .init(start: 3.0, end: 3.6, text: " Next one"),
+            .init(start: 0.5, end: 1.4, text: " Hello world "),
+            .init(start: 1.5, end: 1.6, text: "   "),
+            .init(start: 3.7, end: 4.0, text: "Next one"),   // Whisper's loop — dropped
         ]
-        let segs = ParakeetEngine.segments(text: "Hello world Next one", timings: t, origin: Date())
+        let segs = WhisperEngine.segments(from: raw, origin: origin)
         #expect(segs.map(\.text) == ["Hello world", "Next one"])
         #expect(segs[0].startSec == 0.5 && segs[0].endSec == 1.4)
         #expect(segs[1].startSec == 3.0)
-        #expect(ParakeetEngine.segments(text: "  ", timings: [], origin: Date()).isEmpty)
-        #expect(ParakeetEngine.segments(text: "plain", timings: [], origin: Date()).count == 1)
+        #expect(segs[0].startedAt == origin.addingTimeInterval(0.5))
+        #expect(WhisperEngine.segments(from: [], origin: origin).isEmpty)
     }
 }

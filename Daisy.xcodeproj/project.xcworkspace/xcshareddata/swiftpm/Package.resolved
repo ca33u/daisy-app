@@ -1,13 +1,12 @@
 {
-  "originHash" : "5f43a45ea1373c177c91efd1db7f8698312491a34ddbb8f150c8e564dca7bb33",
+  "originHash" : "9b9b3e57304815e3b65853c5e77c6e6fe9c181dcf00506355132f8fcbda94a25",
   "pins" : [
     {
       "identity" : "argmax-oss-swift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/argmaxinc/argmax-oss-swift",
       "state" : {
-        "revision" : "1e2a163736dfa5a198e637ae44c114e1c6d5cc2d",
-        "version" : "1.1.0"
+        "revision" : "1e2a163736dfa5a198e637ae44c114e1c6d5cc2d"
       }
     },
     {

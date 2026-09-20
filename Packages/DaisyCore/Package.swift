@@ -3,7 +3,9 @@ import PackageDescription
 
 // DaisyCore — platform-free heart of Daisy for iPhone: the session
 // format contract (writer / reader / classifier), audio resampling and
-// the on-device Parakeet engine. No UIKit, no AppKit, no `#if os(...)`.
+// the on-device Whisper engine (backlog 6 F-1: the SAME WhisperKit model
+// the Mac transcribes with, so a phone session re-transcribed on the Mac
+// reads the same). No UIKit, no AppKit, no `#if os(...)`.
 // Lives in daisy-app (public) and is referenced by DaisyLite (private)
 // as `../Daisy/Packages/DaisyCore` — the public repository must build
 // from a clone on its own.
@@ -29,17 +31,19 @@ let package = Package(
         .library(name: "DaisyDesign", targets: ["DaisyDesign"]),
     ],
     dependencies: [
-        // Same pin as daisy-app (Daisy.xcodeproj Package.resolved).
+        // WhisperKit 1.1.0 — the same pin as daisy-app
+        // (Daisy.xcodeproj Package.resolved), so both sides run the
+        // identical decoder on the identical model.
         .package(
-            url: "https://github.com/FluidInference/FluidAudio",
-            revision: "6428e29186573c6d33c598e25d460e6690bc0ee1"
+            url: "https://github.com/argmaxinc/argmax-oss-swift",
+            revision: "1e2a163736dfa5a198e637ae44c114e1c6d5cc2d"
         ),
     ],
     targets: [
         .target(
             name: "DaisyCore",
             dependencies: [
-                .product(name: "FluidAudio", package: "FluidAudio"),
+                .product(name: "WhisperKit", package: "argmax-oss-swift"),
             ],
             swiftSettings: [
                 .defaultIsolation(MainActor.self),
