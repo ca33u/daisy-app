@@ -406,6 +406,14 @@ struct LibraryListColumn: View {
         } label: {
             Label("Reveal in Finder", systemImage: "folder")
         }
+        // backlog 8 G-3: the same `.daisysession` the iPhone makes — one
+        // per session; several when several rows are selected.
+        Button {
+            SessionArchiveExporter.export(sessionsForRowAction(session))
+        } label: {
+            let n = sessionsForRowAction(session).count
+            Label(n > 1 ? "Export \(n) sessions…" : "Export…", systemImage: "square.and.arrow.up")
+        }
         Divider()
         Button(role: .destructive) {
             // Visible selection only — a right-click must never sweep up
