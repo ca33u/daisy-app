@@ -248,6 +248,19 @@ struct SessionDetailView: View {
                 if !(session.meetingPreparation?.planItems.isEmpty ?? true) {
                     MeetingPlanAnalysisView(session: session)
                 }
+                // session-format.md §3.3 / backlog 8 G-2: a `## Notes`
+                // section written by hand (the phone's editor, or any
+                // editor) — its own block, never mixed into the transcript.
+                if let notes = sessionNotes, !notes.isEmpty {
+                    CollapsibleBlock(
+                        title: "Notes",
+                        storageKey: "daisy.session.detail.notesExpanded",
+                        copyLabel: "Copy notes",
+                        copyText: { notes }
+                    ) {
+                        SelectableTextView(notes)
+                    }
+                }
                 if session.transcriptURL != nil, session.contentState != .inCloud {
                     CollapsibleBlock(
                         title: "Transcript",
@@ -1650,6 +1663,17 @@ struct SessionDetailView: View {
     /// (MarkdownExporter always writes it today — defensive for legacy /
     /// hand-edited files). `transcriptText` itself is untouched, so search
     /// and the on-disk file keep the full document.
+    /// The text under `## Notes`, up to the next `## ` heading. Nil when
+    /// the body has no such section.
+    private var sessionNotes: String? {
+        let lines = session.transcriptText.components(separatedBy: "\n")
+        guard let start = lines.firstIndex(of: "## Notes") else { return nil }
+        var end = lines.count
+        for i in (start + 1)..<lines.count where lines[i].hasPrefix("## ") { end = i; break }
+        let text = lines[(start + 1)..<end].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
     private var transcriptBodyForDisplay: String {
         let full = session.transcriptText
         // The transcript heading always sits on its own line, after the
