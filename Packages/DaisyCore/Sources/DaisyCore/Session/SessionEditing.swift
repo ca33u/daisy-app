@@ -2,32 +2,24 @@
 //  SessionEditing.swift
 //  DaisyCore
 //
-//  backlog 8 G-2: a person edits the transcript and writes notes on the
+//  backlog 8 G-2: a person edits the transcript (or the title) on the
 //  phone. The contract's rules, applied literally:
 //
 //  §7.2 — never re-render the whole file to change one thing. The
 //  frontmatter block is carried over byte for byte; a field changes by
 //  replacing its line (`SessionDocument.upsertFrontmatter`), the body
-//  changes by replacing exactly the section that was edited.
+//  changes by replacing exactly the section that was edited — the text
+//  under `## Transcript`, nothing else.
 //
-//  §7.3 — atomic writes only, and never a transcript for a session
-//  that has none yet: while a recording still waits for its finishing
-//  pass, a note is kept in a HIDDEN sidecar (`.pending-notes.md`, ignored
-//  by every reader) and folded into `transcript.md` by
-//  `SessionWriter.finish` — so an edit made during transcription is never
-//  overwritten by the pass, it is what the pass writes.
-//
-//  `## Notes` is a section of its own, before `## Transcript`, never mixed
-//  into the transcript's lines. A reader that doesn't know it shows it as
-//  the Markdown it is.
+//  §7.3 — atomic writes only, and never a transcript for a session that
+//  has none yet: there is nothing to edit until the finishing pass has
+//  written the file. (Notes as a separate section were built and removed
+//  the same day — Egor, 2026-09-21: not wanted.)
 //
 
 import Foundation
 
 public nonisolated enum SessionEditing {
-    public static let notesHeading = "## Notes"
-    public static let pendingNotesName = ".pending-notes.md"
-
     // MARK: - Frontmatter kept verbatim
 
     /// The raw frontmatter block (first `---` through the closing `---`,
@@ -91,28 +83,19 @@ public nonisolated enum SessionEditing {
         return lines.joined(separator: "\n")
     }
 
-    public static func notes(in body: String) -> String? {
-        section(notesHeading, in: body)?.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     public static func transcriptText(in body: String) -> String? {
         section(TranscriptDocument.transcriptHeading, in: body)?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Files
 
-    /// Replace the transcript section and/or the notes in `transcript.md`,
-    /// atomically, frontmatter untouched. Nil leaves that part alone.
-    public static func save(transcript: String?, notes: String?, to transcriptURL: URL) throws {
+    /// Replace the transcript section in `transcript.md`, atomically,
+    /// frontmatter untouched.
+    public static func save(transcript: String, to transcriptURL: URL) throws {
         let markdown = try String(contentsOf: transcriptURL, encoding: .utf8)
-        var (frontmatter, body) = split(markdown)
-        if let transcript {
-            body = setSection(TranscriptDocument.transcriptHeading, to: transcript, in: body)
-        }
-        if let notes {
-            body = setSection(notesHeading, to: notes, in: body)
-        }
-        try Data((frontmatter + body).utf8).write(to: transcriptURL, options: .atomic)
+        let (frontmatter, body) = split(markdown)
+        let updated = setSection(TranscriptDocument.transcriptHeading, to: transcript, in: body)
+        try Data((frontmatter + updated).utf8).write(to: transcriptURL, options: .atomic)
     }
 
     /// `title:` only — one line replaced by prefix (§7.2).
@@ -120,34 +103,5 @@ public nonisolated enum SessionEditing {
         let markdown = try String(contentsOf: transcriptURL, encoding: .utf8)
         let updated = SessionDocument.upsertFrontmatter(in: markdown, key: "title", value: SessionDocument.yamlQuote(title))
         try Data(updated.utf8).write(to: transcriptURL, options: .atomic)
-    }
-
-    /// A note for a session that has no transcript yet: kept hidden until
-    /// the finishing pass folds it in. Empty text removes the sidecar.
-    public static func savePendingNotes(_ notes: String, in sessionDirectory: URL) throws {
-        let url = sessionDirectory.appendingPathComponent(pendingNotesName)
-        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            try? FileManager.default.removeItem(at: url)
-        } else {
-            try Data(trimmed.utf8).write(to: url, options: .atomic)
-        }
-    }
-
-    public static func pendingNotes(in sessionDirectory: URL) -> String? {
-        let url = sessionDirectory.appendingPathComponent(pendingNotesName)
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    /// Called by `SessionWriter.finish`: the rendered transcript with the
-    /// pending note folded in as `## Notes`, and the sidecar removed.
-    public static func foldPendingNotes(into transcript: String, sessionDirectory: URL) -> String {
-        guard let notes = pendingNotes(in: sessionDirectory) else { return transcript }
-        let (frontmatter, body) = split(transcript)
-        let folded = frontmatter + setSection(notesHeading, to: notes, in: body)
-        try? FileManager.default.removeItem(at: sessionDirectory.appendingPathComponent(pendingNotesName))
-        return folded
     }
 }

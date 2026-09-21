@@ -158,11 +158,7 @@ public nonisolated enum SessionWriter {
         guard !fm.fileExists(atPath: transcriptURL.path) else {
             throw SessionWriterError.transcriptAlreadyExists
         }
-        // §7.2 (backlog 8 G-2): a note the person wrote while this
-        // session was still waiting is not overwritten by the pass — it
-        // is what the pass writes.
-        let text = SessionEditing.foldPendingNotes(into: transcript, sessionDirectory: directory)
-        try Data(text.utf8).write(to: transcriptURL, options: .atomic)
+        try Data(transcript.utf8).write(to: transcriptURL, options: .atomic)
         try? fm.removeItem(at: directory.appendingPathComponent(recordingMarkerName))
     }
 

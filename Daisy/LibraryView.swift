@@ -164,7 +164,7 @@ struct LibraryListColumn: View {
             return false
         }
         guard !urls.isEmpty else { return false }
-        // `.daisysession` from the iPhone: not an audio import, the folder
+        // `.daisy` from the iPhone: not an audio import, the folder
         // already IS a session — unpack it into Sessions (backlog 4, C).
         let archives = urls.filter(SessionArchiveImporter.isSessionArchive)
         if !archives.isEmpty {
@@ -406,7 +406,7 @@ struct LibraryListColumn: View {
         } label: {
             Label("Reveal in Finder", systemImage: "folder")
         }
-        // backlog 8 G-3: the same `.daisysession` the iPhone makes — one
+        // backlog 8 G-3: the same `.daisy` the iPhone makes — one
         // per session; several when several rows are selected.
         Button {
             SessionArchiveExporter.export(sessionsForRowAction(session))

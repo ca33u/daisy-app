@@ -2,7 +2,7 @@
 //  SessionArchiveImportTests.swift
 //  DaisyTests
 //
-//  backlog 4, part C: a `.daisysession` from the iPhone lands in
+//  backlog 4, part C: a `.daisy` (formerly `.daisysession`) from the iPhone lands in
 //  Sessions as the session folder it already is — same ID, transcript
 //  and audio intact — and the Library sees a valid session with
 //  retained audio, which is what diarization / "Transcribe again" need
@@ -72,7 +72,7 @@ struct SessionArchiveImportTests {
         defer { try? FileManager.default.removeItem(at: scratch); try? FileManager.default.removeItem(at: sessions) }
         let id = "2026-09-19T08-00-00Z"
         let folder = try makePhoneSession(in: scratch, id: id)
-        let archive = scratch.appendingPathComponent("\(id).daisysession")
+        let archive = scratch.appendingPathComponent("\(id).daisy")
         try zip(folder, to: archive)
 
         let imported = try SessionArchiveImporter.importArchive(archive, into: sessions)

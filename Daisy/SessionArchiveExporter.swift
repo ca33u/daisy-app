@@ -2,7 +2,7 @@
 //  SessionArchiveExporter.swift
 //  Daisy
 //
-//  backlog 8 G-3: the other direction of `.daisysession`. The iPhone
+//  backlog 8 G-3: the other direction of `.daisy`. The iPhone
 //  exports a session as a zip of its folder (`SessionArchiver` in
 //  DaisyLite) and this app imports it (`SessionArchiveImporter`); now
 //  the Mac exports the same file, the same way — `NSFileCoordinator`
@@ -10,7 +10,7 @@
 //  top-level entry is the folder itself — so the two archives are the
 //  same shape byte for byte and either side opens the other's.
 //
-//  One session → a save panel for `<id>.daisysession`. Several → a
+//  One session → a save panel for `<id>.daisy`. Several → a
 //  folder to put them in, one archive each, named by session id.
 //
 
@@ -64,7 +64,7 @@ enum SessionArchiveExporter {
             let panel = NSOpenPanel()
             panel.title = String(localized: "Export \(sessions.count) sessions")
             panel.prompt = String(localized: "Export here")
-            panel.message = String(localized: "Each session becomes its own .daisysession file in this folder.")
+            panel.message = String(localized: "Each session becomes its own .daisy file in this folder.")
             panel.canChooseDirectories = true
             panel.canChooseFiles = false
             panel.canCreateDirectories = true

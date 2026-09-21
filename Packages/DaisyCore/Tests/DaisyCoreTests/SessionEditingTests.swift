@@ -2,8 +2,8 @@
 //  SessionEditingTests.swift
 //  DaisyCoreTests
 //
-//  backlog 8 G-2: edits replace one section, the frontmatter is carried
-//  over byte for byte, a pending note survives the finishing pass.
+//  backlog 8 G-2: an edit replaces the transcript section only; the
+//  frontmatter is carried over byte for byte; the title is one line.
 //
 
 import Testing
@@ -34,7 +34,7 @@ struct SessionEditingTests {
     @Test func transcriptEditKeepsFrontmatterAndTitleLine() throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("edit-\(UUID().uuidString).md")
         try file.write(to: tmp, atomically: true, encoding: .utf8)
-        try SessionEditing.save(transcript: "**[0:00 · Me]** hello there\n\n**[0:05 · Me]** world", notes: nil, to: tmp)
+        try SessionEditing.save(transcript: "**[0:00 · Me]** hello there\n\n**[0:05 · Me]** world", to: tmp)
         let out = try String(contentsOf: tmp, encoding: .utf8)
         #expect(SessionEditing.split(out).frontmatter == SessionEditing.split(file).frontmatter)
         #expect(out.contains("# T\n\n> recorded now · 0:10"))
@@ -42,34 +42,12 @@ struct SessionEditingTests {
         #expect(SessionDocument.parseFrontmatter(in: out).title == "T")
     }
 
-    @Test func notesAreASectionBeforeTheTranscript() throws {
-        let body = SessionEditing.split(file).body
-        let withNotes = SessionEditing.setSection(SessionEditing.notesHeading, to: "call Maria\nsend the deck", in: body)
-        #expect(SessionEditing.notes(in: withNotes) == "call Maria\nsend the deck")
-        let notesAt = withNotes.range(of: "## Notes")!.lowerBound
-        let transcriptAt = withNotes.range(of: "## Transcript")!.lowerBound
-        #expect(notesAt < transcriptAt)
-        #expect(SessionEditing.transcriptText(in: withNotes) == "**[0:00 · Me]** hello\n\n**[0:05 · Me]** world")
-        // Replace, then remove.
-        let replaced = SessionEditing.setSection(SessionEditing.notesHeading, to: "only this", in: withNotes)
-        #expect(SessionEditing.notes(in: replaced) == "only this")
-        #expect(replaced.components(separatedBy: "## Notes").count == 2)
-        let removed = SessionEditing.setSection(SessionEditing.notesHeading, to: "", in: replaced)
-        #expect(SessionEditing.notes(in: removed) == nil)
-        #expect(SessionEditing.transcriptText(in: removed) == "**[0:00 · Me]** hello\n\n**[0:05 · Me]** world")
-    }
-
-    @Test func pendingNoteSurvivesTheFinishingPass() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("pending-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        try SessionEditing.savePendingNotes("written while transcribing", in: dir)
-        #expect(SessionEditing.pendingNotes(in: dir) == "written while transcribing")
-        try SessionWriter.finish(directory: dir, transcript: file)
-        let out = try String(contentsOf: dir.appendingPathComponent("transcript.md"), encoding: .utf8)
-        #expect(SessionEditing.notes(in: SessionEditing.split(out).body) == "written while transcribing")
-        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(SessionEditing.pendingNotesName).path))
-        #expect(SessionDocument.parseFrontmatter(in: out).title == "T")
+    @Test func sectionReplacementLeavesOtherSectionsAlone() {
+        let body = SessionEditing.split(file).body + "\n## Shared on screen\n\nOCR text\n"
+        let edited = SessionEditing.setSection(TranscriptDocument.transcriptHeading, to: "**[0:00 · Me]** changed", in: body)
+        #expect(SessionEditing.transcriptText(in: edited) == "**[0:00 · Me]** changed")
+        #expect(SessionEditing.section("## Shared on screen", in: edited)?.trimmingCharacters(in: .whitespacesAndNewlines) == "OCR text")
+        #expect(edited.hasPrefix("\n# T\n\n> recorded now · 0:10"))
     }
 
     @Test func titleChangesOneLine() throws {

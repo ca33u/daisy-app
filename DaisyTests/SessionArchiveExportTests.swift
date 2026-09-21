@@ -24,7 +24,7 @@ struct SessionArchiveExportTests {
         try Data([0xFF, 0xD8]).write(to: session.appendingPathComponent("screenshots/001.jpg"))
         try "{\"001.jpg\":12.0}".write(to: session.appendingPathComponent("screenshots/index.json"), atomically: true, encoding: .utf8)
 
-        let archive = root.appendingPathComponent("out/\(id).daisysession")
+        let archive = root.appendingPathComponent("out/\(id).daisy")
         try FileManager.default.createDirectory(at: archive.deletingLastPathComponent(), withIntermediateDirectories: true)
         try SessionArchiveExporter.archive(session, to: archive)
         #expect(SessionArchiveImporter.isSessionArchive(archive))

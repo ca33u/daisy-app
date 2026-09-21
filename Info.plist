@@ -76,7 +76,7 @@
             </array>
         </dict>
         <!-- A session exported by Daisy for iPhone (a zip of the session
-             folder, `.daisysession`). Owner rank: nobody else opens
+             folder, `.daisy`; `.daisysession` is the older name). Owner rank: nobody else opens
              these. SessionArchiveImporter unpacks it into Sessions. -->
         <dict>
             <key>CFBundleTypeName</key>
@@ -109,6 +109,7 @@
             <dict>
                 <key>public.filename-extension</key>
                 <array>
+                    <string>daisy</string>
                     <string>daisysession</string>
                 </array>
             </dict>

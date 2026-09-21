@@ -2,7 +2,7 @@
 //  SessionArchiveImporter.swift
 //  Daisy
 //
-//  `.daisysession` (backlog 4, part C): a zip of one session folder,
+//  `.daisy` (backlog 4, part C; `.daisysession` until 2026-09-21): a zip of one session folder,
 //  exported by Daisy for iPhone (UTType `com.daisy.session`, conforms to
 //  `public.zip-archive`). Unzipped it IS a session folder by the
 //  contract (session-format.md) — transcript.md, microphone.caf, maybe
@@ -21,7 +21,10 @@ import Foundation
 import os
 
 nonisolated enum SessionArchiveImporter {
-    static let fileExtension = "daisysession"
+    /// `.daisy` (Egor, 2026-09-21 — shorter). `.daisysession` is the name
+    /// the first exports carried; still opened, never written.
+    static let fileExtension = "daisy"
+    static let legacyFileExtension = "daisysession"
     private static let log = Logger(subsystem: "app.essazanov.Daisy", category: "SessionArchiveImport")
 
     enum ImportError: LocalizedError {
@@ -33,7 +36,7 @@ nonisolated enum SessionArchiveImporter {
         var errorDescription: String? {
             switch self {
             case .notASessionArchive(let name):
-                return String(localized: "\(name) is not a .daisysession file.")
+                return String(localized: "\(name) is not a .daisy file.")
             case .unzipFailed(let name):
                 return String(localized: "Couldn't unpack \(name).")
             case .nothingInside(let name):
@@ -45,7 +48,8 @@ nonisolated enum SessionArchiveImporter {
     }
 
     static func isSessionArchive(_ url: URL) -> Bool {
-        url.pathExtension.lowercased() == fileExtension
+        let ext = url.pathExtension.lowercased()
+        return ext == fileExtension || ext == legacyFileExtension
     }
 
     /// Finder "Open With", Dock drop, Library drop: unpack into the
