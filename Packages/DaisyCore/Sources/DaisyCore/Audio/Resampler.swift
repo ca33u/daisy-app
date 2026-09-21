@@ -124,7 +124,7 @@ public nonisolated enum Resampler {
 /// `@unchecked Sendable` box. AVFoundation calls the block synchronously
 /// on the converting thread for the lifetime of each `convert()`, so
 /// there is no real concurrent access.
-private nonisolated final class FileFeed: @unchecked Sendable {
+nonisolated final class FileFeed: @unchecked Sendable {
     private let file: AVAudioFile
     private let inBuf: AVAudioPCMBuffer
     private let blockFrames: AVAudioFrameCount
