@@ -159,7 +159,10 @@ Other writers add: `daisy_recovered: true` (crash recovery);
 
 **Quoting.** A quoted value is `"` + the text with `\` written as `\\`
 and `"` written as `\"` + `"`. A reader that strips the surrounding
-quotes must also undo those two escapes, in that order reversed. Only
+quotes should also undo those two escapes, in that order reversed — the
+Mac app's reader today strips the quotes and nothing else, so a title
+containing `"` comes back with its backslashes (a listed gap, not a
+licence: a second implementation unescapes). Only
 `title`, `daisy_tag`, `daisy_transcription_model`, the `daisy_import_*`
 strings, `daisy_parent_session` and the `daisy_event_*` strings are
 quoted; every other value is bare.
