@@ -399,7 +399,7 @@ What a phone session carries when it arrives:
 |---|---|
 | `daisy_kind` | `recording` |
 | `daisy_origin` | `iphone` |
-| `microphone.caf` (+ `.partN`) | the **whole room**: owner and everyone present, one channel, at the phone's native rate (48 kHz float32 today; readers must not assume 16 kHz — resample as for any `.caf`) |
+| `microphone.caf` (+ `.partN`) | the **whole room**: owner and everyone present, **16 kHz mono int16** (since 2026-09-21; sessions recorded before that are at the phone's native rate, 48 kHz float32). Readers must not assume either — resample as for any `.caf`. May be **absent**: the phone applies the same retention policy as the Mac (`-1` delete after transcript + summary is the default), and `daisy_mic_audio_status` keeps the value written at the time of recording |
 | `system_audio.*` | never present; `daisy_system_audio_status: off` |
 | `daisy_mic_audio_status` | `captured (N B)` / `truncated (…)` / `empty`, as §3.1 |
 | `daisy_speaker_map` | `{}` — the phone does not diarize |
