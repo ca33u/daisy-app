@@ -28,13 +28,41 @@ struct SyncSettingsSection: View {
                 .tint(Color.daisyTextPrimary)
                 .disabled(!sync.isEnabled || sync.status == .syncing)
             }
+            // Ф3-B: the audio side — the Mac listens on the local network.
+            HStack(alignment: .firstTextBaseline) {
+                Text(handoffLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
         } header: {
             Text("Sync")
         } footer: {
-            Text("Transcripts, summaries, speakers and photos travel through your private iCloud database; recordings stay on the device that made them.")
+            Text("Transcripts, summaries, speakers and photos travel through your private iCloud database. Recordings never go through the cloud: the iPhone hands them to this Mac directly when both are on the same network, the Mac diarizes them, and the speaker names ride back as text.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    @Bindable private var handoff = AudioHandoffServer.shared
+
+    private var handoffLine: String {
+        var parts: [String] = []
+        switch handoff.state {
+        case .off: parts.append(String(localized: "Recordings from the iPhone: off."))
+        case .starting: parts.append(String(localized: "Recordings from the iPhone: starting…"))
+        case .listening: parts.append(String(localized: "Recordings from the iPhone: this Mac (\(handoff.macName)) is listening on the local network."))
+        case .failed(let message): parts.append(String(localized: "Recordings from the iPhone: failed — \(message)"))
+        }
+        if let at = handoff.lastTransferAt {
+            parts.append(String(localized: "Last received \(at.formatted(.relative(presentation: .named))) from \(handoff.lastPhoneName ?? "the iPhone")."))
+        }
+        if let active = handoff.activeDiarization {
+            parts.append(String(localized: "Diarizing \(active)…"))
+        } else if !handoff.pendingDiarization.isEmpty {
+            parts.append(String(localized: "\(handoff.pendingDiarization.count) waiting for diarization."))
+        }
+        return parts.joined(separator: " ")
     }
 
     private var statusLine: String {

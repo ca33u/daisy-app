@@ -212,5 +212,14 @@
          XML on the CDN, and beta testers want new builds promptly. -->
     <key>SUScheduledCheckInterval</key>
     <integer>3600</integer>
+	<!-- backlog 9 Ф3-B: the phone hands recordings to the Mac directly over
+	     the local network (Bonjour + TLS); both keys are required before
+	     the system lets an app browse or advertise the service. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Daisy on your iPhone and on your Mac find each other on the local network to hand over recordings directly, without going through the cloud.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_daisy-audio._tcp</string>
+	</array>
 </dict>
 </plist>
