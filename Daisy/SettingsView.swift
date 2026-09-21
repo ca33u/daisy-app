@@ -1127,6 +1127,11 @@ struct SettingsView: View {
                 Text("Storage")
             }
 
+            // ── Sync with the iPhone (backlog 9 Ф3-A) ─────────
+            // Text and metadata through the private CloudKit database;
+            // audio never leaves the device this way.
+            SyncSettingsSection()
+
             Section {
                 // Retention / privacy posture. "Don't record audio" is the
                 // strongest stance; the rest are a time-to-live. Per-session

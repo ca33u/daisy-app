@@ -182,7 +182,13 @@ final class SessionStore {
     private func performRefresh() async {
         isLoading = true
         lastError = nil
-        defer { isLoading = false }
+        defer {
+            isLoading = false
+            // Whatever moved the Library (a finished recording, a
+            // diarization pass, an edit) is what the phone should see:
+            // one debounced sync per burst of refreshes (Ф3-A).
+            SyncCoordinator.shared.schedule()
+        }
 
         // Scan BOTH the default container location AND the user-
         // picked folder (if set). Old sessions don't get auto-moved

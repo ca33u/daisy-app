@@ -40,6 +40,9 @@ public final class SessionSyncEngine {
         public var pushed: Int = 0
         public var conflicts: Int = 0
         public var deletedRemotely: Int = 0
+        public init() {}
+        /// Nothing moved in either direction.
+        public var isEmpty: Bool { self == Summary() }
     }
 
     public init(base: SessionsBase, stateURL: URL, transport: any SyncTransport) {

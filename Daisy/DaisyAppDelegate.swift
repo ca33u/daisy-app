@@ -50,6 +50,9 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         // SilenceMonitor subscribes to.
         UNUserNotificationCenter.current().delegate = self
         SilencePromptNotification.register()
+        // backlog 9 Ф3-A: phone ⇄ Mac text sync through CloudKit —
+        // launch, activation, once a minute, after Library refreshes.
+        SyncCoordinator.shared.start()
         // 1.0.5: calendar-driven lifecycle banners.
         AutoStartNotification.register()
         AutoStopNotification.register()

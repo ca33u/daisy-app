@@ -10,6 +10,7 @@
 		B9895A7E2FBC19FC0028BF24 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = B9895A7D2FBC19FC0028BF24 /* Sparkle */; };
 		B9BBC7332FB863E90016C22C /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = B9BBC7322FB863E90016C22C /* FluidAudio */; };
 		B9D5000000000000000000D3 /* DaisyDesign in Frameworks */ = {isa = PBXBuildFile; productRef = B9D5000000000000000000D2 /* DaisyDesign */; };
+		B9D5000000000000000000D5 /* DaisyCore in Frameworks */ = {isa = PBXBuildFile; productRef = B9D5000000000000000000D4 /* DaisyCore */; };
 		B9F5F19B2FB75DA300E26A7A /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = B9F5F19A2FB75DA300E26A7A /* WhisperKit */; };
 /* End PBXBuildFile section */
 
@@ -50,6 +51,7 @@
 				B9BBC7332FB863E90016C22C /* FluidAudio in Frameworks */,
 				B9F5F19B2FB75DA300E26A7A /* WhisperKit in Frameworks */,
 				B9D5000000000000000000D3 /* DaisyDesign in Frameworks */,
+				B9D5000000000000000000D5 /* DaisyCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -105,6 +107,7 @@
 				B9BBC7322FB863E90016C22C /* FluidAudio */,
 				B9895A7D2FBC19FC0028BF24 /* Sparkle */,
 				B9D5000000000000000000D2 /* DaisyDesign */,
+				B9D5000000000000000000D4 /* DaisyCore */,
 			);
 			productName = Daisy;
 			productReference = B9F5F11C2FB74D9F00E26A7A /* Daisy.app */;
@@ -544,6 +547,10 @@
 		B9D5000000000000000000D2 /* DaisyDesign */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = DaisyDesign;
+		};
+		B9D5000000000000000000D4 /* DaisyCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DaisyCore;
 		};
 		B9F5F19A2FB75DA300E26A7A /* WhisperKit */ = {
 			isa = XCSwiftPackageProductDependency;

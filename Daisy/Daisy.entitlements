@@ -83,5 +83,21 @@
 	<array>
 		<string>$(AppIdentifierPrefix)app.essazanov.Daisy.shared</string>
 	</array>
+	<!-- iCloud / CloudKit — backlog 9 Ф3-A: the phone ⇄ Mac text sync
+	     goes through the private CloudKit database of ONE container
+	     shared by both apps (DaisyLite declares the same identifier).
+	     Only text and metadata travel; audio never does (Ф3-B, direct
+	     over the local network). Developer ID + Hardened Runtime is a
+	     supported combination for CloudKit, but the provisioning
+	     profile must carry the container — enabled in Xcode → Signing
+	     & Capabilities → iCloud → CloudKit. -->
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.app.essazanov.Daisy</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
 </dict>
 </plist>
