@@ -75,10 +75,33 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
         do {
             _ = try await database.recordZone(for: zoneID)
         } catch {
-            _ = try await database.save(CKRecordZone(zoneID: zoneID))
-            log.notice("Created zone \(Self.zoneName, privacy: .public)")
+            log.notice("Zone lookup: \(Self.describe(error), privacy: .public)")
+            do {
+                _ = try await database.save(CKRecordZone(zoneID: zoneID))
+                log.notice("Created zone \(Self.zoneName, privacy: .public)")
+            } catch {
+                throw SyncError.cloud("zone: " + Self.describe(error))
+            }
         }
         zoneReady = true
+    }
+
+    /// The CloudKit error with everything the server said — the code
+    /// name, the server's own description, the underlying error — so a
+    /// breadcrumb reads "serverRejectedRequest: Invalid bundle ID for
+    /// container" instead of "error 15".
+    public static func describe(_ error: any Error) -> String {
+        guard let ck = error as? CKError else { return error.localizedDescription }
+        var parts = ["\(ck.code)"]
+        if let server = ck.userInfo["ServerErrorDescription"] as? String { parts.append(server) }
+        if let underlying = ck.userInfo[NSUnderlyingErrorKey] as? NSError {
+            parts.append("← \(underlying.domain) \(underlying.code): \(underlying.localizedDescription)")
+        }
+        if let partial = ck.partialErrorsByItemID, let first = partial.values.first {
+            parts.append("first item: " + describe(first))
+        }
+        if parts.count == 1 { parts.append(ck.localizedDescription) }
+        return parts.joined(separator: " — ")
     }
 
     // MARK: - Fetch

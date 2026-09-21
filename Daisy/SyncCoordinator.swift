@@ -80,7 +80,10 @@ final class SyncCoordinator {
         pending = Task { @MainActor [weak self] in
             if seconds > 0 { try? await Task.sleep(for: .seconds(seconds)) }
             guard !Task.isCancelled else { return }
-            await self?.syncNow()
+            // The sync itself runs in its own task: cancelling the
+            // debounce must never cancel a CloudKit operation already
+            // in flight (it did — "Operation … was cancelled").
+            Task { @MainActor in await self?.syncNow() }
         }
     }
 
@@ -112,8 +115,9 @@ final class SyncCoordinator {
         } catch SyncError.noAccount {
             status = .noAccount
         } catch {
-            status = .failed(error.localizedDescription)
-            log.error("Sync failed: \(error.localizedDescription, privacy: .public)")
+            let message = CloudKitSyncTransport.describe(error)
+            status = .failed(message)
+            log.error("Sync failed: \(message, privacy: .public)")
         }
     }
 
