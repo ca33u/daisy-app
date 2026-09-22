@@ -110,14 +110,20 @@ public nonisolated enum KeychainStore {
 
 // MARK: - Typed accessors (subset the phone cares about)
 
-/// Same account strings as the Mac's `SecretKey` — only the four
-/// summary-provider keys; Notion/Google are Mac-only features this
-/// backlog doesn't touch.
+/// Same account strings as the Mac's `SecretKey`: the four
+/// summary-provider keys, plus the Google refresh token the phone
+/// reads (never writes) so a calendar connected on the Mac shows up
+/// here without a second sign-in (backlog 12 L-3).
 public nonisolated enum SecretKey {
     public static let anthropicAPIKey = "anthropic.api_key"
     public static let openaiAPIKey = "openai.api_key"
     public static let cursorAPIKey = "cursor.api_key"
     public static let kimiAPIKey = "kimi.api_key"
+    /// Written by the Mac's OAuth flow only. The phone mints access
+    /// tokens from it and keeps them in memory; connecting and
+    /// disconnecting Google stays a Mac action.
+    public static let googleRefreshToken = "google.refresh_token"
+    public static let googleEmail = "google.email"
 
     /// All four, for a Settings screen that shows which keys arrived.
     public static let summaryProviderKeys: [(label: String, account: String)] = [
