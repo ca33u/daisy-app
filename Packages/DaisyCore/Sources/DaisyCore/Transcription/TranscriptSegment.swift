@@ -16,7 +16,10 @@ public nonisolated enum SegmentSource: String, Sendable, Codable, Equatable {
     case systemAudio
 }
 
-public nonisolated struct TranscriptSegment: Identifiable, Sendable, Equatable {
+// Codable since backlog 12 L-1: a long decode checkpoints its finished
+// segments to disk after every block, so a job killed by the system
+// resumes where it was instead of starting the meeting again.
+public nonisolated struct TranscriptSegment: Identifiable, Sendable, Equatable, Codable {
     public let id: UUID
     public let startedAt: Date
     public var text: String
