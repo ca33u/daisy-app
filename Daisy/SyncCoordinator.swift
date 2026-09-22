@@ -121,6 +121,14 @@ final class SyncCoordinator {
         }
     }
 
+    /// The person deleted a session here: remember it for the next pass.
+    func markDeleted(_ id: String) {
+        guard let ticket = SessionsFolder.acquireBase() else { return }
+        defer { ticket.release() }
+        engine(for: ticket.url).markDeleted(id)
+        schedule()
+    }
+
     /// One engine per sessions folder; a new folder gets a new engine
     /// and its own memory file.
     private func engine(for base: URL) -> SessionSyncEngine {

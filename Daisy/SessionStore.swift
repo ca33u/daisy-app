@@ -499,6 +499,9 @@ final class SessionStore {
         ImportTranscriptionQueue.shared.cancel(sessionID: session.id)
         do {
             try FileManager.default.removeItem(at: session.directoryURL)
+            // Ф3-A: the person's delete is the ONLY thing that becomes a
+            // tombstone for the other device.
+            SyncCoordinator.shared.markDeleted(session.id)
             await refresh()
         } catch {
             log.error("Delete failed: \(error.localizedDescription, privacy: .public)")
@@ -515,6 +518,7 @@ final class SessionStore {
             ImportTranscriptionQueue.shared.cancel(sessionID: session.id)
             do {
                 try FileManager.default.removeItem(at: session.directoryURL)
+                SyncCoordinator.shared.markDeleted(session.id)
             } catch {
                 log.error("Delete failed for \(session.title, privacy: .private): \(error.localizedDescription, privacy: .public)")
                 if firstError == nil {

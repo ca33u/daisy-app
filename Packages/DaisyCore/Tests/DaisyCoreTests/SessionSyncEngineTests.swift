@@ -138,7 +138,9 @@ struct SessionSyncEngineTests {
         #expect(SessionDocument.parseFrontmatter(in: try mac.transcript(id)).tag == "Expo")
     }
 
-    @Test func remoteDeletionNeverDeletesALocalFolder() async throws {
+    @Test func aMissingFolderIsNotADeletion() async throws {
+        // The August rule: moved by hand, evicted, detached disk — the
+        // server hears nothing, the other device keeps everything.
         let cloud = InMemorySyncTransport()
         let phone = try makeDevice("phone", transport: cloud)
         let mac = try makeDevice("mac", transport: cloud)
@@ -149,8 +151,59 @@ struct SessionSyncEngineTests {
         try FileManager.default.removeItem(at: phone.sessions.appendingPathComponent(id))
         _ = try await phone.engine.syncOnce()
         let round = try await mac.engine.syncOnce()
-        #expect(round.deletedRemotely == 1)
+        #expect(round.deletedRemotely == 0)
         #expect(FileManager.default.fileExists(atPath: mac.sessions.appendingPathComponent("\(id)/transcript.md").path))
+        // The phone's memory still holds the id: nothing was told.
+        #expect(phone.engine.state.sessions[id] != nil)
+    }
+
+    @Test func anExplicitDeleteTravelsAsATombstoneAndTheOtherCopyGoesToTrash() async throws {
+        let cloud = InMemorySyncTransport()
+        let phone = try makeDevice("phone", transport: cloud)
+        let mac = try makeDevice("mac", transport: cloud)
+        let id = "2026-09-21T14-00-00Z"
+        try writeSession(phone, id: id, title: "T")
+        _ = try await phone.engine.syncOnce()
+        _ = try await mac.engine.syncOnce()
+        // The person taps Delete on the phone.
+        try FileManager.default.removeItem(at: phone.sessions.appendingPathComponent(id))
+        phone.engine.markDeleted(id)
+        _ = try await phone.engine.syncOnce()
+        let round = try await mac.engine.syncOnce()
+        #expect(round.deletedRemotely == 1)
+        let trashed = mac.sessions.appendingPathComponent("\(SessionSyncEngine.trashDirectoryName)/\(id)/transcript.md")
+        #expect(!FileManager.default.fileExists(atPath: mac.sessions.appendingPathComponent("\(id)/transcript.md").path))
+        #expect(FileManager.default.fileExists(atPath: trashed.path))
+        // Nothing comes back on either side afterwards.
+        let again = try await mac.engine.syncOnce()
+        #expect(again.pushed == 0)
+        let phoneAgain = try await phone.engine.syncOnce()
+        #expect(phoneAgain.pulled == 0)
+        #expect(!FileManager.default.fileExists(atPath: phone.sessions.appendingPathComponent(id).path))
+    }
+
+    @Test func aCopyRestoredFromTrashStaysLocalUntilEdited() async throws {
+        let cloud = InMemorySyncTransport()
+        let phone = try makeDevice("phone", transport: cloud)
+        let mac = try makeDevice("mac", transport: cloud)
+        let id = "2026-09-21T14-00-00Z"
+        try writeSession(phone, id: id, title: "T")
+        _ = try await phone.engine.syncOnce()
+        _ = try await mac.engine.syncOnce()
+        try FileManager.default.removeItem(at: phone.sessions.appendingPathComponent(id))
+        phone.engine.markDeleted(id)
+        _ = try await phone.engine.syncOnce()
+        _ = try await mac.engine.syncOnce()
+        // Restored by hand from the trash: stays here, silently.
+        let trashed = mac.sessions.appendingPathComponent("\(SessionSyncEngine.trashDirectoryName)/\(id)")
+        try FileManager.default.moveItem(at: trashed, to: mac.sessions.appendingPathComponent(id))
+        #expect(try await mac.engine.syncOnce().pushed == 0)
+        // Edited after the tombstone: a revival, it travels again.
+        try await Task.sleep(for: .milliseconds(1100))
+        try writeSession(mac, id: id, title: "T revived")
+        #expect(try await mac.engine.syncOnce().pushed == 1)
+        #expect(try await phone.engine.syncOnce().pulled == 1)
+        #expect(FileManager.default.fileExists(atPath: phone.sessions.appendingPathComponent("\(id)/transcript.md").path))
     }
 
     @Test func aRecordingInProgressNeverTravels() async throws {

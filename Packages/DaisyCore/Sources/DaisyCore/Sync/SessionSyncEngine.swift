@@ -15,9 +15,16 @@
 //  Rules that must not bend:
 //  • a folder still recording (`.recording` present) or without
 //    `transcript.md` has nothing to sync and is skipped;
-//  • the engine never deletes a local folder — a remote deletion only
-//    clears this device's memory of the session (backlog 9: the August
-//    audit, where a tombstone destroyed the only copy);
+//  • a deletion travels ONLY as an explicit tombstone from the person's
+//    "delete" (`markDeleted`); a folder that is merely not there — moved
+//    by hand, evicted, on a detached disk — sends nothing (backlog 9:
+//    the August audit, where a deletion inferred from a missing file
+//    destroyed the only copy);
+//  • the engine never deletes a local folder: an explicit tombstone from
+//    the other device moves the local copy into the hidden
+//    `.daisy-trash/<id>/` beside the sessions (recoverable, invisible to
+//    the Library) and remembers the tombstone so the copy is not pushed
+//    back as new; editing it after that is a revival and it travels again;
 //  • writes are atomic and touch only the parts that changed (§7.2/§7.3);
 //  • audio never travels.
 //
@@ -67,10 +74,13 @@ public final class SessionSyncEngine {
             if outcome.wroteLocally { touched.append(record.id); summary.pulled += 1 }
             if outcome.conflict { summary.conflicts += 1 }
         }
-        for id in changes.deletedIDs where state.sessions[id] != nil {
+        for id in changes.deletedIDs where !state.pendingDeletes.contains(id) {
+            // Someone deleted it on purpose over there. Ours goes to the
+            // hidden trash, never to /dev/null.
+            if trashLocalCopy(id) { summary.deletedRemotely += 1 }
             state.sessions[id] = nil
-            summary.deletedRemotely += 1
-            log.notice("Remote deleted \(id, privacy: .public); local folder kept")
+            state.tombstones[id] = Date()
+            log.notice("Remote deleted \(id, privacy: .public); local copy moved to .daisy-trash")
         }
         state.changeToken = changes.token
         try state.save(to: stateURL)
@@ -82,14 +92,69 @@ public final class SessionSyncEngine {
             for record in outgoing { remember(record) }
             summary.pushed = outgoing.count
         }
-        let gone = state.sessions.keys.filter { !FileManager.default.fileExists(atPath: base.sessionsDirectory.appendingPathComponent($0).path) }
-        if !gone.isEmpty {
-            try await transport.delete(Array(gone))
-            for id in gone { state.sessions[id] = nil }
+        if !state.pendingDeletes.isEmpty {
+            let ids = state.pendingDeletes
+            try await transport.delete(ids)
+            state.pendingDeletes.removeAll()
+            for id in ids { state.sessions[id] = nil }
+            log.notice("Told the server about \(ids.count, privacy: .public) deletion(s) made here")
         }
         state.lastSyncAt = Date()
         try state.save(to: stateURL)
+        sweepTrash()
         return summary
+    }
+
+    /// The person deleted this session HERE. The folder is the caller's
+    /// business (already gone or about to be); this is the only way a
+    /// deletion reaches the server.
+    public func markDeleted(_ id: String) {
+        guard !state.pendingDeletes.contains(id) else { return }
+        state.pendingDeletes.append(id)
+        state.sessions[id] = nil
+        state.tombstones[id] = nil
+        try? state.save(to: stateURL)
+    }
+
+    public static let trashDirectoryName = ".daisy-trash"
+    /// How long a copy deleted elsewhere stays recoverable here.
+    public static let trashRetention: TimeInterval = 30 * 86_400
+
+    /// Empty what has sat in the trash longer than `trashRetention`.
+    /// Once per pass; a folder's age is the moment it was trashed.
+    func sweepTrash(now: Date = Date()) {
+        let fm = FileManager.default
+        let trash = base.sessionsDirectory.appendingPathComponent(Self.trashDirectoryName, isDirectory: true)
+        guard let items = try? fm.contentsOfDirectory(at: trash, includingPropertiesForKeys: [.contentModificationDateKey], options: []) else { return }
+        for item in items {
+            let moved = (try? item.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? now
+            if now.timeIntervalSince(moved) > Self.trashRetention {
+                try? fm.removeItem(at: item)
+                log.notice("Trash: removed \(item.lastPathComponent, privacy: .public) after \(Int(Self.trashRetention / 86_400), privacy: .public) days")
+            }
+        }
+    }
+
+    /// Move a local folder into the hidden trash; false when there was
+    /// nothing to move. A name clash keeps both (suffix).
+    private func trashLocalCopy(_ id: String) -> Bool {
+        let fm = FileManager.default
+        let source = base.sessionsDirectory.appendingPathComponent(id, isDirectory: true)
+        guard fm.fileExists(atPath: source.path) else { return false }
+        let trash = base.sessionsDirectory.appendingPathComponent(Self.trashDirectoryName, isDirectory: true)
+        try? fm.createDirectory(at: trash, withIntermediateDirectories: true)
+        var target = trash.appendingPathComponent(id, isDirectory: true)
+        if fm.fileExists(atPath: target.path) {
+            target = trash.appendingPathComponent("\(id)-\(Int(Date().timeIntervalSince1970))", isDirectory: true)
+        }
+        do {
+            try fm.moveItem(at: source, to: target)
+            try? fm.setAttributes([.modificationDate: Date()], ofItemAtPath: target.path)
+            return true
+        } catch {
+            log.error("Could not move \(id, privacy: .public) to trash: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
     }
 
     // MARK: - Local snapshot
@@ -133,6 +198,13 @@ public final class SessionSyncEngine {
             let memory = state.sessions[id]
             let mtime = Self.mtime(of: transcriptURL)
             let size = Self.size(of: transcriptURL)
+            if let tombstone = state.tombstones[id] {
+                // Deleted elsewhere on purpose: a copy that reappeared here
+                // (restored from the trash, re-imported) stays put unless
+                // the person touched it after the tombstone.
+                guard Date(timeIntervalSince1970: mtime) > tombstone else { continue }
+                state.tombstones[id] = nil
+            }
             var changed = memory == nil || memory!.transcriptMtime != mtime || memory!.transcriptSize != size
             if !changed, let memory {
                 let paths = Self.syncablePaths(in: dir)

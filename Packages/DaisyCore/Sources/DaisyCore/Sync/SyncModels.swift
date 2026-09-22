@@ -75,6 +75,13 @@ public nonisolated struct SyncState: Sendable, Equatable, Codable {
     public var changeToken: Data?
     public var sessions: [String: SessionSyncMemory] = [:]
     public var lastSyncAt: Date?
+    /// Ids the person deleted HERE, not yet told to the server. The only
+    /// source of a remote deletion — never "the folder is not there".
+    public var pendingDeletes: [String] = []
+    /// Ids deleted ELSEWHERE, with when we learned it: the local copy sat
+    /// in `.daisy-trash/` and must not be pushed back as new — unless
+    /// the person touches it after this date, which is a revival.
+    public var tombstones: [String: Date] = [:]
 
     public init(deviceID: String = UUID().uuidString) {
         self.deviceID = deviceID
