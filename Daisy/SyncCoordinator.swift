@@ -42,7 +42,11 @@ final class SyncCoordinator {
     private(set) var status: Status = .idle
     private(set) var lastSyncAt: Date?
     private(set) var lastSummary: SessionSyncEngine.Summary?
-    var isEnabled: Bool = UserDefaults.standard.object(forKey: "daisy.sync.enabled") as? Bool ?? true {
+    /// J-0 (Egor, 2026-09-22): OFF by default, including on an update —
+    /// Daisy promises nothing leaves the Mac, and sync sends transcripts
+    /// to the person's iCloud. Turning it on is an explicit choice made
+    /// with the explanation in front of them (`SyncSettingsSection`).
+    var isEnabled: Bool = UserDefaults.standard.object(forKey: "daisy.sync.enabled") as? Bool ?? false {
         didSet {
             UserDefaults.standard.set(isEnabled, forKey: "daisy.sync.enabled")
             if isEnabled { schedule(after: 0) } else { status = .off }
@@ -119,6 +123,18 @@ final class SyncCoordinator {
             status = .failed(message)
             log.error("Sync failed: \(message, privacy: .public)")
         }
+    }
+
+    /// J-0: "Delete my data from iCloud" — the server side of the sync,
+    /// and this Mac's memory of it. Nothing local is touched.
+    func eraseCloudData() async throws {
+        guard let ticket = SessionsFolder.acquireBase() else { return }
+        defer { ticket.release() }
+        pending?.cancel()
+        try await engine(for: ticket.url).eraseCloudData()
+        lastSyncAt = nil
+        lastSummary = nil
+        status = isEnabled ? .idle : .off
     }
 
     /// The person deleted a session here: remember it for the next pass.

@@ -64,7 +64,31 @@ public nonisolated struct SessionSyncMemory: Sendable, Equatable, Codable {
     /// re-reading unchanged sessions.
     public var transcriptMtime: Double = 0
     public var transcriptSize: Int = 0
+    /// Fields a newer version wrote; kept as they were.
+    public var extra: [String: JSONValue] = [:]
     public init() {}
+
+    private static let known: Set<String> = ["frontmatter", "bodyHash", "fileStamps", "transcriptMtime", "transcriptSize"]
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: AnyCodingKey.self)
+        frontmatter = try c.decodeIfPresent([String: String].self, forKey: .init("frontmatter")) ?? [:]
+        bodyHash = try c.decodeIfPresent(String.self, forKey: .init("bodyHash")) ?? ""
+        fileStamps = try c.decodeIfPresent([String: Double].self, forKey: .init("fileStamps")) ?? [:]
+        transcriptMtime = try c.decodeIfPresent(Double.self, forKey: .init("transcriptMtime")) ?? 0
+        transcriptSize = try c.decodeIfPresent(Int.self, forKey: .init("transcriptSize")) ?? 0
+        extra = c.extras(except: Self.known)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: AnyCodingKey.self)
+        try c.encode(extras: extra)
+        try c.encode(frontmatter, forKey: .init("frontmatter"))
+        try c.encode(bodyHash, forKey: .init("bodyHash"))
+        try c.encode(fileStamps, forKey: .init("fileStamps"))
+        try c.encode(transcriptMtime, forKey: .init("transcriptMtime"))
+        try c.encode(transcriptSize, forKey: .init("transcriptSize"))
+    }
 }
 
 /// Persisted next to the sessions (`sync-state.json` in Application
@@ -87,20 +111,36 @@ public nonisolated struct SyncState: Sendable, Equatable, Codable {
         self.deviceID = deviceID
     }
 
+    /// Fields a newer version wrote; kept as they were.
+    public var extra: [String: JSONValue] = [:]
+
     // Keys added later are optional on read: a state file from an
     // earlier build must never fail to decode — that resets the device
     // id and the memory, and the next pass re-pushes the whole library
-    // (2026-09-22: 112 + 115 records, harmless but wasteful).
-    private enum CodingKeys: String, CodingKey { case deviceID, changeToken, sessions, lastSyncAt, pendingDeletes, tombstones }
+    // (2026-09-22: 112 + 115 records, harmless but wasteful). Keys this
+    // build does not know are carried through `extra` unchanged.
+    private static let known: Set<String> = ["deviceID", "changeToken", "sessions", "lastSyncAt", "pendingDeletes", "tombstones"]
 
     public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        deviceID = try c.decode(String.self, forKey: .deviceID)
-        changeToken = try c.decodeIfPresent(Data.self, forKey: .changeToken)
-        sessions = try c.decodeIfPresent([String: SessionSyncMemory].self, forKey: .sessions) ?? [:]
-        lastSyncAt = try c.decodeIfPresent(Date.self, forKey: .lastSyncAt)
-        pendingDeletes = try c.decodeIfPresent([String].self, forKey: .pendingDeletes) ?? []
-        tombstones = try c.decodeIfPresent([String: Date].self, forKey: .tombstones) ?? [:]
+        let c = try decoder.container(keyedBy: AnyCodingKey.self)
+        deviceID = try c.decode(String.self, forKey: .init("deviceID"))
+        changeToken = try c.decodeIfPresent(Data.self, forKey: .init("changeToken"))
+        sessions = try c.decodeIfPresent([String: SessionSyncMemory].self, forKey: .init("sessions")) ?? [:]
+        lastSyncAt = try c.decodeIfPresent(Date.self, forKey: .init("lastSyncAt"))
+        pendingDeletes = try c.decodeIfPresent([String].self, forKey: .init("pendingDeletes")) ?? []
+        tombstones = try c.decodeIfPresent([String: Date].self, forKey: .init("tombstones")) ?? [:]
+        extra = c.extras(except: Self.known)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: AnyCodingKey.self)
+        try c.encode(extras: extra)
+        try c.encode(deviceID, forKey: .init("deviceID"))
+        try c.encodeIfPresent(changeToken, forKey: .init("changeToken"))
+        try c.encode(sessions, forKey: .init("sessions"))
+        try c.encodeIfPresent(lastSyncAt, forKey: .init("lastSyncAt"))
+        try c.encode(pendingDeletes, forKey: .init("pendingDeletes"))
+        try c.encode(tombstones, forKey: .init("tombstones"))
     }
 
     public static func load(from url: URL) -> SyncState {

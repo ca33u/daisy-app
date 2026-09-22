@@ -105,6 +105,16 @@ public final class SessionSyncEngine {
         return summary
     }
 
+    /// J-0 "Delete my data from iCloud": everything on the server goes,
+    /// and this device forgets what it synced — turning sync on again
+    /// starts from scratch (a full push, nothing lost locally).
+    public func eraseCloudData() async throws {
+        try await transport.eraseEverything()
+        let deviceID = state.deviceID
+        state = SyncState(deviceID: deviceID)
+        try state.save(to: stateURL)
+    }
+
     /// The person deleted this session HERE. The folder is the caller's
     /// business (already gone or about to be); this is the only way a
     /// deletion reaches the server.

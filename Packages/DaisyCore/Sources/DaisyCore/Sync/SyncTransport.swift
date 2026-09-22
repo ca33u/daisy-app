@@ -29,6 +29,9 @@ public protocol SyncTransport: Sendable {
     /// Save whole records (the engine sends complete records).
     func push(_ records: [SessionSyncRecord]) async throws
     func delete(_ ids: [String]) async throws
+    /// Remove everything this app ever put on the server — the person's
+    /// "delete my data from iCloud". Local folders are not touched.
+    func eraseEverything() async throws
 }
 
 /// One shared store two engines can talk through in a test.
@@ -54,6 +57,10 @@ public actor InMemorySyncTransport: SyncTransport {
             seq += 1
             log.append((seq, record.id, false))
         }
+    }
+
+    public func eraseEverything() async throws {
+        for id in records.keys { records[id] = nil; seq += 1 }
     }
 
     public func delete(_ ids: [String]) async throws {

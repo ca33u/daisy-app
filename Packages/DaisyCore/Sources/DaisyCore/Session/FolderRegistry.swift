@@ -33,10 +33,49 @@ public nonisolated struct FolderRegistry: Codable, Sendable, Equatable {
         /// Set when removed; the entry stays as a tombstone.
         public var deletedAt: Date?
         public var isDeleted: Bool { deletedAt != nil }
+        /// Fields a newer version wrote; kept as they were.
+        public var extra: [String: JSONValue] = [:]
         public init(name: String, parentSlug: String? = nil, updatedAt: Date = Date(), deletedAt: Date? = nil) {
             self.name = name; self.parentSlug = parentSlug; self.updatedAt = updatedAt; self.deletedAt = deletedAt
         }
         var stamp: Date { max(updatedAt, deletedAt ?? .distantPast) }
+
+        private static let known: Set<String> = ["name", "parentSlug", "updatedAt", "deletedAt"]
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: AnyCodingKey.self)
+            name = try c.decode(String.self, forKey: .init("name"))
+            parentSlug = try c.decodeIfPresent(String.self, forKey: .init("parentSlug"))
+            updatedAt = try c.decodeIfPresent(Date.self, forKey: .init("updatedAt")) ?? .distantPast
+            deletedAt = try c.decodeIfPresent(Date.self, forKey: .init("deletedAt"))
+            extra = c.extras(except: Self.known)
+        }
+
+        public func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: AnyCodingKey.self)
+            try c.encode(extras: extra)
+            try c.encode(name, forKey: .init("name"))
+            try c.encodeIfPresent(parentSlug, forKey: .init("parentSlug"))
+            try c.encode(updatedAt, forKey: .init("updatedAt"))
+            try c.encodeIfPresent(deletedAt, forKey: .init("deletedAt"))
+        }
+    }
+
+    /// Top-level fields a newer version wrote; kept as they were.
+    public var extra: [String: JSONValue] = [:]
+
+    private static let known: Set<String> = ["entries"]
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: AnyCodingKey.self)
+        entries = try c.decodeIfPresent([String: Entry].self, forKey: .init("entries")) ?? [:]
+        extra = c.extras(except: Self.known)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: AnyCodingKey.self)
+        try c.encode(extras: extra)
+        try c.encode(entries, forKey: .init("entries"))
     }
 
     public static let kvsKey = "daisy.folderRegistry.v1"

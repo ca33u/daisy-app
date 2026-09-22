@@ -210,6 +210,22 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
         for (_, result) in deleted { _ = try? result.get() }
     }
 
+    /// J-0: the whole zone goes — every Session and SessionFile record
+    /// this container holds for the person. Change tokens die with it;
+    /// the engine resets its memory afterwards.
+    public func eraseEverything() async throws {
+        guard await accountAvailable() else { throw SyncError.noAccount }
+        do {
+            _ = try await database.deleteRecordZone(withID: zoneID)
+        } catch let error as CKError where error.code == .zoneNotFound {
+            // Nothing there — that is the goal.
+        } catch {
+            throw SyncError.cloud("erase: " + Self.describe(error))
+        }
+        zoneReady = false
+        log.notice("Erased zone \(Self.zoneName, privacy: .public) on request")
+    }
+
     // MARK: - Coding
 
     static func fileRecordName(_ sessionID: String, _ path: String) -> String { sessionID + "|" + path }

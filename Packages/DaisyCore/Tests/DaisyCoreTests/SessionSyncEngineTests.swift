@@ -206,6 +206,25 @@ struct SessionSyncEngineTests {
         #expect(FileManager.default.fileExists(atPath: phone.sessions.appendingPathComponent("\(id)/transcript.md").path))
     }
 
+    /// J-1 risk 2: a clean install with sync on — an EMPTY library — must
+    /// only receive; it has nothing to say about what exists elsewhere.
+    @Test func anEmptyLibraryOnlyReceivesAndDeletesNothing() async throws {
+        let cloud = InMemorySyncTransport()
+        let mac = try makeDevice("mac", transport: cloud)
+        for i in 0..<3 { try writeSession(mac, id: "2026-09-21T1\(i)-00-00Z", title: "S\(i)") }
+        _ = try await mac.engine.syncOnce()
+        let fresh = try makeDevice("fresh", transport: cloud)
+        let first = try await fresh.engine.syncOnce()
+        #expect(first.pulled == 3 && first.pushed == 0 && first.deletedRemotely == 0)
+        // Nothing was deleted on the server: the Mac's next pass is quiet
+        // and every folder is still there.
+        let again = try await mac.engine.syncOnce()
+        #expect(again.deletedRemotely == 0 && again.pulled == 0)
+        for i in 0..<3 {
+            #expect(FileManager.default.fileExists(atPath: mac.sessions.appendingPathComponent("2026-09-21T1\(i)-00-00Z/transcript.md").path))
+        }
+    }
+
     @Test func aRecordingInProgressNeverTravels() async throws {
         let cloud = InMemorySyncTransport()
         let phone = try makeDevice("phone", transport: cloud)
