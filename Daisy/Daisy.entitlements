@@ -99,5 +99,10 @@
 	<array>
 		<string>CloudKit</string>
 	</array>
+	<!-- Ф3-C: the folder registry in iCloud's key-value store, ONE
+	     identifier shared with DaisyLite (the store is per identifier,
+	     not per app). -->
+	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
+	<string>$(TeamIdentifierPrefix)app.essazanov.Daisy</string>
 </dict>
 </plist>

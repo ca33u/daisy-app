@@ -42,6 +42,8 @@ public nonisolated struct SessionSummary: Sendable, Equatable, Identifiable {
     /// a recording, the final pass never ran" (§6.1: finishing pass).
     public let hasRecordingMarker: Bool
     public let origin: String?
+    /// `daisy_folder` slug (§9); `inbox` when absent.
+    public let folder: String
 
     /// A valid folder that still carries the marker owes a finishing pass.
     public var needsFinishingPass: Bool { state == .valid && hasRecordingMarker && !hasTranscript }
@@ -118,6 +120,7 @@ public nonisolated enum SessionClassifier {
         var durationSec = 0
         var kind: SessionKind = .recording
         var origin: String?
+        var folder = "inbox"
         let hasTranscript = fm.fileExists(atPath: transcriptURL.path)
         if hasTranscript, !isCloudEvicted(transcriptURL),
            let text = try? String(contentsOf: transcriptURL, encoding: .utf8) {
@@ -129,6 +132,7 @@ public nonisolated enum SessionClassifier {
             durationSec = parsed.durationSec ?? 0
             if let k = parsed.kind.flatMap(SessionKind.init(rawValue:)) { kind = k }
             origin = parsed["daisy_origin"]
+            if let f = parsed["daisy_folder"]?.lowercased(), !f.isEmpty { folder = f }
         } else if let markerText = try? String(contentsOf: directory.appendingPathComponent(recordingMarkerName), encoding: .utf8),
                   let d = ISO8601DateFormatter().date(from: markerText.trimmingCharacters(in: .whitespacesAndNewlines)) {
             startedAt = d
@@ -144,7 +148,8 @@ public nonisolated enum SessionClassifier {
             hasTranscript: hasTranscript,
             hasAudio: audio.hasAny,
             hasRecordingMarker: fm.fileExists(atPath: directory.appendingPathComponent(recordingMarkerName).path),
-            origin: origin
+            origin: origin,
+            folder: folder
         )
     }
 

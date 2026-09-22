@@ -254,5 +254,8 @@ final class FolderStore {
     private func persist() {
         guard let data = try? JSONEncoder().encode(customFolders) else { return }
         UserDefaults.standard.set(data, forKey: Self.storageKey)
+        // Ф3-C: mirror into the shared registry (no-op while applying
+        // a change that came from it).
+        FolderRegistryBridge.shared.localChanged()
     }
 }

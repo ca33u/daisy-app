@@ -56,6 +56,8 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         // Ф3-B: audio on request — the phone finds this Mac on the local
         // network and hands over the recordings whose text already came.
         AudioHandoffServer.shared.start()
+        // Ф3-C: the project list rides in iCloud's key-value store.
+        FolderRegistryBridge.shared.start()
         // 1.0.5: calendar-driven lifecycle banners.
         AutoStartNotification.register()
         AutoStopNotification.register()
