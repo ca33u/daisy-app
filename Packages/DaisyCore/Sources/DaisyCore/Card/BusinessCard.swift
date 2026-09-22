@@ -138,6 +138,12 @@ public nonisolated enum BusinessCardStorage {
         container(appGroup: appGroup).appendingPathComponent("card-\(kind.rawValue).jpg")
     }
 
+    /// The small copy the widget reads — see `CardPhoto` for why the
+    /// extension must never open the big one.
+    public static func photoThumbnailURL(for kind: BusinessCard.Kind, appGroup: String = appGroup) -> URL {
+        container(appGroup: appGroup).appendingPathComponent("card-\(kind.rawValue)-thumb.jpg")
+    }
+
     public static func load(appGroup: String = appGroup) -> [BusinessCard] {
         load(from: fileURL(appGroup: appGroup))
     }
@@ -164,14 +170,25 @@ public nonisolated enum BusinessCardStorage {
         try? Data(contentsOf: photoURL(for: kind, appGroup: appGroup))
     }
 
-    public static func savePhoto(_ jpeg: Data?, for kind: BusinessCard.Kind, appGroup: String = appGroup) {
+    /// What the widget loads. Falls back to the big file only if the
+    /// thumbnail is missing (a card saved by an older build).
+    public static func photoThumbnail(for kind: BusinessCard.Kind, appGroup: String = appGroup) -> Data? {
+        if let small = try? Data(contentsOf: photoThumbnailURL(for: kind, appGroup: appGroup)) { return small }
+        return photo(for: kind, appGroup: appGroup)
+    }
+
+    /// Writes both sizes, or removes both.
+    public static func savePhoto(_ jpeg: Data?, thumbnail: Data?, for kind: BusinessCard.Kind, appGroup: String = appGroup) {
         let url = photoURL(for: kind, appGroup: appGroup)
+        let thumbURL = photoThumbnailURL(for: kind, appGroup: appGroup)
         guard let jpeg else {
             try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: thumbURL)
             return
         }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? jpeg.write(to: url, options: .atomic)
+        if let thumbnail { try? thumbnail.write(to: thumbURL, options: .atomic) }
     }
 
     /// The card the person last had in front, for the widget.

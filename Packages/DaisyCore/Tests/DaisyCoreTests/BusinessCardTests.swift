@@ -9,6 +9,8 @@
 import Testing
 import CoreGraphics
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 @testable import DaisyCore
 
 @Suite("Business card and its vCard")
@@ -132,5 +134,55 @@ struct BusinessCardCoreTests {
         #expect(loaded.count == 2)
         #expect(loaded.first(where: { $0.kind == .work })?.name == "Egor Sazanov")
         #expect(loaded.first(where: { $0.kind == .personal })?.isUsable == false)
+    }
+}
+
+@Suite("The widget's photo stays small")
+struct CardPhotoTests {
+    /// A widget extension has ~30 MB. The thumbnail must be decoded at
+    /// thumbnail size, not decoded whole and then shrunk.
+    @Test func imageIODecodesTheSmallVersion() throws {
+        // A 1200×800 JPEG standing in for a camera photo.
+        let big = try #require(makeJPEG(width: 1200, height: 800))
+        #expect(CardPhoto.pixelSize(of: big)?.width == 1200)
+
+        let forWidget = try #require(CardPhoto.thumbnail(from: big, maxPixelSize: CardPhoto.widgetMaxPixel))
+        #expect(max(forWidget.width, forWidget.height) <= Int(CardPhoto.widgetMaxPixel))
+        #expect(forWidget.width > 0 && forWidget.height > 0)
+        // Aspect ratio survives.
+        #expect(abs(Double(forWidget.width) / Double(forWidget.height) - 1.5) < 0.05)
+
+        let forScreen = try #require(CardPhoto.thumbnail(from: big, maxPixelSize: CardPhoto.screenMaxPixel))
+        #expect(max(forScreen.width, forScreen.height) <= Int(CardPhoto.screenMaxPixel))
+        #expect(forScreen.width > forWidget.width)
+    }
+
+    @Test func bothSizesAreStoredAndTheWidgetReadsTheSmallOne() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cards-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let big = try #require(makeJPEG(width: 512, height: 512))
+        let small = try #require(makeJPEG(width: 160, height: 160))
+        try big.write(to: directory.appendingPathComponent("card-work.jpg"))
+        try small.write(to: directory.appendingPathComponent("card-work-thumb.jpg"))
+        // Read them the way the two sides do, by path.
+        let widgetData = try Data(contentsOf: directory.appendingPathComponent("card-work-thumb.jpg"))
+        #expect(CardPhoto.pixelSize(of: widgetData)?.width == 160)
+        #expect(widgetData.count < big.count)
+    }
+
+    private func makeJPEG(width: Int, height: Int) -> Data? {
+        let space = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        context.setFillColor(CGColor(red: 0.3, green: 0.5, blue: 0.8, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        guard let image = context.makeImage() else { return nil }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return data as Data
     }
 }
