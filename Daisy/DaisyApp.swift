@@ -32,14 +32,21 @@ struct DaisyApp: App {
         // migrated values are read in this same launch.
         UserDefaultsMigration.runIfNeeded()
 
-        // Secrets moved from the legacy login.keychain to the data
-        // protection keychain so the iPhone app can see them through
-        // iCloud Keychain. Before AppSettings, for the same reason as
-        // above: it reads tokens in its own init, and reading them
-        // from the old keychain would look like a first launch with
-        // everything disconnected. `get` also migrates lazily, so a
-        // failure here costs nothing.
-        KeychainStore.migrateLegacyItems()
+        // NOT here: the eager keychain migration. It walks all eight
+        // secrets, and reading an item of the OLD login keychain can
+        // raise the system's "… wants to use your confidential
+        // information" dialog whenever the item's ACL does not list
+        // this binary — a profile moved between Macs, restored from
+        // Time Machine, or simply an earlier build. On the main thread,
+        // before the first window, that is the app standing still with
+        // an unexplained dialog on screen (Egor, 2026-09-22: 2 m 41 s).
+        //
+        // The lazy migration in `KeychainStore.get` stays: a secret the
+        // person actually uses moves forward on first read, inside a
+        // running app. The eager pass exists only so a key they never
+        // touch here still reaches the iPhone — which matters only when
+        // sync is on, and sync is off by default. `SyncCoordinator`
+        // runs it off the main thread when sync is turned on.
 
         // Belarusian systems fall back to Russian, once, on a fresh
         // install — must run before anything resolves a localized

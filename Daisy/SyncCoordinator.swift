@@ -49,7 +49,12 @@ final class SyncCoordinator {
     var isEnabled: Bool = UserDefaults.standard.object(forKey: "daisy.sync.enabled") as? Bool ?? false {
         didSet {
             UserDefaults.standard.set(isEnabled, forKey: "daisy.sync.enabled")
-            if isEnabled { schedule(after: 0) } else { status = .off }
+            if isEnabled {
+                migrateKeysForTheOtherDevice()
+                schedule(after: 0)
+            } else {
+                status = .off
+            }
         }
     }
 
@@ -67,7 +72,20 @@ final class SyncCoordinator {
 
     /// Launch: first sync shortly after the Library has been read, then
     /// on every activation and once a minute while the app is up.
+    /// The keys the iPhone needs (summary provider) live in the legacy
+    /// keychain for anyone who used Daisy before 1.0.8. Moving them is
+    /// the one thing that may ask the person for permission, so it
+    /// happens here — off the main thread, and only when sync is on.
+    private func migrateKeysForTheOtherDevice() {
+        Task.detached(priority: .utility) {
+            KeychainStore.migrateLegacyItems()
+        }
+    }
+
     func start() {
+        // Sync already on from a previous run: the pass still belongs
+        // off the main thread, after launch, not in `init`.
+        if isEnabled { migrateKeysForTheOtherDevice() }
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in

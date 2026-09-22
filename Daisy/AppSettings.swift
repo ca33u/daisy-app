@@ -1125,6 +1125,38 @@ final class AppSettings {
         }
     }
 
+    /// The secrets `init` deliberately did not look for in the old
+    /// keychain. Runs after launch, off the main thread; a value found
+    /// there is migrated forward by `get` and shown in Settings. Only
+    /// touches what is still empty, so it never overwrites a key the
+    /// person has just typed.
+    func loadSecretsFromLegacyKeychain() {
+        let wanted: [(String, ReferenceWritableKeyPath<AppSettings, String>)] = [
+            (SecretKey.notionToken, \.notionToken),
+            (SecretKey.notionParentID, \.notionParentID),
+            (SecretKey.anthropicAPIKey, \.anthropicAPIKey),
+            (SecretKey.openaiAPIKey, \.openaiAPIKey),
+            (SecretKey.cursorAPIKey, \.cursorAPIKey),
+            (SecretKey.kimiAPIKey, \.kimiAPIKey),
+        ].filter { self[keyPath: $0.1].isEmpty }
+        guard !wanted.isEmpty else { return }
+        Task.detached(priority: .utility) { [weak self] in
+            var found: [(ReferenceWritableKeyPath<AppSettings, String>, String)] = []
+            for (account, path) in wanted {
+                if let value = KeychainStore.get(account: account), !value.isEmpty {
+                    found.append((path, value))
+                }
+            }
+            guard !found.isEmpty else { return }
+            await MainActor.run {
+                guard let self else { return }
+                for (path, value) in found where self[keyPath: path].isEmpty {
+                    self[keyPath: path] = value
+                }
+            }
+        }
+    }
+
     @MainActor
     private static func persist(_ value: String, account: String, label: String) {
         do {
@@ -1579,12 +1611,22 @@ final class AppSettings {
             ?? MCPSummarizer.defaultToolName
         self.mcpSummarizerArgumentsTemplate = defaults.string(forKey: Self.k_mcpSummarizerArgsTemplate)
             ?? MCPSummarizer.defaultArgumentsTemplate
-        self.notionToken = KeychainStore.get(account: SecretKey.notionToken) ?? ""
-        self.notionParentID = KeychainStore.get(account: SecretKey.notionParentID) ?? ""
-        self.anthropicAPIKey = KeychainStore.get(account: SecretKey.anthropicAPIKey) ?? ""
-        self.openaiAPIKey = KeychainStore.get(account: SecretKey.openaiAPIKey) ?? ""
-        self.cursorAPIKey = KeychainStore.get(account: SecretKey.cursorAPIKey) ?? ""
-        self.kimiAPIKey = KeychainStore.get(account: SecretKey.kimiAPIKey) ?? ""
+        // Launch path: the SHARED keychain only. `get` falls back to the
+        // old login keychain, and that read can raise the system's
+        // "… wants to use your confidential information" dialog when the
+        // item's ACL does not list this binary — a profile moved between
+        // Macs, restored from a backup, or an earlier build. Modal, on
+        // the main thread, before the first window: the app appears to
+        // hang (2026-09-22, 2 m 41 s). Anything missing here is fetched
+        // by `loadSecretsFromLegacyKeychain()` right after launch, off
+        // the main thread, where the dialog (if it comes at all) lands
+        // on a running app the person can answer.
+        self.notionToken = KeychainStore.getWithoutPrompting(account: SecretKey.notionToken) ?? ""
+        self.notionParentID = KeychainStore.getWithoutPrompting(account: SecretKey.notionParentID) ?? ""
+        self.anthropicAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.anthropicAPIKey) ?? ""
+        self.openaiAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.openaiAPIKey) ?? ""
+        self.cursorAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.cursorAPIKey) ?? ""
+        self.kimiAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.kimiAPIKey) ?? ""
 
         // Reconcile substrate to the policy ONCE at launch — but ONLY
         // when the policy came from an explicit stored value. `didSet`

@@ -58,6 +58,12 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         AudioHandoffServer.shared.start()
         // Ф3-C: the project list rides in iCloud's key-value store.
         FolderRegistryBridge.shared.start()
+
+        // Secrets that live only in the old login keychain: fetched now,
+        // off the main thread, with the app already on screen. Never in
+        // `AppSettings.init` — see the note there. The settings object
+        // belongs to the SwiftUI app; the recording session holds it.
+        RecordingSession.current?.settings.loadSecretsFromLegacyKeychain()
         // 1.0.5: calendar-driven lifecycle banners.
         AutoStartNotification.register()
         AutoStopNotification.register()

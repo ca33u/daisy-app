@@ -144,6 +144,17 @@ nonisolated enum KeychainStore {
 
     /// Retrieve a string value, or nil if not present.
     ///
+    /// The shared keychain only — never the legacy one, so this can
+    /// never raise the system's permission dialog. For the launch path
+    /// (`AppSettings.init`), which must not block: what is missing here
+    /// is filled in afterwards, off the main thread, by `get`.
+    nonisolated static func getWithoutPrompting(account: String) -> String? {
+        guard sharedKeychainAvailable else { return nil }
+        let (value, status) = read(account: account, store: .shared)
+        noteEntitlementFailure(status, op: "read-shared")
+        return value
+    }
+
     /// A value found only in the legacy keychain is copied forward
     /// before it is returned, so the first launch after the switch
     /// migrates whatever the user actually uses.
@@ -204,9 +215,16 @@ nonisolated enum KeychainStore {
     /// Copy every known secret from the legacy keychain to the shared
     /// one. `get` already migrates lazily; this makes it deterministic
     /// so a key the user doesn't happen to touch on the Mac still
-    /// reaches the iPhone. Cheap — a handful of items — and safe to
-    /// run on every launch: items already migrated are skipped.
-    static func migrateLegacyItems() {
+    /// reaches the iPhone.
+    ///
+    /// **Never on the main thread, never at launch.** Reading a legacy
+    /// item whose ACL does not list this binary makes macOS ask the
+    /// person, modally; eight of those before the first window is an
+    /// app that appears to hang (2026-09-22). Items already migrated
+    /// are skipped, so the pass is cheap on every run after the first.
+    /// Called from `SyncCoordinator` when sync is switched on — the
+    /// only feature that needs the keys on another device.
+    nonisolated static func migrateLegacyItems() {
         guard sharedKeychainAvailable else { return }
         var migrated = 0
         for account in SecretKey.all {
