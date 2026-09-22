@@ -84,6 +84,7 @@ final class AudioHandoffServer {
             listener.stateUpdateHandler = { [weak self] newState in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    log.notice("Audio handoff listener: \(String(describing: newState), privacy: .public)")
                     switch newState {
                     case .setup, .waiting: state = .starting
                     case .ready: state = .listening
