@@ -7,6 +7,7 @@
 //
 
 import Testing
+import CoreGraphics
 import Foundation
 @testable import DaisyCore
 
@@ -14,10 +15,8 @@ import Foundation
 struct BusinessCardCoreTests {
     private func card() -> BusinessCard {
         var c = BusinessCard(kind: .work)
-        c.name = "Егор Сазанов"
-        c.nameLatin = "Egor Sazanov"
-        c.company = "Эддиктед"
-        c.companyLatin = "addicted"
+        c.name = "Egor Sazanov"
+        c.company = "addicted"
         c.role = "Founder"
         c.phone = "+79001234567"
         c.email = "egor@addicted.sh"
@@ -26,7 +25,7 @@ struct BusinessCardCoreTests {
     }
 
     @Test func vCardIsWellFormedAndHoldsTheContactItself() {
-        let text = VCard.text(for: card(), latin: true)
+        let text = VCard.text(for: card())
         #expect(text.hasPrefix("BEGIN:VCARD\r\nVERSION:3.0\r\n"))
         #expect(text.hasSuffix("END:VCARD\r\n"))
         #expect(text.contains("N:Sazanov;Egor;;;"))
@@ -39,31 +38,87 @@ struct BusinessCardCoreTests {
         #expect(!text.contains("PHOTO"))
     }
 
-    @Test func latinCostsRoughlyHalfOfCyrillicAndFitsTheBudget() {
-        let latin = VCard.byteCount(for: card(), latin: true)
-        let native = VCard.byteCount(for: card(), latin: false)
-        #expect(latin < native)
-        #expect(native - latin >= 20)
+    /// One spelling now, and the counter is what tells the truth about
+    /// what it costs: the same card in Cyrillic is much heavier, and
+    /// the person sees the number before a conference, not during one.
+    @Test func theByteCounterShowsWhatCyrillicCosts() {
+        let latin = VCard.byteCount(for: card())
+        let cyrillic = VCard.byteCount(for: cyrillicCard())
+        #expect(latin < cyrillic)
+        #expect(cyrillic - latin >= 20)
         #expect(latin <= VCard.comfortableByteLimit)
         #expect(VCard.fit(latin) != .tooBig)
         #expect(VCard.fit(VCard.comfortableByteLimit + 1).isScannable == false)
     }
 
+    /// A card written before the latin fields went away keeps the
+    /// spelling that was being handed out (the latin one), not the
+    /// other (Egor, 2026-09-22).
+    @Test func anOldCardMigratesToItsLatinSpelling() throws {
+        let old = """
+        [{"kind":"work","name":"Егор Сазанов","nameLatin":"Egor Sazanov",
+          "company":"Эддиктед","companyLatin":"addicted","role":"Founder",
+          "phone":"+79001234567","email":"e@addicted.sh","link":""}]
+        """
+        let cards = try JSONDecoder().decode([BusinessCard].self, from: Data(old.utf8))
+        #expect(cards.first?.name == "Egor Sazanov")
+        #expect(cards.first?.company == "addicted")
+        #expect(cards.first?.hasPhoto == false)
+        // And a card with no latin spelling keeps its own.
+        let onlyNative = """
+        [{"kind":"personal","name":"Егор","company":"","role":"","phone":"","email":"e@x.dev","link":""}]
+        """
+        let kept = try JSONDecoder().decode([BusinessCard].self, from: Data(onlyNative.utf8))
+        #expect(kept.first?.name == "Егор")
+        #expect(kept.first?.isUsable == true)
+    }
+
+    private func cyrillicCard() -> BusinessCard {
+        var c = card()
+        c.name = "Егор Сазанов"
+        c.company = "Эддиктед"
+        return c
+    }
+
     @Test func separatorsAreEscapedAndLinksNormalised() {
         var c = BusinessCard(kind: .personal)
-        c.nameLatin = "Jean-Luc Picard"
-        c.companyLatin = "Acme, Inc.; Lisbon"
+        c.name = "Jean-Luc Picard"
+        c.company = "Acme, Inc.; Lisbon"
         c.email = "jl@acme.example"
-        #expect(VCard.text(for: c, latin: true).contains(#"ORG:Acme\, Inc.\; Lisbon"#))
+        #expect(VCard.text(for: c).contains(#"ORG:Acme\, Inc.\; Lisbon"#))
         #expect(VCard.normalizedLink("example.com") == "https://example.com")
         #expect(VCard.normalizedLink("https://x.dev") == "https://x.dev")
         #expect(VCard.normalizedLink("  ") == nil)
     }
 
-    @Test func aScannableCodeComesOutOfIt() {
-        let image = QRCode.cgImage(from: VCard.text(for: card(), latin: true), size: 190)
-        #expect(image != nil)
-        #expect((image?.width ?? 0) >= 190)
+    /// The bug from the widget: the code must be BLACK ON WHITE in the
+    /// pixels, opaque, whatever theme is around it. A transparent or
+    /// tinted code is white-on-white for half the scanners.
+    @Test func theCodeIsOpaqueBlackOnWhite() throws {
+        let image = try #require(QRCode.cgImage(from: VCard.text(for: card()), size: 190))
+        #expect(image.width >= 190)
+        let info = image.alphaInfo
+        #expect(info == .none || info == .noneSkipFirst || info == .noneSkipLast, "the code must not carry alpha: \(info)")
+
+        // Read the actual pixels: the quiet zone (a corner) is white,
+        // and the finder pattern a little inside it is black.
+        let width = image.width, height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let space = CGColorSpaceCreateDeviceRGB()
+        let context = try #require(CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8,
+                                             bytesPerRow: width * 4, space: space,
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        func pixel(_ x: Int, _ y: Int) -> (r: UInt8, g: UInt8, b: UInt8) {
+            let i = (y * width + x) * 4
+            return (pixels[i], pixels[i + 1], pixels[i + 2])
+        }
+        let corner = pixel(1, 1)
+        #expect(corner.r > 240 && corner.g > 240 && corner.b > 240, "the quiet zone must be white, got \(corner)")
+        // The finder square sits one module in from the quiet zone; at
+        // this size a tenth of the width is inside it.
+        let inside = pixel(width / 10, height / 10)
+        #expect(inside.r < 40 && inside.g < 40 && inside.b < 40, "the modules must be black, got \(inside)")
     }
 
     @Test func theCardRoundTripsThroughTheSharedFile() throws {
@@ -75,7 +130,7 @@ struct BusinessCardCoreTests {
         BusinessCardStorage.save([card(), BusinessCard(kind: .personal)], to: url)
         let loaded = BusinessCardStorage.load(from: url)
         #expect(loaded.count == 2)
-        #expect(loaded.first(where: { $0.kind == .work })?.nameLatin == "Egor Sazanov")
+        #expect(loaded.first(where: { $0.kind == .work })?.name == "Egor Sazanov")
         #expect(loaded.first(where: { $0.kind == .personal })?.isUsable == false)
     }
 }

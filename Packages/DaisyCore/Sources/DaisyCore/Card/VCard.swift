@@ -14,12 +14,16 @@
 //    the world — decodes version-20-and-up codes about one time in
 //    twenty. The card reports its size so the person sees it before a
 //    conference, not during one.
-//  • **Latin where it can be.** UTF-8 Cyrillic is two bytes a letter
-//    plus a mode switch, so the same card in latin letters is roughly
-//    half the payload. `latin: true` uses the latin spellings.
+//  • **The byte counter is the honest lever.** UTF-8 Cyrillic costs two
+//    bytes a letter plus a mode switch, so a card written in Cyrillic
+//    is nearly twice the payload of the same one in latin letters. The
+//    card no longer keeps two spellings (Egor, 2026-09-22): it keeps
+//    one, and the counter says what it costs.
 //  • **Nothing that is not contact data.** No photo, no logo, no
-//    social accounts: this is the one screen where prettier means
-//    less likely to scan.
+//    social accounts: this is the one screen where prettier means less
+//    likely to scan. A photo attached to the card is shown on screen
+//    and on the widget; a `PHOTO` line inside the code would be
+//    kilobytes and would end the scanning.
 //
 //  And the rule that protects every card already handed out: if a page
 //  on mydaisy.io ever exists, its address goes INSIDE the vCard as a
@@ -37,11 +41,10 @@ public nonisolated enum VCard {
     /// struggle; the UI warns rather than refuses.
     public static let warningByteLimit = 200
 
-    /// vCard 3.0 for one card. `latin` picks the spelling of name and
-    /// company (K-2: the latin one is what crosses borders).
-    public static func text(for card: BusinessCard, latin: Bool) -> String {
-        let name = card.displayName(latin: latin)
-        let company = card.displayCompany(latin: latin)
+    /// vCard 3.0 for one card.
+    public static func text(for card: BusinessCard) -> String {
+        let name = card.displayName
+        let company = card.displayCompany
         let (given, family) = BusinessCard.splitName(name)
         var lines = ["BEGIN:VCARD", "VERSION:3.0"]
         // N is mandatory in 3.0; FN is what readers show.
@@ -61,8 +64,8 @@ public nonisolated enum VCard {
     }
 
     /// Bytes on the wire — what the QR encoder actually has to fit.
-    public static func byteCount(for card: BusinessCard, latin: Bool) -> Int {
-        text(for: card, latin: latin).utf8.count
+    public static func byteCount(for card: BusinessCard) -> Int {
+        text(for: card).utf8.count
     }
 
     public enum Fit {
@@ -100,11 +103,11 @@ public nonisolated enum VCard {
     }
 
     /// The file the Share sheet sends: same contact, any device.
-    public static func fileURL(for card: BusinessCard, latin: Bool) throws -> URL {
-        let name = card.displayName(latin: true).isEmpty ? "contact" : card.displayName(latin: true)
+    public static func fileURL(for card: BusinessCard) throws -> URL {
+        let name = card.displayName.isEmpty ? "contact" : card.displayName
         let safe = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: " ", with: "-")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(safe).vcf")
-        try Data(text(for: card, latin: latin).utf8).write(to: url, options: .atomic)
+        try Data(text(for: card).utf8).write(to: url, options: .atomic)
         return url
     }
 }
