@@ -300,10 +300,25 @@ cat > "${EXPORT_OPTIONS}" <<EOF
 <dict>
   <key>method</key>
   <string>developer-id</string>
+  <!-- 1.0.8: the app now carries restricted entitlements (shared
+       keychain group, iCloud/CloudKit, ubiquity-kvstore). Developer ID
+       signing with those requires a Developer ID PROVISIONING PROFILE,
+       and `automatic` cannot fetch one from the command line without a
+       signed-in Xcode account — it fails with "No profiles for
+       'app.essazanov.Daisy' were found". The profile is made once in
+       the portal (Profiles → Developer ID → app.essazanov.Daisy) and
+       installed by double-clicking it; name it below. -->
   <key>signingStyle</key>
-  <string>automatic</string>
+  <string>manual</string>
+  <key>signingCertificate</key>
+  <string>Developer ID Application</string>
   <key>teamID</key>
   <string>${TEAM_ID}</string>
+  <key>provisioningProfiles</key>
+  <dict>
+    <key>app.essazanov.Daisy</key>
+    <string>${DAISY_PROVISIONING_PROFILE:-Daisy Developer ID}</string>
+  </dict>
 </dict>
 </plist>
 EOF
