@@ -87,6 +87,22 @@ public nonisolated struct SyncState: Sendable, Equatable, Codable {
         self.deviceID = deviceID
     }
 
+    // Keys added later are optional on read: a state file from an
+    // earlier build must never fail to decode — that resets the device
+    // id and the memory, and the next pass re-pushes the whole library
+    // (2026-09-22: 112 + 115 records, harmless but wasteful).
+    private enum CodingKeys: String, CodingKey { case deviceID, changeToken, sessions, lastSyncAt, pendingDeletes, tombstones }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        deviceID = try c.decode(String.self, forKey: .deviceID)
+        changeToken = try c.decodeIfPresent(Data.self, forKey: .changeToken)
+        sessions = try c.decodeIfPresent([String: SessionSyncMemory].self, forKey: .sessions) ?? [:]
+        lastSyncAt = try c.decodeIfPresent(Date.self, forKey: .lastSyncAt)
+        pendingDeletes = try c.decodeIfPresent([String].self, forKey: .pendingDeletes) ?? []
+        tombstones = try c.decodeIfPresent([String: Date].self, forKey: .tombstones) ?? [:]
+    }
+
     public static func load(from url: URL) -> SyncState {
         guard let data = try? Data(contentsOf: url),
               let state = try? JSONDecoder().decode(SyncState.self, from: data) else { return SyncState() }
