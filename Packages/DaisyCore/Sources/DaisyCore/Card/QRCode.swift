@@ -64,6 +64,34 @@ public nonisolated enum QRCode {
     /// colour it draws on, so the code sits on the card rather than in
     /// a white box on it — while staying opaque, which is what keeps
     /// any renderer from tinting the modules.
+    /// The code as a MASK: modules opaque, everything else transparent,
+    /// colour irrelevant. The caller paints it with a colour of its own
+    /// — which is the only way a code on a widget can be right in both
+    /// appearances: white modules vanish on a light widget, black ones
+    /// vanish on a dark one, and a fixed colour is wrong half the time.
+    /// SwiftUI's `.mask` over `Color.primary` follows the system.
+    ///
+    /// The scanner trade of an inverted code still applies (see
+    /// `transparent` below): fine for the owner's own home screen,
+    /// never for the code handed across a table.
+    public static func mask(from text: String, size: CGFloat, scale: CGFloat = 3,
+                            correction: Correction = .medium) -> CGImage? {
+        let generator = CIFilter.qrCodeGenerator()
+        generator.message = Data(text.utf8)
+        generator.correctionLevel = correction.rawValue
+        guard let generated = generator.outputImage else { return nil }
+        // `CIMaskToAlpha` turns luminance into alpha: the black modules
+        // become opaque, the white field becomes nothing. Inverted
+        // first, because the filter keeps the BRIGHT parts.
+        let alpha = generated
+            .applyingFilter("CIColorInvert")
+            .applyingFilter("CIMaskToAlpha")
+        let target = size * scale
+        let factor = max(1, floor(target / alpha.extent.width))
+        let scaled = alpha.transformed(by: CGAffineTransform(scaleX: factor, y: factor))
+        return CIContext().createCGImage(scaled, from: scaled.extent)
+    }
+
     /// A code with NO background at all: the modules are drawn in
     /// `modules` and everything else is transparent, so the code lies
     /// on whatever is behind it (a widget's native material, for

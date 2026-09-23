@@ -283,3 +283,37 @@ struct TransparentQRTests {
         #expect(info == .none || info == .noneSkipFirst || info == .noneSkipLast)
     }
 }
+
+@Suite("The widget's code is painted, not pictured")
+struct QRMaskTests {
+    /// The bug from a real home screen (2026-09-23): a code drawn in a
+    /// fixed colour is invisible half the time — white on a light
+    /// widget, black on a dark one. The mask carries only shape, and
+    /// the view paints it with a colour that follows the system.
+    @Test func theMaskIsShapeOnlyAndCoversAboutHalfTheCode() throws {
+        let image = try #require(QRCode.mask(from: "hello world", size: 120))
+        #expect(image.alphaInfo != .none, "a mask must carry alpha")
+
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let context = try #require(CGContext(data: &pixels, width: image.width, height: image.height,
+                                             bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                             space: CGColorSpaceCreateDeviceRGB(),
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+
+        // The quiet zone is nothing, so the widget's own material shows.
+        #expect(pixels[3] == 0, "the corner should be transparent, alpha was \(pixels[3])")
+        // And the modules are there: a QR code is roughly half covered.
+        var opaque = 0
+        for index in stride(from: 0, to: pixels.count, by: 4) where pixels[index + 3] > 200 { opaque += 1 }
+        let share = Double(opaque) / Double(image.width * image.height)
+        #expect(share > 0.25 && share < 0.65, "modules covered \(Int(share * 100))% — that is not a QR code")
+    }
+
+    @Test func aLogoStillRaisesCorrectionOnAMask() throws {
+        let plain = try #require(QRCode.mask(from: "hello", size: 120, correction: .medium))
+        let withLogo = try #require(QRCode.mask(from: "hello", size: 120, correction: .quartile))
+        #expect(plain.width > 0 && withLogo.width > 0)
+        #expect(QRCode.correction(hasLogo: true) == .quartile)
+    }
+}
