@@ -630,7 +630,14 @@ final class SessionStore {
                 // because it sits in the Notes folder) that the user moves
                 // to another project would, on the next scan, infer as a
                 // `.recording` and vanish from the Notes tab.
-                text = Self.upsertFrontmatter(in: text, key: "daisy_kind", value: session.kind.rawValue)
+                //
+                // Only where there is none. A kind already on disk stays —
+                // including one this build does not know (`rehearsal`,
+                // written by the phone, 2026-09-23): stamping our guess
+                // over it would turn a take into a plain recording (§3.1).
+                if parseFrontmatter(in: text).kind == nil {
+                    text = Self.upsertFrontmatter(in: text, key: "daisy_kind", value: session.kind.rawValue)
+                }
                 try text.write(to: url, atomically: true, encoding: .utf8)
             } catch {
                 log.error("Move failed for \(session.title, privacy: .private): \(error.localizedDescription, privacy: .public)")

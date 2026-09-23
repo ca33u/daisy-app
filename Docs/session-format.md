@@ -80,6 +80,8 @@ sweep).
 | `screenshots/highlights.json` | `["001.jpg", …]` — frames OCR found visually distinct |
 | `markers.json` | Moments the user marked by hotkey, written as they happen |
 | `import.json` | Present iff this session came from a file the user imported. §5 |
+| `script.md` | A rehearsal take's text, as it was when the take was recorded. §3.7 |
+| `words.json` | Word timings: `[{"w": "Привет", "s": 0.32, "e": 0.61}, …]`, seconds into the recording. Written by readers that need them (rehearsal analysis, subtitles); any session may carry it |
 | `speakers.json` | `{"centroids": {"A": [f32…]}}` — voice fingerprints |
 | `speaker_suggestions.json` | Proposed names for diarized labels |
 | `transcript.raw.md` | Pre-polish copy, when a second LLM pass rewrote the transcript |
@@ -139,7 +141,7 @@ Written in this order:
 | `started` | ISO-8601 | when known |
 | `duration_sec` | integer, **truncated** not rounded | always |
 | `daisy_folder` | lowercase slug, default `inbox` | always |
-| `daisy_kind` | `recording` or `note` | always |
+| `daisy_kind` | `recording`, `note` or `rehearsal` (§3.7) | always |
 | `daisy_tag` | quoted string; absent means untagged | when non-empty |
 | `daisy_event_*` | calendar binding: external id, local id, title, start, platform, attendees, emails | when calendar-bound |
 | `daisy_speaker_map` | inline dict. §3.2 | **always, `{}` when empty** |
@@ -154,7 +156,14 @@ Other writers add: `daisy_recovered: true` (crash recovery);
 `daisy_import_mode`, `daisy_import_original_name`,
 `daisy_transcription_model`, `daisy_transcription_language`,
 `daisy_diarization`, `daisy_audio_files` (import and re-transcription);
-`daisy_origin` and `daisy_diag_*` (§3.6).
+`daisy_origin` and `daisy_diag_*` (§3.6); `daisy_script_id`,
+`daisy_target_sec`, `daisy_best_take` (§3.7).
+
+**An unknown `daisy_kind` is kept, never rewritten.** A reader that does not
+know the value shows the session as a recording; a writer that stamps
+`daisy_kind` (moving a session between folders) writes it only where the
+key is absent. Overwriting a value it does not know turns a rehearsal take
+into a plain recording for good.
 `daisy_client` is a read-only legacy alias for `daisy_tag`.
 
 **Quoting.** A quoted value is `"` + the text with `\` written as `\\`
@@ -465,6 +474,38 @@ The phone's own transcript (every segment `Me`) is a first pass, not a
 claim about who spoke; a diarized re-transcription on the Mac replaces
 it in a child session (`daisy_parent_session`), as any re-transcription
 does.
+
+---
+
+### 3.7 Rehearsal takes
+
+A person rehearsing a talk, or voicing a reel from a script, records
+**takes**. Each take is its own session — so sync, the library, deletion
+and audio retention work unchanged — marked by:
+
+```yaml
+daisy_kind: rehearsal
+daisy_origin: iphone
+daisy_script_id: 5E1D2C9A-…
+daisy_target_sec: 60
+```
+
+| Key / file | Meaning |
+|---|---|
+| `daisy_script_id` | UUID shared by every take of one text. The takes of a script are the sessions with the same id |
+| `daisy_target_sec` | the duration the person is aiming for, integer seconds; absent when there is none |
+| `daisy_best_take: true` | on the one take the person picked; absent on the others |
+| `script.md` | the text **as it was for this take**, Markdown, paragraphs separated by a blank line. Edited text between takes means each take is compared with its own copy |
+| `words.json` | word timings of what was said (§2); the analysis and the subtitles are computed from it and `script.md`, and are not stored |
+| audio | `microphone.m4a` (AAC, 48 kHz) or `microphone.caf` (lossless, 48 kHz): a take may be published, so it is **not** reduced to 16 kHz like a meeting. Readers resample as for any audio |
+
+The script is **never** given to the transcriber as a prompt: a model told
+what should be said hears it, and the differences the take exists to
+show disappear.
+
+A reader that does not know `rehearsal` shows the take as a recording;
+`script.md` and `words.json` are extra files and are ignored (§3.1). §3.6
+applies as for any phone session.
 
 ---
 
