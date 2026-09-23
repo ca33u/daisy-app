@@ -48,6 +48,11 @@ public nonisolated struct BusinessCard: Codable, Equatable, Sendable, Identifiab
     /// A photo lives beside the card as a file (`BusinessCardStorage`),
     /// not inside it; this is just whether there is one.
     public var hasPhoto = false
+    /// A company logo, shown in the middle of the code. Also a file
+    /// beside the card — and, like the photo, never inside the vCard.
+    /// It costs redundancy: with a logo the code is generated at
+    /// correction level Q (see `QRCode.correction(hasLogo:)`).
+    public var hasLogo = false
 
     public var id: String { kind.rawValue }
 
@@ -56,7 +61,7 @@ public nonisolated struct BusinessCard: Codable, Equatable, Sendable, Identifiab
     // MARK: - Reading a card written before the latin fields went away
 
     private enum CodingKeys: String, CodingKey {
-        case kind, name, company, role, phone, email, link, hasPhoto
+        case kind, name, company, role, phone, email, link, hasPhoto, hasLogo
         case nameLatin, companyLatin   // 2026-09-22 and earlier
     }
 
@@ -68,6 +73,7 @@ public nonisolated struct BusinessCard: Codable, Equatable, Sendable, Identifiab
         email = try c.decodeIfPresent(String.self, forKey: .email) ?? ""
         link = try c.decodeIfPresent(String.self, forKey: .link) ?? ""
         hasPhoto = try c.decodeIfPresent(Bool.self, forKey: .hasPhoto) ?? false
+        hasLogo = try c.decodeIfPresent(Bool.self, forKey: .hasLogo) ?? false
         // The latin spelling wins when it was filled in — that is the
         // one that was being handed out at a conference.
         let name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
@@ -88,6 +94,7 @@ public nonisolated struct BusinessCard: Codable, Equatable, Sendable, Identifiab
         try c.encode(email, forKey: .email)
         try c.encode(link, forKey: .link)
         try c.encode(hasPhoto, forKey: .hasPhoto)
+        try c.encode(hasLogo, forKey: .hasLogo)
     }
 
     /// Nothing to hand over yet.
@@ -142,6 +149,26 @@ public nonisolated enum BusinessCardStorage {
     /// extension must never open the big one.
     public static func photoThumbnailURL(for kind: BusinessCard.Kind, appGroup: String = appGroup) -> URL {
         container(appGroup: appGroup).appendingPathComponent("card-\(kind.rawValue)-thumb.jpg")
+    }
+
+    /// The company logo. PNG, because a logo usually has transparency
+    /// and a JPEG would put a white square in the middle of the code.
+    public static func logoURL(for kind: BusinessCard.Kind, appGroup: String = appGroup) -> URL {
+        container(appGroup: appGroup).appendingPathComponent("logo-\(kind.rawValue).png")
+    }
+
+    public static func logo(for kind: BusinessCard.Kind, appGroup: String = appGroup) -> Data? {
+        try? Data(contentsOf: logoURL(for: kind, appGroup: appGroup))
+    }
+
+    public static func saveLogo(_ png: Data?, for kind: BusinessCard.Kind, appGroup: String = appGroup) {
+        let url = logoURL(for: kind, appGroup: appGroup)
+        guard let png else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? png.write(to: url, options: .atomic)
     }
 
     public static func load(appGroup: String = appGroup) -> [BusinessCard] {

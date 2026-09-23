@@ -8,6 +8,7 @@
 
 import Testing
 import CoreGraphics
+import CoreImage
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -184,5 +185,66 @@ struct CardPhotoTests {
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else { return nil }
         return data as Data
+    }
+}
+
+@Suite("A logo costs redundancy")
+struct QRLogoTests {
+    /// A logo destroys the modules it covers. Level M leaves ~15 % of
+    /// the code recoverable; a logo plus a scanner at an angle eats
+    /// that. With a logo the code is generated at Q (~25 %).
+    @Test func aCardWithALogoUsesHigherCorrection() {
+        #expect(QRCode.correction(hasLogo: false) == .medium)
+        #expect(QRCode.correction(hasLogo: true) == .quartile)
+        #expect(QRCode.Correction.medium.rawValue == "M")
+        #expect(QRCode.Correction.quartile.rawValue == "Q")
+        // And the logo is never allowed to grow past a fifth of the code.
+        #expect(QRCode.maxLogoFraction <= 0.2)
+    }
+
+    /// Both levels produce a usable, square code for a real card.
+    /// (Not a size comparison: the image is scaled by an INTEGER
+    /// factor to reach the asked-for size, so a denser code can come
+    /// out physically smaller — the first version of this test asserted
+    /// the opposite and was simply wrong.)
+    @Test func bothCorrectionLevelsProduceASquareCode() throws {
+        var card = BusinessCard(kind: .work)
+        card.name = "Egor Sazanov"
+        card.company = "addicted"
+        card.email = "egor@addicted.sh"
+        let text = VCard.text(for: card)
+        for level in [QRCode.Correction.medium, .quartile] {
+            let image = try #require(QRCode.cgImage(from: text, size: 200, correction: level))
+            #expect(image.width == image.height)
+            #expect(image.width >= 200)
+        }
+    }
+
+    /// The code takes the colour it will be drawn on, so a widget does
+    /// not end up with a white card inside a coloured one — and it is
+    /// still opaque, which is what stops a renderer tinting it.
+    @Test func theBackgroundColourIsBakedIn() throws {
+        let cream = CIColor(red: 0.98, green: 0.98, blue: 0.96)
+        let image = try #require(QRCode.cgImage(from: "hello", size: 120, background: cream))
+        let info = image.alphaInfo
+        #expect(info == .none || info == .noneSkipFirst || info == .noneSkipLast)
+
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let context = try #require(CGContext(data: &pixels, width: image.width, height: image.height,
+                                             bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                             space: CGColorSpaceCreateDeviceRGB(),
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        // The quiet zone is the cream, not white.
+        let corner = (r: pixels[0], g: pixels[1], b: pixels[2])
+        #expect(corner.r > 240 && corner.b > 235 && corner.b < 252, "quiet zone should be the given colour, got \(corner)")
+        // And the modules are still dark — looked for across the whole
+        // image rather than at a guessed coordinate, since where the
+        // finder squares land depends on the code's version.
+        var darkest = 255
+        for index in stride(from: 0, to: pixels.count, by: 4) {
+            darkest = min(darkest, Int(pixels[index]))
+        }
+        #expect(darkest < 40, "no dark modules found; darkest pixel was \(darkest)")
     }
 }

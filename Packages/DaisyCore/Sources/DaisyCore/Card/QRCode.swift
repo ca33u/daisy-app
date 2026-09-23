@@ -34,21 +34,55 @@ import CoreImage.CIFilterBuiltins
 import Foundation
 
 public nonisolated enum QRCode {
+    /// How much of the code can be lost and still read.
+    public enum Correction: String, Sendable {
+        /// ~15 % — the level Apple's own Wallet codes use, and the
+        /// right one for a code on a screen with nothing on top of it.
+        case medium = "M"
+        /// ~25 % — for a code with a logo in the middle. The logo
+        /// destroys the modules it covers, and without the extra
+        /// redundancy a scanner that is slightly off-angle fails.
+        case quartile = "Q"
+    }
+
+    /// The share of the code's width a logo may cover. Past roughly a
+    /// fifth even level Q starts to fail, and a business card whose
+    /// code does not scan is a blank piece of paper.
+    public static let maxLogoFraction: CGFloat = 0.2
+
+    /// The correction a card needs: higher when something sits on top
+    /// of the code.
+    public static func correction(hasLogo: Bool) -> Correction {
+        hasLogo ? .quartile : .medium
+    }
+
     /// A crisp, square, opaque code at `size` points × `scale` (3 by
-    /// default — every current iPhone). Black modules on white, always,
-    /// in every appearance.
-    public static func cgImage(from text: String, size: CGFloat, scale: CGFloat = 3) -> CGImage? {
+    /// default — every current iPhone). Dark modules on a light
+    /// background, always, in every appearance.
+    ///
+    /// `background` is baked into the pixels: the widget passes the
+    /// colour it draws on, so the code sits on the card rather than in
+    /// a white box on it — while staying opaque, which is what keeps
+    /// any renderer from tinting the modules.
+    public static func cgImage(
+        from text: String,
+        size: CGFloat,
+        scale: CGFloat = 3,
+        correction: Correction = .medium,
+        background: CIColor = .white,
+        modules: CIColor = .black
+    ) -> CGImage? {
         let generator = CIFilter.qrCodeGenerator()
         generator.message = Data(text.utf8)
-        generator.correctionLevel = "M"
+        generator.correctionLevel = correction.rawValue
         guard let generated = generator.outputImage else { return nil }
 
         // Black modules, white background — baked into the pixels, so
         // no renderer downstream can tint them.
         let coloured = CIFilter.falseColor()
         coloured.inputImage = generated
-        coloured.color0 = CIColor.black   // the modules
-        coloured.color1 = CIColor.white   // the background
+        coloured.color0 = modules
+        coloured.color1 = background
         guard let opaque = coloured.outputImage else { return nil }
 
         // Scale by an INTEGER factor: a fractional one blurs module
@@ -70,7 +104,7 @@ public nonisolated enum QRCode {
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
         ) else { return rendered }
-        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.setFillColor(CGColor(red: background.red, green: background.green, blue: background.blue, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         context.draw(rendered, in: CGRect(x: 0, y: 0, width: width, height: height))
         return context.makeImage() ?? rendered
