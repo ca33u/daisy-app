@@ -149,6 +149,39 @@ final class SparkleUpdater {
     /// end. Surfaced so Settings can say so instead of looking idle.
     var isWaitingForRecordingToRelaunch: Bool { relaunchHold.isWaiting }
 
+    /// Инцидент 23.09 п.7: an update staged for "quit" in an app that is
+    /// never quit. Offered when nothing is recording.
+    @ObservationIgnored fileprivate let stagedOffer: StagedUpdateOffer = {
+        let offer = StagedUpdateOffer()
+        offer.present = { version in
+            let text = String(localized: "Daisy \(version) is ready to install.")
+            WidgetBubbleCenter.shared.show(WidgetBubbleContent(
+                text: text,
+                actionTitle: String(localized: "Install and Restart"),
+                actionSymbol: "arrow.down.circle",
+                autoDismiss: 60,
+                tag: "update-ready",
+                action: {
+                    Task { @MainActor in SparkleUpdater.shared.stagedOffer.installNow() }
+                }
+            ))
+            ToastCenter.shared.showAction(
+                String(localized: "Daisy \(version) is downloaded. Install now — it takes a few seconds and nothing is recording."),
+                actionLabel: String(localized: "Install and Restart"),
+                style: .info,
+                duration: .seconds(120),
+                perform: { SparkleUpdater.shared.stagedOffer.installNow() }
+            )
+        }
+        return offer
+    }()
+
+    /// An update is downloaded and waiting for its moment.
+    var hasStagedUpdate: Bool { stagedOffer.isStaged }
+
+    /// For a Settings row: install the staged update right now.
+    func installStagedUpdate() { stagedOffer.installNow() }
+
     /// Starts Sparkle's normal background update cycle immediately after
     /// launch. Sparkle itself continues to schedule later checks according to
     /// `SUScheduledCheckInterval`; this launch check means a user who opens
@@ -164,6 +197,81 @@ final class SparkleUpdater {
     func checkForUpdatesAfterLaunch() {
         guard automaticallyChecksForUpdates else { return }
         controller.updater.checkForUpdatesInBackground()
+    }
+}
+
+/// Инцидент 23.09, пункт 7: an update that waits for "quit" in an app
+/// nobody quits.
+///
+/// Daisy lives in the menu bar. The two users who lost their meetings
+/// were on 1.0.7.63 and 1.0.7.70 — every fix of the month was sitting
+/// downloaded on their disks, staged for "Install on Quit", and they
+/// never quit. Sparkle's own fallback ("remind later if the app hasn't
+/// been terminated for a long time") never reached them either.
+///
+/// So Daisy takes the staged update and OFFERS it at a moment when
+/// installing costs nothing: no recording, no final pass, no summary.
+/// It offers rather than installs. An app in the menu bar that
+/// silently disappears and comes back mid-work is its own kind of
+/// broken, and one click is the smallest step that is still honest.
+/// Not answered — asked again an hour later, never while recording.
+@MainActor
+final class StagedUpdateOffer {
+    /// Same predicate as the relaunch hold: anything still holding
+    /// audio means "not now". Injectable for the tests.
+    var isBusy: @MainActor () -> Bool = { RecordingSession.isCapturingOrTranscribing }
+    /// What "ask" means on screen. Injectable for the tests.
+    var present: @MainActor (_ version: String) -> Void = { _ in }
+
+    static let offerInterval: TimeInterval = 3600
+
+    private(set) var version: String?
+    private(set) var lastOfferedAt: Date?
+    private var install: (() -> Void)?
+    private var watcher: Task<Void, Never>?
+
+    var isStaged: Bool { install != nil }
+
+    /// Sparkle hands over its immediate-install block. From Sparkle 2.3
+    /// it may be invoked more than once, so it is kept, not consumed.
+    func stage(version: String, install: @escaping () -> Void, pollEvery interval: Duration = .seconds(30)) {
+        self.version = version
+        self.install = install
+        watcher?.cancel()
+        watcher = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                self?.offerIfDue()
+                try? await Task.sleep(for: interval)
+            }
+        }
+    }
+
+    /// Ask now if nothing holds audio and we have not asked recently.
+    func offerIfDue(now: Date = Date()) {
+        guard let version, install != nil, !isBusy() else { return }
+        if let last = lastOfferedAt, now.timeIntervalSince(last) < Self.offerInterval { return }
+        lastOfferedAt = now
+        present(version)
+    }
+
+    /// The button. Re-checks: a meeting can start between the offer
+    /// and the click, and then the answer is "after the recording" —
+    /// the Р-1 hold takes it from there.
+    @discardableResult
+    func installNow() -> Bool {
+        guard let install else { return false }
+        guard !isBusy() else {
+            ToastCenter.shared.show(
+                String(localized: "A recording is in progress — the update will be offered again when it ends."),
+                style: .info
+            )
+            lastOfferedAt = nil
+            return false
+        }
+        watcher?.cancel()
+        watcher = nil
+        install()
+        return true
     }
 }
 
@@ -276,6 +384,20 @@ private final class DaisyUpdaterDelegate: NSObject, SPUUpdaterDelegate {
         ToastCenter.shared.show(
             String(localized: "Update ready. Daisy will restart when the recording ends."),
             style: .info
+        )
+        return true
+    }
+
+    /// Sparkle is about to settle for "install when the app quits". For
+    /// a menu-bar app that means never — so Daisy takes the install
+    /// block and offers it itself whenever nothing is recording. Sparkle
+    /// still installs on quit if that comes first.
+    @MainActor
+    func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem,
+                 immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
+        SparkleUpdater.shared.stagedOffer.stage(
+            version: item.displayVersionString,
+            install: immediateInstallHandler
         )
         return true
     }
