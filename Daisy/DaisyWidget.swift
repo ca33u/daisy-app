@@ -6,12 +6,10 @@
 //  centre. Wispr-Flow-inspired aesthetic: solid dark surface, dense
 //  glyph-free centre (colour communicates state), tight padding.
 //
-//  • Recording / Finished / Failed / Idle — petals are amplitude-driven
-//    (FFT bands, mirrored across petals for symmetric blooming).
-//  • Preparing / Stopping / Summarizing — a "shimmer" sweep rotates
-//    around the daisy while the petals gently "breathe" (a soft per-
-//    petal length wave); opacity follows the sweep. Pure black-and-
-//    white during summarizing.
+//  • Recording: petals follow the existing mirrored FFT bands.
+//  • Preparing / Stopping / Summarizing: the B+ petals rotate together
+//    at one revolution per 4.8 seconds, with a stationary status centre.
+//  • Other states and Reduce Motion: a still B+ silhouette.
 //
 
 import SwiftUI
@@ -26,14 +24,14 @@ struct DaisyWidget: View {
 
     @Environment(\.openWindow) private var openWindow
     /// Honour System Settings → Accessibility → Display → Reduce Motion.
-    /// Under reduce-motion we drop the rotating comet shimmer (a static
-    /// ring instead) and the celebration spring (instant settle).
+    /// Under reduce-motion we drop the petal rotation and audio motion and the celebration spring (instant settle).
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Scales the whole daisy briefly when the session lands in
     /// `.finished` — the "celebration" pop that finishes the loader
-    /// arc (shimmer rotates → bounce → settle into white).
+    /// arc (flower rotates → bounce → settle into white).
     @State private var celebrationScale: CGFloat = 1.0
+    @State private var loaderStartedAt = Date()
 
     /// Daisy shrinks in "passive" states (idle, finished) so it sits
     /// less prominently after recording is done. Full size during
@@ -55,77 +53,39 @@ struct DaisyWidget: View {
         }
     }
 
-    /// True for the "loader" states whose comet shimmer rotates — those
+    /// True for the "loader" states whose petals rotate — those
     /// run at 60fps (see `body`); everything else at 30fps.
-    private static func isShimmerStatus(_ status: RecordingSession.Status) -> Bool {
+    private static func isLoadingStatus(_ status: RecordingSession.Status) -> Bool {
         switch status {
         case .preparing, .stopping, .summarizing: return true
         default: return false
         }
     }
 
-    // Geometry: build 45 shrank everything 20% (×0.8 off the original
-    // 7/18/7/10/56); then +10% per request; then −15% per request
-    // (2026-06-05) → net ×0.748 of original. Petal/center/canvas scale
-    // together to preserve proportions; `passiveScale` still applies on
-    // top, so passive (idle/finished) shrinks proportionally relative to
-    // this active baseline. Panel container in FloatingPanelController.swift
-    // is sized to match (70.4 → 59.84, same ×0.85) so shadow padding stays
-    // proportional, well clear of the .shadow(radius:6, y:3) blur extent.
+    // B+ uses a 100-unit canvas, matching the exported SVG exactly.
     private let petalCount = 8
-    /// Reactive-petal amplitude gain shared by meeting AND dictation, so the
-    /// two modes drive the petals with IDENTICAL sensitivity (Egor 2026-06-19
-    /// — see `amplitudeFor`). 1.0 == a faithful 1:1 read of the analyzer's
-    /// already-normalised/gated/smoothed bands. voiceNote scales OFF this
-    /// (×1.06) so its small deliberate liveliness can never silently diverge.
     private static let petalReactiveGain: Float = 1.0
-    private let basePetalLength: CGFloat = 5.236  // was 6.16, −15%
-    private let maxPetalLength: CGFloat = 13.464  // was 15.84, −15%
-    private let petalWidth: CGFloat = 5.236       // was 6.16, −15%
-    private let centerSize: CGFloat = 7.48        // was 8.8, −15%
-    private let canvasSize: CGFloat = 42.075      // was 49.5, −15%
-    private let petalGap: CGFloat = 0.425         // was 0.5, −15%
+    private let canvasSize: CGFloat = 42.075
+    private var maxPetalLength: CGFloat { canvasSize * 0.278 }
+    private var basePetalLength: CGFloat { maxPetalLength * 0.72 }
+    private var petalWidth: CGFloat { canvasSize * 0.20 }
+    private var centerSize: CGFloat { canvasSize * 0.21 }
+    private var petalGap: CGFloat { canvasSize * 0.037 }
 
     var body: some View {
-        // One TimelineView wraps everything so the view tree is stable
-        // across status transitions (recording → stopping → summarizing).
-        // Status only changes computed values per petal (amplitude +
-        // colour), never the view identity — that fixed the "petals
-        // fall apart" flicker we used to get on stop.
-        //
-        // Frame cadence is status-driven: the continuously-ROTATING comet
-        // (preparing / stopping / summarizing) runs at 60fps so it doesn't
-        // stair-step on a 120Hz ProMotion display; everything else
-        // (audio-reactive recording, static states) stays at 30fps to keep
-        // redraw cheap. Sweep + amplitude derive from wall-clock / live
-        // bands (not accumulated in the timeline), so swapping the interval
-        // never jumps the animation. Reduce-Motion → 30fps (comet is static).
-        let shimmering = Self.isShimmerStatus(session.status)
-        let interval = (!reduceMotion && shimmering) ? 1.0 / 60.0 : 1.0 / 30.0
-        // Pause the clock when nothing on screen depends on it. `paused`
-        // was hard-coded to `false`, so an idle Daisy — the state it
-        // spends most of the day in, with the widget on by default —
-        // recomputed this body, eight petal shapes and a shadow thirty
-        // times a second to draw a pixel-identical frame. That's a
-        // permanent main-thread wakeup cadence and a GPU composite that
-        // keeps the machine out of idle (audit 2026-09-01).
-        //
-        // Animated states are exactly two: `.recording` (petals follow
-        // the live spectrum) and the shimmer states (rotating comet).
-        // `.paused`, `.idle`, `.finished` and `.failed` all return
-        // constants from `amplitudeFor`, so a still frame is the
-        // correct picture — and any status change re-evaluates `body`
-        // and starts the clock again.
-        // Reduce Motion makes the shimmer states static too (`amplitudeFor`
-        // and `petalColor` both return constants), so there's nothing for
-        // the clock to drive there either.
-        let animating = session.status == .recording || (shimmering && !reduceMotion)
+        // Preserve one view tree across states. Only petals rotate while
+        // loading; the centre keeps the recorder's existing status colour.
+        let loading = Self.isLoadingStatus(session.status)
+        let interval = loading ? 1.0 / 60.0 : 1.0 / 30.0
+        let animating = !reduceMotion && (session.status == .recording || loading)
         return TimelineView(.animation(minimumInterval: interval, paused: !animating)) { context in
             let status = session.status
             let mode = session.currentMode
             let summaryGen = session.summaryGenerationState
             let bands = session.spectrumBands
-            let sweep = Self.computeSweep(from: context.date)
+            let rotation = loading && !reduceMotion
+                ? context.date.timeIntervalSince(loaderStartedAt).truncatingRemainder(dividingBy: 4.8) / 4.8 * 360
+                : 0
             let center = centerColor(for: status, mode: mode, summaryGen: summaryGen)
 
             ZStack {
@@ -134,19 +94,23 @@ struct DaisyWidget: View {
                     // matches Daisy's dark surface; was a cooler #121216).
                     .fill(Color(red: 28.0 / 255, green: 26.0 / 255, blue: 23.0 / 255))
 
-                ForEach(0..<petalCount, id: \.self) { i in
-                    let petalAngle = Double(i) * 360.0 / Double(petalCount)
-                    Petal(
-                        amplitude: amplitudeFor(petalIndex: i, bands: bands, status: status, mode: mode, date: context.date),
-                        angleDegrees: petalAngle,
-                        color: petalColor(petalAngle: petalAngle, sweep: sweep, status: status),
-                        width: petalWidth,
-                        baseLength: basePetalLength,
-                        maxLength: maxPetalLength,
-                        centerSize: centerSize,
-                        gap: petalGap
-                    )
+                ZStack {
+                    ForEach(0..<petalCount, id: \.self) { i in
+                        let petalAngle = Double(i) * 360.0 / Double(petalCount)
+                        Petal(
+                            amplitude: amplitudeFor(petalIndex: i, bands: bands, status: status, mode: mode, date: context.date),
+                            angleDegrees: petalAngle,
+                            color: petalColor(status: status),
+                            width: petalWidth,
+                            baseLength: basePetalLength,
+                            maxLength: maxPetalLength,
+                            centerSize: centerSize,
+                            gap: petalGap,
+                            reduceMotion: reduceMotion
+                        )
+                    }
                 }
+                .rotationEffect(.degrees(rotation))
 
                 Circle()
                     .fill(center)
@@ -155,6 +119,19 @@ struct DaisyWidget: View {
             }
         }
         .frame(width: canvasSize, height: canvasSize)
+        // MAC-01: a badge, because a hue is not a message. Small, but
+        // a shape that is not present in any healthy state — nothing
+        // else on this widget is a triangle.
+        .overlay(alignment: .topTrailing) {
+            if systemAudioProblem != nil {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: canvasSize * 0.26, weight: .bold))
+                    .foregroundStyle(Color.daisyWarning)
+                    .background(Circle().fill(Color.black).padding(-1))
+                    .offset(x: canvasSize * 0.04, y: -canvasSize * 0.02)
+                    .accessibilityHidden(true)
+            }
+        }
         // Combined scale: celebration pop × passive-state shrink. Both are
         // @State driven from `onChange` (handleStatusChange) so the finished
         // transition can sequence pop → settle instead of animating one
@@ -170,10 +147,14 @@ struct DaisyWidget: View {
             togglePrimary()
         }
         .contextMenu { contextMenuItems }
-        .onChange(of: session.status) { _, newStatus in
+        .onChange(of: session.status) { oldStatus, newStatus in
+            if Self.isLoadingStatus(newStatus) && !Self.isLoadingStatus(oldStatus) {
+                loaderStartedAt = Date()
+            }
             handleStatusChange(newStatus)
         }
         .onAppear {
+            loaderStartedAt = Date()
             passiveScale = Self.targetPassiveScale(session.status)
             // Lend the SwiftUI-only openWindow action to AppKit-side
             // bubble actions (morning brief's "Open") — it's the only
@@ -205,11 +186,11 @@ struct DaisyWidget: View {
             // ran at once and the daisy "celebrated while deflating").
             playCelebration()
             let shrink = Animation.easeInOut(duration: 0.35)
-            withAnimation(reduceMotion ? shrink : shrink.delay(0.55)) {
+            withAnimation(reduceMotion ? nil : shrink.delay(0.55)) {
                 passiveScale = target
             }
         } else {
-            withAnimation(.easeInOut(duration: 0.35)) {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) {
                 passiveScale = target
             }
         }
@@ -222,7 +203,7 @@ struct DaisyWidget: View {
     }
 
     /// Celebration pop when the session reaches `.finished`. Reads as:
-    /// shimmer was spinning → daisy "lands" → petals settle. Overshoot
+    /// flower was spinning → daisy "lands" → petals settle. Overshoot
     /// dialled to 1.10 (was 1.18) so it stays calm — Daisy is a quiet
     /// background tool, not a perky consumer app. Skipped under Reduce
     /// Motion (instant settle). The matching "done" sound is fired by the
@@ -384,9 +365,8 @@ struct DaisyWidget: View {
 
     /// Compute the petal's amplitude (0…1) for the current status.
     /// During recording → spectrum bands (mirrored for symmetry).
-    /// During processing → fixed mid-length so the daisy reads as a
-    /// steady "loader" puck while Whisper / the LLM chews.
-    /// Idle / finished / failed → smaller settled position.
+    /// Processing and static states use the full B+ silhouette.
+    /// The existing whole-widget passive scale still applies after capture.
     private func amplitudeFor(
         petalIndex: Int,
         bands: [Float],
@@ -394,6 +374,7 @@ struct DaisyWidget: View {
         mode: RecordingSession.RecordingMode,
         date: Date
     ) -> Float {
+        if reduceMotion { return 1 }
         switch status {
         case .recording:
             // 8 petals, mirrored across the vertical axis → the lower 4 of
@@ -437,81 +418,18 @@ struct DaisyWidget: View {
             case .voiceNote:           gain = Self.petalReactiveGain * 1.06
             }
             return max(0.12, min(1.0, bands[bandIndex] * gain))
-        case .preparing, .stopping, .summarizing:
-            // Gentle "breathing": each petal eases its length in/out on a
-            // slow sine, offset by petal index so a soft wave travels
-            // around the ring — reads as a living flower, not 8 static
-            // spokes. Reduce Motion → a calm fixed mid-length (no pulsing).
-            if reduceMotion { return 0.55 }
-            let t = date.timeIntervalSinceReferenceDate
-            let cycle = 2.4   // seconds per full breath
-            let phase = t * (2 * Double.pi / cycle)
-                + Double(petalIndex) * (2 * Double.pi / Double(petalCount))
-            return Float(0.52 + 0.13 * sin(phase))
-        case .paused:
-            // Paused reads as "held" — petals settled, not animating
-            // with the (now-zero) spectrum bands.
-            return 0.30
-        case .idle, .finished, .failed:
-            return 0.30
+        case .preparing, .stopping, .summarizing, .paused, .idle, .finished, .failed:
+            return 1
         }
     }
 
-    /// Compute the petal's colour for the current status. During
-    /// processing the colour shimmers (sweep-driven opacity) so the
-    /// daisy reads as a loader. Other states use static near-white.
-    private func petalColor(
-        petalAngle: Double,
-        sweep: Double,
-        status: RecordingSession.Status
-    ) -> Color {
+    private func petalColor(status: RecordingSession.Status) -> Color {
+        let cream = Color(red: 245.0 / 255, green: 241.0 / 255, blue: 231.0 / 255)
         switch status {
-        case .preparing, .stopping, .summarizing:
-            // Reduce Motion: no rotating comet — a calm, uniform ring.
-            if reduceMotion { return Color.white.opacity(0.82) }
-            let opacity = Self.shimmerOpacity(petalAngle: petalAngle, sweep: sweep)
-            return Color.white.opacity(opacity)
-        case .recording:
-            return Color(white: 0.97)
-        case .paused:
-            // Slightly dimmer than recording so paused reads as
-            // "still here, but quiet".
-            return Color.white.opacity(0.78)
-        case .idle:
-            return Color.white.opacity(0.72)
-        case .finished, .failed:
-            return Color(white: 0.92)
+        case .paused: return cream.opacity(0.78)
+        case .idle: return cream.opacity(0.72)
+        default: return cream
         }
-    }
-
-    /// Continuously-advancing sweep angle (0…360) for shimmer + any
-    /// future time-driven effects. Pulls `t` into a small range before
-    /// multiplying by the angular rate so Double precision doesn't
-    /// degrade on a 25-year-old timestamp.
-    private static func computeSweep(from date: Date) -> Double {
-        let cyclePeriod: Double = 360.0 / 220.0   // ~1.636 s/rev
-        let raw = date.timeIntervalSinceReferenceDate
-        let phase = raw.truncatingRemainder(dividingBy: cyclePeriod) / cyclePeriod
-        return phase * 360.0
-    }
-
-    /// Smooth comet pulse — every petal is always clearly visible
-    /// (baseline 0.55 so they read on the black puck), with a peak
-    /// brightening as the sweep crosses each petal and a gentle 120°
-    /// trailing fade behind.
-    private static func shimmerOpacity(petalAngle: Double, sweep: Double) -> Double {
-        var delta = (sweep - petalAngle).truncatingRemainder(dividingBy: 360)
-        if delta < 0 { delta += 360 }
-        let trailDeg = 120.0
-        let baseline = 0.55
-        let peak = 1.0
-        if delta < trailDeg {
-            // Eased (not linear) falloff so the trail reads as light
-            // tapering off, not a hard gradient wipe.
-            let t = 1 - delta / trailDeg
-            return baseline + (peak - baseline) * pow(t, 1.4)
-        }
-        return baseline
     }
 
     private func centerColor(
@@ -578,7 +496,7 @@ struct DaisyWidget: View {
         // Stream-startup .preparing (model already loaded) stays
         // plain white — fast, not worth a special signal.
         case .preparing:
-            // Static white core during Preparing. The petal shimmer (the
+            // Static white core during Preparing. The rotating petals (the
             // "loader") is the only motion; the core stays calm. The old
             // Whisper-warmup amber pulse was removed here — a small core
             // fading 0.55↔0.95 (plus its shadow) *under* the spinning petals
@@ -604,6 +522,11 @@ struct DaisyWidget: View {
         if case .finished = session.status,
            session.summaryGenerationState == .generating {
             return String(localized: "Generating summary…")
+        }
+        if let problem = systemAudioProblem {
+            return session.status == .paused
+                ? String(localized: "\(problem) Click to resume · right-click for Stop & save")
+                : String(localized: "\(problem) Click to pause")
         }
         switch session.status {
         case .idle: return String(localized: "Click to record")
@@ -632,10 +555,44 @@ struct DaisyWidget: View {
         }
     }
 
+    /// The other side of the meeting is not being captured — said in
+    /// words, not only in the colour of the core.
+    ///
+    /// Colour audit MAC-01 (2026-09-23): `centerColor` turned the core
+    /// red on `denied`/`failed` and nothing else changed — the widget
+    /// went on calling itself an ordinary recording, so anyone who
+    /// cannot separate red from orange, or who is listening to
+    /// VoiceOver, learned about it after the meeting.
+    ///
+    /// Deliberately says nothing about the microphone: there is no
+    /// live mic status to read here, and promising "your voice is
+    /// still being recorded" without checking would be the same bug
+    /// pointing the other way.
+    private var systemAudioProblem: String? {
+        guard session.status == .recording || session.status == .paused else { return nil }
+        switch session.systemAudioStatus {
+        case .denied:
+            return String(localized: "System audio is not being recorded — Screen Recording permission is missing.")
+        case .failed(let message):
+            return String(localized: "System audio stopped being recorded: \(message)")
+        case .disabled, .pending, .capturing:
+            return nil
+        }
+    }
+
     private var accessibilityLabel: String {
         if case .finished = session.status,
            session.summaryGenerationState == .generating {
             return String(localized: "Daisy. Recording finished. Summary still generating in the background.")
+        }
+        // The failure comes FIRST in the sentence: a screen reader
+        // announces from the start, and "Recording" heard alone is
+        // exactly the wrong takeaway.
+        if let problem = systemAudioProblem {
+            switch session.status {
+            case .paused: return String(localized: "Daisy. \(problem) Paused. Tap to resume.")
+            default: return String(localized: "Daisy. \(problem) Recording. Tap to pause.")
+            }
         }
         switch session.status {
         case .idle: return String(localized: "Daisy. Start recording.")
@@ -672,41 +629,24 @@ struct DaisyWidget: View {
     }
 }
 
-// MARK: - Daisy petal shape (traced from the brand logomark)
+// MARK: - B+ petal shape
 
-/// Single petal traced VERBATIM from the brand logomark
-/// (`daisy_logo.svg` on the web; same shape as
-/// the favicon / app icon / in-app DaisyMark). We use the "Top" cardinal
-/// petal — it's symmetric left-right, so it rotates cleanly into all 8
-/// positions and can be length-scaled per petal (audio bloom + loader
-/// breathing), which the asymmetric per-direction logo paths can't.
-///
-/// Native space is the petal's bounding box inside the 41×41 logo:
-/// x∈[18,23], y∈[4.36792,14.4453], apex (tip) at the top, rounded base at
-/// the bottom. `p(_:_:)` affine-maps that box into `rect`, so the petal
-/// fills whatever width/length the widget asks for, tip pointing outward
-/// from the centre (matches `Petal`'s offset/rotate). Replaces the old
-/// generic teardrop, which read as a flat "lozenge"/"sausage" when the
-/// loader drew all eight at one length.
+/// Approved B+ outline. The full-length petal occupies y=8...35.8 in
+/// the master 100-unit SVG. x=40...60 includes the curve's control points.
 struct DaisyPetalShape: Shape {
     func path(in rect: CGRect) -> Path {
-        // Logo-native bounding box of the "Top" petal.
-        let bx: CGFloat = 18, bw: CGFloat = 5
-        let by: CGFloat = 4.36792, bh: CGFloat = 10.07738
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(
-                x: rect.minX + (x - bx) / bw * rect.width,
-                y: rect.minY + (y - by) / bh * rect.height
-            )
+            CGPoint(x: rect.minX + (x - 40) / 20 * rect.width,
+                    y: rect.minY + (y - 8) / 27.8 * rect.height)
         }
         var path = Path()
-        path.move(to: p(18, 7.38827))
-        path.addCurve(to: p(19.32, 4.36792), control1: p(18, 5.69685), control2: p(18.6726, 4.82008))
-        path.addCurve(to: p(21.68, 4.36792), control1: p(20.0225, 3.87736), control2: p(20.9775, 3.87736))
-        path.addCurve(to: p(23, 7.38827), control1: p(22.3274, 4.82008), control2: p(23, 5.69685))
-        path.addCurve(to: p(21.2918, 14.4453), control1: p(23, 9.7848), control2: p(22.0998, 12.5378))
-        path.addCurve(to: p(19.7082, 14.4453), control1: p(20.9785, 15.1849), control2: p(20.0215, 15.1849))
-        path.addCurve(to: p(18, 7.38827), control1: p(18.9002, 12.5378), control2: p(18, 9.7848))
+        path.move(to: p(50, 35.8))
+        path.addCurve(to: p(43.4, 26.1), control1: p(46.75, 35.8), control2: p(44.9, 31.3))
+        path.addCurve(to: p(42.25, 13.1), control1: p(42.05, 21.35), control2: p(40.15, 17.5))
+        path.addCurve(to: p(50, 8), control1: p(43.8, 9.9), control2: p(46.65, 8))
+        path.addCurve(to: p(57.75, 13.1), control1: p(53.35, 8), control2: p(56.2, 9.9))
+        path.addCurve(to: p(56.6, 26.1), control1: p(59.85, 17.5), control2: p(57.95, 21.35))
+        path.addCurve(to: p(50, 35.8), control1: p(55.1, 31.3), control2: p(53.25, 35.8))
         path.closeSubpath()
         return path
     }
@@ -723,6 +663,7 @@ private struct Petal: View, Equatable {
     let maxLength: CGFloat
     let centerSize: CGFloat
     let gap: CGFloat
+    let reduceMotion: Bool
 
     var body: some View {
         let length = baseLength + (maxLength - baseLength) * CGFloat(amplitude)
@@ -733,7 +674,7 @@ private struct Petal: View, Equatable {
             .frame(width: width, height: length)
             .offset(y: offsetY)
             .rotationEffect(.degrees(angleDegrees))
-            .animation(.easeOut(duration: 0.10), value: amplitude)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: amplitude)
     }
 }
 

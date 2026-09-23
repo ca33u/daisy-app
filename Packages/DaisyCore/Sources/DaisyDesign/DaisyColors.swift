@@ -60,6 +60,12 @@ extension Color {
     public static let daisyVoiceNote = Color(DaisyPalette.voiceNote)
     public static let daisyVoiceNotePulse = Color(DaisyPalette.voiceNotePulse)
     public static let daisyPaused = Color(DaisyPalette.paused)
+    /// Colour audit IOS-01: the capsule ships its foreground together
+    /// with its fill, never assumes white.
+    /// Colour audit MAC-02: a warning you read, not a warning you see.
+    public static let daisyWarningText = Color(DaisyPalette.warningText)
+    public static let daisyRecordCapsuleText = Color(DaisyPalette.recordCapsuleText)
+    public static let daisyRecordCapsuleTextOnDark = Color(DaisyPalette.recordCapsuleTextOnDark)
 
     // Brand / surfaces
     public static let daisyBgPrimary = Color(DaisyPalette.bgPrimary)

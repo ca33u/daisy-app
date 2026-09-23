@@ -56,7 +56,15 @@ public nonisolated enum DaisyPalette {
 
     /// Paused. Cool slate gray — "held / not live" without any of the
     /// warm recording-family hues.
-    public static let paused = DaisyColorPair(light: 0x9AA0A6, dark: 0x7D828B)
+    ///
+    /// The dark value was 0x7D828B and was lightened by one step
+    /// (2026-09-23, colour audit IOS-01): against it the capsule's own
+    /// dark label reached only 4.34:1 and white only 3.86:1 — neither
+    /// side of the pair cleared 4.5:1, so there was no legible
+    /// foreground to choose. 0x868B94 gives the dark label 4.89:1 and
+    /// keeps the cool grey that separates paused from the warm
+    /// recording family.
+    public static let paused = DaisyColorPair(light: 0x9AA0A6, dark: 0x868B94)
 
     // ─── Brand / surfaces ─────────────────────────────────────────────
 
@@ -112,7 +120,13 @@ public nonisolated enum DaisyPalette {
 
     public static let textPrimary = DaisyColorPair(light: 0x282824, dark: 0xF4F5EF)
     public static let textSecondary = DaisyColorPair(light: 0x62625D, dark: 0xBEC7BE)
-    public static let textTertiary = DaisyColorPair(light: 0x85857F, dark: 0x8F988E)
+    ///
+    /// The light value was 0x85857F — 3.53:1 on `bgPrimary`, below the
+    /// 4.5:1 a caption needs (colour audit TEXT-01, 2026-09-23). This
+    /// is a TEXT role: it darkens. Decorative rules and disabled
+    /// controls are not this token and must not be dragged along with
+    /// it. The dark value already clears it at 5.83:1 and is untouched.
+    public static let textTertiary = DaisyColorPair(light: 0x706F69, dark: 0x8F988E)
 
     // ─── Status semantics ─────────────────────────────────────────────
 
@@ -120,6 +134,17 @@ public nonisolated enum DaisyPalette {
     public static let success = DaisyColorPair(light: 0x3D7458, dark: 0x93C9A5)
     /// Warning / summarizing / pending. Warm gold — explicitly NOT orange.
     public static let warning = DaisyColorPair(light: 0xF5A14B, dark: 0xFFBF73)
+
+    /// Warning as WORDS, which is a different job from warning as a
+    /// fill or a glyph.
+    ///
+    /// `warning` above is a signal colour: bright amber, 2.07:1 on the
+    /// light surface, unreadable as a sentence (colour audit MAC-02).
+    /// Splitting the role is the point — retuning the amber core must
+    /// not decide how a paragraph of warning text reads, and darkening
+    /// this text must not dim the flower's centre.
+    /// Light 6.73:1, dark 10.71:1 on their surfaces.
+    public static let warningText = DaisyColorPair(light: 0x8A4B0F, dark: 0xFFBF73)
     /// A highlighted phrase in a transcript — the marker-pen yellow of
     /// a paper book, dimmed for dark mode so it stays behind the words
     /// rather than shouting over them (backlog 13, Egor 2026-09-23).
@@ -143,6 +168,20 @@ public nonisolated enum DaisyPalette {
     // The "Start a recording" capsule fill when nothing is live: a warm
     // charcoal. Solid orange is reserved for a live microphone.
     public static let recordIdle = DaisyColorPair(light: 0x242522, dark: 0x334138)
+
+    /// What is written ON the record capsule when its fill is one of
+    /// the bright ones — the timer, the state word, the control
+    /// glyphs.
+    ///
+    /// A separate role from `textOnAccent` even though the value is
+    /// the same today: the audit's point is that colours must not be
+    /// tied together merely because they are both warm. Retuning a
+    /// button's accent must not silently retune the recording timer.
+    public static let recordCapsuleText = DaisyColorPair(light: 0x2B1A07, dark: 0x2B1A07)
+
+    /// The same, for the dark fills (idle and finishing), where a dark
+    /// label would vanish: white clears 15.41:1 light / 10.75:1 dark.
+    public static let recordCapsuleTextOnDark = DaisyColorPair(light: 0xFFFFFF, dark: 0xFFFFFF)
 }
 
 /// Numbers the record capsule and the capsule-shaped buttons share.

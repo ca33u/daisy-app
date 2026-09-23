@@ -226,10 +226,10 @@ struct ModelPreparationView: View {
             }
             if let error = preparation.error {
                 Text("Preparation failed. You can retry, choose another model, or download the speech model again.")
-                    .foregroundStyle(Color.daisyWarning)
+                    .foregroundStyle(Color.daisyWarningText)
                 Text(error).font(.caption).textSelection(.enabled)
             } else if case .failed(let error) = whisper.state {
-                Text(error).font(.caption).foregroundStyle(Color.daisyWarning).textSelection(.enabled)
+                Text(error).font(.caption).foregroundStyle(Color.daisyWarningText).textSelection(.enabled)
             }
             HStack {
                 Button("Download and check") {
