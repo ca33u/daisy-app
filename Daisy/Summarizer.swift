@@ -9,6 +9,7 @@
 //  `availability` reactive so the SwiftUI views update automatically.
 //
 
+import DaisyCore
 import Foundation
 import Observation
 import os

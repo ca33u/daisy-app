@@ -3,33 +3,17 @@
 //  Daisy
 //
 //  Local, per-request privacy transform for cloud summary providers.
-//  Context-bearing entities receive reversible typed pseudonyms; secrets and
-//  payment-card numbers are redacted irreversibly. The replacement dictionary
-//  never leaves this value and is discarded after the provider reply is
-//  restored.
+//  The engine — recognizers, reversible markers, tolerant restore —
+//  moved to DaisyCore (`PseudonymSession`, 2026-09-23, backlog 19 А-2а)
+//  so the phone runs the same code; what is left here is the Mac's own
+//  vocabulary of tasks and requests. Context-bearing entities receive
+//  reversible typed pseudonyms; secrets and payment-card numbers are
+//  redacted irreversibly. The replacement dictionary never leaves the
+//  session and is discarded after the provider reply is restored.
 //
 
+import DaisyCore
 import Foundation
-import NaturalLanguage
-
-nonisolated enum SensitiveEntityKind: String, Sendable, CaseIterable {
-    case person = "PERSON"
-    case organization = "ORG"
-    case email = "EMAIL"
-    case phone = "PHONE"
-    case url = "URL"
-    case secret = "SECRET"
-    case paymentCard = "PAYMENT_CARD"
-
-    var isReversible: Bool {
-        self != .secret && self != .paymentCard
-    }
-}
-
-nonisolated struct SensitiveDataProtectionReport: Sendable, Equatable {
-    let distinctReplacements: Int
-    let redactedOccurrences: Int
-}
 
 /// The only object allowed to carry the local token → original dictionary.
 /// It is a value type, is never encoded, and is intended to live only across
@@ -40,7 +24,7 @@ nonisolated struct ProtectedSummaryRequest: Sendable {
     let task: SummaryTask
     let report: SensitiveDataProtectionReport
 
-    fileprivate let originalsByToken: [String: String]
+    fileprivate let session: PseudonymSession
 
     func restore(_ summary: MeetingSummary) -> MeetingSummary {
         MeetingSummary(
@@ -64,7 +48,7 @@ nonisolated struct ProtectedSummaryRequest: Sendable {
     }
 
     private func restore(_ text: String) -> String {
-        SensitiveDataProtector.restore(text, using: originalsByToken)
+        session.restore(text)
     }
 }
 
@@ -81,10 +65,10 @@ nonisolated struct ProtectedPlanAnalysisRequest: Sendable {
     let transcript: String
     let report: SensitiveDataProtectionReport
 
-    fileprivate let originalsByToken: [String: String]
+    fileprivate let session: PseudonymSession
 
     func restore(_ text: String) -> String {
-        SensitiveDataProtector.restore(text, using: originalsByToken)
+        session.restore(text)
     }
 }
 
@@ -93,45 +77,10 @@ nonisolated enum SensitiveDataProtector {
         enabled && !providerIsLocal
     }
 
-    /// Put the originals back.
-    ///
-    /// Tolerant on purpose. A literal `replacingOccurrences` was enough
-    /// while models echoed the tokens byte-for-byte, but they don't
-    /// always: they lowercase them, put spaces inside the brackets, or
-    /// (in a Russian transcript) decline the pseudonym as if it were a
-    /// word. Every such near-miss used to leave `[[DAISY_PERSON_001]]`
-    /// in the output — and in the transcript polisher's case, three
-    /// foreign tokens per name pushed the changed-token ratio past its
-    /// guard, which is the most likely reason RU polish dropped every
-    /// chunk in the field (audit 2026-09-01).
-    ///
-    /// So: match the token shape, case-insensitively, allowing
-    /// whitespace anywhere inside the brackets.
+    /// Put the originals back — tolerant of mangled markers; see
+    /// `PseudonymSession.restore(_:using:)`.
     nonisolated static func restore(_ text: String, using originals: [String: String]) -> String {
-        guard !originals.isEmpty, text.contains("[[") else { return text }
-        var result = text
-        for (token, original) in originals {
-            // `[[DAISY_PERSON_001]]` → `\[\[\s*DAISY\s*_\s*PERSON\s*_\s*001\s*\]\]`
-            let inner = token
-                .replacingOccurrences(of: "[[", with: "")
-                .replacingOccurrences(of: "]]", with: "")
-            let spaced = inner
-                .map { NSRegularExpression.escapedPattern(for: String($0)) }
-                .joined(separator: "\\s*")
-            let pattern = "\\[\\s*\\[\\s*\(spaced)\\s*\\]\\s*\\]"
-            guard let regex = try? NSRegularExpression(
-                pattern: pattern, options: [.caseInsensitive]
-            ) else {
-                result = result.replacingOccurrences(of: token, with: original)
-                continue
-            }
-            result = regex.stringByReplacingMatches(
-                in: result,
-                range: NSRange(result.startIndex..., in: result),
-                withTemplate: NSRegularExpression.escapedTemplate(for: original)
-            )
-        }
-        return result
+        PseudonymSession.restore(text, using: originals)
     }
 
     /// True when any pseudonym or redaction marker survived `restore`.
@@ -139,7 +88,7 @@ nonisolated enum SensitiveDataProtector {
     /// passes — must refuse such a result rather than ship a placeholder
     /// into someone's transcript or text field.
     nonisolated static func containsUnrestoredMarker(_ text: String) -> Bool {
-        text.range(of: "\\[\\s*\\[\\s*(DAISY|REDACTED)_", options: [.regularExpression, .caseInsensitive]) != nil
+        PseudonymSession.containsUnrestoredMarker(text)
     }
 
     /// Plan-analysis boundary: pseudonymize the plan FIRST so canonical
@@ -153,19 +102,16 @@ nonisolated enum SensitiveDataProtector {
         transcript: String,
         detectNamedEntities: Bool = true
     ) -> ProtectedPlanAnalysisRequest {
-        var context = Context(detectNamedEntities: detectNamedEntities)
-        let protectedPlan = planItemTexts.map { context.protect($0) }
-        let protectedTitle = context.protect(title)
-        let protectedTranscript = context.protect(transcript)
+        var session = PseudonymSession(detectNamedEntities: detectNamedEntities)
+        let protectedPlan = planItemTexts.map { session.protect($0) }
+        let protectedTitle = session.protect(title)
+        let protectedTranscript = session.protect(transcript)
         return ProtectedPlanAnalysisRequest(
             title: protectedTitle,
             planItemTexts: protectedPlan,
             transcript: protectedTranscript,
-            report: SensitiveDataProtectionReport(
-                distinctReplacements: context.originalsByToken.count,
-                redactedOccurrences: context.redactedOccurrences
-            ),
-            originalsByToken: context.originalsByToken
+            report: session.report,
+            session: session
         )
     }
 
@@ -188,10 +134,8 @@ nonisolated enum SensitiveDataProtector {
         case .dictationPolish, .transcriptPolish: reversibleOnly = true
         default:                                  reversibleOnly = false
         }
-        var context = Context(
-            detectNamedEntities: detectNamedEntities,
-            reversibleOnly: reversibleOnly
-        )
+        var context = TaskContext(session: PseudonymSession(
+            detectNamedEntities: detectNamedEntities, reversibleOnly: reversibleOnly))
 
         // Task context first: canonical attendee/company names from calendar
         // metadata become the stable mapping that shorter transcript mentions
@@ -204,29 +148,18 @@ nonisolated enum SensitiveDataProtector {
             transcript: protectedTranscript,
             title: protectedTitle,
             task: protectedTask,
-            report: SensitiveDataProtectionReport(
-                distinctReplacements: context.originalsByToken.count,
-                redactedOccurrences: context.redactedOccurrences
-            ),
-            originalsByToken: context.originalsByToken
+            report: context.session.report,
+            session: context.session
         )
     }
 
-    // MARK: - Per-request state
+    /// The Mac's task vocabulary, walked through one session.
+    private struct TaskContext {
+        var session: PseudonymSession
 
-    private struct Context {
-        let detectNamedEntities: Bool
-        /// When true, EVERY entity gets a reversible pseudonym —
-        /// including the kinds normally redacted outright. For tasks
-        /// whose output is the person's own text handed back to them,
-        /// an unrestorable placeholder is data loss, not privacy.
-        var reversibleOnly: Bool = false
-        var tokenByEntity: [String: String] = [:]
-        var originalsByToken: [String: String] = [:]
-        var counters: [SensitiveEntityKind: Int] = [:]
-        var personAliases: [String: String] = [:]
-        var ambiguousPersonAliases: Set<String> = []
-        var redactedOccurrences = 0
+        mutating func protect(_ text: String) -> String {
+            session.protect(text)
+        }
 
         mutating func protect(task: SummaryTask) -> SummaryTask {
             switch task {
@@ -261,209 +194,6 @@ nonisolated enum SensitiveDataProtector {
                     )
                 )
             }
-        }
-
-        mutating func protect(_ text: String) -> String {
-            guard !text.isEmpty else { return text }
-            let source = text as NSString
-            var candidates = structuredCandidates(in: text)
-            if detectNamedEntities {
-                candidates.append(contentsOf: namedEntityCandidates(in: text))
-            }
-            let selected = nonOverlapping(candidates)
-                .sorted { $0.range.location > $1.range.location }
-            guard !selected.isEmpty else { return text }
-
-            let result = NSMutableString(string: text)
-            for candidate in selected {
-                let original = source.substring(with: candidate.range)
-                let replacement: String
-                if candidate.kind.isReversible || reversibleOnly {
-                    replacement = token(for: candidate.kind, original: original)
-                } else {
-                    redactedOccurrences += 1
-                    replacement = "[[REDACTED_\(candidate.kind.rawValue)]]"
-                }
-                result.replaceCharacters(in: candidate.range, with: replacement)
-            }
-            return result as String
-        }
-
-        private mutating func token(for kind: SensitiveEntityKind, original: String) -> String {
-            let normalized = Self.normalize(original)
-            let key = "\(kind.rawValue)|\(normalized)"
-            if let existing = tokenByEntity[key] { return existing }
-            if kind == .person,
-               !ambiguousPersonAliases.contains(normalized),
-               let alias = personAliases[normalized] {
-                tokenByEntity[key] = alias
-                return alias
-            }
-
-            let next = (counters[kind] ?? 0) + 1
-            counters[kind] = next
-            let token = String(format: "[[DAISY_%@_%03d]]", kind.rawValue, next)
-            tokenByEntity[key] = token
-            originalsByToken[token] = original
-
-            if kind == .person {
-                registerPersonAliases(original: original, token: token)
-            }
-            return token
-        }
-
-        private mutating func registerPersonAliases(original: String, token: String) {
-            let pieces = original.split { !$0.isLetter && !$0.isNumber }
-                .map { Self.normalize(String($0)) }
-                .filter { $0.count >= 3 }
-            guard pieces.count > 1 else { return }
-            for alias in pieces {
-                if let existing = personAliases[alias], existing != token {
-                    personAliases.removeValue(forKey: alias)
-                    ambiguousPersonAliases.insert(alias)
-                } else if !ambiguousPersonAliases.contains(alias) {
-                    personAliases[alias] = token
-                }
-            }
-        }
-
-        private static func normalize(_ value: String) -> String {
-            value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        // MARK: Detection
-
-        private func structuredCandidates(in text: String) -> [Candidate] {
-            var result: [Candidate] = []
-            result += matches(Self.secretURLRegex, in: text, kind: .secret, priority: 120)
-            result += matches(Self.privateKeyRegex, in: text, kind: .secret, priority: 115)
-            result += matches(Self.credentialRegex, in: text, kind: .secret, priority: 110)
-            result += matches(Self.openAIKeyRegex, in: text, kind: .secret, priority: 108)
-            result += matches(Self.githubTokenRegex, in: text, kind: .secret, priority: 108)
-            result += matches(Self.jwtRegex, in: text, kind: .secret, priority: 108)
-
-            for match in Self.paymentCardRegex.matches(
-                in: text,
-                range: NSRange(location: 0, length: (text as NSString).length)
-            ) {
-                let value = (text as NSString).substring(with: match.range)
-                let digits = value.filter(\.isNumber)
-                if (13...19).contains(digits.count), Self.passesLuhn(digits) {
-                    result.append(Candidate(range: match.range, kind: .paymentCard, priority: 100))
-                }
-            }
-
-            result += matches(Self.emailRegex, in: text, kind: .email, priority: 90)
-            result += matches(Self.urlRegex, in: text, kind: .url, priority: 85)
-            result += matches(Self.phoneRegex, in: text, kind: .phone, priority: 80)
-            return result
-        }
-
-        private func namedEntityCandidates(in text: String) -> [Candidate] {
-            let tagger = NLTagger(tagSchemes: [.nameType])
-            tagger.string = text
-            var result: [Candidate] = []
-            let options: NLTagger.Options = [.omitWhitespace, .omitPunctuation, .joinNames]
-            tagger.enumerateTags(
-                in: text.startIndex..<text.endIndex,
-                unit: .word,
-                scheme: .nameType,
-                options: options
-            ) { tag, range in
-                let kind: SensitiveEntityKind?
-                switch tag {
-                case .personalName: kind = .person
-                case .organizationName: kind = .organization
-                default: kind = nil
-                }
-                if let kind {
-                    let nsRange = NSRange(range, in: text)
-                    if nsRange.length >= 2 {
-                        result.append(
-                            Candidate(
-                                range: nsRange,
-                                kind: kind,
-                                priority: kind == .person ? 55 : 50
-                            )
-                        )
-                    }
-                }
-                return true
-            }
-            return result
-        }
-
-        private func matches(
-            _ regex: NSRegularExpression,
-            in text: String,
-            kind: SensitiveEntityKind,
-            priority: Int
-        ) -> [Candidate] {
-            regex.matches(
-                in: text,
-                range: NSRange(location: 0, length: (text as NSString).length)
-            ).map { Candidate(range: $0.range, kind: kind, priority: priority) }
-        }
-
-        private func nonOverlapping(_ candidates: [Candidate]) -> [Candidate] {
-            let ranked = candidates.sorted {
-                if $0.priority != $1.priority { return $0.priority > $1.priority }
-                if $0.range.length != $1.range.length { return $0.range.length > $1.range.length }
-                return $0.range.location < $1.range.location
-            }
-            var selected: [Candidate] = []
-            for candidate in ranked where candidate.range.length > 0 {
-                guard !selected.contains(where: {
-                    NSIntersectionRange($0.range, candidate.range).length > 0
-                }) else { continue }
-                selected.append(candidate)
-            }
-            return selected
-        }
-
-        private struct Candidate {
-            let range: NSRange
-            let kind: SensitiveEntityKind
-            let priority: Int
-        }
-
-        // MARK: Recognizers
-
-        private static func regex(_ pattern: String, options: NSRegularExpression.Options = []) -> NSRegularExpression {
-            // Patterns are compile-time constants covered by unit tests.
-            try! NSRegularExpression(pattern: pattern, options: options)
-        }
-
-        private static let secretURLRegex = regex(
-            #"(?i)https?://[^\s<>()]*(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password)=[^\s<>()&]+[^\s<>()]*"#
-        )
-        private static let privateKeyRegex = regex(
-            #"-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----[\s\S]*?-----END(?: [A-Z0-9]+)? PRIVATE KEY-----"#
-        )
-        private static let credentialRegex = regex(
-            #"(?i)\b(?:api[_ -]?key|access[_ -]?token|refresh[_ -]?token|password|passwd|client[_ -]?secret)\b\s*[:=]\s*[\"']?[^\s,;\"']{8,}"#
-        )
-        private static let openAIKeyRegex = regex(#"\bsk-[A-Za-z0-9_-]{20,}\b"#)
-        private static let githubTokenRegex = regex(#"\bgh[pousr]_[A-Za-z0-9]{20,}\b"#)
-        private static let jwtRegex = regex(#"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b"#)
-        private static let paymentCardRegex = regex(#"(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)"#)
-        private static let emailRegex = regex(
-            #"(?i)(?<![A-Z0-9._%+-])[A-Z0-9._%+-]+@[A-Z0-9-]+(?:\.[A-Z0-9-]+)+(?=$|[^A-Z0-9-])"#
-        )
-        private static let urlRegex = regex(#"(?i)https?://[^\s<>()]+"#)
-        private static let phoneRegex = regex(#"(?<![\p{L}\d])\+?\d[\d ()-]{6,}\d(?![\p{L}\d])"#)
-
-        private static func passesLuhn(_ digits: String) -> Bool {
-            let values = digits.compactMap(\.wholeNumberValue)
-            guard values.count == digits.count else { return false }
-            let sum = values.reversed().enumerated().reduce(0) { total, item in
-                let (offset, digit) = item
-                guard offset.isMultiple(of: 2) == false else { return total + digit }
-                let doubled = digit * 2
-                return total + (doubled > 9 ? doubled - 9 : doubled)
-            }
-            return sum.isMultiple(of: 10)
         }
     }
 }
