@@ -104,6 +104,17 @@ let package = Package(
                 .enableUpcomingFeature("MemberImportVisibility"),
             ]
         ),
+        // Бэклог 18 Д-3: a way to run the very same diarization code on
+        // macOS, so the phone's answer can be checked against a machine
+        // where the models and the configuration are known good. Not
+        // shipped in any app — a package executable, run by hand.
+        .executableTarget(
+            name: "DiarizeFiles",
+            dependencies: ["DaisyDiarization", "DaisyCore"],
+            swiftSettings: [
+                .defaultIsolation(MainActor.self),
+            ]
+        ),
         .testTarget(
             name: "DaisyCoreTests",
             dependencies: ["DaisyCore", "DaisyPalette", "DaisyDesign", "DaisyLink"],
