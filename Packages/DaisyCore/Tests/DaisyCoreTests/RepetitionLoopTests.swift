@@ -60,3 +60,56 @@ struct RepetitionLoopTests {
         #expect(!RepetitionLoop.isLoop(line))
     }
 }
+
+@Suite("A run of the same short line is silence talking")
+struct SilenceRunTests {
+    private func seconds(_ mmss: String) -> TimeInterval {
+        let p = mmss.split(separator: ":").compactMap { Double($0) }
+        return p[0] * 60 + p[1]
+    }
+
+    /// The tail of the second user's meeting, 23.09 — line for line.
+    /// The call ended at 33:23; what follows is an empty room.
+    @Test func theTailOfTheIncidentMeetingIsDropped() {
+        let lines: [(String, String)] = [
+            ("33:19", "Взаимно. Хорошего дня."),
+            ("33:23", "До свидания."),
+            ("40:30", "Спасибо."), ("40:31", "Спасибо."), ("40:33", "Спасибо."),
+            ("40:35", "Спасибо."), ("40:37", "Спасибо."), ("40:38", "Спасибо."),
+            ("43:25", "Спасибо."),
+        ]
+        let dropped = RepetitionLoop.silenceRunIndices(
+            texts: lines.map(\.1), starts: lines.map { seconds($0.0) })
+        #expect(dropped == Set(2...7))
+    }
+
+    /// The same meeting, mid-call: short thank-yous that may well be
+    /// real, in pairs and triples. All kept.
+    @Test func pairsAndTriplesFromTheSameMeetingSurvive() {
+        let lines: [(String, String)] = [
+            ("22:18", "Спасибо."), ("22:19", "Спасибо."), ("22:29", "Спасибо."),
+            ("22:43", "Супер. Никита, скажите, может остались какие-то вопросы по функционалу?"),
+            ("26:19", "Спасибо."), ("26:21", "Спасибо."),
+            ("30:24", "Спасибо."), ("30:25", "Спасибо."),
+        ]
+        let dropped = RepetitionLoop.silenceRunIndices(
+            texts: lines.map(\.1), starts: lines.map { seconds($0.0) })
+        #expect(dropped.isEmpty)
+    }
+
+    /// Four identical lines spread over minutes are four real remarks.
+    @Test func theSameWordMinutesApartIsNotARun() {
+        let dropped = RepetitionLoop.silenceRunIndices(
+            texts: ["Угу.", "Угу.", "Угу.", "Угу."], starts: [0, 60, 120, 180])
+        #expect(dropped.isEmpty)
+    }
+
+    /// Long lines never form a run — repetition there is a different
+    /// shape, handled by `isLoop`.
+    @Test func longLinesAreNotRuns() {
+        let line = "Давайте, наверное, чуть подробнее остановимся на том"
+        let dropped = RepetitionLoop.silenceRunIndices(
+            texts: Array(repeating: line, count: 5), starts: [0, 1, 2, 3, 4])
+        #expect(dropped.isEmpty)
+    }
+}

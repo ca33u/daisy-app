@@ -18,6 +18,7 @@
 //  Everything runs on-device via WhisperKit CoreML.
 //
 
+import DaisyCore
 import Foundation
 import AVFoundation
 import Observation
@@ -145,8 +146,19 @@ final class Transcriber {
         if _segmentsCacheVersion == currentVersion {
             return _segmentsCache
         }
-        let merged = (committedSegments + pendingSegments)
+        let sorted = (committedSegments + pendingSegments)
             .sorted(by: { $0.startedAt < $1.startedAt })
+        // Инцидент 23.09: a run of the same short line across passes —
+        // six «Спасибо.» in eight seconds after the call had ended — is
+        // silence talking. Each Whisper pass saw one or two of them and
+        // let them through; only here, where the passes meet, is the
+        // run visible. Filtered at the one place the screen, the export
+        // and a live-only transcript all read from.
+        let runs = RepetitionLoop.silenceRunIndices(
+            texts: sorted.map(\.text),
+            starts: sorted.map { $0.startedAt.timeIntervalSince1970 }
+        )
+        let merged = runs.isEmpty ? sorted : sorted.enumerated().filter { !runs.contains($0.offset) }.map(\.element)
         _segmentsCache = merged
         _segmentsCacheVersion = currentVersion
         return _segmentsCache

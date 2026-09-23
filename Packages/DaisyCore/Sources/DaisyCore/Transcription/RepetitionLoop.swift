@@ -54,4 +54,54 @@ public enum RepetitionLoop {
         }
         return false
     }
+
+    // MARK: - Runs across segments
+
+    /// A run this long of the same short line is silence, not speech.
+    public nonisolated static let minRunLength = 4
+    /// "Спасибо.", "Thank you.", "Угу" — the hallucinations silence
+    /// produces are one to three words.
+    public nonisolated static let maxRunWords = 3
+    /// And they come every second or two, the way nobody talks.
+    public nonisolated static let maxRunGap: TimeInterval = 5
+
+    /// Indices of segments that form a silence run: at least
+    /// `minRunLength` consecutive segments with the same short text,
+    /// each starting within `maxRunGap` seconds of the previous.
+    ///
+    /// Инцидент 23.09, второй пользователь. After «До свидания» at 33:23
+    /// the call was over and the microphone recorded ten minutes of an
+    /// empty room. The per-pass filter dropped 162 hallucinated
+    /// segments there — correctly — but six «Спасибо.» in eight seconds
+    /// at 40:30 got through, because each pass only ever saw one or
+    /// two of them. A loop that spans passes has to be judged where the
+    /// passes are joined.
+    ///
+    /// Three in a row is kept on purpose: «Спасибо. Спасибо.» at the end
+    /// of a call is real, and so is a triple "да".
+    public nonisolated static func silenceRunIndices(texts: [String], starts: [TimeInterval]) -> Set<Int> {
+        precondition(texts.count == starts.count)
+        func key(_ text: String) -> String? {
+            let words = text.lowercased()
+                .split(whereSeparator: { $0.isWhitespace || $0.isPunctuation })
+            guard !words.isEmpty, words.count <= maxRunWords else { return nil }
+            return words.joined(separator: " ")
+        }
+        var dropped = Set<Int>()
+        var runStart = 0
+        func close(_ end: Int) {
+            if end - runStart >= minRunLength { dropped.formUnion(runStart..<end) }
+        }
+        for i in texts.indices where i > 0 {
+            let continues = key(texts[i]) != nil
+                && key(texts[i]) == key(texts[i - 1])
+                && starts[i] - starts[i - 1] <= maxRunGap
+            if !continues {
+                close(i)
+                runStart = i
+            }
+        }
+        close(texts.count)
+        return dropped
+    }
 }
