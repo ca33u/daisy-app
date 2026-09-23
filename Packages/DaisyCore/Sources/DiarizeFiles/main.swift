@@ -29,10 +29,33 @@ if let flag = arguments.firstIndex(of: "--transcript"), flag + 1 < arguments.cou
     transcriptURL = URL(fileURLWithPath: arguments[flag + 1])
     arguments.removeSubrange(flag...(flag + 1))
 }
+// `--sweep` walks the clustering threshold, because the interesting
+// question is not "how many voices at 0.7" but "at what value does this
+// recording stop being wrong, and does that value break the other one".
+var sweep = false
+if let flag = arguments.firstIndex(of: "--sweep") {
+    sweep = true
+    arguments.remove(at: flag)
+}
 let files = arguments.map { URL(fileURLWithPath: $0) }
 guard !files.isEmpty else {
     print("usage: DiarizeFiles <audio> [<audio> …]")
     exit(2)
+}
+
+if sweep {
+    for url in files {
+        guard let samples = Resampler.decodeToMono16k(urls: [url]) else { continue }
+        var line = "\(url.lastPathComponent):"
+        for threshold in stride(from: Float(0.70), through: Float(1.00), by: 0.05) {
+            let diarizer = await PhoneDiarizer(clusteringThreshold: threshold)
+            let count = (try? await diarizer.run(samples: samples))?.speakerCount ?? -1
+            line += String(format: "  %.2f→%d", threshold, count)
+            await diarizer.unload()
+        }
+        print(line)
+    }
+    exit(0)
 }
 
 let diarizer = await PhoneDiarizer()
@@ -62,7 +85,12 @@ for url in files {
                 // The label of the span this line starts inside; a line
                 // that begins in a gap takes the nearest span that has
                 // already started, which is what a reader would assume.
-                let label = outcome.spans.last { $0.startSec <= second + 0.5 }?.speakerId ?? "?"
+                // A line before the first span belongs to the first
+                // voice, not to nobody: diarization trims leading
+                // silence, so "0:00" often lands a fraction of a
+                // second before the first span begins.
+                let label = outcome.spans.last { $0.startSec <= second + 0.5 }?.speakerId
+                    ?? outcome.spans.first?.speakerId ?? "?"
                 let text = String(line).replacingOccurrences(of: "\\*\\*\\[[^\\]]*\\]\\*\\* ", with: "", options: .regularExpression)
                 print(String(format: "[%@] %5.1f  %@", label, second, text))
             }

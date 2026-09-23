@@ -79,7 +79,14 @@ public final class PhoneDiarizer {
     private var manager: DiarizerManager?
     #endif
 
-    public init() {}
+    /// The clustering threshold this instance runs with. Defaults to
+    /// the Mac's shipping value; a spike can sweep it to find where a
+    /// single voice stops being split in two.
+    private let threshold: Float
+
+    public init(clusteringThreshold: Float = PhoneDiarizer.clusteringThreshold) {
+        self.threshold = clusteringThreshold
+    }
 
     /// Seconds the last `load()` took, and whether anything was
     /// downloaded — both go in the report.
@@ -95,7 +102,7 @@ public final class PhoneDiarizer {
         let started = Date()
         let models = try await DiarizerModels.downloadIfNeeded()
         let config = DiarizerConfig(
-            clusteringThreshold: Self.clusteringThreshold,
+            clusteringThreshold: threshold,
             minSpeechDuration: Self.minSpeechDuration,
             minSilenceGap: Self.minSilenceGap,
             numClusters: -1
