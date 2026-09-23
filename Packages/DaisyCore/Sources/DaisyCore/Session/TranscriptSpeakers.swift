@@ -46,7 +46,31 @@ public enum TranscriptSpeakers {
     /// Zero speakers is NOT "one": an empty or unlabelled transcript
     /// tells us nothing, and pretending it is a monologue would apply
     /// the narrower prompt to a meeting whose labels simply failed.
+    ///
+    /// **This is a fact about the text, not a conclusion about the
+    /// room.** Before acting on it, ask `labelsAreMeaningful` —
+    /// see the note there.
     public nonisolated static func isSingleVoice(inBody body: String) -> Bool {
         distinct(inBody: body).count == 1
+    }
+
+    /// Whether the speaker labels in this transcript carry information
+    /// at all.
+    ///
+    /// Found on a real phone, 2026-09-23: a phone transcript labels
+    /// EVERY segment `Me` and ships `daisy_speaker_map: {}`, because
+    /// the phone does not diarize — §3.6 calls its transcript a first
+    /// pass, not a claim about who spoke. So "one distinct name" is
+    /// true of every phone session, a two-person meeting included.
+    /// Acting on it there would suppress the attendees and decisions
+    /// that were really said — the very failure П-3 exists to prevent,
+    /// mirrored.
+    ///
+    /// Labels mean something only once something has diarized: a
+    /// non-empty speaker map, or an explicit `daisy_diarization`.
+    public nonisolated static func labelsAreMeaningful(speakerMap: [String: String]?,
+                                                       diarization: String?) -> Bool {
+        if let diarization, !diarization.isEmpty, diarization != "none" { return true }
+        return !(speakerMap?.isEmpty ?? true)
     }
 }

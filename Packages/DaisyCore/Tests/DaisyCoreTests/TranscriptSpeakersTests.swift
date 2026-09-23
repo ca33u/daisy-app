@@ -71,3 +71,30 @@ struct TranscriptSpeakersTests {
             .hasPrefix("━━━ OUTPUT LANGUAGE: RUSSIAN"))
     }
 }
+
+@Suite("Speaker labels only count where they mean something")
+struct SpeakerLabelMeaningTests {
+    /// The case found on a real phone, 2026-09-23. A phone transcript
+    /// labels every segment `Me` and carries an empty speaker map —
+    /// so "one distinct name" is true of a two-person meeting too.
+    @Test func aPhoneTranscriptSaysNothingAboutHowManySpoke() {
+        let phoneBody = """
+        **[0:00 · Me]** Да надо просто вот мне секунд.
+        **[0:05 · Me]** Да, хорошо.
+        """
+        #expect(TranscriptSpeakers.isSingleVoice(inBody: phoneBody))
+        #expect(!TranscriptSpeakers.labelsAreMeaningful(speakerMap: [:], diarization: nil))
+    }
+
+    @Test func aDiarizedTranscriptDoesCount() {
+        #expect(TranscriptSpeakers.labelsAreMeaningful(speakerMap: ["Remote A": "Anna"], diarization: nil))
+        #expect(TranscriptSpeakers.labelsAreMeaningful(speakerMap: [:], diarization: "pyannote"))
+    }
+
+    /// An explicit "none" is a statement that nothing diarized it — it
+    /// must not read as evidence that something did.
+    @Test func anExplicitNoneIsNotDiarization() {
+        #expect(!TranscriptSpeakers.labelsAreMeaningful(speakerMap: [:], diarization: "none"))
+        #expect(!TranscriptSpeakers.labelsAreMeaningful(speakerMap: nil, diarization: ""))
+    }
+}

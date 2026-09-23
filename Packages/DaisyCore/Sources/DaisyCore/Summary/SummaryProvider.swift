@@ -54,7 +54,13 @@ public nonisolated enum SummaryProviderKind: String, Codable, CaseIterable, Send
 
 public nonisolated protocol SummaryProvider: Sendable {
     var kind: SummaryProviderKind { get }
-    func summarize(transcript: String, title: String, localeHint: String?) async throws -> MeetingSummary
+    /// `singleVoice` is a CONCLUSION the caller has already earned, not
+    /// something to derive from the transcript here: it holds only when
+    /// the speaker labels mean something (see
+    /// `TranscriptSpeakers.labelsAreMeaningful`). A provider cannot
+    /// know that — it never sees the frontmatter — and guessing from
+    /// the body alone marks every phone session a monologue.
+    func summarize(transcript: String, title: String, localeHint: String?, singleVoice: Bool) async throws -> MeetingSummary
 }
 
 public nonisolated enum SummaryProviderError: LocalizedError, Sendable {
@@ -133,12 +139,12 @@ public nonisolated struct AnthropicSummaryProvider: SummaryProvider {
 
     public init(model: String = defaultModelID) { self.model = model }
 
-    public func summarize(transcript: String, title: String, localeHint: String?) async throws -> MeetingSummary {
+    public func summarize(transcript: String, title: String, localeHint: String?, singleVoice: Bool = false) async throws -> MeetingSummary {
         let (text, apiKey) = try CloudSummaryCall.prepare(transcript: transcript, keyAccount: SecretKey.anthropicAPIKey, provider: "Anthropic")
         let body: [String: Any] = [
             "model": model,
             "max_tokens": 4096,
-            "system": SummaryPrompt.meetingSystemInstructions(localeHint: localeHint, singleVoice: TranscriptSpeakers.isSingleVoice(inBody: transcript)),
+            "system": SummaryPrompt.meetingSystemInstructions(localeHint: localeHint, singleVoice: singleVoice),
             "messages": [["role": "user", "content": SummaryPrompt.meetingUserPrompt(title: title, transcript: text)]],
         ]
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
@@ -181,12 +187,12 @@ public nonisolated struct OpenAISummaryProvider: SummaryProvider {
         return id.hasPrefix("gpt-5") || id.hasPrefix("o1") || id.hasPrefix("o3") || id.hasPrefix("o4")
     }
 
-    public func summarize(transcript: String, title: String, localeHint: String?) async throws -> MeetingSummary {
+    public func summarize(transcript: String, title: String, localeHint: String?, singleVoice: Bool = false) async throws -> MeetingSummary {
         let (text, apiKey) = try CloudSummaryCall.prepare(transcript: transcript, keyAccount: SecretKey.openaiAPIKey, provider: "OpenAI")
         var body: [String: Any] = [
             "model": model,
             "messages": [
-                ["role": "system", "content": SummaryPrompt.meetingSystemInstructions(localeHint: localeHint, singleVoice: TranscriptSpeakers.isSingleVoice(inBody: transcript))],
+                ["role": "system", "content": SummaryPrompt.meetingSystemInstructions(localeHint: localeHint, singleVoice: singleVoice)],
                 ["role": "user", "content": SummaryPrompt.meetingUserPrompt(title: title, transcript: text)],
             ],
             "response_format": ["type": "json_object"],
@@ -222,12 +228,12 @@ public nonisolated struct KimiSummaryProvider: SummaryProvider {
 
     static func isThinkingModel(_ model: String) -> Bool { model.lowercased().hasPrefix("kimi-k3") }
 
-    public func summarize(transcript: String, title: String, localeHint: String?) async throws -> MeetingSummary {
+    public func summarize(transcript: String, title: String, localeHint: String?, singleVoice: Bool = false) async throws -> MeetingSummary {
         let (text, apiKey) = try CloudSummaryCall.prepare(transcript: transcript, keyAccount: SecretKey.kimiAPIKey, provider: "Kimi")
         var body: [String: Any] = [
             "model": model,
             "messages": [
-                ["role": "system", "content": SummaryPrompt.meetingSystemInstructions(localeHint: localeHint, singleVoice: TranscriptSpeakers.isSingleVoice(inBody: transcript))],
+                ["role": "system", "content": SummaryPrompt.meetingSystemInstructions(localeHint: localeHint, singleVoice: singleVoice)],
                 ["role": "user", "content": SummaryPrompt.meetingUserPrompt(title: title, transcript: text)],
             ],
             "response_format": ["type": "json_object"],
