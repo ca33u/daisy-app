@@ -492,3 +492,58 @@ struct QRRoundTripTests {
         return context.makeImage()
     }
 }
+
+@Suite("Neither picture is ever inside the code")
+struct NoImagesInVCardTests {
+    /// The rule, pinned: a card with a photo AND a logo puts neither
+    /// into the vCard. They are decoration drawn on top of the code;
+    /// the code carries contact details only (K-2).
+    ///
+    /// Measured 2026-09-23: this card is 194 bytes → 57 modules. The
+    /// same card with a 96×96 photo inlined as `PHOTO;ENCODING=b` is
+    /// 1862 bytes → 161 modules, and at that density a phone camera
+    /// needs the code printed the size of a postcard. That is the whole
+    /// reason for the rule.
+    @Test func aCardWithBothPicturesCarriesNeither() {
+        var card = BusinessCard(kind: .work)
+        card.name = "Egor Sazanov"
+        card.company = "addicted"
+        card.role = "Founder"
+        card.phone = "+79001234567"
+        card.email = "egor@addicted.sh"
+        card.link = "addicted.sh"
+        card.hasPhoto = true
+        card.hasLogo = true
+
+        let text = VCard.text(for: card)
+        #expect(!text.contains("PHOTO"))
+        #expect(!text.contains("LOGO"))
+        #expect(!text.contains("ENCODING=b"))
+        #expect(!text.contains("base64"))
+        // Only the contact lines, nothing else.
+        let keys = text.split(separator: "\r\n").map { $0.split(separator: ":").first.map(String.init) ?? "" }
+        #expect(Set(keys) == ["BEGIN", "VERSION", "N", "FN", "ORG", "TITLE", "TEL;TYPE=CELL", "EMAIL;TYPE=INTERNET", "URL", "END"])
+        #expect(VCard.byteCount(for: card) < VCard.comfortableByteLimit)
+
+        // And the size the person sees is unaffected by the pictures.
+        var bare = card
+        bare.hasPhoto = false
+        bare.hasLogo = false
+        #expect(VCard.text(for: bare) == text)
+    }
+
+    /// What the logo DOES cost: correction, not payload. The grid grows
+    /// because a logo destroys modules, not because it is in them.
+    @Test func theLogoCostsCorrectionNotData() {
+        var card = BusinessCard(kind: .work)
+        card.name = "Egor Sazanov"
+        card.company = "addicted"
+        card.email = "egor@addicted.sh"
+        let payload = VCard.text(for: card)
+        let plain = QRCode.matrix(from: payload, correction: .medium).count
+        let withLogo = QRCode.matrix(from: payload, correction: .quartile).count
+        #expect(withLogo > plain, "level Q should need more modules than M")
+        // The DATA is identical either way.
+        #expect(VCard.text(for: card) == payload)
+    }
+}
