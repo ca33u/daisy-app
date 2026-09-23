@@ -238,6 +238,21 @@ different runs. This was a real bug.
 <OCR text, appended after the fact>
 ```
 
+**Highlights.** A reader may mark words inside a segment the way one
+marks a line in a book: `==marked words==` — Obsidian's highlight
+syntax, chosen because a Daisy library usually lives in an Obsidian
+vault. Rules, all narrow on purpose:
+
+- a highlight lives **inside one segment line**; it never spans lines;
+- highlights never nest, and `====` (empty) marks nothing;
+- a writer that does not understand them must **leave them alone** —
+  the words between the markers are ordinary text, and stripping the
+  markers is allowed (search, summarising, the `daisy_speaker_map`
+  substitution) but must not remove the words;
+- there is exactly **one** kind of mark and no colour. A colour would
+  need a legend, and the second person to open the file would have to
+  guess what it meant.
+
 Section headings are localized — except one. **`## Transcript` is never
 translated**, in any language, because the audio-retention sweep finds it
 by literal string to decide whether a transcript has real content before

@@ -97,6 +97,8 @@ extension Color {
     // Status semantics
     public static let daisySuccess = Color(DaisyPalette.success)
     public static let daisyWarning = Color(DaisyPalette.warning)
+    /// Behind highlighted words in a transcript (§3.3 `==like this==`).
+    public static let daisyHighlight = Color(DaisyPalette.highlight)
     public static let daisyError = Color(DaisyPalette.error)
     public static let daisyDestructiveControl = Color(DaisyPalette.destructiveControl)
     public static let daisyAccent = Color(DaisyPalette.accent)

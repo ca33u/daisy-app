@@ -120,6 +120,11 @@ public nonisolated enum DaisyPalette {
     public static let success = DaisyColorPair(light: 0x3D7458, dark: 0x93C9A5)
     /// Warning / summarizing / pending. Warm gold — explicitly NOT orange.
     public static let warning = DaisyColorPair(light: 0xF5A14B, dark: 0xFFBF73)
+    /// A highlighted phrase in a transcript — the marker-pen yellow of
+    /// a paper book, dimmed for dark mode so it stays behind the words
+    /// rather than shouting over them (backlog 13, Egor 2026-09-23).
+    public static let highlight = DaisyColorPair(light: 0xFFF1A8, dark: 0x5A4E1C)
+
     /// Error. Red shifted toward magenta so it can't pass for recording orange.
     public static let error = DaisyColorPair(light: 0xCF684E, dark: 0xE98A73)
     /// Filled destructive controls — darker than `error` for white labels.
