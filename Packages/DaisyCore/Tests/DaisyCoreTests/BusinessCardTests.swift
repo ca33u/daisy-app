@@ -11,6 +11,7 @@ import CoreGraphics
 import CoreImage
 import Foundation
 import ImageIO
+import Vision
 import UniformTypeIdentifiers
 @testable import DaisyCore
 
@@ -315,5 +316,127 @@ struct QRMaskTests {
         let withLogo = try #require(QRCode.mask(from: "hello", size: 120, correction: .quartile))
         #expect(plain.width > 0 && withLogo.width > 0)
         #expect(QRCode.correction(hasLogo: true) == .quartile)
+    }
+}
+
+@Suite("The code as a grid of modules")
+struct QRMatrixTests {
+    /// Drawn as shapes because a widget cannot draw it any other way
+    /// and still follow the theme (2026-09-23). The grid has to be a
+    /// real QR code: square, quiet zone around it, roughly half dark.
+    @Test func theGridIsSquareQuietAtTheEdgesAndHalfDark() {
+        let grid = QRCode.matrix(from: "https://addicted.sh")
+        #expect(!grid.isEmpty)
+        #expect(grid.allSatisfy { $0.count == grid.count }, "the grid must be square")
+
+        // The generator leaves a one-module quiet zone; the outermost
+        // ring must be empty or a scanner has nothing to lock onto.
+        #expect(grid.first?.allSatisfy { !$0 } == true)
+        #expect(grid.last?.allSatisfy { !$0 } == true)
+        #expect(grid.allSatisfy { !$0.first! && !$0.last! })
+
+        let dark = grid.flatMap { $0 }.filter { $0 }.count
+        let share = Double(dark) / Double(grid.count * grid.count)
+        #expect(share > 0.25 && share < 0.6, "dark modules were \(Int(share * 100))%")
+    }
+
+    /// The finder pattern: a 7×7 square just inside the quiet zone, in
+    /// three corners. If this is wrong the grid is upside down or
+    /// mirrored, and nothing will ever scan it.
+    @Test func theFinderPatternsAreWhereTheyShouldBe() {
+        let grid = QRCode.matrix(from: "hello world")
+        let n = grid.count
+        // Top-left finder: row 1 has seven dark modules from column 1.
+        #expect(grid[1][1...7].allSatisfy { $0 })
+        // Its inner ring is light.
+        #expect(!grid[2][2])
+        // Top-right finder.
+        #expect(grid[1][(n - 8)...(n - 2)].allSatisfy { $0 })
+        // Bottom-left finder.
+        #expect(grid[n - 2][1...7].allSatisfy { $0 })
+        // And the bottom-right corner is NOT a finder — that is how a
+        // scanner tells the orientation.
+        #expect(!grid[n - 2][n - 2])
+    }
+
+    @Test func aLongerCardMakesABiggerGrid() {
+        let small = QRCode.matrix(from: "hi")
+        let large = QRCode.matrix(from: String(repeating: "x", count: 200))
+        #expect(large.count > small.count)
+        // And a higher correction level costs modules too.
+        #expect(QRCode.matrix(from: "hi", correction: .quartile).count >= small.count)
+    }
+}
+
+@Suite("The drawn code actually scans")
+struct QRRoundTripTests {
+    /// The only test that proves the whole chain: build the grid the
+    /// way the views do, draw it the way they draw it, and read it back
+    /// with Vision — the same detector the iPhone camera uses. A
+    /// mirrored grid, a half-module offset or a seam between modules
+    /// all fail here rather than in someone's hand at a conference.
+    @Test func aCardDrawnFromTheGridDecodesBackToItsVCard() throws {
+        var card = BusinessCard(kind: .work)
+        card.name = "Egor Sazanov"
+        card.company = "addicted"
+        card.role = "Founder"
+        card.email = "egor@addicted.sh"
+        card.link = "addicted.sh"
+        let payload = VCard.text(for: card)
+
+        let grid = QRCode.matrix(from: payload)
+        let drawn = try #require(draw(grid, side: 600))
+
+        let request = VNDetectBarcodesRequest()
+        try VNImageRequestHandler(cgImage: drawn).perform([request])
+        let decoded = (request.results ?? []).compactMap(\.payloadStringValue)
+        #expect(decoded.count == 1)
+        #expect(decoded.first == payload, "what the code carries must be exactly the vCard")
+    }
+
+    /// And with a logo covering the middle, at the size the views use.
+    @Test func aCodeWithALogoInTheMiddleStillDecodes() throws {
+        var card = BusinessCard(kind: .work)
+        card.name = "Egor Sazanov"
+        card.company = "addicted"
+        card.email = "egor@addicted.sh"
+        card.hasLogo = true
+        let payload = VCard.text(for: card)
+
+        let grid = QRCode.matrix(from: payload, correction: QRCode.correction(hasLogo: true))
+        let drawn = try #require(draw(grid, side: 600, logoFraction: QRCode.maxLogoFraction))
+
+        let request = VNDetectBarcodesRequest()
+        try VNImageRequestHandler(cgImage: drawn).perform([request])
+        #expect((request.results ?? []).compactMap(\.payloadStringValue).first == payload,
+                "a logo of \(Int(QRCode.maxLogoFraction * 100))% must still leave a readable code")
+    }
+
+    /// Draw the grid as the views do: dark squares on white, y running
+    /// downwards, optionally with a disc punched in the middle.
+    private func draw(_ grid: [[Bool]], side: Int, logoFraction: CGFloat = 0) -> CGImage? {
+        guard !grid.isEmpty else { return nil }
+        let count = grid.count
+        let step = CGFloat(side) / CGFloat(count)
+        guard let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: side, height: side))
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        for (y, row) in grid.enumerated() {
+            for (x, isDark) in row.enumerated() where isDark {
+                context.fill(CGRect(x: CGFloat(x) * step,
+                                    y: CGFloat(count - 1 - y) * step,
+                                    width: step + 0.5, height: step + 0.5))
+            }
+        }
+        if logoFraction > 0 {
+            let discSide = CGFloat(side) * logoFraction
+            let origin = (CGFloat(side) - discSide) / 2
+            context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+            context.fillEllipse(in: CGRect(x: origin, y: origin, width: discSide, height: discSide))
+        }
+        return context.makeImage()
     }
 }

@@ -64,6 +64,57 @@ public nonisolated enum QRCode {
     /// colour it draws on, so the code sits on the card rather than in
     /// a white box on it — while staying opaque, which is what keeps
     /// any renderer from tinting the modules.
+    /// The code as a grid of modules: `true` is a dark module. Rows top
+    /// to bottom, columns left to right, including the quiet zone the
+    /// generator leaves (one module wide).
+    ///
+    /// This exists because **a widget cannot draw an image of a code
+    /// that follows the theme**. WidgetKit renders in its own process
+    /// with a reduced set of effects: masks, blurs and blend modes do
+    /// nothing there, so "paint a mask with the system colour" silently
+    /// produced an empty square on a real home screen (2026-09-23), and
+    /// a bitmap of a fixed colour is invisible in one appearance or the
+    /// other. Shapes drawn from this grid have neither problem: the
+    /// colour is the view's, and rectangles are something every
+    /// renderer can draw.
+    public static func matrix(from text: String, correction: Correction = .medium) -> [[Bool]] {
+        let generator = CIFilter.qrCodeGenerator()
+        generator.message = Data(text.utf8)
+        generator.correctionLevel = correction.rawValue
+        guard let generated = generator.outputImage else { return [] }
+        let width = Int(generated.extent.width)
+        let height = Int(generated.extent.height)
+        guard width > 0, height > 0,
+              let cg = CIContext().createCGImage(generated, from: generated.extent) else { return [] }
+
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return [] }
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        // Row 0 of the buffer is the TOP row of the drawn image — the
+        // context's y-axis points up, but its memory does not. Reading
+        // it the other way round mirrors the code, and a mirrored QR
+        // is one no scanner reads (caught by the finder-pattern test,
+        // 2026-09-23).
+        var rows: [[Bool]] = []
+        rows.reserveCapacity(height)
+        for y in 0..<height {
+            var row: [Bool] = []
+            row.reserveCapacity(width)
+            for x in 0..<width {
+                let index = (y * width + x) * 4
+                // Opaque and dark = a module. The generator's field is
+                // white; outside the code it is transparent.
+                let isDark = pixels[index + 3] > 128 && pixels[index] < 128
+                row.append(isDark)
+            }
+            rows.append(row)
+        }
+        return rows
+    }
+
     /// The code as a MASK: modules opaque, everything else transparent,
     /// colour irrelevant. The caller paints it with a colour of its own
     /// — which is the only way a code on a widget can be right in both
