@@ -23,6 +23,8 @@ import Foundation
 public nonisolated enum SessionKind: String, Sendable, Codable {
     case recording
     case note
+    /// A rehearsal take (§3.7).
+    case rehearsal
 }
 
 /// Everything the Mac reader pulls out of `transcript.md`'s frontmatter.

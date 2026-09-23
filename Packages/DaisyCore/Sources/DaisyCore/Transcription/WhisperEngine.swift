@@ -299,10 +299,14 @@ public final class WhisperEngine: Transcribing {
         /// Decode wall time / audio length — the number the backlog wants
         /// from the real phone.
         public var realTimeFactor: Double
-        public init(segments: [TranscriptSegment], language: String?, realTimeFactor: Double) {
+        /// Word timings, seconds into the samples — only when asked for
+        /// (rehearsal takes, §3.7); empty otherwise.
+        public var words: [WordTiming] = []
+        public init(segments: [TranscriptSegment], language: String?, realTimeFactor: Double, words: [WordTiming] = []) {
             self.segments = segments
             self.language = language
             self.realTimeFactor = realTimeFactor
+            self.words = words
         }
     }
 
@@ -350,6 +354,7 @@ public final class WhisperEngine: Transcribing {
     /// looks stalled.
     public func run(
         samples: [Float], profile: Profile = .full, language: String? = nil,
+        wordTimestamps: Bool = false,
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Transcription {
         await load()
@@ -384,7 +389,7 @@ public final class WhisperEngine: Transcribing {
                 detectLanguage: language == nil,
                 skipSpecialTokens: true,
                 withoutTimestamps: false,
-                wordTimestamps: false,
+                wordTimestamps: wordTimestamps,
                 compressionRatioThreshold: 2.4,
                 logProbThreshold: -1.0,
                 noSpeechThreshold: 0.4,
@@ -403,21 +408,31 @@ public final class WhisperEngine: Transcribing {
                 audioArray: samples, decodeOptions: options, segmentCallback: segmentCallback
             )
             var segments: [RawSegment] = []
+            var words: [WordTiming] = []
             var language: String?
             for result in results {
                 if language == nil, !result.language.isEmpty { language = result.language }
                 for s in result.segments {
                     segments.append(RawSegment(start: Double(s.start), end: Double(s.end), text: s.text))
+                    // Words as heard. They are asked for on rehearsal
+                    // takes only — speech read aloud, where the loop
+                    // shapes that guard meetings from silence don't arise.
+                    for w in s.words ?? [] {
+                        let text = w.word.trimmingCharacters(in: .whitespaces)
+                        guard !text.isEmpty else { continue }
+                        words.append(WordTiming(w: text, s: Double(w.start), e: Double(w.end)))
+                    }
                 }
             }
-            return RawPass(segments: segments, language: language)
+            return RawPass(segments: segments, language: language, words: words)
         }.value
         let decodeSeconds = Date().timeIntervalSince(started)
         let audioSeconds = Double(samples.count) / 16_000
         let segments = Self.segments(from: raw.segments, origin: origin)
         let rtf = audioSeconds > 0 ? decodeSeconds / audioSeconds : 0
         log.info("Whisper pass: \(Int(audioSeconds), privacy: .public) s audio in \(Int(decodeSeconds), privacy: .public) s (RTF \(String(format: "%.2f", rtf), privacy: .public)), \(segments.count, privacy: .public) segments, language \(raw.language ?? "-", privacy: .public)")
-        return Transcription(segments: segments, language: segments.isEmpty ? nil : raw.language, realTimeFactor: rtf)
+        return Transcription(segments: segments, language: segments.isEmpty ? nil : raw.language, realTimeFactor: rtf,
+                             words: raw.words.sorted { $0.s < $1.s })
     }
 
     // MARK: - Segments
@@ -436,6 +451,7 @@ public final class WhisperEngine: Transcribing {
     private nonisolated struct RawPass: Sendable {
         var segments: [RawSegment]
         var language: String?
+        var words: [WordTiming] = []
     }
 
     /// WhisperKit segments → transcript segments. Sorted by start; empty

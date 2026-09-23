@@ -126,3 +126,14 @@ struct SubtitlesTests {
         #expect(cues.allSatisfy { $0.text.count <= Subtitles.maxCharacters })
     }
 }
+
+@Suite("Rehearsal: script.md")
+struct ScriptDocumentTests {
+    @Test func aTakeCarriesItsTextAndIdentity() throws {
+        let doc = ScriptDocument(title: "Питч \"Daisy\"", text: "Первый абзац.\n\nВторой абзац.", targetSeconds: 60)
+        let back = try #require(ScriptDocument.parse(doc.render()))
+        #expect(back == doc)
+        #expect(doc.frontmatterFields.map(\.key) == ["daisy_script_id", "daisy_target_sec"])
+        #expect(RehearsalScript(text: back.text).paragraphs.count == 2)
+    }
+}
