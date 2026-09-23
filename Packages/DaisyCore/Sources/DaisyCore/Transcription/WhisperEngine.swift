@@ -13,8 +13,9 @@
 //  ready / failed` state with the 5-minute failure backoff. Gone: model
 //  switching, dictation profiles, the bias prompt, the VAD pre-pass
 //  (WhisperKit's own `.vad` chunking stays), the hallucination
-//  post-filter beyond the two rules that matter for a batch pass (empty
-//  text, exact repeat of the previous segment).
+//  post-filter beyond the rules that matter for a batch pass (empty
+//  text, exact repeat of the previous segment, a line that loops —
+//  `RepetitionLoop`, 2026-09-23).
 //
 //  Model folder layout (what `ModelDownloader` lays down and
 //  `ModelStore.verify` checks): the variant folder straight from
@@ -438,9 +439,10 @@ public final class WhisperEngine: Transcribing {
     }
 
     /// WhisperKit segments → transcript segments. Sorted by start; empty
-    /// text and an exact repeat of the previous segment (the classic
-    /// Whisper loop) are dropped — the two post-filter rules from the
-    /// Mac that apply to a batch pass.
+    /// text, an exact repeat of the previous segment and a line that is
+    /// one phrase repeating (`RepetitionLoop.isLoop`) are dropped — the
+    /// post-filter rules from the Mac that one pass can judge. Loops
+    /// spread over several lines are the caller's, where blocks join.
     public nonisolated static func segments(from raw: [RawSegment], origin: Date) -> [TranscriptSegment] {
         var out: [TranscriptSegment] = []
         var previous: String?
@@ -448,6 +450,9 @@ public final class WhisperEngine: Transcribing {
             let text = s.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { continue }
             if let previous, previous == text { continue }
+            // One phrase going round («я знаю, что я знаю…»): the shape
+            // silence makes, whatever the words (Mac incident, 23.09).
+            if RepetitionLoop.isLoop(text) { continue }
             previous = text
             out.append(TranscriptSegment(
                 startedAt: origin.addingTimeInterval(s.start),

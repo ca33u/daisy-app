@@ -55,6 +55,24 @@ public enum RepetitionLoop {
         return false
     }
 
+    // MARK: - All three, on a finished list
+
+    /// A transcript with every loop shape removed: a line that loops on
+    /// its own, a run of the same short line, and a loop spread over
+    /// several lines. The cross-segment rules need the whole list, so
+    /// this runs where the pieces are joined — on the phone, after the
+    /// last block; on the Mac, `Transcriber.segments` does the same.
+    public nonisolated static func cleaned(_ segments: [TranscriptSegment]) -> [TranscriptSegment] {
+        let sorted = segments.sorted { $0.startedAt < $1.startedAt }
+        let texts = sorted.map(\.text)
+        let starts = sorted.map { $0.startedAt.timeIntervalSince1970 }
+        var dropped = silenceRunIndices(texts: texts, starts: starts)
+            .union(loopRunIndices(texts: texts, starts: starts))
+        for (i, text) in texts.enumerated() where isLoop(text) { dropped.insert(i) }
+        guard !dropped.isEmpty else { return sorted }
+        return sorted.enumerated().filter { !dropped.contains($0.offset) }.map(\.element)
+    }
+
     // MARK: - A loop spread over several segments
 
     /// Below this many words a window proves nothing either way.

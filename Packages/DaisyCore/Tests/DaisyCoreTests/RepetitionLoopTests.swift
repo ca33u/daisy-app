@@ -179,3 +179,44 @@ struct LoopRunTests {
         #expect(dropped(lines).isEmpty)
     }
 }
+
+@Suite("The phone gets the same loop filters")
+struct PhoneLoopFilterTests {
+    private let origin = Date(timeIntervalSince1970: 1_790_000_000)
+
+    private func segment(_ mmss: String, _ text: String) -> TranscriptSegment {
+        let p = mmss.split(separator: ":").compactMap { Double($0) }
+        let sec = p[0] * 60 + p[1]
+        return TranscriptSegment(startedAt: origin.addingTimeInterval(sec), text: text, startSec: sec, endSec: sec + 1)
+    }
+
+    /// One pass: a line that loops on its own never leaves the engine.
+    @Test func theEngineDropsALineThatLoops() {
+        let raw = [
+            WhisperEngine.RawSegment(start: 0, end: 3, text: " Ок."),
+            WhisperEngine.RawSegment(start: 4, end: 30, text: String(repeating: "я знаю, что ", count: 14) + "я знаю."),
+            WhisperEngine.RawSegment(start: 31, end: 34, text: " Да, были рады познакомиться."),
+        ]
+        let out = WhisperEngine.segments(from: raw, origin: origin).map(\.text)
+        #expect(out == ["Ок.", "Да, были рады познакомиться."])
+    }
+
+    /// Joined blocks: the first user's loop and the second user's
+    /// empty room, with the real lines around them intact.
+    @Test func joinedBlocksLoseBothShapesAndNothingElse() {
+        let segments = [
+            segment("10:48", "Ок."),
+            segment("11:05", "Ну, я думаю, что я не знаю, я не знаю, что я не знаю,"),
+            segment("11:07", "я не знаю, что я не знаю, как это делать,"),
+            segment("11:09", "я думаю, что я не знаю, как это делать,"),
+            segment("11:11", "я думаю, что я не знаю, что я не знаю, не знаю, что я не знаю."),
+            segment("11:13", "Я думаю, что я не знаю, что я не знаю, что я знаю, что я знаю, что я знаю."),
+            segment("32:00", "Да, были рады познакомиться. Хорошего дня!"),
+            segment("33:23", "До свидания."),
+            segment("40:30", "Спасибо."), segment("40:31", "Спасибо."), segment("40:33", "Спасибо."),
+            segment("40:35", "Спасибо."), segment("40:37", "Спасибо."),
+        ]
+        let kept = RepetitionLoop.cleaned(segments.shuffled()).map(\.text)
+        #expect(kept == ["Ок.", "Да, были рады познакомиться. Хорошего дня!", "До свидания."])
+    }
+}
