@@ -58,6 +58,16 @@ public enum WatchRole: Sendable, Equatable {
         /// period — asleep, busy, or the app was killed.
         case phoneDidNotAnswer
 
+        /// The same thing in the words that fit a watch. The long
+        /// version is for the phone and for a screen the person can
+        /// scroll; this one is for the glance.
+        public var short: String {
+            switch self {
+            case .phoneNotReachable: return "Phone not in reach — recording here"
+            case .phoneDidNotAnswer: return "Phone didn't answer — recording here"
+            }
+        }
+
         /// What the watch screen says. Never a bare "offline": the
         /// person has to understand that the audio will be worse and
         /// why, or they will think the app is broken.
