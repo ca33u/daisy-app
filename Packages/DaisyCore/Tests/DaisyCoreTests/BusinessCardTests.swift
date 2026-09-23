@@ -412,9 +412,30 @@ struct QRRoundTripTests {
                 "a logo of \(Int(QRCode.maxLogoFraction * 100))% must still leave a readable code")
     }
 
+    /// Rounded modules still scan — the look Egor asked for on
+    /// 2026-09-23, checked rather than assumed. A third of a module is
+    /// what the views use; half (full circles) is tested too, because
+    /// that is the first thing anyone will try next.
+    @Test func roundedModulesStillDecode() throws {
+        var card = BusinessCard(kind: .work)
+        card.name = "Egor Sazanov"
+        card.company = "addicted"
+        card.email = "egor@addicted.sh"
+        let payload = VCard.text(for: card)
+        let grid = QRCode.matrix(from: payload)
+        for roundness in [CGFloat(0), 0.3, 0.5] {
+            let drawn = try #require(draw(grid, side: 600, roundness: roundness))
+            let request = VNDetectBarcodesRequest()
+            try VNImageRequestHandler(cgImage: drawn).perform([request])
+            #expect((request.results ?? []).compactMap(\.payloadStringValue).first == payload,
+                    "modules rounded by \(roundness) stopped decoding")
+        }
+    }
+
     /// Draw the grid as the views do: dark squares on white, y running
-    /// downwards, optionally with a disc punched in the middle.
-    private func draw(_ grid: [[Bool]], side: Int, logoFraction: CGFloat = 0) -> CGImage? {
+    /// downwards, optionally rounded and with a disc in the middle.
+    private func draw(_ grid: [[Bool]], side: Int, logoFraction: CGFloat = 0,
+                      roundness: CGFloat = 0) -> CGImage? {
         guard !grid.isEmpty else { return nil }
         let count = grid.count
         let step = CGFloat(side) / CGFloat(count)
@@ -426,9 +447,17 @@ struct QRRoundTripTests {
         context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         for (y, row) in grid.enumerated() {
             for (x, isDark) in row.enumerated() where isDark {
-                context.fill(CGRect(x: CGFloat(x) * step,
-                                    y: CGFloat(count - 1 - y) * step,
-                                    width: step + 0.5, height: step + 0.5))
+                let rect = CGRect(x: CGFloat(x) * step,
+                                  y: CGFloat(count - 1 - y) * step,
+                                  width: step + 0.5, height: step + 0.5)
+                if roundness > 0 {
+                    let radius = min(step * roundness, step / 2)
+                    context.addPath(CGPath(roundedRect: rect, cornerWidth: radius,
+                                           cornerHeight: radius, transform: nil))
+                    context.fillPath()
+                } else {
+                    context.fill(rect)
+                }
             }
         }
         if logoFraction > 0 {
