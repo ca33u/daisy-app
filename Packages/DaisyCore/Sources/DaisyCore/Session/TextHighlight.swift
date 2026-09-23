@@ -53,8 +53,43 @@ public nonisolated enum TextHighlight {
         text.replacingOccurrences(of: marker, with: "")
     }
 
-    /// Put a highlight on `range`, or take it off if it is already
-    /// highlighted. Returns the new text and where the same words now
+    /// What a selection can do to a highlight — what the menu's icon
+    /// has to say before the person taps it.
+    public enum State: Equatable {
+        /// Nothing highlighted here: the action adds one.
+        case canHighlight
+        /// The selection is a highlight (exactly, partly, or including
+        /// its `==` markers): the action removes THAT one, whose span
+        /// in the text-with-markers is carried here.
+        case canRemove(NSRange)
+    }
+
+    /// The highlight the selection touches, if any. Deliberately
+    /// generous: selecting the words, selecting half of them, or
+    /// selecting them together with the `==` markers (which is what a
+    /// triple tap or a drag gives you) all mean the same thing to a
+    /// person — "this bit, the marked one".
+    public static func state(in text: String, range: NSRange) -> State {
+        let ns = text as NSString
+        guard range.location >= 0, range.location + range.length <= ns.length else { return .canHighlight }
+        let selectionEnd = range.location + range.length
+        for span in ranges(in: text) {
+            let inner = NSRange(span, in: text)
+            // The span including its markers — what the person sees as
+            // the highlighted phrase when the markers are on screen.
+            let outer = NSRange(location: inner.location - marker.count,
+                                length: inner.length + marker.count * 2)
+            let touchesInner = range.length > 0
+                ? selectionEnd > inner.location && range.location < inner.location + inner.length
+                : range.location >= inner.location && range.location <= inner.location + inner.length
+            let insideOuter = range.location >= outer.location && selectionEnd <= outer.location + outer.length
+            if touchesInner || insideOuter { return .canRemove(inner) }
+        }
+        return .canHighlight
+    }
+
+    /// Put a highlight on `range`, or take it off if the selection
+    /// touches one. Returns the new text and where the same words now
     /// sit, so a caller can keep the selection on screen.
     ///
     /// The range is trimmed of surrounding spaces first: a person
@@ -74,8 +109,11 @@ public nonisolated enum TextHighlight {
         }
         guard selection.length > 0 else { return (text, range) }
 
-        // Already inside a highlight? Then this is "unmark".
-        if let existing = enclosingHighlight(in: text, at: selection) {
+        // Touching a highlight at all? Then this is "unmark" — never
+        // "add another one inside it": `====nested====` is not a thing,
+        // and a selection that includes the markers used to produce
+        // exactly that (found 2026-09-23).
+        if case .canRemove(let existing) = state(in: text, range: range) {
             let opened = NSRange(location: existing.location - marker.count, length: marker.count)
             let closed = NSRange(location: existing.location + existing.length, length: marker.count)
             var updated = ns.replacingCharacters(in: closed, with: "") as NSString
@@ -88,18 +126,9 @@ public nonisolated enum TextHighlight {
         return (updated, NSRange(location: selection.location + marker.count, length: selection.length))
     }
 
-    /// The highlighted span that contains `range`, in the text WITH
-    /// markers — nil when the selection is not inside one.
+    /// The highlight this selection would remove, if any.
     public static func enclosingHighlight(in text: String, at range: NSRange) -> NSRange? {
-        let ns = text as NSString
-        for span in ranges(in: text) {
-            let nsSpan = NSRange(span, in: text)
-            if range.location >= nsSpan.location,
-               range.location + range.length <= nsSpan.location + nsSpan.length {
-                return nsSpan
-            }
-        }
-        _ = ns
+        if case .canRemove(let span) = state(in: text, range: range) { return span }
         return nil
     }
 

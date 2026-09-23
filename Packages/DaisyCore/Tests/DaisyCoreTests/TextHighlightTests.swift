@@ -91,3 +91,47 @@ struct HighlightCompatibilityTests {
         #expect(renamed == "**[0:42 · Alex]** The ==price==.")
     }
 }
+
+@Suite("Selecting a highlight offers to remove it")
+struct HighlightSelectionStateTests {
+    private let text = "We ship on the ==ninth of November== this year."
+
+    private func range(_ substring: String) -> NSRange {
+        (text as NSString).range(of: substring)
+    }
+
+    /// Egor, 2026-09-23: select the highlighted phrase exactly and the
+    /// action must read "remove", not "add another one".
+    @Test func selectingTheExactPhraseOffersRemoval() {
+        #expect(TextHighlight.state(in: text, range: range("ninth of November")) != .canHighlight)
+        // Including the markers — what a drag or a triple tap gives you.
+        #expect(TextHighlight.state(in: text, range: range("==ninth of November==")) != .canHighlight)
+        // Half of it counts too: a person means "this marked bit".
+        #expect(TextHighlight.state(in: text, range: range("November")) != .canHighlight)
+        // Plain words elsewhere still offer to highlight.
+        #expect(TextHighlight.state(in: text, range: range("this year")) == .canHighlight)
+    }
+
+    /// The bug the state machine fixes: selecting the phrase WITH its
+    /// markers used to wrap it again — `====like this====`.
+    @Test func aSelectionIncludingTheMarkersRemovesRatherThanNests() {
+        let (updated, _) = TextHighlight.toggle(in: text, range: range("==ninth of November=="))
+        #expect(updated == "We ship on the ninth of November this year.")
+        #expect(!updated.contains("===="))
+        #expect(TextHighlight.ranges(in: updated).isEmpty)
+    }
+
+    @Test func removingFromAPartialSelectionTakesTheWholePhrase() {
+        let (updated, kept) = TextHighlight.toggle(in: text, range: range("November"))
+        #expect(updated == "We ship on the ninth of November this year.")
+        #expect((updated as NSString).substring(with: kept) == "ninth of November")
+    }
+
+    @Test func twoHighlightsAreIndependent() {
+        let two = "==first== middle ==second=="
+        let (afterFirst, _) = TextHighlight.toggle(in: two, range: (two as NSString).range(of: "first"))
+        #expect(afterFirst == "first middle ==second==")
+        let (afterSecond, _) = TextHighlight.toggle(in: afterFirst, range: (afterFirst as NSString).range(of: "second"))
+        #expect(afterSecond == "first middle second")
+    }
+}
