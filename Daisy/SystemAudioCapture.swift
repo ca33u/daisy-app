@@ -160,8 +160,33 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// source (delivers a buffer, dies, repeats) would then restart
     /// forever. A recording is bounded, and 3 recoveries inside one is
     /// already the generous reading.
-    private var autoRestartCount: Int = 0
-    private static let maxAutoRestarts = 3
+    /// When each recent restart happened. A COUNT over a window, not a
+    /// total for the whole recording.
+    ///
+    /// Инцидент 23.09: the old budget was three restarts per capture,
+    /// spent-once. It was written against "the stream dies again
+    /// immediately", and it fired on "the stream lives for minutes and
+    /// dies again" — macOS stopping a ScreenCaptureKit stream every few
+    /// minutes. Each restart SUCCEEDED; after the third, Daisy stopped
+    /// trying for the rest of the meeting. One user lost the other side
+    /// of eighteen meetings that way, twice in one day at minute 15 and
+    /// minute 11.
+    ///
+    /// A window fixes the class, not the instance: a stream that keeps
+    /// coming back gets to keep coming back, and a stream that is truly
+    /// broken still stops thrashing.
+    private var restartsInWindow: [Date] = []
+    private static let restartWindow: TimeInterval = 120
+    /// Read by the guard tests — the numbers are the behaviour here.
+    nonisolated static var restartWindowForTesting: TimeInterval { restartWindow }
+    nonisolated static var maxRestartsInWindowForTesting: Int { maxRestartsInWindow }
+    private static let maxRestartsInWindow = 3
+    /// After the window's budget is gone Daisy does NOT give up while
+    /// the meeting is still running — it slows down. A retry costs
+    /// seconds; giving up costs the rest of the recording.
+    private static let slowRetryBackoff: [TimeInterval] = [5, 15, 30]
+    private static let slowRetryInterval: TimeInterval = 60
+    private var slowRetryTask: Task<Void, Never>?
 
     /// Second chance after the restart budget is spent: a stream that
     /// died because macOS had no display to capture from (screen asleep,
@@ -394,7 +419,9 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             peakLevelDB = -160
             lastSampleAt = nil
             hasReceivedAudio = false
-            autoRestartCount = 0
+            restartsInWindow.removeAll()
+            slowRetryTask?.cancel()
+            slowRetryTask = nil
             gaveUpNoticeShown = false
             gapStartedAt = nil
             displayReturnPausedBySession = false
@@ -1090,6 +1117,102 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         log.notice("Padded the system-audio archive with \(Int(seconds), privacy: .public)s of silence for the outage")
     }
 
+
+    /// Say it where the person actually is.
+    ///
+    /// Инцидент 23.09: this used to be a pill on the floating widget,
+    /// with a system banner only as a fallback when the pill could not
+    /// be shown, plus a 2.6-second toast in a window nobody had open.
+    /// During a call the person is looking at Meet. Both users who
+    /// complained found out from the transcript, afterwards.
+    ///
+    /// So: banner AND pill, a toast that waits instead of expiring, and
+    /// a way out that is not "stop the recording and start again".
+    private func announceCaptureLoss() {
+        guard !quietDiagnostics, !gaveUpNoticeShown else { return }
+        gaveUpNoticeShown = true
+        CaptureProblemNotification.post(
+            title: String(localized: "Daisy stopped hearing the other side"),
+            body: String(localized: "System audio stopped. Your microphone is still recording, and Daisy keeps trying to get the other side back."),
+            alwaysBanner: true,
+            actionTitle: String(localized: "Restart capture"),
+            actionSymbol: "arrow.clockwise",
+            autoDismiss: 120,
+            action: { [weak self] in
+                Task { @MainActor [weak self] in await self?.restartCaptureNow() }
+            }
+        )
+        ToastCenter.shared.showAction(
+            String(localized: "Daisy stopped hearing the other side. Your microphone is still recording; Daisy keeps trying."),
+            actionLabel: String(localized: "Restart capture"),
+            style: .warning,
+            // Until dismissed: this one costs the rest of the meeting,
+            // and 2.6 seconds is how the first eighteen went unnoticed.
+            duration: .seconds(24 * 3600),
+            perform: { [weak self] in
+                Task { @MainActor [weak self] in await self?.restartCaptureNow() }
+            }
+        )
+    }
+
+    /// What the pill's button does, and what the slow retries do.
+    /// Public so the UI can offer it anywhere the loss is visible.
+    func restartCaptureNow() async {
+        guard !outputRestartInFlight else { return }
+        outputRestartInFlight = true
+        defer {
+            outputRestartInFlight = false
+            lastOutputRestartAt = Date()
+        }
+        if await rebuildStream(reason: "manual-restart") {
+            captureRecovered()
+        }
+    }
+
+    /// Keep trying for as long as the meeting runs: 5 s, 15 s, 30 s,
+    /// then once a minute. The window's budget is about not thrashing,
+    /// not about giving up — a recording that has lost the other side
+    /// has nothing left to protect by staying quiet.
+    private func startSlowRetries() {
+        slowRetryTask?.cancel()
+        slowRetryTask = Task { @MainActor [weak self] in
+            var attempt = 0
+            while !Task.isCancelled {
+                let wait = attempt < Self.slowRetryBackoff.count
+                    ? Self.slowRetryBackoff[attempt]
+                    : Self.slowRetryInterval
+                attempt += 1
+                try? await Task.sleep(for: .seconds(wait))
+                guard let self, !Task.isCancelled else { return }
+                guard !outputRestartInFlight else { continue }
+                outputRestartInFlight = true
+                let ok = await rebuildStream(reason: "slow-retry-\(attempt)")
+                outputRestartInFlight = false
+                lastOutputRestartAt = Date()
+                if ok {
+                    captureRecovered()
+                    return
+                }
+            }
+        }
+    }
+
+    /// The other side is back: clear the window, let the next failure
+    /// speak up again, and take the warning off the screen.
+    private func captureRecovered() {
+        slowRetryTask?.cancel()
+        slowRetryTask = nil
+        restartsInWindow.removeAll()
+        gaveUpNoticeShown = false
+        lastError = nil
+        WidgetBubbleCenter.shared.dismiss(tag: CaptureProblemNotification.bubbleTag)
+        ToastCenter.shared.show(
+            String(localized: "The other side is back — system audio is recording again."),
+            style: .success
+        )
+        log.notice("System audio capture recovered")
+    }
+
     private func armDisplayReturnRecovery() {
         if gapStartedAt == nil { gapStartedAt = lastSampleAt ?? Date() }
         guard displayReturnObservers.isEmpty else { return }
@@ -1160,7 +1283,9 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             // The in-band budget is per outage, not per capture, now that
             // an outage can end: the next death gets its three quick
             // tries again before falling back to waiting for a display.
-            autoRestartCount = 0
+            restartsInWindow.removeAll()
+            slowRetryTask?.cancel()
+            slowRetryTask = nil
             disarmDisplayReturnRecovery()
             // A later death in this same session is a distinct outage and
             // deserves its own notice, not silence because we already
@@ -1270,34 +1395,27 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             return
         }
 
-        guard autoRestartCount < Self.maxAutoRestarts else {
-            log.error("System audio capture (\(self.backend.rawValue, privacy: .public)) died again after \(Self.maxAutoRestarts, privacy: .public) restarts — giving up: \(error.localizedDescription, privacy: .public)")
+        let now = Date()
+        restartsInWindow.removeAll { now.timeIntervalSince($0) > Self.restartWindow }
+        guard restartsInWindow.count < Self.maxRestartsInWindow else {
+            log.error("System audio capture (\(self.backend.rawValue, privacy: .public)) died \(Self.maxRestartsInWindow, privacy: .public) times in \(Int(Self.restartWindow), privacy: .public) s — backing off, still trying: \(error.localizedDescription, privacy: .public)")
             lastError = error.localizedDescription
             state = .stopped
             onCaptureGaveUp?()
             armDisplayReturnRecovery()
-            if !quietDiagnostics, !gaveUpNoticeShown {
-                gaveUpNoticeShown = true
-                CaptureProblemNotification.post(
-                    title: String(localized: "Daisy stopped hearing the other side"),
-                    body: String(localized: "System audio capture stopped and couldn’t be restarted. Your microphone is still being recorded.")
-                )
-                ToastCenter.shared.show(
-                    String(localized: "System audio capture stopped and couldn’t restart — only your microphone is being recorded. Stop & restart if you need the other side."),
-                    style: .warning
-                )
-            }
+            announceCaptureLoss()
+            startSlowRetries()
             return
         }
 
         outputRestartInFlight = true
-        autoRestartCount += 1
-        let attempt = autoRestartCount
+        restartsInWindow.append(now)
+        let attempt = restartsInWindow.count
         defer {
             outputRestartInFlight = false
             lastOutputRestartAt = Date()
         }
-        log.error("System audio capture (\(self.backend.rawValue, privacy: .public)) stopped with error — auto-restart \(attempt, privacy: .public)/\(Self.maxAutoRestarts, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        log.error("System audio capture (\(self.backend.rawValue, privacy: .public)) stopped with error — auto-restart \(attempt, privacy: .public)/\(Self.maxRestartsInWindow, privacy: .public): \(error.localizedDescription, privacy: .public)")
 
         if await rebuildStream(reason: "capture-death-\(attempt)") {
             // Quiet on success: the user didn't do anything and the
@@ -1413,6 +1531,9 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     }
 
     func stop() async {
+        // The retry loop outlives a failure, not the recording.
+        slowRetryTask?.cancel()
+        slowRetryTask = nil
         captureGeneration &+= 1   // strand any rebuild in flight
         disarmDisplayReturnRecovery()
         stopSilenceMonitor()

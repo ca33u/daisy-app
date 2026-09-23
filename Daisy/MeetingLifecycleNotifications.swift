@@ -447,13 +447,34 @@ enum CaptureProblemNotification {
     /// Widget bubble first (2026-08-21): the short `title` fits the
     /// pill; the detailed `body` lives on in the paired in-app toast
     /// every call site already shows, and in the banner fallback.
-    static func post(title: String, body: String) {
+    /// `alwaysBanner` — post the system notification IN ADDITION to the
+    /// pill, not instead of it.
+    ///
+    /// Инцидент 23.09: losing the other side is the one failure that
+    /// costs the rest of the meeting, and the pill is the one place the
+    /// person is not looking — they are in Google Meet. Two users lost
+    /// 18 meetings between them and found out afterwards, by reading
+    /// the transcript. For that failure the banner is not a fallback.
+    ///
+    /// `actionTitle` / `action` put a way out ON the pill: without it
+    /// the only remedy is stopping the recording and starting again,
+    /// which costs everything said so far.
+    static func post(title: String, body: String,
+                     alwaysBanner: Bool = false,
+                     actionTitle: String? = nil,
+                     actionSymbol: String? = nil,
+                     autoDismiss: TimeInterval = 12,
+                     action: (() -> Void)? = nil) {
         Task { @MainActor in
             let shown = WidgetBubbleCenter.shared.show(WidgetBubbleContent(
                 text: title,
-                tag: bubbleTag
+                actionTitle: actionTitle,
+                actionSymbol: actionSymbol,
+                autoDismiss: autoDismiss,
+                tag: bubbleTag,
+                action: action ?? {}
             ))
-            if !shown { postBanner(title: title, body: body) }
+            if !shown || alwaysBanner { postBanner(title: title, body: body) }
         }
     }
 
