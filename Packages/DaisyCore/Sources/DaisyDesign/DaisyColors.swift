@@ -92,7 +92,7 @@ extension Color {
 
     // Petal mark
     public static let daisyCenterIdle = Color(DaisyPalette.centerIdle)
-    public static var daisyHomeAccent: Color { daisyCenterIdle }
+    public static let daisyHomeAccent = Color(DaisyPalette.homeAccent)
     public static let daisyPetal = Color(DaisyPalette.petal)
 
     // Text

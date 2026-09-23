@@ -463,7 +463,7 @@ struct DaisyWidget: View {
         // so the widget reads as "working in the background" without
         // taking over the orange recording signal. Deliberately in
         // the warm-amber family (matches the landing's
-        // `--color-petal-center` and the in-app `daisyCenterIdle`)
+        // `--color-petal-center` and the in-app `daisyHomeAccent`)
         // so it's a calmer cousin of recording orange — never
         // confused with "still capturing".
         if case .finished = status, summaryGen == .generating {
@@ -473,7 +473,8 @@ struct DaisyWidget: View {
             // core" glitch we deliberately removed from .preparing. The
             // amber HUE (a calm cousin of recording orange) plus the
             // "Generating summary…" tooltip carry the signal — no blink.
-            return Color.daisyCenterIdle
+            // `daisyHomeAccent`: `daisyCenterIdle` turned white (23.09).
+            return Color.daisyHomeAccent
         }
         switch status {
         // Recording — center hue encodes the active mode so the
@@ -517,7 +518,9 @@ struct DaisyWidget: View {
         // is the scale-pop animation, not a colour change.
         case .stopping, .summarizing, .finished: return Color.white.opacity(0.92)
         case .failed: return .daisyError
-        case .idle: return Color.white.opacity(0.55)
+        // The shared resting centre (DaisyPalette.centerIdle, white) —
+        // the same on the phone, the watch and Windows (Egor, 23.09).
+        case .idle: return Color.daisyCenterIdle
         }
     }
 

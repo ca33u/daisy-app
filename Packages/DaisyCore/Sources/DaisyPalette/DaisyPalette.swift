@@ -106,13 +106,18 @@ public nonisolated enum DaisyPalette {
 
     // ─── Petal mark ───────────────────────────────────────────────────
     //
-    // The flower in idle / finished state: golden-orange, calmer than
-    // the vivid capture signal.
+    // One rule for the flower's centre on every client (Egor,
+    // 2026-09-23): white at rest, `recording` orange while recording,
+    // `paused` grey, `error` red. The centre used to be golden at rest
+    // on iOS, dimmed white on the Mac and Windows, grey on the watch —
+    // and red while recording on the watch and the Live Activity.
 
-    /// Centre disc of the petal mark when idle / finished.
-    public static let centerIdle = DaisyColorPair(light: 0xF5A14B, dark: 0xF5A14B)
+    /// Centre disc of the petal mark at rest (idle / finished / loading).
+    public static let centerIdle = DaisyColorPair(light: 0xFFFFFF, dark: 0xFFFFFF)
     /// Warm, non-live accent for Home widgets and compact indicators.
-    public static var homeAccent: DaisyColorPair { centerIdle }
+    /// Was an alias of `centerIdle` while the resting centre was golden;
+    /// it keeps that gold now that the centre is white.
+    public static let homeAccent = DaisyColorPair(light: 0xF5A14B, dark: 0xF5A14B)
     /// Petal fill — ink that matches the text on each appearance.
     public static let petal = DaisyColorPair(light: 0x282824, dark: 0xF4F5EF)
 
