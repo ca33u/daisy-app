@@ -109,6 +109,13 @@ let package = Package(
         // where the models and the configuration are known good. Not
         // shipped in any app — a package executable, run by hand.
         .executableTarget(
+            name: "ExportSummaryPrompts",
+            dependencies: ["DaisyCore"],
+            swiftSettings: [
+                .defaultIsolation(MainActor.self),
+            ]
+        ),
+        .executableTarget(
             name: "DiarizeFiles",
             dependencies: ["DaisyDiarization", "DaisyCore"],
             swiftSettings: [
