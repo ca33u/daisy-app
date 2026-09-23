@@ -248,3 +248,38 @@ struct QRLogoTests {
         #expect(darkest < 40, "no dark modules found; darkest pixel was \(darkest)")
     }
 }
+
+@Suite("The widget's code has no field of its own")
+struct TransparentQRTests {
+    /// Light modules, everything else transparent — and the two kinds
+    /// of code must not be confused with each other, because one of
+    /// them is only safe on a screen the owner holds.
+    @Test func transparentCodeIsLightModulesOnNothing() throws {
+        let image = try #require(QRCode.transparent(from: "hello", size: 120))
+        #expect(image.alphaInfo != .none, "a transparent code must carry alpha")
+
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let context = try #require(CGContext(data: &pixels, width: image.width, height: image.height,
+                                             bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                             space: CGColorSpaceCreateDeviceRGB(),
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+
+        // The quiet zone is nothing at all, not white.
+        #expect(pixels[3] == 0, "the corner should be transparent, alpha was \(pixels[3])")
+        // Somewhere there are opaque, light modules.
+        var brightestOpaque = 0
+        for index in stride(from: 0, to: pixels.count, by: 4) where pixels[index + 3] > 200 {
+            brightestOpaque = max(brightestOpaque, Int(pixels[index]))
+        }
+        #expect(brightestOpaque > 200, "modules should be light, brightest opaque pixel was \(brightestOpaque)")
+    }
+
+    /// The one that gets scanned by strangers stays dark-on-light and
+    /// opaque. If this ever flips, half of Android stops reading it.
+    @Test func theSharedCodeStaysDarkOnLightAndOpaque() throws {
+        let image = try #require(QRCode.cgImage(from: "hello", size: 120))
+        let info = image.alphaInfo
+        #expect(info == .none || info == .noneSkipFirst || info == .noneSkipLast)
+    }
+}

@@ -64,6 +64,40 @@ public nonisolated enum QRCode {
     /// colour it draws on, so the code sits on the card rather than in
     /// a white box on it — while staying opaque, which is what keeps
     /// any renderer from tinting the modules.
+    /// A code with NO background at all: the modules are drawn in
+    /// `modules` and everything else is transparent, so the code lies
+    /// on whatever is behind it (a widget's native material, for
+    /// instance).
+    ///
+    /// **This costs scanners.** A QR code is specified as dark modules
+    /// on a light field. iPhone's camera and anything built on Vision
+    /// read the inverse happily; ZXing — which is under a large share
+    /// of Android scanner apps — does not, and a person holding such a
+    /// phone sees nothing at all. So: the widget may use this, because
+    /// it is a glance and the owner's own phone; the full-screen code
+    /// that gets handed across a table must not (see `CardQRFullScreen`).
+    public static func transparent(
+        from text: String,
+        size: CGFloat,
+        scale: CGFloat = 3,
+        correction: Correction = .medium,
+        modules: CIColor = CIColor(red: 1, green: 1, blue: 1)
+    ) -> CGImage? {
+        let generator = CIFilter.qrCodeGenerator()
+        generator.message = Data(text.utf8)
+        generator.correctionLevel = correction.rawValue
+        guard let generated = generator.outputImage else { return nil }
+        let coloured = CIFilter.falseColor()
+        coloured.inputImage = generated
+        coloured.color0 = modules
+        coloured.color1 = CIColor(red: 0, green: 0, blue: 0, alpha: 0)   // nothing
+        guard let masked = coloured.outputImage else { return nil }
+        let target = size * scale
+        let factor = max(1, floor(target / masked.extent.width))
+        let scaled = masked.transformed(by: CGAffineTransform(scaleX: factor, y: factor))
+        return CIContext().createCGImage(scaled, from: scaled.extent)
+    }
+
     public static func cgImage(
         from text: String,
         size: CGFloat,
