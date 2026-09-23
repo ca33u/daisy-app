@@ -27,6 +27,9 @@ struct RehearsalScriptTests {
         #expect(WordKey.similar("записывает", "записывают"))
         #expect(!WordKey.similar("мы", "вы"))
         #expect(WordKey.normalize("Ёлка,") == "елка")
+        // Heard on the phone's Whisper, 23.09: the script said «Daisy».
+        #expect(WordKey.similar("daisy", "дэйзи"))
+        #expect(WordKey.similar("zoom", "зуме"))
     }
 }
 

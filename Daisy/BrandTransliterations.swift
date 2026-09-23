@@ -49,6 +49,7 @@ nonisolated enum BrandCorrections {
         Entry(latin: "Figma",      stems: ["фигм"]),
         Entry(latin: "FigJam",     stems: ["фигджем", "фигджам"]),
         Entry(latin: "Zoom",       stems: ["зум"]),
+        Entry(latin: "Daisy",      stems: ["дейзи", "дэйзи"]),
         Entry(latin: "Slack",      stems: ["слак", "слэк"]),
         Entry(latin: "Notion",     stems: ["ноушн", "ноушен"]),
         Entry(latin: "GitHub",     stems: ["гитхаб", "гитхап"]),

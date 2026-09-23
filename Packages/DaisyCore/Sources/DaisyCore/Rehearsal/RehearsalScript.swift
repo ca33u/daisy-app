@@ -65,6 +65,9 @@ public nonisolated enum WordKey {
     /// letters of long words (case endings).
     public static func similar(_ a: String, _ b: String) -> Bool {
         if a == b { return true }
+        // A brand written in Latin and heard in Cyrillic is the same word
+        // («Daisy» in the script, «Дэйзи» from Whisper).
+        if let fa = BrandCorrections.canonicalFolds[a], fa == BrandCorrections.canonicalFolds[b] { return true }
         guard a.count >= 5, b.count >= 5 else { return false }
         if a.prefix(5) == b.prefix(5), a.count >= 6, b.count >= 6 { return true }
         return editDistance(a, b, limit: 1) <= 1
