@@ -12,7 +12,40 @@
 import Foundation
 
 public nonisolated enum SummaryPrompt {
-    public static func meetingSystemInstructions(localeHint: String?) -> String {
+    /// Бэклог 15 П-3: what to add when the transcript names exactly one
+    /// voice.
+    ///
+    /// Not a second format and not a "voice note mode" — the section
+    /// shape stays the same. It removes one specific failure: a
+    /// monologue summarised as if it were a meeting grows attendees who
+    /// were never there and "decisions" nobody agreed to, and the
+    /// person reading it has no way to tell which parts were invented.
+    ///
+    /// Silence is the instruction, not a different template: say less
+    /// where there is less, rather than filling the same sections with
+    /// plausible-sounding filler.
+    public nonisolated static let singleVoiceDirective = """
+        ━━━ ONE VOICE IN THIS RECORDING ━━━
+        The transcript contains exactly one speaker. It may be a note to
+        self, a lecture, a dictated draft, or one side of something —
+        you do not know which, and you must not guess.
+
+        Therefore:
+        - Do NOT name or imply other participants. There are none in
+          this recording.
+        - Do NOT report decisions, agreements or commitments as made
+          BETWEEN people. If the speaker states an intention, write it
+          as their intention.
+        - Action items: only what this speaker said they or someone
+          named would do. Do not invent owners.
+        - Leave a section out entirely when the recording has nothing
+          for it. An empty section is better than a filled one that is
+          not true.
+
+
+        """
+
+    public static func meetingSystemInstructions(localeHint: String?, singleVoice: Bool = false) -> String {
         let lang: String
         let langExplicit: Bool
         switch localeHint {
@@ -48,11 +81,12 @@ public nonisolated enum SummaryPrompt {
         } else {
             topDirective = ""
         }
+        let voiceDirective = singleVoice ? Self.singleVoiceDirective : ""
 
         let followUpGate = "Only return an empty string if the meeting was a purely internal team sync with NO external party — a customer call, vendor pitch, partner alignment, contractor onboarding, or any conversation where one side represents a different organization counts as external and you MUST draft the follow-up."
         let followUpConstraint = "Empty clientFollowUp only for purely internal team meetings — when in doubt, draft one."
 
-        return topDirective + """
+        return topDirective + voiceDirective + """
         You write structured notes from meeting transcripts for a busy
         founder. The transcript may contain partial sentences,
         repetitions, and disfluencies — clean them up. Be concise and

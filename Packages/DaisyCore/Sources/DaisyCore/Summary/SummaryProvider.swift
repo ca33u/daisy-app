@@ -138,7 +138,7 @@ public nonisolated struct AnthropicSummaryProvider: SummaryProvider {
         let body: [String: Any] = [
             "model": model,
             "max_tokens": 4096,
-            "system": SummaryPrompt.meetingSystemInstructions(localeHint: localeHint),
+            "system": SummaryPrompt.meetingSystemInstructions(localeHint: localeHint, singleVoice: TranscriptSpeakers.isSingleVoice(inBody: transcript)),
             "messages": [["role": "user", "content": SummaryPrompt.meetingUserPrompt(title: title, transcript: text)]],
         ]
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
@@ -186,7 +186,7 @@ public nonisolated struct OpenAISummaryProvider: SummaryProvider {
         var body: [String: Any] = [
             "model": model,
             "messages": [
-                ["role": "system", "content": SummaryPrompt.meetingSystemInstructions(localeHint: localeHint)],
+                ["role": "system", "content": SummaryPrompt.meetingSystemInstructions(localeHint: localeHint, singleVoice: TranscriptSpeakers.isSingleVoice(inBody: transcript))],
                 ["role": "user", "content": SummaryPrompt.meetingUserPrompt(title: title, transcript: text)],
             ],
             "response_format": ["type": "json_object"],
@@ -227,7 +227,7 @@ public nonisolated struct KimiSummaryProvider: SummaryProvider {
         var body: [String: Any] = [
             "model": model,
             "messages": [
-                ["role": "system", "content": SummaryPrompt.meetingSystemInstructions(localeHint: localeHint)],
+                ["role": "system", "content": SummaryPrompt.meetingSystemInstructions(localeHint: localeHint, singleVoice: TranscriptSpeakers.isSingleVoice(inBody: transcript))],
                 ["role": "user", "content": SummaryPrompt.meetingUserPrompt(title: title, transcript: text)],
             ],
             "response_format": ["type": "json_object"],

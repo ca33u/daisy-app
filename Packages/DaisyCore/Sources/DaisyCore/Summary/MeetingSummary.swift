@@ -104,9 +104,15 @@ public nonisolated enum SummaryStore {
 
     public enum WriteError: Error { case alreadyExists }
 
-    public static func write(_ summary: MeetingSummary, to directory: URL) throws {
+    /// Бэклог 15 П-3: `replacing` is how "Re-summarize" gets past the
+    /// guard below. The guard exists so a retry after a crash cannot
+    /// silently overwrite a good summary; a person asking for a new one
+    /// is the one case where overwriting is the request.
+    public static func write(_ summary: MeetingSummary, to directory: URL, replacing: Bool = false) throws {
         let target = url(in: directory)
-        guard !FileManager.default.fileExists(atPath: target.path) else { throw WriteError.alreadyExists }
+        if !replacing {
+            guard !FileManager.default.fileExists(atPath: target.path) else { throw WriteError.alreadyExists }
+        }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(summary).write(to: target, options: .atomic)
