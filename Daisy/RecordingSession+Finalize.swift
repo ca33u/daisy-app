@@ -113,7 +113,18 @@ extension RecordingSession {
             if generation == summaryTaskGeneration {
                 summaryTask = nil
             }
+            // Инцидент 23.09: bailing used to be the whole story. A user
+            // started the next meeting while the previous one was still
+            // in its final pass; the pass was cancelled, nothing was
+            // marked, and a 43-minute meeting kept only its live text —
+            // which its own filter had cut to 20 segments out of 249.
+            // The audio was still on disk the whole time.
+            //
+            // A rotated session has not failed, it has been interrupted.
+            // Interrupted work goes back in the queue.
+            queueUnfinishedFinalPass(sessionID: sessionID, stage: stage)
         }
+
 
         // ── Stage 1: Final Whisper pass ──────────────────────────────
         //
@@ -1859,4 +1870,41 @@ extension RecordingSession {
             startedAt: startedAt
         )
     }
+
+    /// Put a final pass that was cut short back in the queue.
+    ///
+    /// Инцидент 23.09. Starting the next recording cancelled the
+    /// previous session's final pass and left nothing behind saying so:
+    /// no marker, no job, no notice. The live text became the
+    /// transcript of a meeting whose audio was sitting right there.
+    ///
+    /// The audio is the reason this is recoverable and the reason it
+    /// must be done now rather than offered later: retention in
+    /// "delete after transcription" mode fires from this very
+    /// pipeline, so a session that never finished finalizing still has
+    /// its recording — until someone finishes it.
+    @MainActor
+    func queueUnfinishedFinalPass(sessionID: String, stage: String) {
+        guard let directory = sessionDirectory,
+              SessionAudioFiles.discover(in: directory).hasAny else {
+            log.warning("Rotated session \(sessionID, privacy: .public) has no audio to finish from")
+            return
+        }
+        ImportTranscriptionQueue.shared.enqueue(
+            sessionID: sessionID,
+            directoryURL: directory,
+            title: title,
+            options: SessionRetranscriptionOptions(
+                modelID: WhisperEngine.defaultModelID,
+                language: "auto",
+                diarize: settings.diarizeRemoteSpeakers
+            ),
+            // A moment's delay: the recording that interrupted this one
+            // is starting right now, and two Whisper passes at once is
+            // how the first one got cancelled in the first place.
+            notBefore: Date().addingTimeInterval(60)
+        )
+        log.notice("Rotated session \(sessionID, privacy: .public) queued for its final pass (\(stage, privacy: .public))")
+    }
+
 }

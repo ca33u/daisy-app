@@ -8,6 +8,7 @@
 //  transcribe requests are serialized via an in-actor semaphore.
 //
 
+import DaisyCore
 import Foundation
 import Darwin
 import Observation
@@ -1346,6 +1347,12 @@ final class WhisperEngine {
 
                 // (1) Known YouTube-training artefacts (full phrases).
                 if Self.isKnownHallucination(text) { dHalluc += 1; continue }
+                // Инцидент 23.09: the blocklist above knows PHRASES. A
+                // dying stream makes the model loop instead — «я знаю,
+                // что я знаю, что я знаю…» — which is a shape no list
+                // can hold. With archiving off there is no second pass,
+                // so a loop that survives here survives forever.
+                if RepetitionLoop.isLoop(text) { dHalluc += 1; continue }
 
                 // (1b) Prompt echo. Whisper's documented failure mode
                 // with `initial_prompt`: on a low-information span it

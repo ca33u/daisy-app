@@ -28,8 +28,13 @@ struct CaptureRestartBudgetTests {
         let start = Date()
         // Seven deaths, each a few minutes apart — the user's 14:00
         // meeting had them at +7, +8, +15 minutes.
-        for minute in [7, 8, 15, 22, 30, 37, 45] {
-            let now = start.addingTimeInterval(Double(minute) * 60)
+        // The user's own two meetings, to the second:
+        //   14:00 meeting — deaths at 14:07:06, 14:08:22, 14:15:07, 14:15:19
+        //   17:00 meeting — 17:01:48, 17:03:02, 17:10:11, 17:10:22
+        // Under the old budget the fourth ended capture for the rest of
+        // the meeting; the user lost 15 and 11 minutes in.
+        for minute in [7.10, 8.37, 15.12, 15.32, 22, 30, 37, 45] {
+            let now = start.addingTimeInterval(minute * 60)
             deaths.removeAll { now.timeIntervalSince($0) > window }
             #expect(deaths.count < limit,
                     "Gave up at minute \(minute) on a stream that recovers every time")

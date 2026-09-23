@@ -1128,6 +1128,41 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     ///
     /// So: banner AND pill, a toast that waits instead of expiring, and
     /// a way out that is not "stop the recording and start again".
+    /// The Bluetooth case, said early and said plainly.
+    ///
+    /// Инцидент 23.09, второй пользователь: default output was a
+    /// Bluetooth headset, SCStream reported `.capturing` and delivered
+    /// not one frame for 43 minutes. The log noticed at 35 seconds
+    /// («Silent SCStream detected») and told nobody who could act.
+    ///
+    /// There is a remedy the person can apply in five seconds, and it
+    /// is the only one that exists on macOS 14 — the process tap needs
+    /// 14.4. So the message names it instead of describing the fault.
+    func announceBluetoothSilence() {
+        guard !quietDiagnostics, !gaveUpNoticeShown else { return }
+        gaveUpNoticeShown = true
+        CaptureProblemNotification.post(
+            title: String(localized: "Daisy can’t hear the other side"),
+            body: String(localized: "With sound going to a Bluetooth headset, macOS gives Daisy nothing to record. Switch output to the speakers or wired headphones and the other side comes back — your microphone is recording either way."),
+            alwaysBanner: true,
+            actionTitle: String(localized: "Retry capture"),
+            actionSymbol: "arrow.clockwise",
+            autoDismiss: 120,
+            action: { [weak self] in
+                Task { @MainActor [weak self] in await self?.restartCaptureNow() }
+            }
+        )
+        ToastCenter.shared.showAction(
+            String(localized: "Daisy can’t hear the other side — sound is going to a Bluetooth headset. Switch output to speakers or wired headphones."),
+            actionLabel: String(localized: "Retry capture"),
+            style: .warning,
+            duration: .seconds(24 * 3600),
+            perform: { [weak self] in
+                Task { @MainActor [weak self] in await self?.restartCaptureNow() }
+            }
+        )
+    }
+
     private func announceCaptureLoss() {
         guard !quietDiagnostics, !gaveUpNoticeShown else { return }
         gaveUpNoticeShown = true
@@ -1497,7 +1532,16 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                     ? String(localized: "Daisy isn't hearing the other side — they won't be recorded. Check your output device (Bluetooth headphones can't be captured on macOS).")
                     : String(localized: "The other side went silent and may not be recording anymore. Check your output device.")
                 log.warning("Silent SCStream detected after \(Int(silentDuration), privacy: .public)s (hasReceivedAudio=\(self.hasReceivedAudio, privacy: .public))")
-                ToastCenter.shared.show(msg, style: .warning)
+                if neverGotAudio {
+                    // Not one frame in 35 s means the stream will never
+                    // deliver — for the second user of the 23.09
+                    // incident it stayed that way for 43 minutes while
+                    // a 2.6-second toast in a closed window was the
+                    // only thing that said so.
+                    announceBluetoothSilence()
+                } else {
+                    ToastCenter.shared.show(msg, style: .warning)
+                }
                 return
             }
         }
