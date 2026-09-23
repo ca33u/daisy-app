@@ -1,3 +1,4 @@
+import struct DaisyCore.SensitiveDataProtectionReport
 import Foundation
 import Testing
 @testable import Daisy
