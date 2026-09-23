@@ -3,7 +3,8 @@
 //
 //  `swift run ExportSummaryPrompts <out.json>` writes every system prompt
 //  the summary can take (each language hint × one voice or not), the
-//  user-prompt template and the output schema — straight from
+//  user-prompt template, the output schema and the rehearsal coach's
+//  prompts — straight from
 //  `SummaryPrompt`, so the server never holds a hand-copied prompt that
 //  drifts from the apps. The server sends these texts and nothing the
 //  client wrote: a subscription buys summaries, not an open model.
@@ -27,6 +28,13 @@ let payload: [String: Any] = [
     // the transcript fences inside the transcript itself.
     "userTemplate": SummaryPrompt.meetingUserPrompt(title: "{{TITLE}}", transcript: "{{TRANSCRIPT}}"),
     "schema": MeetingSummaryJSONSchema.json,
+    // Backlog 17 С-7: the coach's notes on a rehearsal take.
+    "feedback": [
+        "system": Dictionary(uniqueKeysWithValues: (["auto"] + RehearsalFeedbackPrompt.languages.keys.sorted()).map {
+            ($0, RehearsalFeedbackPrompt.system(language: $0 == "auto" ? nil : $0))
+        }),
+        "userTemplate": RehearsalFeedbackPrompt.user(script: "{{SCRIPT}}", take: "{{TAKE}}", facts: "{{FACTS}}"),
+    ] as [String: Any],
 ]
 let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
 let out = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "summary-prompts.json")

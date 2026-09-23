@@ -60,6 +60,19 @@ struct SummaryProxyClientTests {
         #expect(result.report.replacementsByKind[.email] == 1)
     }
 
+    @Test func takeFeedbackGoesWithoutNamesOrAPrompt() async throws {
+        ProxyStub.status = 200
+        ProxyStub.reply = ["text": "- «[[DAISY_PERSON_001]]» в начале звучит сухо"]
+        let text = try await client().feedback(
+            script: "Привет! Меня зовут Мария.", take: "Привет! Меня зовут [Мария → Маша].",
+            facts: "Length: 0:05", language: "ru", signedTransaction: "jws", knownPeople: ["Мария"])
+        let sent = String(describing: ProxyStub.lastBody)
+        #expect(!sent.contains("Мария"))
+        #expect(ProxyStub.lastBody["system"] == nil && ProxyStub.lastBody["prompt"] == nil)
+        #expect(ProxyStub.lastBody["facts"] as? String == "Length: 0:05")
+        #expect(text == "- «Мария» в начале звучит сухо")
+    }
+
     @Test func threeFailuresAreThreeDifferentThings() async {
         let cases: [(Int, SummaryProxyClient.Failure)] = [(401, .subscription), (429, .limit), (502, .provider), (500, .server)]
         for (status, expected) in cases {
