@@ -77,9 +77,10 @@ public nonisolated struct SessionFrontmatter: Sendable, Equatable {
     public var duration: TimeInterval
     public var folder: String = SessionFolder.inbox.slug
     public var kind: SessionKind = .recording
-    /// Where this session was made — `iphone` for us. Rendered right
-    /// after `daisy_kind`, before `daisy_speaker_map`; absent on Mac
-    /// files (§3.1 "other writers add"), so nil renders nothing.
+    /// Where this session was made (§3.6: `iphone`, `watch`, `import`;
+    /// see `SessionOrigin`). Rendered right after `daisy_kind`, before
+    /// `daisy_speaker_map`; absent on Mac files (§3.1 "other writers
+    /// add"), so nil renders nothing.
     public var origin: String? = "iphone"
     public var tag: String?
     /// backlog 5 E-4: the calendar event this recording was started from
@@ -111,17 +112,23 @@ public nonisolated struct SessionFrontmatter: Sendable, Equatable {
     }
 
     /// The phone profile: one microphone stream, nobody diarized.
+    /// `origin` names the recorder (§3.6). It defaults to the phone
+    /// because that is what this initialiser is for; an imported file
+    /// passes `SessionOrigin.importedFile`, because saying `iphone`
+    /// about a file the phone merely read is a lie — one that happened
+    /// to produce the right diarization, which is worse, not better.
     public static func phoneRecording(
         title: String,
         started: Date,
         duration: TimeInterval,
         micBytes: Int64,
-        folder: String = SessionFolder.inbox.slug
+        folder: String = SessionFolder.inbox.slug,
+        origin: String = SessionOrigin.iphone
     ) -> SessionFrontmatter {
         var fm = SessionFrontmatter(title: title, started: started, duration: duration)
         fm.folder = folder
         fm.kind = .recording
-        fm.origin = "iphone"
+        fm.origin = origin
         fm.systemAudioStatus = .off
         fm.micAudioStatus = micBytes > 0 ? .captured(bytes: micBytes) : .empty
         return fm

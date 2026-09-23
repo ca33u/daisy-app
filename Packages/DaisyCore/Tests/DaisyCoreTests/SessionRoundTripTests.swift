@@ -331,3 +331,48 @@ struct SessionRoundTripTests {
         #expect(SessionDocument.parseFrontmatter(in: recovery.renderMarkdown(startDate: started, durationSec: 1, mic: nil, system: nil)).folder == "work")
     }
 }
+
+/// §3.6, backlog 14: the microphone is the room for every recorder but
+/// the Mac, and a reader that meets a value it has never heard of must
+/// fail towards "we don't know who spoke".
+@Suite("Which microphone is the room")
+struct SessionOriginTests {
+    @Test func aMacSessionIsTheOnlyOneWhoseMicrophoneIsItsOwner() {
+        #expect(!SessionOrigin.isRoomMicrophone(nil))
+        #expect(!SessionOrigin.isRoomMicrophone(""))
+        #expect(!SessionOrigin.isRoomMicrophone("mac"))
+    }
+
+    @Test func everyRecorderWeShipRecordsTheRoom() {
+        for origin in [SessionOrigin.iphone, SessionOrigin.watch, SessionOrigin.importedFile] {
+            #expect(SessionOrigin.isRoomMicrophone(origin))
+        }
+    }
+
+    /// The whole point of writing the rule this way round: a future
+    /// recorder must not make an old reader stamp the owner's name on
+    /// a stranger's words.
+    @Test func anUnknownRecorderIsTreatedAsARoom() {
+        #expect(SessionOrigin.isRoomMicrophone("ipad-2029"))
+    }
+
+    /// Audio that has to travel is a different question: only a
+    /// recording this family of devices made is the only copy.
+    @Test func onlyOurOwnRecordingsAreTheOnlyCopy() {
+        #expect(SessionOrigin.isOwnRecording(SessionOrigin.iphone))
+        #expect(SessionOrigin.isOwnRecording(SessionOrigin.watch))
+        #expect(!SessionOrigin.isOwnRecording(SessionOrigin.importedFile))
+        #expect(!SessionOrigin.isOwnRecording(nil))
+        #expect(!SessionOrigin.isOwnRecording("ipad-2029"))
+    }
+
+    @Test func anImportedFileSaysSoInTheFrontmatter() {
+        let fm = SessionFrontmatter.phoneRecording(
+            title: "Imported", started: Date(), duration: 60, micBytes: 0,
+            origin: SessionOrigin.importedFile)
+        #expect(fm.render().contains("daisy_origin: import"))
+        let phone = SessionFrontmatter.phoneRecording(
+            title: "Recorded", started: Date(), duration: 60, micBytes: 100)
+        #expect(phone.render().contains("daisy_origin: iphone"))
+    }
+}

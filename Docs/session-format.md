@@ -98,11 +98,11 @@ segments are labelled with the user's display name and are never diarized
 into separate people. The system-audio stream is the other side, and that
 is what gets diarized into `Remote A`, `Remote B`, and so on.
 
-**This rule does not apply to a phone session** (`daisy_origin: iphone`,
-§3.6). A phone records a meeting in a room with one microphone, and both
-people are in it. Reading the Mac rule against that file would stamp the
-owner's name on every word the other person said — see §3.6 for what a
-reader does instead.
+**This rule does not apply to a session whose microphone is the room**
+(any `daisy_origin`, §3.6). A phone, a watch or an imported file records
+a meeting with one microphone, and everyone present is in it. Reading
+the Mac rule against such a file would stamp the owner's name on every
+word the other person said — see §3.6 for what a reader does instead.
 
 This is why imported audio is written as `system_audio.<ext>` and never
 as `microphone`. An imported interview is other people talking; filing it
@@ -154,7 +154,7 @@ Other writers add: `daisy_recovered: true` (crash recovery);
 `daisy_import_mode`, `daisy_import_original_name`,
 `daisy_transcription_model`, `daisy_transcription_language`,
 `daisy_diarization`, `daisy_audio_files` (import and re-transcription);
-`daisy_origin` and `daisy_diag_*` (the phone, §3.6).
+`daisy_origin` and `daisy_diag_*` (§3.6).
 `daisy_client` is a read-only legacy alias for `daisy_tag`.
 
 **Quoting.** A quoted value is `"` + the text with `\` written as `\\`
@@ -395,11 +395,12 @@ recording no matter how little it carries. Same rule for §3.4. When a
 file somehow carries both markers, the screenshot-note profile wins,
 because it is the one that describes a shape the app still writes today.
 
-### 3.6 The phone profile: sessions recorded on iPhone
+### 3.6 Sessions whose microphone is the room
 
-Daisy for iPhone writes sessions into the same folders, with the same
-`transcript.md`, so the Mac Library reads them like any other. The
-marker is:
+A Mac session's microphone is the owner (§2.1). Everything else records
+a room: one microphone, everyone in it. Those sessions write into the
+same folders with the same `transcript.md`, so the Mac Library reads
+them like any other, and they are marked by:
 
 ```yaml
 daisy_origin: iphone
@@ -408,7 +409,25 @@ daisy_origin: iphone
 written right after `daisy_kind`. A session without the key is a Mac
 session; `daisy_origin: mac` is not written and must not be required.
 
-What a phone session carries when it arrives:
+**The values.** Each recorder gets its own, and the list grows:
+
+| `daisy_origin` | Written by | The audio |
+|---|---|---|
+| *(key absent)* | Daisy for Mac | §2.1 applies: microphone = owner, system audio = the other side |
+| `iphone` | Daisy for iPhone | the room, 16 kHz mono int16 |
+| `watch` | Daisy for Apple Watch, recording on its own because the phone was out of reach | the room, 16 kHz mono int16, from a worse microphone |
+| `import` | any Daisy, from a file the user brought in (§7.5) | whatever the file had; the recorder is unknown |
+
+**A reader that does not recognise a value treats the session as a room
+recording, not as a Mac one.** The rule is written this way round on
+purpose: a new recorder appearing in a future version must not make an
+old reader stamp the owner's name on a stranger's words. Adding a
+recorder means adding a value here — never an exception somewhere else.
+The `import` value is what a reader gets today; before it existed, the
+phone wrote `iphone` on imported files too, which was a lie that
+happened to produce the right behaviour.
+
+What an `iphone` session carries when it arrives:
 
 | Key / file | Value on arrival |
 |---|---|
@@ -424,8 +443,8 @@ What a phone session carries when it arrives:
 | `screenshots/` | photos taken from the record screen (§2), indexed by media second |
 | body | `**[m:ss · Me]**` (or the display name) on every segment |
 
-**The rule of §2.1 does not apply.** On a phone session the microphone
-track is not the owner; it is the meeting. A reader that diarizes such a
+**The rule of §2.1 does not apply** to any session in the table above.
+Its microphone track is not the owner; it is the meeting. A reader that diarizes such a
 session diarizes the microphone track **whole**, and then:
 
 1. finds the owner's voice by comparing each cluster's centroid with the

@@ -163,7 +163,7 @@ final class AudioHandoffServer {
             guard let stored = SessionStore.shared.sessions.first(where: { $0.id == session.id }) else { continue }
             let dir = stored.directoryURL
             guard let markdown = try? String(contentsOf: dir.appendingPathComponent("transcript.md"), encoding: .utf8),
-                  SessionAudioProcessing.frontmatterValue("daisy_origin", in: markdown) == "iphone" else { continue }
+                  SessionOrigin.isOwnRecording(SessionAudioProcessing.frontmatterValue("daisy_origin", in: markdown)) else { continue }
             let missing = session.files.filter { file in
                 let url = dir.appendingPathComponent(file.name)
                 guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else { return true }

@@ -8,6 +8,7 @@
 //
 
 import AVFoundation
+import DaisyCore
 import Foundation
 import Observation
 import os
@@ -178,7 +179,7 @@ final class SessionAudioProcessing {
         let originalMarkdown = session.transcriptURL.flatMap {
             try? String(contentsOf: $0, encoding: .utf8)
         } ?? ""
-        let isPhoneSession = Self.frontmatterValue("daisy_origin", in: originalMarkdown) == "iphone"
+        let isPhoneSession = SessionOrigin.isRoomMicrophone(Self.frontmatterValue("daisy_origin", in: originalMarkdown))
 
         statusText = String(localized: "Transcribing microphone audio")
         var microphoneOutput = try await transcribeChannel(
