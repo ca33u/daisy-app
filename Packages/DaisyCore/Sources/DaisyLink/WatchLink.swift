@@ -58,13 +58,15 @@ public enum WatchRole: Sendable, Equatable {
         /// period — asleep, busy, or the app was killed.
         case phoneDidNotAnswer
 
-        /// The same thing in the words that fit a watch. The long
-        /// version is for the phone and for a screen the person can
-        /// scroll; this one is for the glance.
+        /// The glance version, and it is deliberately about what WILL
+        /// happen, not what is happening. This line is shown while
+        /// nothing is being recorded yet; a watch that says "recording
+        /// here" before anyone pressed anything is the same kind of
+        /// lie as a silent fallback, just pointing the other way.
         public var short: String {
             switch self {
-            case .phoneNotReachable: return "Phone not in reach — recording here"
-            case .phoneDidNotAnswer: return "Phone didn't answer — recording here"
+            case .phoneNotReachable: return "Phone not in reach — Record will use the watch"
+            case .phoneDidNotAnswer: return "Phone didn't answer — Record will use the watch"
             }
         }
 
@@ -93,22 +95,38 @@ public enum WatchLink {
     /// short enough that the opening words survive.
     public static let grace: TimeInterval = 2
 
+    /// How long an answer stays true.
+    ///
+    /// Found the hard way (2026-09-23, paired simulators): the phone
+    /// app was killed and the watch went on showing "Ready — your
+    /// phone records", because nothing had invalidated an answer from
+    /// two minutes earlier. An answer is a fact about a moment, not a
+    /// standing claim; past this window it counts as silence, and
+    /// silence has its own honest handling.
+    public static let freshness: TimeInterval = 10
+
     /// - Parameters:
     ///   - reachable: `WCSession.isReachable` at the moment of asking.
     ///   - phone: the last state the phone sent, if it answered.
+    ///   - answeredAt: when that answer arrived. Nil with a non-nil
+    ///     `phone` would be a caller bug; it is treated as stale.
     ///   - askedAt: when the watch sent its request.
     ///   - now: the clock.
     public static func role(
         reachable: Bool,
         phone: PhoneState?,
+        answeredAt: Date? = nil,
         askedAt: Date,
         now: Date,
-        grace: TimeInterval = WatchLink.grace
+        grace: TimeInterval = WatchLink.grace,
+        freshness: TimeInterval = WatchLink.freshness
     ) -> WatchRole {
         // An answer settles it, whatever `isReachable` claims — the
         // flag is a hint about the radio, the answer is a fact about
-        // the app.
-        if let phone { return .remoteControl(phone) }
+        // the app. But only while it is still recent.
+        if let phone, let answeredAt, now.timeIntervalSince(answeredAt) < freshness {
+            return .remoteControl(phone)
+        }
         if !reachable { return .standalone(reason: .phoneNotReachable) }
         if now.timeIntervalSince(askedAt) >= grace { return .standalone(reason: .phoneDidNotAnswer) }
         return .reaching

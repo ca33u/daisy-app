@@ -17,8 +17,28 @@ struct WatchRoleTests {
 
     @Test func anAnsweringPhoneIsTheOnlyTruth() {
         let phone = PhoneState(isRecording: true, startedAt: asked, title: "Stand")
-        let role = WatchLink.role(reachable: true, phone: phone, askedAt: asked, now: asked.addingTimeInterval(1))
+        let role = WatchLink.role(reachable: true, phone: phone, answeredAt: asked,
+                                  askedAt: asked, now: asked.addingTimeInterval(1))
         #expect(role == .remoteControl(phone))
+    }
+
+    /// Found on paired simulators, 2026-09-23: the phone app was killed
+    /// and the wrist kept saying "Ready — your phone records" off an
+    /// answer from two minutes before. An answer describes a moment.
+    @Test func anOldAnswerIsNotAnAnswer() {
+        let phone = PhoneState(isRecording: true, startedAt: asked)
+        let stale = WatchLink.role(reachable: true, phone: phone, answeredAt: asked,
+                                   askedAt: asked, now: asked.addingTimeInterval(11))
+        #expect(stale == .standalone(reason: .phoneDidNotAnswer))
+    }
+
+    /// And an answer with no timestamp is not one either — that is a
+    /// caller bug, and the safe reading of a caller bug is silence.
+    @Test func anAnswerWithoutAMomentIsTreatedAsSilence() {
+        let phone = PhoneState(isRecording: true, startedAt: asked)
+        let role = WatchLink.role(reachable: false, phone: phone, answeredAt: nil,
+                                  askedAt: asked, now: asked)
+        #expect(role == .standalone(reason: .phoneNotReachable))
     }
 
     /// `isReachable` describes the radio; an answer describes the app.
@@ -27,7 +47,8 @@ struct WatchRoleTests {
     /// doing it, and the meeting would land in two halves.
     @Test func anAnswerBeatsAnUnreachableFlag() {
         let phone = PhoneState(isRecording: true, startedAt: asked)
-        let role = WatchLink.role(reachable: false, phone: phone, askedAt: asked, now: asked.addingTimeInterval(30))
+        let role = WatchLink.role(reachable: false, phone: phone, answeredAt: asked.addingTimeInterval(29),
+                                  askedAt: asked, now: asked.addingTimeInterval(30))
         #expect(role == .remoteControl(phone))
     }
 
