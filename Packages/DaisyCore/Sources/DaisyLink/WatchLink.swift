@@ -112,6 +112,8 @@ public enum WatchLink {
     ///     `phone` would be a caller bug; it is treated as stale.
     ///   - askedAt: when the watch sent its request.
     ///   - now: the clock.
+    ///   - commandInFlight: a start/stop was sent while reachable and
+    ///     has had no reply and no error yet.
     public static func role(
         reachable: Bool,
         phone: PhoneState?,
@@ -119,7 +121,8 @@ public enum WatchLink {
         askedAt: Date,
         now: Date,
         grace: TimeInterval = WatchLink.grace,
-        freshness: TimeInterval = WatchLink.freshness
+        freshness: TimeInterval = WatchLink.freshness,
+        commandInFlight: Bool = false
     ) -> WatchRole {
         // An answer settles it, whatever `isReachable` claims — the
         // flag is a hint about the radio, the answer is a fact about
@@ -127,6 +130,12 @@ public enum WatchLink {
         if let phone, let answeredAt, now.timeIntervalSince(answeredAt) < freshness {
             return .remoteControl(phone)
         }
+        // A Record command is on its way to the phone and has neither
+        // been answered nor failed. The phone may already be recording;
+        // recording here as well is how one tap made two recordings a
+        // second apart (Egor's watch, 2026-09-23, 12:23:42 and :43).
+        // Wait for the reply or the delivery error, whichever comes.
+        if commandInFlight { return .reaching }
         if !reachable { return .standalone(reason: .phoneNotReachable) }
         if now.timeIntervalSince(askedAt) >= grace { return .standalone(reason: .phoneDidNotAnswer) }
         return .reaching

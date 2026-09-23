@@ -64,6 +64,24 @@ struct WatchRoleTests {
         #expect(role == .reaching)
     }
 
+    /// Egor's watch, 23.09: the tap sent Record to the phone AND, on a
+    /// silence that had started while the app slept, recorded here too.
+    /// A command in flight is not silence, however long ago the last
+    /// answer was.
+    @Test func aCommandOnItsWayIsNotSilence() {
+        let role = WatchLink.role(reachable: true, phone: nil, askedAt: asked,
+                                  now: asked.addingTimeInterval(60), commandInFlight: true)
+        #expect(role == .reaching)
+    }
+
+    /// Once the phone answers, the answer wins over the flag.
+    @Test func anAnswerEndsTheWait() {
+        let phone = PhoneState(isRecording: true, startedAt: asked)
+        let role = WatchLink.role(reachable: true, phone: phone, answeredAt: asked.addingTimeInterval(1),
+                                  askedAt: asked, now: asked.addingTimeInterval(1), commandInFlight: true)
+        #expect(role == .remoteControl(phone))
+    }
+
     @Test func silencePastTheGraceStartsRecordingHere() {
         let role = WatchLink.role(reachable: true, phone: nil, askedAt: asked, now: asked.addingTimeInterval(2))
         #expect(role == .standalone(reason: .phoneDidNotAnswer))
