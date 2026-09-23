@@ -154,10 +154,13 @@ final class Transcriber {
         // let them through; only here, where the passes meet, is the
         // run visible. Filtered at the one place the screen, the export
         // and a live-only transcript all read from.
-        let runs = RepetitionLoop.silenceRunIndices(
-            texts: sorted.map(\.text),
-            starts: sorted.map { $0.startedAt.timeIntervalSince1970 }
-        )
+        // Same place, the other shape: a loop whose lines each vary a
+        // word — «я не знаю, что я не знаю…» — so no single line looks
+        // like one (first user, 10:51, eight lines).
+        let texts = sorted.map(\.text)
+        let starts = sorted.map { $0.startedAt.timeIntervalSince1970 }
+        let runs = RepetitionLoop.silenceRunIndices(texts: texts, starts: starts)
+            .union(RepetitionLoop.loopRunIndices(texts: texts, starts: starts))
         let merged = runs.isEmpty ? sorted : sorted.enumerated().filter { !runs.contains($0.offset) }.map(\.element)
         _segmentsCache = merged
         _segmentsCacheVersion = currentVersion

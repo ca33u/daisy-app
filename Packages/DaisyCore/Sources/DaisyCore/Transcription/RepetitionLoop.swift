@@ -55,6 +55,58 @@ public enum RepetitionLoop {
         return false
     }
 
+    // MARK: - A loop spread over several segments
+
+    /// Below this many words a window proves nothing either way.
+    public nonisolated static let minLoopWindowWords = 30
+    /// Distinct words per word said. Talk sits around 0.5–0.8 even when
+    /// someone repeats themselves; the incident loop was 9 distinct
+    /// words in 108.
+    public nonisolated static let maxLoopWindowVariety = 0.2
+    /// How many consecutive segments one window may span.
+    public nonisolated static let maxLoopWindowSegments = 12
+    /// A word the window says more than once is part of the loop.
+    public nonisolated static let loopCoreMinCount = 2
+    /// A segment goes only if nearly all of it is loop words, so a real
+    /// «Ок.» that happens to sit next to the loop survives.
+    public nonisolated static let minCoreShare = 0.8
+
+    /// Indices of segments that together are one phrase going round.
+    ///
+    /// Инцидент 23.09, первый пользователь. When system audio died at
+    /// 10:51, Whisper wrote eight lines in ten seconds: «я думаю, что я
+    /// не знаю, как это делать», «я не знаю, что я не знаю», «я знаю, что
+    /// я знаю…». `isLoop` judges one line and caught only the longest:
+    /// the others vary a word or two, and each is too short to repeat
+    /// five times. Together they are nine words said 108 times — a shape
+    /// no conversation has, however much someone repeats themselves.
+    public nonisolated static func loopRunIndices(texts: [String], starts: [TimeInterval]) -> Set<Int> {
+        precondition(texts.count == starts.count)
+        let tokens = texts.map {
+            $0.lowercased()
+                .split(whereSeparator: { $0.isWhitespace || $0.isPunctuation })
+                .map(String.init)
+        }
+        var dropped = Set<Int>()
+        for i in texts.indices {
+            var counts: [String: Int] = [:]
+            var total = 0
+            for j in i..<min(texts.count, i + maxLoopWindowSegments) {
+                if j > i, starts[j] - starts[j - 1] > maxRunGap { break }
+                for word in tokens[j] { counts[word, default: 0] += 1 }
+                total += tokens[j].count
+                guard j > i, total >= minLoopWindowWords,
+                      Double(counts.count) <= maxLoopWindowVariety * Double(total)
+                else { continue }
+                for k in i...j where !tokens[k].isEmpty {
+                    let core = tokens[k].filter { counts[$0, default: 0] >= loopCoreMinCount }.count
+                    if Double(core) >= minCoreShare * Double(tokens[k].count) { dropped.insert(k) }
+                }
+            }
+        }
+        return dropped
+    }
+
     // MARK: - Runs across segments
 
     /// A run this long of the same short line is silence, not speech.
