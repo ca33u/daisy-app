@@ -37,7 +37,7 @@ struct WatchRoleTests {
     @Test func anAnswerWithoutAMomentIsTreatedAsSilence() {
         let phone = PhoneState(isRecording: true, startedAt: asked)
         let role = WatchLink.role(reachable: false, phone: phone, answeredAt: nil,
-                                  askedAt: asked, now: asked)
+                                  askedAt: asked, now: asked.addingTimeInterval(WatchLink.reachabilityGrace))
         #expect(role == .standalone(reason: .phoneNotReachable))
     }
 
@@ -53,7 +53,7 @@ struct WatchRoleTests {
     }
 
     @Test func noPhoneInReachMeansRecordHereAndSayWhy() {
-        let role = WatchLink.role(reachable: false, phone: nil, askedAt: asked, now: asked)
+        let role = WatchLink.role(reachable: false, phone: nil, askedAt: asked, now: asked.addingTimeInterval(5))
         #expect(role == .standalone(reason: .phoneNotReachable))
         guard case .standalone(let reason) = role else { return }
         #expect(reason.explanation.contains("worse"))
@@ -80,6 +80,31 @@ struct WatchRoleTests {
         let role = WatchLink.role(reachable: true, phone: phone, answeredAt: asked.addingTimeInterval(1),
                                   askedAt: asked, now: asked.addingTimeInterval(1), commandInFlight: true)
         #expect(role == .remoteControl(phone))
+    }
+
+    /// Egor's watch, 23.09: a tap on the complication woke the app, the
+    /// radio had not found the phone yet, and the watch recorded on the
+    /// wrist with the phone on the table. A fresh "unreachable" waits.
+    @Test func aJustWokenWatchWaitsForTheRadio() {
+        let role = WatchLink.role(reachable: false, phone: nil, askedAt: asked, now: asked.addingTimeInterval(3))
+        #expect(role == .reaching)
+    }
+
+    /// A locked phone answers the Record command with "couldn't start":
+    /// that is an answer, and it means the watch records.
+    @Test func aPhoneThatCannotStartHandsTheRecordingToTheWatch() {
+        let refused = PhoneState(isRecording: false, startFailure: "locked")
+        let role = WatchLink.role(reachable: true, phone: refused, answeredAt: asked,
+                                  askedAt: asked, now: asked.addingTimeInterval(1))
+        #expect(role == .standalone(reason: .phoneCouldNotStart))
+    }
+
+    /// The failure travels only in the reply to the command; a plain
+    /// answer later on is remote control again.
+    @Test func aLaterPlainAnswerIsRemoteControlAgain() {
+        let role = WatchLink.role(reachable: true, phone: .idle, answeredAt: asked,
+                                  askedAt: asked, now: asked.addingTimeInterval(1))
+        #expect(role == .remoteControl(.idle))
     }
 
     @Test func silencePastTheGraceStartsRecordingHere() {

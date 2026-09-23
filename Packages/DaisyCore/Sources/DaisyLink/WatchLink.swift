@@ -29,11 +29,18 @@ public struct PhoneState: Sendable, Equatable, Codable {
     public var startedAt: Date?
     /// The phone's own title for what it is recording, if any.
     public var title: String?
+    /// Set only in the reply to a Record command the phone could not
+    /// carry out — a locked phone may not start its microphone from the
+    /// background (Egor's phone, 2026-09-23: `kAUStartIO` refused five
+    /// times while the wrist waited on "Ready"). Absent from every
+    /// other answer, so an old failure never blocks the next attempt.
+    public var startFailure: String?
 
-    public init(isRecording: Bool = false, startedAt: Date? = nil, title: String? = nil) {
+    public init(isRecording: Bool = false, startedAt: Date? = nil, title: String? = nil, startFailure: String? = nil) {
         self.isRecording = isRecording
         self.startedAt = startedAt
         self.title = title
+        self.startFailure = startFailure
     }
 
     public static let idle = PhoneState()
@@ -57,6 +64,10 @@ public enum WatchRole: Sendable, Equatable {
         /// Reachable, but the request went unanswered past the grace
         /// period — asleep, busy, or the app was killed.
         case phoneDidNotAnswer
+        /// The phone answered and said it could not start — usually
+        /// locked, where iOS will not open the microphone for an app in
+        /// the background.
+        case phoneCouldNotStart
 
         /// The glance version, and it is deliberately about what WILL
         /// happen, not what is happening. This line is shown while
@@ -67,6 +78,7 @@ public enum WatchRole: Sendable, Equatable {
             switch self {
             case .phoneNotReachable: return "Phone not in reach — Record will use the watch"
             case .phoneDidNotAnswer: return "Phone didn't answer — Record will use the watch"
+            case .phoneCouldNotStart: return "Phone couldn't start — recording on the watch"
             }
         }
 
@@ -79,6 +91,8 @@ public enum WatchRole: Sendable, Equatable {
                 return "Your phone isn't in reach — recording here, on the watch. The sound will be worse, and it moves over when the phone is back."
             case .phoneDidNotAnswer:
                 return "Your phone didn't answer — recording here, on the watch. The sound will be worse, and it moves over when the phone is back."
+            case .phoneCouldNotStart:
+                return "Your phone couldn't start recording — it may be locked. Recording here, on the watch; it moves over to the phone afterwards."
             }
         }
     }
@@ -94,6 +108,13 @@ public enum WatchLink {
     /// seconds is long enough for a phone in a pocket to answer and
     /// short enough that the opening words survive.
     public static let grace: TimeInterval = 2
+    /// How long a watch that has just woken may see "not reachable"
+    /// before believing it. After a tap on the complication the radio
+    /// needs a few seconds to find a phone lying on the table, and
+    /// taking that moment for "no phone" recorded on the wrist every
+    /// time (Egor, 2026-09-23). An unreachable phone costs these
+    /// seconds of the opening; the wrong device costs the meeting.
+    public static let reachabilityGrace: TimeInterval = 5
 
     /// How long an answer stays true.
     ///
@@ -122,12 +143,16 @@ public enum WatchLink {
         now: Date,
         grace: TimeInterval = WatchLink.grace,
         freshness: TimeInterval = WatchLink.freshness,
-        commandInFlight: Bool = false
+        commandInFlight: Bool = false,
+        reachabilityGrace: TimeInterval = WatchLink.reachabilityGrace
     ) -> WatchRole {
         // An answer settles it, whatever `isReachable` claims — the
         // flag is a hint about the radio, the answer is a fact about
         // the app. But only while it is still recent.
         if let phone, let answeredAt, now.timeIntervalSince(answeredAt) < freshness {
+            if phone.startFailure != nil, !phone.isRecording {
+                return .standalone(reason: .phoneCouldNotStart)
+            }
             return .remoteControl(phone)
         }
         // A Record command is on its way to the phone and has neither
@@ -136,7 +161,11 @@ public enum WatchLink {
         // second apart (Egor's watch, 2026-09-23, 12:23:42 and :43).
         // Wait for the reply or the delivery error, whichever comes.
         if commandInFlight { return .reaching }
-        if !reachable { return .standalone(reason: .phoneNotReachable) }
+        if !reachable {
+            return now.timeIntervalSince(askedAt) >= reachabilityGrace
+                ? .standalone(reason: .phoneNotReachable)
+                : .reaching
+        }
         if now.timeIntervalSince(askedAt) >= grace { return .standalone(reason: .phoneDidNotAnswer) }
         return .reaching
     }
