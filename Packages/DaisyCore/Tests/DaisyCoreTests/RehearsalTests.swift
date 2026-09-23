@@ -151,3 +151,23 @@ struct ScriptDocumentTests {
         #expect(RehearsalScript(text: back.text).paragraphs.count == 2)
     }
 }
+
+@Suite("Rehearsal: fillers")
+struct FillerWordsTests {
+    private func words(_ s: String) -> [WordTiming] {
+        s.split(separator: " ").enumerated().map { WordTiming(w: String($1), s: Double($0), e: Double($0) + 0.5) }
+    }
+
+    /// The phone's Whisper on a synthetic take with six deliberate
+    /// fillers, 23.09 — once as «эээ», once split as «э -э».
+    @Test func sixHesitationsAreSixWhateverTheSpelling() {
+        let plain = "Ну, эээ, привет, меня зовут, эээ, Мария, мы, типа, делаем сервис. Короче, мы, как бы, теряем решение. В общем, попробуйте."
+        let split = "Ну, э -э, привет, меня зовут, эм, Мария, мы, типа, делаем сервис. Короче, мы, как бы, теряем решение. В общем, попробуйте."
+        #expect(FillerWords.find(in: words(plain)).count == 6)
+        #expect(FillerWords.find(in: words(split)).count == 6)
+    }
+
+    @Test func ordinaryWordsAreNotFillers() {
+        #expect(FillerWords.find(in: words("Ну вот это так и было, like I said")).isEmpty)
+    }
+}

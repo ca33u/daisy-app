@@ -355,6 +355,7 @@ public final class WhisperEngine: Transcribing {
     public func run(
         samples: [Float], profile: Profile = .full, language: String? = nil,
         wordTimestamps: Bool = false,
+        prompt: String? = nil,
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Transcription {
         await load()
@@ -381,6 +382,16 @@ public final class WhisperEngine: Transcribing {
             // That is the price of not printing a hallucinated repeat
             // loop into the transcript, which is worse. Do not "fix" the
             // nondeterminism by setting temperatureFallbackCount to 0.
+            // An optional conditioning prompt — for rehearsal takes, an
+            // example of hesitant speech so the model keeps «э», «эм»
+            // instead of cleaning them away (backlog 17 С-4). NEVER the
+            // script: a model told what should be said hears it (§3.7).
+            var promptTokens: [Int]?
+            if let prompt, !prompt.isEmpty, let tokenizer = box.kit.tokenizer {
+                let encoded = tokenizer.encode(text: " " + prompt)
+                    .filter { $0 < tokenizer.specialTokens.specialTokenBegin }
+                promptTokens = Array(encoded.prefix(200))
+            }
             let options = DecodingOptions(
                 task: .transcribe,
                 language: language,
@@ -390,6 +401,7 @@ public final class WhisperEngine: Transcribing {
                 skipSpecialTokens: true,
                 withoutTimestamps: false,
                 wordTimestamps: wordTimestamps,
+                promptTokens: promptTokens,
                 compressionRatioThreshold: 2.4,
                 logProbThreshold: -1.0,
                 noSpeechThreshold: 0.4,
