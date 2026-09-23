@@ -6,12 +6,10 @@
 //  centre. Wispr-Flow-inspired aesthetic: solid dark surface, dense
 //  glyph-free centre (colour communicates state), tight padding.
 //
-//  • Recording: petals follow the existing mirrored FFT bands — under
-//    Reduce Motion too, because that is the sign the mic hears you.
+//  • Recording: petals follow the existing mirrored FFT bands.
 //  • Preparing / Stopping / Summarizing: the B+ petals rotate together
-//    at one revolution per 4.8 seconds, at half bloom, with a stationary
-//    status centre (still under Reduce Motion).
-//  • Idle / Paused / Finished / Failed: a still, compact flower.
+//    at one revolution per 4.8 seconds, with a stationary status centre.
+//  • Other states and Reduce Motion: a still B+ silhouette.
 //
 
 import SwiftUI
@@ -64,37 +62,22 @@ struct DaisyWidget: View {
         }
     }
 
-    // Geometry: the B+ petal SHAPE, the pre-B+ PROPORTIONS. B+ also
-    // scaled the petals to its SVG (width 8.4, length 8.4…11.7, full
-    // length at rest): the flower filled the disc, and the audio swing
-    // shrank from 8.2 pt to 3.3 pt — a quiet dictation voice moved the
-    // petals by less than a point (Egor, 2026-09-23: «цветок слишком
-    // большой… лепестки не реагируют»). These are the values tuned by
-    // hand through builds 45…1.0.8.1 (net ×0.748 of the original).
+    // B+ uses a 100-unit canvas, matching the exported SVG exactly.
     private let petalCount = 8
-    /// Reactive-petal amplitude gain shared by meeting AND dictation, so the
-    /// two modes drive the petals with IDENTICAL sensitivity (Egor 2026-06-19
-    /// — see `amplitudeFor`).
     private static let petalReactiveGain: Float = 1.0
-    private let basePetalLength: CGFloat = 5.236
-    private let maxPetalLength: CGFloat = 13.464
-    private let petalWidth: CGFloat = 5.236
-    private let centerSize: CGFloat = 7.48
     private let canvasSize: CGFloat = 42.075
-    private let petalGap: CGFloat = 0.425
-    /// Petal amplitude when nothing is being heard: idle, paused,
-    /// finished, failed. A compact flower, not a full bloom.
-    private static let restingAmplitude: Float = 0.30
-    /// While loading the petals turn instead of breathing, at a
-    /// fixed half-bloom.
-    private static let loadingAmplitude: Float = 0.55
+    private var maxPetalLength: CGFloat { canvasSize * 0.278 }
+    private var basePetalLength: CGFloat { maxPetalLength * 0.72 }
+    private var petalWidth: CGFloat { canvasSize * 0.20 }
+    private var centerSize: CGFloat { canvasSize * 0.21 }
+    private var petalGap: CGFloat { canvasSize * 0.037 }
 
     var body: some View {
         // Preserve one view tree across states. Only petals rotate while
         // loading; the centre keeps the recorder's existing status colour.
         let loading = Self.isLoadingStatus(session.status)
         let interval = loading ? 1.0 / 60.0 : 1.0 / 30.0
-        let animating = session.status == .recording || (loading && !reduceMotion)
+        let animating = !reduceMotion && (session.status == .recording || loading)
         return TimelineView(.animation(minimumInterval: interval, paused: !animating)) { context in
             let status = session.status
             let mode = session.currentMode
@@ -391,10 +374,8 @@ struct DaisyWidget: View {
         mode: RecordingSession.RecordingMode,
         date: Date
     ) -> Float {
+        if reduceMotion { return 1 }
         switch status {
-        // Not gated on Reduce Motion: this is the one sign that the
-        // microphone is hearing something, not decoration. 1.0.8.1 and
-        // earlier kept it; B+ froze it.
         case .recording:
             // 8 petals, mirrored across the vertical axis → the lower 4 of
             // the analyzer's 6 voice-tuned bands drive symmetric "blooming"
@@ -437,10 +418,8 @@ struct DaisyWidget: View {
             case .voiceNote:           gain = Self.petalReactiveGain * 1.06
             }
             return max(0.12, min(1.0, bands[bandIndex] * gain))
-        case .preparing, .stopping, .summarizing:
-            return Self.loadingAmplitude
-        case .paused, .idle, .finished, .failed:
-            return Self.restingAmplitude
+        case .preparing, .stopping, .summarizing, .paused, .idle, .finished, .failed:
+            return 1
         }
     }
 
