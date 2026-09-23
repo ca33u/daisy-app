@@ -1,5 +1,5 @@
 {
-  "originHash" : "e39cc886c0810c8fa5095c334cc19e8da7dcceb152f57c8894f264c9cf105ae2",
+  "originHash" : "ad39b7bab05a8f466af91751b95055a56faaf35bda7dc86f5bff68043817db7c",
   "pins" : [
     {
       "identity" : "argmax-oss-swift",
@@ -7,6 +7,14 @@
       "location" : "https://github.com/argmaxinc/argmax-oss-swift",
       "state" : {
         "revision" : "1e2a163736dfa5a198e637ae44c114e1c6d5cc2d"
+      }
+    },
+    {
+      "identity" : "fluidaudio",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/FluidInference/FluidAudio",
+      "state" : {
+        "revision" : "6428e29186573c6d33c598e25d460e6690bc0ee1"
       }
     },
     {

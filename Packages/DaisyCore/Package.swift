@@ -34,6 +34,7 @@ let package = Package(
         .library(name: "DaisyPalette", targets: ["DaisyPalette"]),
         .library(name: "DaisyDesign", targets: ["DaisyDesign"]),
         .library(name: "DaisyLink", targets: ["DaisyLink"]),
+        .library(name: "DaisyDiarization", targets: ["DaisyDiarization"]),
     ],
     dependencies: [
         // WhisperKit 1.1.0 — the same pin as daisy-app
@@ -42,6 +43,19 @@ let package = Package(
         .package(
             url: "https://github.com/argmaxinc/argmax-oss-swift",
             revision: "1e2a163736dfa5a198e637ae44c114e1c6d5cc2d"
+        ),
+        // Бэклог 18: diarization on the phone, as a spike.
+        //
+        // The revision is pinned to the EXACT one daisy-app uses
+        // (Daisy.xcodeproj Package.resolved), and that is not tidiness:
+        // a voice embedding only means something inside the model that
+        // produced it. A different FluidAudio would download different
+        // weights, the owner's `SpeakerProfile` built on the Mac would
+        // match nobody on the phone, and the spike would measure the
+        // wrong thing while looking like it worked.
+        .package(
+            url: "https://github.com/FluidInference/FluidAudio",
+            revision: "6428e29186573c6d33c598e25d460e6690bc0ee1"
         ),
     ],
     targets: [
@@ -65,6 +79,22 @@ let package = Package(
             name: "DaisyDesign",
             dependencies: ["DaisyPalette"],
             swiftSettings: [
+                .enableUpcomingFeature("MemberImportVisibility"),
+            ]
+        ),
+        // Бэклог 18: kept OUT of DaisyCore on purpose. Everything that
+        // links DaisyCore — the widgets, and through them the home
+        // screen — would otherwise carry FluidAudio too, and a widget
+        // has about 30 MB of memory to live in. Only the app links
+        // this.
+        .target(
+            name: "DaisyDiarization",
+            dependencies: [
+                "DaisyCore",
+                .product(name: "FluidAudio", package: "FluidAudio"),
+            ],
+            swiftSettings: [
+                .defaultIsolation(MainActor.self),
                 .enableUpcomingFeature("MemberImportVisibility"),
             ]
         ),
