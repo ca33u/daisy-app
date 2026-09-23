@@ -83,10 +83,10 @@ public enum RepetitionLoop {
     public nonisolated static let maxLoopWindowVariety = 0.2
     /// How many consecutive segments one window may span.
     public nonisolated static let maxLoopWindowSegments = 12
-    /// A word the window says more than once is part of the loop.
-    public nonisolated static let loopCoreMinCount = 2
-    /// A segment goes only if nearly all of it is loop words, so a real
-    /// «Ок.» that happens to sit next to the loop survives.
+    /// A segment goes only if nearly all of it is loop words — words
+    /// the window says in OTHER segments too — so a real «Ок.» next to
+    /// the loop survives, and so does «Да, да.» next to «Музыка.» ×40
+    /// (phone, 21.09: "да" twice in its own line is not the loop's).
     public nonisolated static let minCoreShare = 0.8
 
     /// Indices of segments that together are one phrase going round.
@@ -117,7 +117,9 @@ public enum RepetitionLoop {
                       Double(counts.count) <= maxLoopWindowVariety * Double(total)
                 else { continue }
                 for k in i...j where !tokens[k].isEmpty {
-                    let core = tokens[k].filter { counts[$0, default: 0] >= loopCoreMinCount }.count
+                    var own: [String: Int] = [:]
+                    for word in tokens[k] { own[word, default: 0] += 1 }
+                    let core = tokens[k].filter { counts[$0, default: 0] > own[$0, default: 0] }.count
                     if Double(core) >= minCoreShare * Double(tokens[k].count) { dropped.insert(k) }
                 }
             }

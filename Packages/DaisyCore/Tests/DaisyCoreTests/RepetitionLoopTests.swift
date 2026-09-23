@@ -167,6 +167,26 @@ struct LoopRunTests {
         #expect(dropped(lines).isEmpty)
     }
 
+    /// A phone recording, 21.09: a real «Да, да.» three seconds before
+    /// «Музыка.» ×28. "да" twice in its own line is not the loop's word.
+    @Test func aRealReplyNextToALoopSurvives() {
+        let lines: [(String, String)] = [
+            ("1:56:19", "Чтобы не выглядело, что ты в крысе ходишь, раздаешь в стике, да?"),
+            ("1:56:22", "Да, да."),
+            ("1:56:25", "I'm sorry."),
+            ("1:56:25", Array(repeating: "Музыка.", count: 28).joined(separator: " ")),
+            ("1:56:42", "I'm sorry."),
+        ]
+        let starts = lines.map { l -> TimeInterval in
+            let p = l.0.split(separator: ":").compactMap { Double($0) }
+            return p[0] * 3600 + p[1] * 60 + p[2]
+        }
+        let dropped = RepetitionLoop.loopRunIndices(texts: lines.map(\.1), starts: starts)
+        #expect(!dropped.contains(1))
+        // The loop line itself is `isLoop`'s: it is one line.
+        #expect(RepetitionLoop.isLoop(lines[3].1))
+    }
+
     /// Someone who really doesn't know, and says so three times, is
     /// still talking.
     @Test func realHesitationSurvives() {
