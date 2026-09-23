@@ -2,7 +2,7 @@
   "fill-specializations" : [
     {
       "value" : {
-        "solid" : "srgb:0.10980,0.10196,0.09020,1.00000"
+        "solid" : "srgb:0.11373,0.10980,0.09804,1.00000"
       }
     },
     {
@@ -14,34 +14,15 @@
   ],
   "groups" : [
     {
-      "blur-material" : 0.5,
-      "hidden" : false,
+      "blur-material" : null,
       "layers" : [
         {
-          "fill" : {
-            "solid" : "display-p3:1.00000,0.58431,0.00000,1.00000"
-          },
+          "fill" : "automatic",
           "glass" : true,
-          "image-name" : "Ellipse 6.svg",
-          "name" : "core",
+          "image-name" : "daisy-b-plus.svg",
+          "name" : "daisy-b-plus",
           "position" : {
-            "scale" : 24.9,
-            "translation-in-points" : [
-              0,
-              0
-            ]
-          }
-        },
-        {
-          "fill" : {
-            "solid" : "display-p3:1.00000,0.60784,0.01569,1.00000"
-          },
-          "glass" : true,
-          "hidden" : true,
-          "image-name" : "Vector-1.svg",
-          "name" : "Vector-1",
-          "position" : {
-            "scale" : 1,
+            "scale" : 9.66,
             "translation-in-points" : [
               0,
               0
@@ -50,77 +31,19 @@
         }
       ],
       "lighting" : "individual",
-      "shadow" : {
-        "kind" : "layer-color",
-        "opacity" : 0.5
+      "refractivity" : {
+        "depth" : 0,
+        "enabled" : false,
+        "strength" : 0.5
       },
-      "specular" : true,
-      "translucency" : {
-        "enabled" : true,
-        "value" : 0.5
-      }
-    },
-    {
-      "blend-mode" : "normal",
-      "blur-material" : 0.5,
-      "hidden" : false,
-      "layers" : [
-        {
-          "blend-mode" : "normal",
-          "fill" : {
-            "linear-gradient" : [
-              "display-p3:0.98039,0.96863,0.94118,1.00000",
-              "display-p3:0.98039,0.96863,0.94118,0.75089"
-            ]
-          },
-          "hidden" : false,
-          "image-name" : "Vector 2.svg",
-          "name" : "petals",
-          "opacity" : 1,
-          "position" : {
-            "scale" : 24.9,
-            "translation-in-points" : [
-              0,
-              0
-            ]
-          }
-        },
-        {
-          "blend-mode" : "normal",
-          "fill" : {
-            "linear-gradient" : [
-              "extended-gray:1.00000,1.00000",
-              "extended-gray:1.00000,0.75089"
-            ]
-          },
-          "hidden" : true,
-          "image-name" : "Vector.svg",
-          "name" : "Vector",
-          "opacity" : 1
-        }
-      ],
-      "lighting" : "combined",
-      "shadow" : {
-        "kind" : "layer-color",
-        "opacity" : 0.5
-      },
-      "specular" : true,
-      "translucency" : {
-        "enabled" : true,
-        "value" : 0.5
-      }
-    },
-    {
-      "layers" : [
-
-      ],
       "shadow" : {
         "kind" : "neutral",
         "opacity" : 0.5
       },
+      "specular" : true,
       "translucency" : {
         "enabled" : true,
-        "value" : 0.5
+        "value" : 0.3
       }
     }
   ],

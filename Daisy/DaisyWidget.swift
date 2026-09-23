@@ -71,6 +71,12 @@ struct DaisyWidget: View {
     private var petalWidth: CGFloat { canvasSize * 0.20 }
     private var centerSize: CGFloat { canvasSize * 0.21 }
     private var petalGap: CGFloat { canvasSize * 0.037 }
+    /// The B+ canvas is the disc, so at 1:1 the petal tips reach 84% of
+    /// its diameter and the flower crowds the edge (Egor, 2026-09-23:
+    /// «уменьшить всю композицию чуть-чуть»). One uniform scale for
+    /// petals and centre together — the shape and its proportions are
+    /// the SVG's and stay untouched.
+    private let flowerScale: CGFloat = 0.85
 
     var body: some View {
         // Preserve one view tree across states. Only petals rotate while
@@ -111,11 +117,13 @@ struct DaisyWidget: View {
                     }
                 }
                 .rotationEffect(.degrees(rotation))
+                .scaleEffect(flowerScale)
 
                 Circle()
                     .fill(center)
                     .frame(width: centerSize, height: centerSize)
                     .shadow(color: center.opacity(0.55), radius: 2.5, x: 0, y: 0)
+                    .scaleEffect(flowerScale)
             }
         }
         .frame(width: canvasSize, height: canvasSize)
