@@ -416,6 +416,27 @@ struct QRRoundTripTests {
     /// 2026-09-23, checked rather than assumed. A third of a module is
     /// what the views use; half (full circles) is tested too, because
     /// that is the first thing anyone will try next.
+    /// The gap between dots, measured rather than chosen: 7 % of a
+    /// module reads everywhere, 8 % already fails at some sizes. Every
+    /// gap eats the dark mass a scanner thresholds on, so this is the
+    /// line between "airy" and "works on the desk but not at a booth".
+    @Test func sevenPercentOfAirBetweenDotsStillDecodes() throws {
+        var card = BusinessCard(kind: .work)
+        card.name = "Egor Sazanov"
+        card.company = "addicted"
+        card.role = "Founder"
+        card.email = "egor@addicted.sh"
+        let payload = VCard.text(for: card)
+        let grid = QRCode.matrix(from: payload)
+        for side in [200, 400, 600, 900] {
+            let drawn = try #require(draw(grid, side: side, roundness: 0.35, gap: 0.07))
+            let request = VNDetectBarcodesRequest()
+            try VNImageRequestHandler(cgImage: drawn).perform([request])
+            #expect((request.results ?? []).compactMap(\.payloadStringValue).first == payload,
+                    "a 7% gap stopped decoding at \(side)px")
+        }
+    }
+
     @Test func roundedModulesStillDecode() throws {
         var card = BusinessCard(kind: .work)
         card.name = "Egor Sazanov"
@@ -435,7 +456,7 @@ struct QRRoundTripTests {
     /// Draw the grid as the views do: dark squares on white, y running
     /// downwards, optionally rounded and with a disc in the middle.
     private func draw(_ grid: [[Bool]], side: Int, logoFraction: CGFloat = 0,
-                      roundness: CGFloat = 0) -> CGImage? {
+                      roundness: CGFloat = 0, gap: CGFloat = 0) -> CGImage? {
         guard !grid.isEmpty else { return nil }
         let count = grid.count
         let step = CGFloat(side) / CGFloat(count)
@@ -447,11 +468,13 @@ struct QRRoundTripTests {
         context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         for (y, row) in grid.enumerated() {
             for (x, isDark) in row.enumerated() where isDark {
-                let rect = CGRect(x: CGFloat(x) * step,
+                let cell = CGRect(x: CGFloat(x) * step,
                                   y: CGFloat(count - 1 - y) * step,
-                                  width: step + 0.5, height: step + 0.5)
+                                  width: step, height: step)
+                let rect = gap > 0 ? cell.insetBy(dx: step * gap, dy: step * gap)
+                                   : cell.insetBy(dx: -0.25, dy: -0.25)
                 if roundness > 0 {
-                    let radius = min(step * roundness, step / 2)
+                    let radius = min(rect.width * roundness, rect.width / 2)
                     context.addPath(CGPath(roundedRect: rect, cornerWidth: radius,
                                            cornerHeight: radius, transform: nil))
                     context.fillPath()
