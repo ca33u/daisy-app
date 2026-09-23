@@ -94,6 +94,17 @@ struct TakeAnalysisTests {
         #expect(take.accuracy > 0.6 && take.accuracy < 0.7)
     }
 
+    @Test func theMarkedTextSaysWhatHappened() {
+        let script = RehearsalScript(text: "Мы делаем сервис для записи встреч.")
+        let spoken = timed("Мы ну делаем продукт для встреч")
+        let take = TakeAnalysis(script: script, spoken: spoken)
+        #expect(take.markedText(script: script, spoken: spoken)
+                == "Мы [+ну] делаем [сервис → продукт] для [−записи] встреч.")
+        let range = TakeAnalysis.speechRange(of: spoken)
+        #expect(range?.lowerBound == 0)
+        #expect((range?.upperBound ?? 0) > spoken.last!.e)
+    }
+
     @Test func paceIsPerParagraphNotOneAverage() {
         let script = RehearsalScript(text: "раз два три четыре\n\nпять шесть семь восемь")
         var spoken = timed("раз два три четыре", step: 0.25)

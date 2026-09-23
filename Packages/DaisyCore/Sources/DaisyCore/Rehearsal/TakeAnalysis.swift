@@ -98,6 +98,38 @@ public nonisolated struct TakeAnalysis: Sendable, Equatable {
         self.paces = paces
     }
 
+    /// The text of the take as plain text, for sharing: left-out words
+    /// as `[−word]`, changed ones as `[written → said]`, added ones as
+    /// `[+said]`; paragraphs kept.
+    public func markedText(script: RehearsalScript, spoken: [WordTiming]) -> String {
+        var paragraphs: [[String]] = Array(repeating: [], count: max(1, script.paragraphs.count))
+        var current = 0
+        for step in steps {
+            switch step {
+            case .match(let s, _):
+                current = script.words[s].paragraph
+                paragraphs[current].append(script.words[s].text)
+            case .substitute(let s, let sp):
+                current = script.words[s].paragraph
+                paragraphs[current].append("[\(script.words[s].text) → \(spoken[sp].w)]")
+            case .omit(let s):
+                current = script.words[s].paragraph
+                paragraphs[current].append("[−\(script.words[s].text)]")
+            case .insert(let sp):
+                paragraphs[current].append("[+\(spoken[sp].w)]")
+            }
+        }
+        return paragraphs.map { $0.joined(separator: " ") }.filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
+
+    /// Where the take's speech starts and ends, with a little air — for
+    /// exporting the audio without the silence before the first word and
+    /// after the last.
+    public static func speechRange(of spoken: [WordTiming], lead: Double = 0.3, tail: Double = 0.4) -> ClosedRange<Double>? {
+        guard let first = spoken.first, let last = spoken.last, last.e > first.s else { return nil }
+        return max(0, first.s - lead)...(last.e + tail)
+    }
+
     /// Word-level edit alignment, similar words counting as equal.
     static func align(_ script: [String], _ spoken: [String]) -> [Step] {
         let n = script.count, m = spoken.count
