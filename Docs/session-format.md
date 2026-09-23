@@ -498,6 +498,8 @@ daisy_target_sec: 60
 | `script.md` | the text **as it was for this take**, Markdown, paragraphs separated by a blank line. Edited text between takes means each take is compared with its own copy |
 | `words.json` | word timings of what was said (§2); the analysis and the subtitles are computed from it and `script.md`, and are not stored |
 | audio | `microphone.m4a` (AAC, 48 kHz) or `microphone.caf` (lossless, 48 kHz): a take may be published, so it is **not** reduced to 16 kHz like a meeting. Readers resample as for any audio |
+| `video.mov` | optional: the front camera, **video only** (HEVC). The take's sound is the audio above, never the camera's |
+| `video.json` | beside `video.mov`: `{"offsetSec": 0.42}` — where the first video frame falls in the audio, to lay the two together |
 
 The script is **never** given to the transcriber as a prompt: a model told
 what should be said hears it, and the differences the take exists to
