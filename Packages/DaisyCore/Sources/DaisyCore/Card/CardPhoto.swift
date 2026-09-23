@@ -19,6 +19,39 @@ import CoreGraphics
 import Foundation
 import ImageIO
 
+/// Decoding an image at the size it will be drawn, not at the size it
+/// was taken. Used by the card widget (a ~30 MB extension) and by the
+/// transcript timeline, where a meeting can carry dozens of frames and
+/// decoding them whole would be hundreds of megabytes for thumbnails.
+public nonisolated enum ImageThumbnail {
+    /// Decode at most `maxPixelSize` pixels on the long side — ImageIO
+    /// decodes the reduced image, so the full-size bitmap never exists.
+    public static func make(from data: Data, maxPixelSize: CGFloat) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, [
+            kCGImageSourceShouldCache: false,
+        ] as CFDictionary) else { return nil }
+        return make(from: source, maxPixelSize: maxPixelSize)
+    }
+
+    /// The same, straight from a file — nothing is read into memory
+    /// beyond what the decode needs.
+    public static func make(contentsOf url: URL, maxPixelSize: CGFloat) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [
+            kCGImageSourceShouldCache: false,
+        ] as CFDictionary) else { return nil }
+        return make(from: source, maxPixelSize: maxPixelSize)
+    }
+
+    private static func make(from source: CGImageSource, maxPixelSize: CGFloat) -> CGImage? {
+        CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: Int(maxPixelSize),
+        ] as CFDictionary)
+    }
+}
+
 public nonisolated enum CardPhoto {
     /// What the app's own screen shows (a 64-point circle at 3×, with
     /// room for a bigger layout later).
@@ -30,16 +63,7 @@ public nonisolated enum CardPhoto {
     /// Decode at most `maxPixelSize` pixels on the long side — ImageIO
     /// decodes the reduced image, so the full-size bitmap never exists.
     public static func thumbnail(from data: Data, maxPixelSize: CGFloat) -> CGImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, [
-            kCGImageSourceShouldCache: false,
-        ] as CFDictionary) else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: Int(maxPixelSize),
-        ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        ImageThumbnail.make(from: data, maxPixelSize: maxPixelSize)
     }
 
     /// Pixel size of an image file without decoding it — for a test, and

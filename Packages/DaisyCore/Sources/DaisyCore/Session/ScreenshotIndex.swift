@@ -39,6 +39,11 @@ public nonisolated enum ScreenshotIndex {
 
     /// The frame number of `001.jpg`; nil for anything that isn't a
     /// frame (`index.json`, `._001.jpg`, `001 copy.jpg`).
+    /// The same, from a bare filename.
+    public static func number(of file: String) -> Int? {
+        number(of: URL(fileURLWithPath: file))
+    }
+
     public static func number(of url: URL) -> Int? {
         guard readableExtensions.contains(url.pathExtension.lowercased()) else { return nil }
         let stem = url.deletingPathExtension().lastPathComponent

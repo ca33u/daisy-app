@@ -20,12 +20,17 @@ import Foundation
 public nonisolated enum TranscriptDocument {
     /// The literal heading the retention sweep looks for. Never localize.
     public static let transcriptHeading = "## Transcript"
+    /// §3.3: frames live in their own section, above the transcript —
+    /// never inside it. The phone writes it since backlog 13 М-2 so the
+    /// photos survive leaving the app (the Mac has always read it).
+    public static let screenshotsHeading = "## Screenshots"
 
     /// Full `transcript.md` text: frontmatter + body.
     public static func render(
         frontmatter: SessionFrontmatter,
         segments: [TranscriptSegment],
-        userDisplayName: String?
+        userDisplayName: String?,
+        screenshots: [String: Double] = [:]
     ) -> String {
         var lines = frontmatter.renderLines()
         lines.append("")
@@ -40,7 +45,8 @@ public nonisolated enum TranscriptDocument {
             started: frontmatter.started,
             duration: TimeInterval(frontmatter.durationSec),
             segments: segments,
-            userDisplayName: userDisplayName
+            userDisplayName: userDisplayName,
+            screenshots: screenshots
         ))
         return lines.joined(separator: "\n")
     }
@@ -51,13 +57,32 @@ public nonisolated enum TranscriptDocument {
         started: Date?,
         duration: TimeInterval,
         segments: [TranscriptSegment],
-        userDisplayName: String?
+        userDisplayName: String?,
+        screenshots: [String: Double] = [:]
     ) -> [String] {
         var lines: [String] = []
         lines.append("# \(title)")
         lines.append("")
         if let started {
             lines.append("> recorded \(humanDate(started)) · \(formatDuration(duration))")
+            lines.append("")
+        }
+        // §3.3 order: Screenshots before Transcript. Timecodes come
+        // from `index.json`; a stamp past the duration means the frame
+        // was attached later (§7.6) and is rendered as such, never as a
+        // position in the conversation.
+        if !screenshots.isEmpty {
+            lines.append(screenshotsHeading)
+            lines.append("")
+            let ordered = screenshots.sorted { lhs, rhs in
+                ScreenshotIndex.number(of: lhs.key) ?? 0 < ScreenshotIndex.number(of: rhs.key) ?? 0
+            }
+            for (file, offset) in ordered {
+                let label = duration > 0 && offset > duration
+                    ? String(localized: "added later")
+                    : formatDuration(max(0, offset))
+                lines.append("![\(label)](screenshots/\(file))")
+            }
             lines.append("")
         }
         lines.append(transcriptHeading)
