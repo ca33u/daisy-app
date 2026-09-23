@@ -126,8 +126,28 @@ final class SparkleUpdater {
     /// update-available prompt with release notes + Install / Skip /
     /// Remind Me Later.
     func checkForUpdates() {
+        // Бэклог 16 Р-1: a check the person started themselves is not
+        // blocked — they are standing at the keyboard and can read what
+        // Sparkle offers. They are warned, because the offer will
+        // include "Install and Relaunch", and a relaunch is the one
+        // thing that would end the meeting.
+        if RecordingSession.isCapturingOrTranscribing {
+            ToastCenter.shared.show(
+                String(localized: "A recording is in progress — an update will install after it ends."),
+                style: .info
+            )
+        }
         controller.checkForUpdates(nil)
     }
+
+    // MARK: - Р-1: an update must never end a recording
+
+    /// Holds the installer's relaunch until the audio pipeline is idle.
+    @ObservationIgnored fileprivate let relaunchHold = PostponedRelaunch()
+
+    /// True while an update is installed and waiting for the meeting to
+    /// end. Surfaced so Settings can say so instead of looking idle.
+    var isWaitingForRecordingToRelaunch: Bool { relaunchHold.isWaiting }
 
     /// Starts Sparkle's normal background update cycle immediately after
     /// launch. Sparkle itself continues to schedule later checks according to
@@ -147,6 +167,74 @@ final class SparkleUpdater {
     }
 }
 
+/// Бэклог 16 Р-1: the two decisions an update has to get right while a
+/// meeting is running, kept away from Sparkle so they can be tested.
+///
+/// `UpdateGate` is the rule; `PostponedRelaunch` is the machinery that
+/// carries an already-installed update across the end of a recording.
+enum UpdateGate {
+    /// Whether a check of this kind may start right now.
+    ///
+    /// A scheduled or background check waits: nobody asked for it, and
+    /// its whole purpose is to put a dialog on screen — one whose
+    /// default button relaunches the app. A check the person started
+    /// themselves goes through; they are at the keyboard, and they are
+    /// told a recording is running.
+    static func mayCheck(kind: SPUUpdateCheck, whileCapturing capturing: Bool) -> Bool {
+        guard capturing else { return true }
+        return kind != .updatesInBackground
+    }
+}
+
+/// An installed update waiting for the audio to finish.
+///
+/// Sparkle hands over its relaunch block exactly once. Dropping it would
+/// leave the update staged and never applied, so the block is stored and
+/// only ever released — never discarded.
+@MainActor
+final class PostponedRelaunch {
+    /// Asked once a second while something is held. Injectable so the
+    /// rule can be tested without a recording, a Sparkle updater, or a
+    /// wait for real time.
+    var isBusy: @MainActor () -> Bool = { RecordingSession.isCapturingOrTranscribing }
+
+    private(set) var isWaiting = false
+    private var install: (() -> Void)?
+    private var watcher: Task<Void, Never>?
+
+    /// Polling rather than a callback on purpose: "busy" is a composite
+    /// of three independent things — session status, the summary task,
+    /// a standalone re-transcription — and a missed edge here costs at
+    /// most a second, while a missed callback would strand an installed
+    /// update forever.
+    func hold(_ install: @escaping () -> Void, pollEvery interval: Duration = .seconds(1)) {
+        self.install = install
+        isWaiting = true
+        watcher?.cancel()
+        watcher = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+                guard let self else { return }
+                guard !isBusy() else { continue }
+                release()
+                return
+            }
+        }
+    }
+
+    /// Runs the held block, if any. Idempotent.
+    func release() {
+        watcher?.cancel()
+        watcher = nil
+        isWaiting = false
+        guard let install else { return }
+        self.install = nil
+        Logger(subsystem: "app.essazanov.Daisy", category: "Updates")
+            .notice("Audio pipeline idle — running the postponed update relaunch")
+        install()
+    }
+}
+
 /// Scopes Daisy's updater to Sparkle channels (2026-06-08). Stable =
 /// appcast items with no `<sparkle:channel>` tag — every client sees
 /// those. Beta = items tagged `<sparkle:channel>beta</sparkle:channel>`,
@@ -156,6 +244,42 @@ final class SparkleUpdater {
 /// delegate off the main thread, and reading a plain defaults bool from
 /// a `nonisolated` method avoids any actor hop.
 private final class DaisyUpdaterDelegate: NSObject, SPUUpdaterDelegate {
+    /// Бэклог 16 Р-1. Two hooks, and they answer two different
+    /// questions.
+    ///
+    /// This one stops the check from ever starting. It takes the KIND of
+    /// check, which matters: the backlog named the older
+    /// `updaterMayCheckForUpdates(_:)`, but that one is deprecated in
+    /// this Sparkle and cannot tell a scheduled probe from a person
+    /// pressing "Check for Updates…" — so using it would either block
+    /// the manual check too, or block nothing. Scheduled and background
+    /// checks wait; a check someone asked for goes through, warned.
+    @MainActor
+    func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
+        guard !UpdateGate.mayCheck(kind: updateCheck,
+                                   whileCapturing: RecordingSession.isCapturingOrTranscribing) else { return }
+        throw NSError(domain: "app.essazanov.Daisy.updates", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: String(localized: "A recording is in progress — update checks resume when it ends."),
+        ])
+    }
+
+    /// And this one catches the case the first cannot: the update was
+    /// already found and downloaded, the person clicked "Install and
+    /// Relaunch", and a meeting started in between — or they clicked it
+    /// during one. Returning true hands us the installer's block to run
+    /// later; Sparkle keeps the update staged until we do.
+    @MainActor
+    func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem,
+                 untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
+        guard RecordingSession.isCapturingOrTranscribing else { return false }
+        SparkleUpdater.shared.relaunchHold.hold(installHandler)
+        ToastCenter.shared.show(
+            String(localized: "Update ready. Daisy will restart when the recording ends."),
+            style: .info
+        )
+        return true
+    }
+
     nonisolated func allowedChannels(for updater: SPUUpdater) -> Set<String> {
         UserDefaults.standard.bool(forKey: "daisy.updates.betaChannel") ? ["beta"] : []
     }

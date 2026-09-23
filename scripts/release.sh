@@ -433,6 +433,10 @@ echo
 echo "▸ [6/6] publishing to daisy-web…"
 
 NOTES_MD="${DAISY_REPO}/scripts/release-notes/${VERSION}.md"
+# Р-3: the Russian notes are optional. Their absence must never fail a
+# release — the appcast then carries the English block alone, exactly as
+# it did before this existed.
+NOTES_MD_RU="${DAISY_REPO}/scripts/release-notes/${VERSION}.ru.md"
 if [[ ! -f "${NOTES_MD}" ]]; then
     echo "  ✗ Release notes missing: ${NOTES_MD}" >&2
     echo "    Create the file with markdown bullets (one '- text' per line)," >&2
@@ -455,6 +459,7 @@ PUBDATE="${PUBDATE}" \
 DOWNLOAD_URL="${DOWNLOAD_URL_BASE}/${DMG_NAME}" \
 SIGNATURE_LINE="${SIGNATURE_OUTPUT}" \
 NOTES_MD="${NOTES_MD}" \
+NOTES_MD_RU="${NOTES_MD_RU}" \
 APPCAST_FILE="${APPCAST_FILE}" \
 python3 <<'PY'
 import os, re, html, pathlib, sys
@@ -465,21 +470,66 @@ pubdate       = os.environ["PUBDATE"]
 download_url  = os.environ["DOWNLOAD_URL"]
 signature     = os.environ["SIGNATURE_LINE"].strip()
 notes_path    = pathlib.Path(os.environ["NOTES_MD"])
+notes_path_ru = pathlib.Path(os.environ["NOTES_MD_RU"])
 appcast_path  = pathlib.Path(os.environ["APPCAST_FILE"])
 
 # --- Convert markdown bullets to HTML <li> -----------------------------
-bullets = []
-for raw in notes_path.read_text(encoding="utf-8").splitlines():
-    stripped = raw.lstrip()
-    if stripped.startswith(("- ", "* ")):
-        text = stripped[2:].rstrip()
-        # Escape HTML, then keep simple `code` spans readable
-        safe = html.escape(text)
-        bullets.append(f"          <li>{safe}</li>")
-if not bullets:
+# Р-2 (2026-09-23): this used to escape and stop, so 1.0.8.1 shipped with
+# literal asterisks in the dialog — **Fixes a slow first launch...**. The
+# old comment here claimed it "keeps simple `code` spans readable"; it
+# did no such thing, which is how the gap survived.
+#
+# Two inline forms, and deliberately no more: release notes are a handful
+# of bullets, and a full markdown parser here would be a dependency and a
+# new way to break a release.
+CODE_RE = re.compile(r"`([^`]+)`")
+STRONG_RE = re.compile(r"\*\*(.+?)\*\*")
+
+def inline_markdown(text):
+    # Escape first — everything below emits tags, and anything the author
+    # wrote that looks like a tag must already be inert by then.
+    safe = html.escape(text)
+    # Code spans are lifted out before ** is touched: asterisks inside a
+    # code span are part of the code, not emphasis around it.
+    spans = []
+    def stash(match):
+        spans.append(match.group(1))
+        return f"\x00{len(spans) - 1}\x00"
+    safe = CODE_RE.sub(stash, safe)
+    safe = STRONG_RE.sub(r"<strong>\1</strong>", safe)
+    for index, code in enumerate(spans):
+        safe = safe.replace(f"\x00{index}\x00", f"<code>{code}</code>")
+    return safe
+
+def bullets_html(path):
+    lines = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        stripped = raw.lstrip()
+        if stripped.startswith(("- ", "* ")):
+            lines.append(f"          <li>{inline_markdown(stripped[2:].rstrip())}</li>")
+    return "\n".join(lines)
+
+notes_html = bullets_html(notes_path)
+if not notes_html:
     print(f"  ✗ No bullet lines found in {notes_path.name}", file=sys.stderr)
     sys.exit(1)
-notes_html = "\n".join(bullets)
+
+# Р-3: a second, Russian <description> in the same <item>. Sparkle picks
+# by the system language and falls back to the untagged one, so English
+# stays the default for everyone else.
+notes_html_ru = bullets_html(notes_path_ru) if notes_path_ru.exists() else ""
+if notes_html_ru:
+    description_ru = f"""
+      <description xml:lang="ru"><![CDATA[
+        <h3>Что нового в {version}</h3>
+        <ul>
+{notes_html_ru}
+        </ul>
+      ]]></description>"""
+    print(f"  → Russian release notes included ({notes_path_ru.name})")
+else:
+    description_ru = ""
+    print("  → No Russian release notes; the English block ships alone")
 
 # --- Build the new <item> block ----------------------------------------
 # Beta-channel items carry <sparkle:channel>beta</sparkle:channel>;
@@ -498,7 +548,7 @@ item_block = f"""    <item>
         <ul>
 {notes_html}
         </ul>
-      ]]></description>
+      ]]></description>{description_ru}
       <enclosure
         url="{download_url}"
         {signature}

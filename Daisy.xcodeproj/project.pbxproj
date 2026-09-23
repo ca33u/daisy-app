@@ -93,6 +93,7 @@
 				B9F5F1182FB74D9F00E26A7A /* Sources */,
 				B9F5F1192FB74D9F00E26A7A /* Frameworks */,
 				B9F5F11A2FB74D9F00E26A7A /* Resources */,
+				B9F6100000000000000001 /* Russian strings Sparkle is missing */,
 			);
 			buildRules = (
 			);
@@ -137,6 +138,27 @@
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		B9F6100000000000000001 /* Russian strings Sparkle is missing */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/patch-sparkle-ru.sh",
+				"$(SRCROOT)/scripts/sparkle-ru-additions.strings",
+			);
+			name = "Russian strings Sparkle is missing";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/Sparkle.framework/Versions/B/Resources/ru.lproj/Sparkle.strings",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"${SRCROOT}/scripts/patch-sparkle-ru.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXProject section */
 		B9F5F1142FB74D9F00E26A7A /* Project object */ = {
