@@ -24,11 +24,16 @@ let package = Package(
     platforms: [
         .iOS(.v26),
         .macOS(.v14),
+        // Бэклог 14 Н-2: only `DaisyLink` is built for the watch — it
+        // is Foundation-only and depends on nothing, so WhisperKit
+        // never has to exist on watchOS.
+        .watchOS(.v26),
     ],
     products: [
         .library(name: "DaisyCore", targets: ["DaisyCore"]),
         .library(name: "DaisyPalette", targets: ["DaisyPalette"]),
         .library(name: "DaisyDesign", targets: ["DaisyDesign"]),
+        .library(name: "DaisyLink", targets: ["DaisyLink"]),
     ],
     dependencies: [
         // WhisperKit 1.1.0 — the same pin as daisy-app
@@ -63,9 +68,15 @@ let package = Package(
                 .enableUpcomingFeature("MemberImportVisibility"),
             ]
         ),
+        .target(
+            name: "DaisyLink",
+            swiftSettings: [
+                .enableUpcomingFeature("MemberImportVisibility"),
+            ]
+        ),
         .testTarget(
             name: "DaisyCoreTests",
-            dependencies: ["DaisyCore", "DaisyPalette", "DaisyDesign"],
+            dependencies: ["DaisyCore", "DaisyPalette", "DaisyDesign", "DaisyLink"],
             swiftSettings: [
                 .defaultIsolation(MainActor.self),
             ]
