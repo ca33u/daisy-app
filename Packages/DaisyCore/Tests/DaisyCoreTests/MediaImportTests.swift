@@ -103,3 +103,37 @@ struct MediaImportTests {
         try file.write(from: buffer)
     }
 }
+
+@Suite("An import owes a transcript")
+struct ImportedSessionQueueTests {
+    /// The bug the first measured import found (2026-09-23): an
+    /// imported session has no `.recording` marker, so the queue's
+    /// filter skipped it and the file sat there transcribed by nobody.
+    @Test func animportedFolderIsFlaggedForTranscription() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("import-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let base = SessionsBase(base: root)
+        let source = root.appendingPathComponent("keynote.caf")
+        let format = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1)!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 32_000)!
+        buffer.frameLength = 32_000
+        let file = try AVAudioFile(forWriting: source, settings: format.settings)
+        try file.write(from: buffer)
+
+        let result = try await MediaImport.importFile(source, into: base)
+        let session = try #require(SessionClassifier.scan(base: base).first { $0.id == result.sessionID })
+        #expect(session.isImported)
+        #expect(session.hasAudio && !session.hasTranscript)
+        #expect(session.state == .valid)            // nothing was interrupted
+        #expect(!session.needsFinishingPass)        // and there is no marker
+        #expect(session.needsTranscription)         // but it still owes a transcript
+
+        // A plain finished session does not ask for one.
+        let done = base.sessionsDirectory.appendingPathComponent("2026-09-23T02-00-00Z", isDirectory: true)
+        try FileManager.default.createDirectory(at: done, withIntermediateDirectories: true)
+        try "---\ntitle: \"X\"\n---\n\n## Transcript\n\n**[0:01 · Me]** Hi.\n".write(to: done.appendingPathComponent("transcript.md"), atomically: true, encoding: .utf8)
+        let finished = try #require(SessionClassifier.scan(base: base).first { $0.id == "2026-09-23T02-00-00Z" })
+        #expect(!finished.needsTranscription)
+    }
+}

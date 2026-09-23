@@ -44,6 +44,19 @@ public nonisolated struct SessionSummary: Sendable, Equatable, Identifiable {
     public let origin: String?
     /// `daisy_folder` slug (§9); `inbox` when absent.
     public let folder: String
+    /// An `import.json` sits beside the audio: a file the person
+    /// imported, not a recording. It is `.valid` (nothing was
+    /// interrupted), but it still owes a transcript — backlog 13 М-3.
+    public let isImported: Bool
+
+    /// Audio, no transcript, and nobody is recording into it: something
+    /// the transcription queue should pick up. True for an interrupted
+    /// recording, for a session whose finishing pass never ran, and for
+    /// an imported file.
+    public var needsTranscription: Bool {
+        guard hasAudio, !hasTranscript, state != .unreadable else { return false }
+        return state == .interrupted || needsFinishingPass || isImported
+    }
 
     /// A valid folder that still carries the marker owes a finishing pass.
     public var needsFinishingPass: Bool { state == .valid && hasRecordingMarker && !hasTranscript }
@@ -121,6 +134,7 @@ public nonisolated enum SessionClassifier {
         var kind: SessionKind = .recording
         var origin: String?
         var folder = "inbox"
+        let isImported = ImportMarker.exists(in: directory)
         let hasTranscript = fm.fileExists(atPath: transcriptURL.path)
         if hasTranscript, !isCloudEvicted(transcriptURL),
            let text = try? String(contentsOf: transcriptURL, encoding: .utf8) {
@@ -149,7 +163,8 @@ public nonisolated enum SessionClassifier {
             hasAudio: audio.hasAny,
             hasRecordingMarker: fm.fileExists(atPath: directory.appendingPathComponent(recordingMarkerName).path),
             origin: origin,
-            folder: folder
+            folder: folder,
+            isImported: isImported
         )
     }
 
