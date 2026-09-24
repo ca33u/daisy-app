@@ -39,7 +39,8 @@ struct DaisyMark: View {
 
 @MainActor
 extension DaisyMark {
-    /// Cached template NSImage at 18×18 pt. `isTemplate = true` tells
+    /// Cached template NSImage at 20×20 pt (18 until 24.09: Egor asked
+    /// for a couple of points more; the bar is 22–24 pt tall). `isTemplate = true` tells
     /// AppKit to tint it black on a light menu bar and white on a dark
     /// one. Pulled straight from the Asset Catalog so it tracks any
     /// brand refresh automatically — no rasterised copies to keep in
@@ -47,7 +48,7 @@ extension DaisyMark {
     static let menuBarImage: NSImage = {
         let img = NSImage(named: "DaisyMark") ?? NSImage()
         img.isTemplate = true
-        img.size = NSSize(width: 18, height: 18)
+        img.size = NSSize(width: 20, height: 20)
         return img
     }()
 }

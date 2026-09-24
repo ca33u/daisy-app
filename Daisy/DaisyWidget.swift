@@ -67,7 +67,13 @@ struct DaisyWidget: View {
     private static let petalReactiveGain: Float = 1.0
     private let canvasSize: CGFloat = 42.075
     private var maxPetalLength: CGFloat { canvasSize * 0.278 }
-    private var basePetalLength: CGFloat { maxPetalLength * 0.72 }
+    /// The shortest a petal gets while recording — at silence it sits a
+    /// little above this (the 0.12 floor). 0.72 until 24.09: on a real
+    /// voice the bands run 0.35–0.9, which moved a petal between 82% and
+    /// 97% of its length — Egor: «реакция на голос слабая». 0.5 nearly
+    /// doubles the swing on the same signal. Only recording uses it;
+    /// every other state draws the full silhouette (amplitude 1).
+    private var basePetalLength: CGFloat { maxPetalLength * 0.5 }
     private var petalWidth: CGFloat { canvasSize * 0.20 }
     private var centerSize: CGFloat { canvasSize * 0.21 }
     private var petalGap: CGFloat { canvasSize * 0.037 }
