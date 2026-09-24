@@ -190,18 +190,8 @@ struct PermissionsView: View {
                 .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text("Calendar (Google)")
-                        .font(.callout.weight(.medium))
-                    Text("Optional")
-                        .font(.caption2.weight(.medium))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(
-                            Capsule().fill(Color.secondary.opacity(0.18))
-                        )
-                        .foregroundStyle(.secondary)
-                }
+                Text("Calendar (Google)")
+                    .font(.callout.weight(.medium))
                 if googleAccount.isConnected, let email = googleAccount.email {
                     Text("Connected as \(email)")
                         .font(.caption)
@@ -271,7 +261,8 @@ struct PermissionsView: View {
     /// can only deep-link to System Settings) and its state is inferred
     /// from whether we can read the Voice Memos library, not from
     /// `SystemPermissions`. The section header ("For Voice Memos import")
-    /// carries the context; the badge just reads "Optional" like the others.
+    /// carries the context. (No "Optional" badge on any row since 24.09 —
+    /// Egor: every row here is optional, so the badge said nothing.)
     @ViewBuilder
     private var voiceMemosFullDiskAccessRow: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -282,16 +273,8 @@ struct PermissionsView: View {
                 .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text("Full Disk Access")
-                        .font(.callout.weight(.medium))
-                    Text("Optional")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color.gray.opacity(0.15), in: Capsule())
-                }
+                Text("Full Disk Access")
+                    .font(.callout.weight(.medium))
                 Text(voiceMemoFDACaption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -357,18 +340,8 @@ struct PermissionsView: View {
                 .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(title)
-                        .font(.callout.weight(.medium))
-                    if !isRequired {
-                        Text("Optional")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Color.gray.opacity(0.15), in: Capsule())
-                    }
-                }
+                Text(title)
+                    .font(.callout.weight(.medium))
                 Text(caption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -428,8 +401,7 @@ struct PermissionsView: View {
             // orange-on-cream — Egor flagged the row as unactionable-
             // looking). Inking the button gives it readable text +
             // a dark outline without piling another orange element
-            // on a row that already accents in cinnamon (icon +
-            // "Optional" pill + title).
+            // on a row that already accents in cinnamon (icon + title).
             Button("Open Settings…") { openSettings() }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
