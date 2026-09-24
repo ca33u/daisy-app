@@ -144,6 +144,9 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// capture moved to ScreenCaptureKit to find out why. If SCK hears
     /// sound, the tap was the problem; if SCK is silent too, the room is.
     private var probingAfterSilentTap = false
+    /// Stalled-tap rebuilds this capture; two, then the silence monitor
+    /// and its announcements take over.
+    private var tapStallRebuilds = 0
     /// Seconds of silence the reopened archive starts with, so the
     /// timeline survives the switch. Touched on `outputQueue` only.
     nonisolated(unsafe) private var pendingLeadingSilence: TimeInterval = 0
@@ -462,6 +465,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             slowRetryTask = nil
             gaveUpNoticeShown = false
             probingAfterSilentTap = false
+            tapStallRebuilds = 0
             gapStartedAt = nil
             displayReturnPausedBySession = false
             silenceWarningFired = false
@@ -636,6 +640,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         case .processTap(let t):
             tap = t
             stream = nil
+            watchTapDelivery(t)
             if !quietDiagnostics {
                 ProcessTapDebugFlag.lastTapHostDevice = t.hostDeviceName
             }
@@ -1187,6 +1192,29 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             backend = .processTap
             probingAfterSilentTap = false
             _ = await rebuildStream(reason: "back-to-tap")
+        }
+    }
+
+    /// 24.09, Nothing Ear (a): the headset flipped to call mode while the
+    /// tap was starting, and that tap never delivered a buffer — not even
+    /// zeros — for the rest of the test, while a tap started after the
+    /// flip worked. A route change on a live host is not a reason to
+    /// rebuild; a tap that has handed over nothing three seconds after it
+    /// started is.
+    private func watchTapDelivery(_ t: ProcessTapAudioCapture) {
+        let generation = captureGeneration
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self, generation == captureGeneration, tap === t, state == .capturing else { return }
+            log.info("Tap after 3 s: \(t.diagnosticsLine, privacy: .public)")
+            guard t.buffersDelivered == 0, !outputRestartInFlight, tapStallRebuilds < 2 else { return }
+            tapStallRebuilds += 1
+            log.warning("Process tap delivered nothing in 3 s (\(t.diagnosticsLine, privacy: .public)) — rebuilding")
+            outputRestartInFlight = true
+            let ok = await rebuildStream(reason: "tap-delivered-nothing")
+            outputRestartInFlight = false
+            lastOutputRestartAt = Date()
+            log.notice("Rebuild of a stalled tap: \(ok ? "ok" : "failed", privacy: .public)")
         }
     }
 

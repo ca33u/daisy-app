@@ -229,6 +229,12 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
     /// MainActor for the log line, where a torn read of a counter is not
     /// worth a lock.
     private var droppedBuffers: UInt64 = 0
+    /// IOProc cycles seen and buffers handed on — the answer to "is the
+    /// tap delivering at all", which nothing else can give: a silent tap
+    /// and a stalled one look the same from outside (24.09).
+    private let counters = TapCounters()
+    var cyclesSeen: UInt64 { counters.cycles }
+    var buffersDelivered: UInt64 { counters.delivered }
 
     /// Queue CoreAudio dispatches the device-is-alive listener on. A
     /// global queue so the add/remove pair can name the identical object
@@ -573,7 +579,7 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
     var diagnosticsLine: String {
         let fmt = deliveredFormat.map { "\(Int($0.sampleRate))Hz/\($0.channelCount)ch" } ?? "?"
         let dropped = droppedBuffers > 0 ? " dropped=\(droppedBuffers)" : ""
-        return "tap scope=\(scopeLabel) host=\(hostDeviceName.isEmpty ? "?" : hostDeviceName) format=\(fmt)\(dropped)"
+        return "tap scope=\(scopeLabel) host=\(hostDeviceName.isEmpty ? "?" : hostDeviceName) format=\(fmt) cycles=\(counters.cycles) delivered=\(counters.delivered)\(dropped)"
     }
 
     private var scopeLabel: String {
@@ -640,6 +646,7 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
         converter: AVAudioConverter?,
         outputFormat: AVAudioFormat
     ) {
+        counters.cycle()
         guard let copied = Self.pcmBuffer(from: inInputData, format: format) else { return }
 
         let outgoing: AVAudioPCMBuffer
@@ -662,6 +669,7 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
             return
         }
         let chunk = AudioChunk(pcm: outgoing, time: AVAudioTime(hostTime: mach_absolute_time()))
+        counters.deliver()
         deliveryQueue.async { [onBuffer = self.onBuffer, permits = self.deliveryPermits] in
             onBuffer(chunk)
             permits.signal()
@@ -972,4 +980,16 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
             && a.commonFormat == b.commonFormat
             && a.isInterleaved == b.isInterleaved
     }
+}
+
+/// Lock-free enough for the audio thread: two relaxed counters behind an
+/// unfair lock that is never contended for long.
+nonisolated final class TapCounters: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _cycles: UInt64 = 0
+    private var _delivered: UInt64 = 0
+    var cycles: UInt64 { lock.withLock { _cycles } }
+    var delivered: UInt64 { lock.withLock { _delivered } }
+    func cycle() { lock.withLock { _cycles &+= 1 } }
+    func deliver() { lock.withLock { _delivered &+= 1 } }
 }
