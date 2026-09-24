@@ -155,6 +155,24 @@ extension RecordingSession {
         // `pendingMode` would begin a MEETING recording the moment the
         // model finished loading — which is what 1.0.7.71 shipped, saved
         // only by `start()` refusing everything at the time.
+        if let side = sideDictation, side.isDictating || side.pendingMode == .dictation {
+            return  // a repeat press of a key already held
+        }
+        // The previous recording is still being finished (final pass,
+        // summary). Starting here would reset this session and cancel
+        // that; the dictation goes to a session of its own instead.
+        if summaryTask != nil, !isDictationSidecar {
+            switch status {
+            case .idle, .finished, .failed, .summarizing:
+                let side = sideDictation ?? RecordingSession(settings: settings, isDictationSidecar: true)
+                sideDictation = side
+                log.info("Dictation while the previous recording is still finishing — dictating on a side session")
+                await side.startDictationHotkey()
+                return
+            case .preparing, .recording, .paused, .stopping:
+                break
+            }
+        }
         switch status {
         case .idle, .finished, .failed:
             pendingMode = .dictation
@@ -247,6 +265,10 @@ extension RecordingSession {
         //
         // Record the intent; `startDictationHotkey` acts on it the
         // moment `start()` returns.
+        if let side = sideDictation, side.isDictating || side.pendingMode == .dictation {
+            await side.stopDictationHotkey()
+            return
+        }
         if status == .preparing || pendingMode == .dictation {
             dictationReleasedWhilePreparing = true
             return

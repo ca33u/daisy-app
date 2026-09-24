@@ -45,6 +45,16 @@ final class SessionStore {
     /// Every directory is now visible in the Library and refresh never
     /// deletes storage folders, including empty ones.
     var activeRecordingDirName: String?
+    /// The same for a dictation held while the previous recording is
+    /// still finishing (`RecordingSession.sideDictation`): two folders
+    /// can be live at once, and neither may lose its protection to the
+    /// other.
+    var sideRecordingDirName: String?
+
+    /// Every folder that is live right now.
+    var liveRecordingDirNames: Set<String> {
+        Set([activeRecordingDirName, sideRecordingDirName].compactMap { $0 })
+    }
 
     /// False when the last scan couldn't open a configured recordings
     /// folder. Distinguishes "the Library is empty" from "the Library
@@ -245,10 +255,10 @@ final class SessionStore {
         // The security-scope tickets acquired above stay alive across
         // this await (released by the defer at function exit), so the
         // detached scan reads under scope.
-        let activeDirName = activeRecordingDirName
+        let liveDirNames = liveRecordingDirNames
         let rootURLs = roots.map(\.url)
         let scan = await Task.detached(priority: .userInitiated) {
-            Self.scanRoots(rootURLs, activeRecordingDirName: activeDirName)
+            Self.scanRoots(rootURLs, liveRecordingDirNames: liveDirNames)
         }.value
         let loaded = scan.loaded
         let interruptedToRecover = scan.interrupted
@@ -284,7 +294,7 @@ final class SessionStore {
         // paste (2026-07 audit В4 — "app looks frozen"). The refresh()
         // that runs right after Stop re-queues it.
         if !interruptedToRecover.isEmpty {
-            if activeRecordingDirName == nil {
+            if liveRecordingDirNames.isEmpty {
                 InterruptedRecordingRecovery.shared.recover(interruptedToRecover)
             } else {
                 log.info("Deferred interrupted-recovery of \(interruptedToRecover.count, privacy: .public) folder(s) — a recording is live")
@@ -313,7 +323,7 @@ final class SessionStore {
     /// the `ScanResult`.
     nonisolated static func scanRoots(
         _ roots: [URL],
-        activeRecordingDirName: String?
+        liveRecordingDirNames: Set<String>
     ) -> ScanResult {
         let scanLog = Logger(subsystem: "app.essazanov.Daisy", category: "SessionStore.scan")
         var result = ScanResult()
@@ -342,7 +352,7 @@ final class SessionStore {
                     // process. Offer to finish the job — see
                     // QuitFinalizeRecovery. (Finalize Stage 3b removes the
                     // marker on a clean run, so its presence is the tell.)
-                    if activeRecordingDirName != url.lastPathComponent,
+                    if !liveRecordingDirNames.contains(url.lastPathComponent),
                        FileManager.default.fileExists(
                            atPath: url.appendingPathComponent(Self.recordingMarkerName).path
                        ) {
@@ -357,7 +367,7 @@ final class SessionStore {
                     // Crash / power-loss leftover with real audio. NEVER
                     // delete. Skip the live recording (still being written);
                     // queue the rest for best-effort recovery.
-                    if activeRecordingDirName != url.lastPathComponent {
+                    if !liveRecordingDirNames.contains(url.lastPathComponent) {
                         result.interrupted.append(url)
                     }
                 }
@@ -557,8 +567,9 @@ final class SessionStore {
         if let slug, !slug.isEmpty {
             pool = pool.filter { $0.folderSlug == slug }
         }
-        if let active = activeRecordingDirName {
-            pool = pool.filter { $0.id != active }
+        let live = liveRecordingDirNames
+        if !live.isEmpty {
+            pool = pool.filter { !live.contains($0.id) }
         }
         return pool
     }
@@ -717,7 +728,7 @@ final class SessionStore {
     /// descriptors), never onto an existing folder, and the new name is
     /// sanitized for the filesystem.
     private func renameDirectory(_ session: StoredSession, to rawName: String) async {
-        guard session.id != activeRecordingDirName else { return }
+        guard !liveRecordingDirNames.contains(session.id) else { return }
         var name = rawName
             .replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ":", with: "-")

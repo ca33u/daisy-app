@@ -718,6 +718,45 @@ final class RecordingSession {
     // internal for RecordingSession+Hotkeys.swift
     var dictationReleasedWhilePreparing = false
 
+    /// A dictation held while the previous recording is still being
+    /// finished runs HERE — a second session of its own, with its own
+    /// microphone and transcriber — so it no longer cancels that
+    /// finishing (Egor, 24.09: a dictation right after a meeting threw
+    /// away the meeting's final pass and summary; the queue redid them
+    /// a minute later). Made on first need, kept for the next one.
+    /// The floating widget shows it while it dictates.
+    var sideDictation: RecordingSession?
+    /// This session IS such a side dictation: no auto-start/auto-stop
+    /// listeners, no startup chores — the main session owns those.
+    let isDictationSidecar: Bool
+
+    /// Dictating right now, from key-down to paste.
+    var isDictating: Bool {
+        guard currentMode == .dictation else { return false }
+        switch status {
+        case .preparing, .recording, .paused, .stopping: return true
+        case .idle, .finished, .failed, .summarizing: return false
+        }
+    }
+
+    /// Where this session announces its live folder to the Library — a
+    /// side dictation in a slot of its own, so the finishing meeting's
+    /// folder keeps its protection while both are live.
+    var liveDirName: String? {
+        get { isDictationSidecar ? SessionStore.shared.sideRecordingDirName : SessionStore.shared.activeRecordingDirName }
+        set {
+            if isDictationSidecar { SessionStore.shared.sideRecordingDirName = newValue }
+            else { SessionStore.shared.activeRecordingDirName = newValue }
+        }
+    }
+
+    /// The session the widget should show: the side dictation while it
+    /// runs, otherwise this one.
+    var displaySession: RecordingSession {
+        if let side = sideDictation, side.isDictating { return side }
+        return self
+    }
+
     /// Calendar-driven meeting binding that should be applied to the
     /// session AFTER `start()` runs its internal `reset()` (which
     /// otherwise nukes the binding). Set by `startFromMeeting(_:)`
@@ -777,14 +816,16 @@ final class RecordingSession {
         if SessionAudioProcessing.shared.isRunning { return true }
         guard let current else { return false }
         if current.summaryTask != nil { return true }
+        if current.sideDictation?.isDictating == true { return true }
         switch current.status {
         case .preparing, .recording, .paused, .stopping, .summarizing: return true
         case .idle, .finished, .failed: return false
         }
     }
 
-    init(settings: AppSettings, localeIdentifier: String? = nil) {
+    init(settings: AppSettings, localeIdentifier: String? = nil, isDictationSidecar: Bool = false) {
         self.settings = settings
+        self.isDictationSidecar = isDictationSidecar
         // Caller can override (used by tests), otherwise pull the
         // user's chosen default from Settings → Transcription.
         // Empty / missing falls back to "auto" — the legacy
@@ -862,6 +903,11 @@ final class RecordingSession {
         self.recorder.onFellToPaused = { [weak self] reason in
             self?.handleMicFellToPaused(reason)
         }
+
+        // A side dictation borrows everything app-wide from the main
+        // session; answering the auto-start/auto-stop prompts too would
+        // have two sessions acting on one tap.
+        guard !isDictationSidecar else { return }
 
         // Preload the Whisper + diarization models so the first Record click
         // is instant. An XCTest bundle is hosted inside Daisy.app, however,
@@ -1523,6 +1569,13 @@ final class RecordingSession {
     }
 
     func start() async {
+        // One microphone, one recording: a meeting can wait the seconds
+        // a side dictation takes.
+        if let side = sideDictation, side.isDictating {
+            clearPendingStart()
+            ToastCenter.shared.show(String(localized: "Finish the dictation first."), style: .info)
+            return
+        }
         let whisperState = WhisperEngine.shared.state
         // The cache check reads a dozen files; a ready model doesn't
         // need it (the decision is `.proceed` either way), and that's
@@ -1894,7 +1947,7 @@ final class RecordingSession {
         // Tell SessionStore which visible folder is live. Refresh can show it,
         // but interrupted-recording recovery and every bulk-delete path must
         // leave the open `.caf` descriptors alone until Stop finishes.
-        SessionStore.shared.activeRecordingDirName = dir?.lastPathComponent
+        liveDirName = dir?.lastPathComponent
 
         // Pattern (d) per the 2026-05-28 competitor research:
         // when audioRetentionDays == audioRetentionDoNotRecord (-2),
@@ -2450,7 +2503,7 @@ final class RecordingSession {
         let dir = sessionDirectory
         // Clear the live-directory marker BEFORE deleting, so no scan
         // or recovery path sees a "live" folder vanish mid-flight.
-        SessionStore.shared.activeRecordingDirName = nil
+        liveDirName = nil
         // reset() BEFORE the delete, not after: it tears down the
         // transcribers, and a final ASR segment landing in the window
         // between trash and reset could write into (or recreate paths
@@ -2974,7 +3027,7 @@ final class RecordingSession {
             // bail cleanly. transcript.md never landed, no summary
             // can run, no auto-send needed.
             releaseSessionsFolderTicket()
-            SessionStore.shared.activeRecordingDirName = nil
+            liveDirName = nil
             status = .finished
             if settings.recordingSoundsEnabled { SoundEffects.playFinished() }
             return
@@ -3133,8 +3186,8 @@ final class RecordingSession {
         // A start that failed after the directory was announced would
         // otherwise leave the folder marked live forever — see the note
         // in `reset()`. Identity-guarded for the same reason.
-        if SessionStore.shared.activeRecordingDirName == sessionDirectory?.lastPathComponent {
-            SessionStore.shared.activeRecordingDirName = nil
+        if liveDirName == sessionDirectory?.lastPathComponent {
+            liveDirName = nil
         }
         micTranscriber.reset()
         systemTranscriber.reset()
@@ -3257,8 +3310,8 @@ final class RecordingSession {
         // it. In that case the finalize task's own `defer` clears the
         // flag when it actually finishes.
         if !finalizeWasRunning,
-           SessionStore.shared.activeRecordingDirName == sessionDirectory?.lastPathComponent {
-            SessionStore.shared.activeRecordingDirName = nil
+           liveDirName == sessionDirectory?.lastPathComponent {
+            liveDirName = nil
         }
         recorder.reset()
         micTranscriber.reset()

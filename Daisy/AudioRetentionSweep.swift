@@ -214,7 +214,7 @@ enum AudioRetentionSweep {
         // (The scheduled path was only saved by the mtime filter — an
         // accident, not a guard.) Same data-loss class as the husk
         // cleanup fixed in a82eab9; same guard.
-        let activeDirName = await MainActor.run { SessionStore.shared.activeRecordingDirName }
+        let liveDirNames = await MainActor.run { SessionStore.shared.liveRecordingDirNames }
         // …and never while a session is being transcribed. The first
         // transcript of an imported or retained recording reads the
         // archive IN PLACE ("keep multi-gigabyte archives where they
@@ -265,7 +265,7 @@ enum AudioRetentionSweep {
             // a crashed-but-unrecovered session, and a live session from
             // ANOTHER Daisy instance when the folder syncs between Macs —
             // its audio is exactly what interrupted-recovery needs).
-            if sessionDir.lastPathComponent == activeDirName { continue }
+            if liveDirNames.contains(sessionDir.lastPathComponent) { continue }
             if fm.fileExists(
                 atPath: sessionDir.appendingPathComponent(SessionStore.recordingMarkerName).path
             ) { continue }

@@ -160,7 +160,7 @@ struct SessionClassifyTests {
             in: dir
         )
 
-        let scan = SessionStore.scanRoots([root], activeRecordingDirName: nil)
+        let scan = SessionStore.scanRoots([root], liveRecordingDirNames: [])
         #expect(scan.loaded.count == 1)
         #expect(
             scan.interrupted.map { $0.resolvingSymlinksInPath() }

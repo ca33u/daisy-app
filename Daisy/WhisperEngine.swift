@@ -121,9 +121,8 @@ final class WhisperEngine {
     // In-actor serialization for transcribe — WhisperKit isn't thread-safe
     // for simultaneous transcribes.
     @ObservationIgnored
-    private var isBusy = false
-    @ObservationIgnored
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private let slot = DecodeSlot()
+    private var isBusy: Bool { slot.isBusy }
 
     /// One-time post-load warm-up guard — see `warmUpIfNeeded()`.
     @ObservationIgnored
@@ -915,23 +914,14 @@ final class WhisperEngine {
 
     // MARK: - In-actor semaphore
 
-    private func acquireSlot() async {
-        if !isBusy {
-            isBusy = true
-            return
-        }
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            waiters.append(cont)
-        }
+    /// Throws `CancellationError` when the caller was cancelled while
+    /// waiting — it never got the slot, so it must not release it.
+    private func acquireSlot(priority: Bool = false) async throws {
+        guard await slot.acquire(priority: priority) else { throw CancellationError() }
     }
 
     private func releaseSlot() {
-        if !waiters.isEmpty {
-            let next = waiters.removeFirst()
-            next.resume()
-        } else {
-            isBusy = false
-        }
+        slot.release()
     }
 
     // MARK: - Transcribe
@@ -1028,7 +1018,10 @@ final class WhisperEngine {
     /// and voice-note passes are byte-identical to before. Only the
     /// dictation final pass populates it (see `Transcriber.runFinalPass`).
     func transcribe(samples: [Float], language: String?, profile: DecodeProfile = .full, biasTerms: [String] = []) async throws -> [WhisperSegment] {
-        await acquireSlot()
+        // A dictation is someone waiting at a text field with the key
+        // just released; it goes ahead of everything else in the line,
+        // and a long pass in progress lets it through between spans.
+        try await acquireSlot(priority: profile == .dictationFinal)
         defer { releaseSlot() }
 
         // Cooperative cancellation — bail before any heavy work if the
@@ -1061,7 +1054,7 @@ final class WhisperEngine {
         profile: DecodeProfile = .full,
         biasTerms: [String] = []
     ) async throws -> [WhisperSegment] {
-        await acquireSlot()
+        try await acquireSlot()
         defer { releaseSlot() }
         try Task.checkCancellation()
 
@@ -1333,6 +1326,9 @@ final class WhisperEngine {
             // cancelled live pass exits here instead of decoding the
             // remaining spans; `defer` releases the engine slot.
             try Task.checkCancellation()
+            // A dictation held after a meeting must not wait out that
+            // meeting's whole final pass (minutes on a long one).
+            await slot.yieldToPriority()
             let chunk: [Float]
             let offsetSec: Double
             if span.isFullBuffer {
@@ -1494,6 +1490,7 @@ final class WhisperEngine {
                         let lo = max(0, Int(t * Self.audioSampleRate))
                         let hi = min(samples.count, Int(e * Self.audioSampleRate))
                         if hi > lo {
+                            await slot.yieldToPriority()
                             let results = try await box.kit.transcribe(audioArray: Array(samples[lo..<hi]), decodeOptions: rescueOptions)
                             for result in results { pieces.append((t, result.segments)) }
                         }

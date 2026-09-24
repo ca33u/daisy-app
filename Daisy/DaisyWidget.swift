@@ -16,11 +16,21 @@ import SwiftUI
 import AppKit
 
 struct DaisyWidget: View {
-    let session: RecordingSession
+    private let owner: RecordingSession
     /// Called by the right-click context menu when the user picks
     /// "Hide for N seconds". The panel controller owns the actual hide
     /// + restore timer. Defaults to a no-op for SwiftUI Previews.
     var onHideRequest: (TimeInterval) -> Void = { _ in }
+
+    init(session: RecordingSession, onHideRequest: @escaping (TimeInterval) -> Void = { _ in }) {
+        self.owner = session
+        self.onHideRequest = onHideRequest
+    }
+
+    /// What the flower shows: a dictation held while the last recording
+    /// is still finishing runs on a side session, and the flower follows
+    /// it while it dictates.
+    private var session: RecordingSession { owner.displaySession }
 
     @Environment(\.openWindow) private var openWindow
     /// Honour System Settings → Accessibility → Display → Reduce Motion.

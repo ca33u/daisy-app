@@ -81,7 +81,7 @@ final class QuitFinalizeRecovery {
         // Never fight the live pipeline for the Whisper slot — a full
         // pass over a long archive would stall live windows and the
         // dictation paste for minutes.
-        guard SessionStore.shared.activeRecordingDirName == nil else {
+        guard SessionStore.shared.liveRecordingDirNames.isEmpty else {
             seen.remove(folder.path)   // re-offer on a later refresh
             ToastCenter.shared.show(
                 String(localized: "Finish the current recording first — I'll offer again after."),

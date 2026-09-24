@@ -18514,6 +18514,16 @@
         }
       }
     },
+    "Finish the dictation first." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сначала закончите диктовку."
+          }
+        }
+      }
+    },
     "Wait for stored audio processing to finish." : {
 
     },
