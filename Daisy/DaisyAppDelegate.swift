@@ -58,6 +58,7 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         AudioHandoffServer.shared.start()
         // Ф3-C: the project list rides in iCloud's key-value store.
         FolderRegistryBridge.shared.start()
+        VocabularyBridge.shared.start()
 
         // Secrets that live only in the old login keychain: fetched now,
         // off the main thread, with the app already on screen. Never in

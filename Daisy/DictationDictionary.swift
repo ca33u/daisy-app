@@ -154,6 +154,11 @@ final class DictationDictionary {
         replacements[idx] = replacement
     }
 
+    /// Take the list another device settled on (`VocabularyBridge`).
+    func replaceAll(_ list: [DictationReplacement]) {
+        replacements = list
+    }
+
     /// Remove a rule by value (matched on `id`).
     func remove(_ replacement: DictationReplacement) {
         replacements.removeAll { $0.id == replacement.id }
@@ -449,6 +454,8 @@ final class DictationDictionary {
         do {
             let data = try JSONEncoder().encode(replacements)
             UserDefaults.standard.set(data, forKey: Self.defaultsKey)
+            // The same words on the phone (24.09).
+            VocabularyBridge.shared.localChanged()
         } catch {
             log.error("Couldn't persist dictation dictionary: \(error.localizedDescription, privacy: .public)")
         }
