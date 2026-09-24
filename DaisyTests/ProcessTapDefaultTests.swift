@@ -9,6 +9,8 @@
 //  week of recordings through ScreenCaptureKit.
 //
 
+import AVFoundation
+import CoreAudio
 import Foundation
 import Testing
 @testable import Daisy
@@ -69,6 +71,56 @@ struct ProcessTapDefaultTests {
         #expect(ProcessTapPermission.outcome(peak: ProcessTapPermission.toneAmplitude) == .granted)
         #expect(ProcessTapPermission.outcome(peak: 0) == .denied, "A refused tap hands over exact zeros")
         #expect(ProcessTapPermission.outcome(peak: 0.00002) == .denied, "Dither is not the tone")
+    }
+
+    /// Review 24.09-2. A headset in a call runs at 16 kHz. The probe's
+    /// tone, carried through the same resampling such an output imposes,
+    /// must still arrive — 18 kHz would not, and "not heard" means the
+    /// tap is switched off for the very people it is for.
+    @Test func aSixteenKilohertzOutputStillCarriesTheTone() throws {
+        func throughSixteenKilohertz(_ hz: Double) throws -> Float {
+            let source = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+            let target = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1)!
+            let frames = AVAudioFrameCount(48_000)
+            let input = AVAudioPCMBuffer(pcmFormat: source, frameCapacity: frames)!
+            input.frameLength = frames
+            for i in 0..<Int(frames) {
+                input.floatChannelData![0][i] = Float(sin(2 * Double.pi * hz * Double(i) / 48_000)) * ProcessTapPermission.toneAmplitude
+            }
+            let converter = try #require(AVAudioConverter(from: source, to: target))
+            let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: 16_000 + 64)!
+            nonisolated(unsafe) var pending: AVAudioPCMBuffer? = input
+            var error: NSError?
+            _ = converter.convert(to: output, error: &error) { _, status in
+                if let b = pending { pending = nil; status.pointee = .haveData; return b }
+                status.pointee = .endOfStream
+                return nil
+            }
+            // Skip the converter's settling at the start.
+            var peak: Float = 0
+            for i in 1_000..<Int(output.frameLength) { peak = max(peak, abs(output.floatChannelData![0][i])) }
+            return peak
+        }
+        let chosen = ProcessTapPermission.toneFrequency(forOutputRate: 16_000)
+        #expect(chosen < 8_000)
+        #expect(ProcessTapPermission.outcome(peak: try throughSixteenKilohertz(chosen)) == .granted)
+        // The bug the pin exists for: 18 kHz does not survive 16 kHz.
+        #expect(ProcessTapPermission.outcome(peak: try throughSixteenKilohertz(18_000)) == .denied)
+        // And at 48 kHz the inaudible 18 kHz is kept.
+        #expect(ProcessTapPermission.toneFrequency(forOutputRate: 48_000) == 18_000)
+    }
+
+    /// The probe plays on the built-in output: it exists on this Mac and
+    /// runs fast enough for 18 kHz.
+    @Test func theProbePlaysOnTheBuiltInOutput() throws {
+        let builtIn = try #require(ProcessTapAudioCapture.builtInOutputDevice(), "This Mac has built-in output")
+        var rate: Float64 = 0
+        var size = UInt32(MemoryLayout<Float64>.size)
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyNominalSampleRate,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        #expect(AudioObjectGetPropertyData(builtIn.id, &address, 0, nil, &size, &rate) == noErr)
+        #expect(ProcessTapPermission.toneFrequency(forOutputRate: rate) == 18_000)
     }
 
     @Test func aTapThatHeardNothingSendsAWeekToScreenCaptureKit() async {

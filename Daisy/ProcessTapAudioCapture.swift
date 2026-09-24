@@ -834,7 +834,7 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
         return (defaultID, uid, name)
     }
 
-    private static func builtInOutputDevice() -> (id: AudioDeviceID, uid: String, name: String)? {
+    static func builtInOutputDevice() -> (id: AudioDeviceID, uid: String, name: String)? {
         for id in allDeviceIDs() {
             var transport: UInt32 = 0
             var size = UInt32(MemoryLayout<UInt32>.size)

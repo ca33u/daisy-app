@@ -16,6 +16,14 @@
 //  denied, and recordings stay on ScreenCaptureKit from the first
 //  second, with no silent stretch to wait out.
 //
+//  Review 24.09-2: the tone plays on the BUILT-IN output, never the
+//  default one. A Bluetooth headset in a call runs at 16–24 kHz, where
+//  18 kHz is above Nyquist and resampling removes it — the probe would
+//  hear zeros, call it a refusal and switch the tap off for exactly the
+//  people it exists for. The tap is per-process and hears the tone
+//  wherever it plays. And should the pin fail, the tone is kept below
+//  the Nyquist of whatever the output turns out to be.
+//
 
 import AVFoundation
 import Foundation
@@ -52,6 +60,13 @@ enum ProcessTapPermission {
     nonisolated static let toneAmplitude: Float = 0.00316
     nonisolated static let toneHz: Double = 18_000
 
+    /// 18 kHz where the output can carry it (48 kHz: inaudible); below
+    /// Nyquist with margin anywhere slower — a 16 kHz headset gets 6 kHz
+    /// at −50 dBFS, faint but detected rather than cut away.
+    nonisolated static func toneFrequency(forOutputRate rate: Double) -> Double {
+        min(toneHz, rate * 0.375)
+    }
+
     nonisolated static func outcome(peak: Float) -> Outcome {
         peak > heardThreshold ? .granted : .denied
     }
@@ -74,11 +89,24 @@ enum ProcessTapPermission {
         guard #available(macOS 14.4, *) else { return .unavailable }
 
         let tone = AVAudioEngine()
+        if let builtIn = ProcessTapAudioCapture.builtInOutputDevice(), let unit = tone.outputNode.audioUnit {
+            var device = builtIn.id
+            let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                                              &device, UInt32(MemoryLayout<AudioDeviceID>.size))
+            if status != noErr {
+                log.warning("Probe could not pin its tone to \(builtIn.name, privacy: .public) (\(status, privacy: .public)) — playing on the default output")
+            }
+        } else {
+            log.warning("No built-in output — the probe tone plays on the default output")
+        }
+        let outputRate = tone.outputNode.outputFormat(forBus: 0).sampleRate
+        let frequency = toneFrequency(forOutputRate: outputRate > 0 ? outputRate : 48_000)
+        log.notice("Probe tone: \(Int(frequency), privacy: .public) Hz on an output at \(Int(outputRate), privacy: .public) Hz")
         let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
         let phase = PhaseBox()
         let source = AVAudioSourceNode(format: format) { _, _, frameCount, bufferList in
             let buffers = UnsafeMutableAudioBufferListPointer(bufferList)
-            let step = 2 * Double.pi * ProcessTapPermission.toneHz / 48_000
+            let step = 2 * Double.pi * frequency / 48_000
             for frame in 0..<Int(frameCount) {
                 let value = Float(sin(phase.value)) * ProcessTapPermission.toneAmplitude
                 phase.value += step
