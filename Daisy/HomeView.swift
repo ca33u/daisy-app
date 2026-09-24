@@ -3,7 +3,7 @@
 //  Daisy
 //
 //  Primary "landing" view that opens when the user clicks the Dock
-//  icon. A calm hub: a serif greeting, today's agenda (DayCard), usage
+//  icon. A calm hub: a rounded greeting, today's agenda (DayCard), usage
 //  stats, and the last few recordings. Recording itself is driven by the
 //  persistent RecordCapsule / hotkey, not a button here.
 //
@@ -146,8 +146,10 @@ struct HomeView: View {
 
     // MARK: - Welcome header
 
-    /// Serif greeting at the very top of Home. Its tone follows the time of
-    /// day, while TimelineView advances it at the next boundary even when
+    /// Rounded greeting at the very top of Home (SF Pro Rounded; it was
+    /// the serif New York until 24.09 — Egor: no serif in the apps). Its
+    /// tone follows the time of day, while TimelineView advances it at the
+    /// next boundary even when
     /// Daisy stays open. The copy remains calm and stable within each part
     /// of the day instead of changing randomly on every render.
     private var welcomeHeader: some View {
@@ -155,7 +157,7 @@ struct HomeView: View {
         return HStack(alignment: .center, spacing: 16) {
             TimelineView(.periodic(from: .now, by: 60)) { context in
                 Text(welcomeGreeting(at: context.date, name: name))
-                    .font(.system(.largeTitle, design: .serif).weight(.medium))
+                    .font(.system(.largeTitle, design: .rounded).weight(.medium))
                     .foregroundStyle(.primary)
             }
 

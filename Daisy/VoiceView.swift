@@ -144,8 +144,8 @@ struct VoiceView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("My style")
-                // Serif display title, matching the Home greeting.
-                .font(.system(.largeTitle, design: .serif).weight(.medium))
+                // Rounded display title, matching the Home greeting.
+                .font(.system(.largeTitle, design: .rounded).weight(.medium))
                 .foregroundStyle(.primary)
             Text("A profile of how you write, built from your dictations")
                 .font(.callout)
