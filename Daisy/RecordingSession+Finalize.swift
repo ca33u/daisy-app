@@ -122,7 +122,7 @@ extension RecordingSession {
             //
             // A rotated session has not failed, it has been interrupted.
             // Interrupted work goes back in the queue.
-            queueUnfinishedFinalPass(sessionID: sessionID, stage: stage)
+            queueUnfinishedFinalPass(sessionID: sessionID, directory: directory, title: title, stage: stage)
         }
 
 
@@ -1884,9 +1884,14 @@ extension RecordingSession {
     /// pipeline, so a session that never finished finalizing still has
     /// its recording — until someone finishes it.
     @MainActor
-    func queueUnfinishedFinalPass(sessionID: String, stage: String) {
-        guard let directory = sessionDirectory,
-              SessionAudioFiles.discover(in: directory).hasAny else {
+    /// `directory` and `title` are the rotated session's own, captured
+    /// when it stopped: by the time it bails, `sessionDirectory` and
+    /// `title` already belong to the recording that rotated it (24.09 —
+    /// a meeting's job went into the queue under the next dictation's
+    /// folder and name, and was found only because the queue looks the
+    /// id up first).
+    func queueUnfinishedFinalPass(sessionID: String, directory: URL, title: String, stage: String) {
+        guard SessionAudioFiles.discover(in: directory).hasAny else {
             log.warning("Rotated session \(sessionID, privacy: .public) has no audio to finish from")
             return
         }

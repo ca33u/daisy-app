@@ -385,6 +385,16 @@
         }
       }
     },
+    "Recording now from %@ — the meters show what the recording hears." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Идёт запись с микрофона %@ — индикаторы показывают, что слышит запись."
+          }
+        }
+      }
+    },
     "Recording now — the meters show what the recording hears." : {
       "localizations" : {
         "ru" : {

@@ -203,6 +203,7 @@ final class CoreAudioMicRecorder {
     private let analyzer = SpectrumAnalyzer()
     @ObservationIgnored
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "CoreAudioMicRecorder")
+    nonisolated static let gapLog = Logger(subsystem: "app.essazanov.Daisy", category: "CoreAudioMicRecorder")
 
     // MARK: - Cross-thread boxes (same lock-box patterns as AudioRecorder)
 
@@ -215,6 +216,16 @@ final class CoreAudioMicRecorder {
     /// `.captured` from `.truncated`. Reset on each `start()`.
     @ObservationIgnored
     private let framesWritten = FrameCountBox()
+    /// Where on the host clock the archive's next frame belongs. A unit
+    /// rebuilt mid-recording can take seconds to deliver again (24.09:
+    /// 5.2 s after a Bluetooth → built-in switch), while the system-audio
+    /// track keeps running; without filling that hole every later mic
+    /// line sits seconds early, and an echo of the speakers no longer
+    /// lines up with the remote line it repeats. Cleared whenever the
+    /// recorder pauses — the whole session pauses with it, so a pause is
+    /// no hole.
+    @ObservationIgnored
+    private let archiveClock = ArchiveClockBox()
     /// Render-thread → MainActor bridge for the last-buffer arrival time,
     /// read by the recovery watchdog to detect a silently-dead device.
     @ObservationIgnored
@@ -282,6 +293,9 @@ final class CoreAudioMicRecorder {
     private var boundDeviceID: AudioDeviceID?
     @ObservationIgnored
     private var lastBoundInputUID: String?
+    /// The microphone the recording is actually on — not always the
+    /// default: a Bluetooth default input is skipped for a wired one.
+    var boundDeviceName: String? { boundDeviceID.flatMap(AudioInputDevices.name(for:)) }
 
     /// CoreAudio default-input-device listener block + install flag.
     @ObservationIgnored
@@ -410,6 +424,7 @@ final class CoreAudioMicRecorder {
         // Reset cross-thread accounting for a fresh session.
         writeErrors.reset()
         framesWritten.reset()
+        archiveClock.reset()
         bufferTimestamp.reset()
         midSessionRebuilds = 0
         micLiveness.reset(to: Date())
@@ -495,6 +510,7 @@ final class CoreAudioMicRecorder {
         // the MainActor state mutation below). The file stays open — resume
         // keeps appending — but the in-flight buffers must land first.
         renderContext?.flush()
+        archiveClock.reset()
         elapsedTimer?.invalidate()
         elapsedTimer = nil
         stopDisplayTimer()
@@ -831,6 +847,7 @@ final class CoreAudioMicRecorder {
             analyzer: analyzer,
             writeErrors: writeErrors,
             framesWritten: framesWritten,
+            archiveClock: archiveClock,
             bufferTimestamp: bufferTimestamp,
             micLiveness: micLiveness,
             archiveGate: archiveGate,
@@ -1214,6 +1231,7 @@ final class CoreAudioMicRecorder {
         // no queued block races the MainActor state reset below. (The file
         // stays open; a subsequent resume rebuilds and keeps appending.)
         renderContext?.flush()
+        archiveClock.reset()
         elapsedTimer?.invalidate()
         elapsedTimer = nil
         stopDisplayTimer()
@@ -1606,6 +1624,7 @@ private final class RenderContext: @unchecked Sendable {
     let analyzer: SpectrumAnalyzer
     let writeErrors: WriteErrorBox
     let framesWritten: FrameCountBox
+    let archiveClock: ArchiveClockBox
     let bufferTimestamp: TimestampBox
     let micLiveness: LivenessBox
     let archiveGate: AtomicFlag
@@ -1658,6 +1677,7 @@ private final class RenderContext: @unchecked Sendable {
         analyzer: SpectrumAnalyzer,
         writeErrors: WriteErrorBox,
         framesWritten: FrameCountBox,
+        archiveClock: ArchiveClockBox,
         bufferTimestamp: TimestampBox,
         micLiveness: LivenessBox,
         archiveGate: AtomicFlag,
@@ -1671,6 +1691,7 @@ private final class RenderContext: @unchecked Sendable {
         self.analyzer = analyzer
         self.writeErrors = writeErrors
         self.framesWritten = framesWritten
+        self.archiveClock = archiveClock
         self.bufferTimestamp = bufferTimestamp
         self.micLiveness = micLiveness
         self.archiveGate = archiveGate
@@ -1755,6 +1776,28 @@ private final class RenderContext: @unchecked Sendable {
         return noErr
     }
 
+    /// Silence for the time the device delivered nothing while the
+    /// recording ran, so the archive stays true to the wall clock.
+    private func padGap(seconds: TimeInterval, in file: AVAudioFile) {
+        let format = file.processingFormat
+        var remaining = Int(seconds * format.sampleRate)
+        let chunk = Int(format.sampleRate)
+        while remaining > 0 {
+            let n = min(chunk, remaining)
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(n)) else { return }
+            buffer.frameLength = AVAudioFrameCount(n)   // zero-filled on allocation
+            do {
+                try file.write(from: buffer)
+                framesWritten.add(UInt64(n))
+            } catch {
+                writeErrors.record(error)
+                return
+            }
+            remaining -= n
+        }
+        CoreAudioMicRecorder.gapLog.notice("Padded the mic archive with \(seconds, format: .fixed(precision: 2), privacy: .public)s of silence — the device delivered nothing while the recording ran")
+    }
+
     /// The heavy, NON-real-time work, moved off the RT render thread onto
     /// `workQueue`. Runs ONLY on that serial queue — so it is the single
     /// owner of `audioFile`, `analyzer`, and `lastSpectrumPublishRefTime`
@@ -1782,6 +1825,10 @@ private final class RenderContext: @unchecked Sendable {
         // try/accumulate pattern as AudioRecorder's tap: only count frames
         // that actually landed. `audioFile` is touched ONLY here.
         if archiveGate.value, let file = audioFile {
+            let gap = archiveClock.advance(to: chunk.time, frames: pcm.frameLength)
+            if gap > 0 {
+                padGap(seconds: gap, in: file)
+            }
             do {
                 try file.write(from: pcm)
                 framesWritten.add(UInt64(pcm.frameLength))
@@ -1911,6 +1958,32 @@ private final class WriteErrorBox: @unchecked Sendable {
 }
 
 /// Frames that successfully landed on disk.
+/// The host time the archive's next frame belongs at. `advance` returns
+/// how many seconds of silence must go in before this buffer: a gap of
+/// more than a quarter second since the last buffer ended. It re-anchors
+/// on every buffer, so the device clock drifting against the host clock
+/// never adds up to a false gap.
+nonisolated final class ArchiveClockBox: @unchecked Sendable {
+    static let minimumGap: TimeInterval = 0.25
+    /// Longer than this is not an outage the recording ran through.
+    static let maximumGap: TimeInterval = 600
+    private let lock = OSAllocatedUnfairLock<UInt64?>(initialState: nil)
+
+    func reset() { lock.withLock { $0 = nil } }
+
+    func advance(to time: AVAudioTime?, frames: AVAudioFrameCount) -> TimeInterval {
+        guard let time, time.isHostTimeValid, time.sampleRate > 0 else { return 0 }
+        let start = time.hostTime
+        let end = start &+ AVAudioTime.hostTime(forSeconds: Double(frames) / time.sampleRate)
+        return lock.withLock { expected -> TimeInterval in
+            defer { expected = end }
+            guard let due = expected, start > due else { return 0 }
+            let gap = AVAudioTime.seconds(forHostTime: start - due)
+            return gap > Self.minimumGap && gap < Self.maximumGap ? gap : 0
+        }
+    }
+}
+
 private final class FrameCountBox: @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock<UInt64>(initialState: 0)
     func add(_ frames: UInt64) { lock.withLock { $0 &+= frames } }

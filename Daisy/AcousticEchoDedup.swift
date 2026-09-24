@@ -149,9 +149,10 @@ enum AcousticEchoDedup {
     }
 
     private static func apply(
-        _ segments: [TranscriptSegment]
+        _ input: [TranscriptSegment]
     ) -> (kept: [TranscriptSegment], systemic: Bool) {
-        guard !segments.isEmpty else { return (segments, false) }
+        guard !input.isEmpty else { return (input, false) }
+        let segments = trimEmbeddedEchoes(input)
 
         // Index system segments by start time for O(log n) window
         // lookups. We pre-normalize the system text once per
@@ -276,6 +277,143 @@ enum AcousticEchoDedup {
             log.info("Acoustic echo dedup: run mode — dropped \(segments.count - kept.count) mic segments (strong matches: \(strongCount), fraction \(String(format: "%.2f", strongFraction)))")
         }
         return (kept, false)
+    }
+
+    // MARK: - Echo inside a line of your own
+
+    /// Whole-segment matching misses the echo that lands in the SAME
+    /// mic segment as the person's own words — Whisper joins what they
+    /// said and what the speakers played the next second into one line
+    /// (24.09, Egor on the laptop speakers: «Ну-ка давай, уровень
+    /// собеседника…» and then the video's twenty words, as one line of
+    /// his). Such a line is neither similar to the remote line nor
+    /// contained in it, and dropping it would drop his words too.
+    ///
+    /// So word by word: a run of `minEchoRun` or more words that the
+    /// system stream says at the same time is cut out of the mic line.
+    /// What remains around it goes too if most of its words are the
+    /// remote's (the ragged edge of the same echo); a line that is
+    /// nothing but echo is dropped. Same time is the guard — a person
+    /// quoting the other side does it after them, not over them.
+    static let minEchoRun = 5
+    /// Seconds a system line may start after, or end before, the mic
+    /// line and still count as said at the same time.
+    private static let overlapSlackSec: Double = 1.5
+
+    static func trimEmbeddedEchoes(_ segments: [TranscriptSegment]) -> [TranscriptSegment] {
+        let system = segments.filter { $0.source == .systemAudio }
+        guard !system.isEmpty else { return segments }
+        var trimmed = 0
+        var dropped = 0
+        var result: [TranscriptSegment] = []
+        result.reserveCapacity(segments.count)
+        for segment in segments {
+            guard segment.source == .microphone else { result.append(segment); continue }
+            let micEnd = max(segment.endSec, segment.startSec + 1)
+            let window = system
+                .filter { sys in
+                    let sysEnd = max(sys.endSec, sys.startSec + 1)
+                    return sys.startSec <= micEnd + overlapSlackSec && sysEnd >= segment.startSec - overlapSlackSec
+                }
+                .sorted { $0.startSec < $1.startSec }
+            guard !window.isEmpty else { result.append(segment); continue }
+            let remote = window.flatMap { words(in: $0.text).map(\.norm) }
+            switch cutEcho(from: segment.text, remote: remote) {
+            case .none:
+                result.append(segment)
+            case .some(let rest) where rest.isEmpty:
+                dropped += 1
+            case .some(let rest):
+                var copy = segment
+                copy.text = rest
+                result.append(copy)
+                trimmed += 1
+            }
+        }
+        if trimmed + dropped > 0 {
+            log.info("Acoustic echo dedup: cut the speakers' words out of \(trimmed) mic line(s), dropped \(dropped) that were only echo")
+        }
+        return result
+    }
+
+    /// The mic text with the echo cut out; `""` when nothing of the
+    /// person's own is left; `nil` when there is no echo in it.
+    static func cutEcho(from text: String, remote: [String]) -> String? {
+        let tokens = words(in: text)
+        let mic = tokens.map(\.norm)
+        guard !mic.isEmpty, !remote.isEmpty else { return nil }
+        let remoteSet = Set(remote)
+
+        var echo = [Bool](repeating: false, count: mic.count)
+        var foundRun = false
+        // Longest common runs, longest first, until none is long enough.
+        while let run = longestCommonRun(mic, remote, excluding: echo), run.length >= minEchoRun {
+            for k in run.start..<(run.start + run.length) { echo[k] = true }
+            foundRun = true
+        }
+
+        // The ragged edges and short lines: a stretch of the mic line
+        // whose content words are mostly the remote's, holding a run of
+        // at least three words said at the same time.
+        var i = 0
+        while i < mic.count {
+            guard !echo[i] else { i += 1; continue }
+            var j = i
+            while j < mic.count, !echo[j] { j += 1 }
+            let stretch = Array(mic[i..<j])
+            let content = stretch.filter { $0.count >= 3 }
+            let shared = content.filter { remoteSet.contains($0) }.count
+            let touchesEcho = (i > 0 && echo[i - 1]) || (j < mic.count && echo[j])
+            let mostlyRemote = !content.isEmpty && Double(shared) / Double(content.count) >= 0.5
+            let hasRun = (longestCommonRun(stretch, remote, excluding: [Bool](repeating: false, count: stretch.count))?.length ?? 0) >= 3
+            let debris = content.isEmpty && stretch.count <= 2
+            if (touchesEcho && (mostlyRemote || debris)) || (mostlyRemote && hasRun && Double(shared) / Double(content.count) >= 0.6) {
+                for k in i..<j { echo[k] = true }
+                foundRun = true
+            }
+            i = j
+        }
+        guard foundRun else { return nil }
+
+        let kept = tokens.indices.filter { !echo[$0] }.map { tokens[$0].raw }
+        let joined = kept.joined(separator: " ")
+            .trimmingCharacters(in: CharacterSet.whitespaces.union(.punctuationCharacters).subtracting(CharacterSet(charactersIn: ".?!…")))
+        guard joined.contains(where: { $0.isLetter || $0.isNumber }) else { return "" }
+        return joined.prefix(1).uppercased() + joined.dropFirst()
+    }
+
+    /// Words of a line: the raw token and its normalized form. Tokens
+    /// that are only punctuation ride along with the word before them.
+    private static func words(in text: String) -> [(raw: String, norm: String)] {
+        var out: [(raw: String, norm: String)] = []
+        for token in text.split(whereSeparator: \.isWhitespace) {
+            let norm = normalize(String(token)).replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "ё", with: "е")
+            if norm.isEmpty {
+                if !out.isEmpty { out[out.count - 1].raw += " " + token }
+                continue
+            }
+            out.append((String(token), norm))
+        }
+        return out
+    }
+
+    /// The longest run of words `a` shares with `b` in the same order,
+    /// not touching positions of `a` already taken.
+    private static func longestCommonRun(_ a: [String], _ b: [String], excluding taken: [Bool]) -> (start: Int, length: Int)? {
+        guard !a.isEmpty, !b.isEmpty else { return nil }
+        var best: (start: Int, length: Int)? = nil
+        var previous = [Int](repeating: 0, count: b.count + 1)
+        for i in 1...a.count {
+            var current = [Int](repeating: 0, count: b.count + 1)
+            for j in 1...b.count where !taken[i - 1] && a[i - 1] == b[j - 1] {
+                current[j] = previous[j - 1] + 1
+                if current[j] > (best?.length ?? 0) {
+                    best = (i - current[j], current[j])
+                }
+            }
+            previous = current
+        }
+        return best
     }
 
     // MARK: - Internals

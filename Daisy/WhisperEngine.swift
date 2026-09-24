@@ -1465,6 +1465,11 @@ final class WhisperEngine {
             rescueOptions.firstTokenLogProbThreshold = nil
             rescueOptions.logProbThreshold = nil
             rescueOptions.compressionRatioThreshold = nil
+            // And no vocabulary prompt. 24.09, Egor's second test: with
+            // three terms in the prompt the pass kept one line of ten
+            // seconds of a video, and the rescue — prompted the same way —
+            // brought back that same line. Unprompted, all of it.
+            rescueOptions.promptTokens = nil
             // A short piece left to detect its own language can guess
             // wrong and decode to nothing; the whole pass knows better.
             if rescueOptions.language == nil,

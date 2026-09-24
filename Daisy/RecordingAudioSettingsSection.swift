@@ -27,6 +27,8 @@ struct RecordingAudioSettingsSection: View {
     @State private var systemMonitorRun = UUID()
     @State private var systemAudioProbe = SystemAudioCapture()
     @State private var microphoneLevelDB: Float = -160
+    /// During a recording: the microphone it is on.
+    @State private var recordingMicName: String?
     @State private var systemAudioLevelDB: Float = -160
     @State private var microphoneResult: ProbeResult = .idle
     @State private var systemAudioResult: ProbeResult = .idle
@@ -79,7 +81,9 @@ struct RecordingAudioSettingsSection: View {
             }
 
             if recordingIsActive {
-                Label("Recording now — the meters show what the recording hears.", systemImage: "record.circle")
+                Label(recordingMicName.map { String(localized: "Recording now from \($0) — the meters show what the recording hears.") }
+                      ?? String(localized: "Recording now — the meters show what the recording hears."),
+                      systemImage: "record.circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -93,9 +97,18 @@ struct RecordingAudioSettingsSection: View {
             }
         }
         .task {
-            refreshDevices()
             processTapDebugRevealed = ProcessTapDebugFlag.isRevealed
             processTapEnabled = ProcessTapDebugFlag.isEnabled
+            // Device lists follow the Mac while the section is open —
+            // recording or not. They used to refresh only inside the
+            // pre-recording mic meter, so headphones connected during a
+            // recording showed up only after it ended, and unplugged ones
+            // stayed in the pickers (Egor, 24.09).
+            while !Task.isCancelled {
+                refreshDevices()
+                recordingMicName = recordingIsActive ? RecordingSession.current?.recorder.boundDeviceName : nil
+                try? await Task.sleep(for: .seconds(1))
+            }
         }
         // Live mic monitor — restarts whenever the selected device, the
         // noise-suppression toggle, or the recording state changes, and
@@ -317,7 +330,6 @@ struct RecordingAudioSettingsSection: View {
         defer { if micMonitorRun == run { microphoneProbe.stop() } }
 
         var quietTicks = 0
-        var ticks = 0
         while !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(100))
             if Task.isCancelled || micMonitorRun != run { break }
@@ -332,11 +344,6 @@ struct RecordingAudioSettingsSection: View {
                     microphoneResult = .warning(String(localized: "Almost no microphone signal was detected. Check the selected device, its mute state, and Microphone permission."))
                 }
             }
-            // Keep device lists fresh while the user is looking at them —
-            // plugging in a headset should show up without reopening
-            // Settings. Enumeration is cheap at this cadence (every 2 s).
-            ticks += 1
-            if ticks % 20 == 0 { refreshDevices() }
         }
     }
 
