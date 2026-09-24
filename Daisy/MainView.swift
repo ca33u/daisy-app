@@ -223,6 +223,7 @@ struct MainView: View {
     /// navigates away and back. One model per scope keeps Library and
     /// Notes independent, mirroring the pre-refactor per-tab `@State`.
     @State private var libraryModel = LibraryModel(scope: .all)
+    @State private var showsTapPermission = false
 
     var body: some View {
         // The shell arity branches per section (see `splitShell`).
@@ -257,6 +258,17 @@ struct MainView: View {
             }
         }
         .modifier(ToastOverlay())
+        // Review 24.09: the process tap's permission, asked on Daisy's own
+        // sheet — after onboarding, before any call.
+        .sheet(isPresented: $showsTapPermission) { TapPermissionSheet() }
+        .task(id: settings.hasShownFirstRun) {
+            guard settings.hasShownFirstRun else { return }
+            if ProcessTapPermission.shouldAsk {
+                showsTapPermission = true
+            } else {
+                ProcessTapPermission.recheckIfDenied()
+            }
+        }
         // Keep the local sidebar selection mirrored with the shared
         // AppNavigation state so external surfaces (menu bar / widget)
         // can switch sections by mutating `AppNavigation.shared`.

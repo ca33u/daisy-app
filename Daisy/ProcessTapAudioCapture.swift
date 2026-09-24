@@ -96,17 +96,22 @@ nonisolated enum ProcessTapDebugFlag {
         set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 
-    /// When a tap capture last ran past the silent-content timeout without
-    /// one audible frame. On the tap that is what a denied System Audio
-    /// Recording permission looks like — Core Audio reports no error and
-    /// hands over pure zeros — so the next week of recordings goes through
-    /// ScreenCaptureKit instead of risking another silent meeting. Cleared
-    /// the moment a tap hears anything.
+    /// When ScreenCaptureKit last heard sound in a recording where the tap,
+    /// silent for the silent-content timeout, had heard none — the tap was
+    /// at fault, so the next week of recordings goes through
+    /// ScreenCaptureKit. A silent tap alone sets nothing: an in-person
+    /// meeting is silent on both (review 24.09). Cleared the moment a tap
+    /// hears anything.
     static var heardNothingAt: Date? {
         get { UserDefaults.standard.object(forKey: "daisy.processTapHeardNothingAt") as? Date }
         set { UserDefaults.standard.set(newValue, forKey: "daisy.processTapHeardNothingAt") }
     }
     static let heardNothingFallback: TimeInterval = 7 * 86_400
+
+    /// Mirrors of `ProcessTapPermission` for the nonisolated backend
+    /// choice: the sheet asked, and the probe did not hear its tone.
+    static var permissionAsked: Bool { UserDefaults.standard.bool(forKey: "daisy.processTapPermissionAsked") }
+    static var permissionDenied: Bool { UserDefaults.standard.bool(forKey: "daisy.processTapPermissionDenied") }
 
     static var recentlyHeardNothing: Bool {
         guard let at = heardNothingAt else { return false }

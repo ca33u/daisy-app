@@ -140,6 +140,13 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// build, so this change went unseen; now it is installed before, and
     /// a change during setup is remembered and answered by a rebuild.
     private var routeChangedDuringSetup = false
+    /// The tap heard nothing for the silent-content timeout and the
+    /// capture moved to ScreenCaptureKit to find out why. If SCK hears
+    /// sound, the tap was the problem; if SCK is silent too, the room is.
+    private var probingAfterSilentTap = false
+    /// Seconds of silence the reopened archive starts with, so the
+    /// timeline survives the switch. Touched on `outputQueue` only.
+    nonisolated(unsafe) private var pendingLeadingSilence: TimeInterval = 0
     /// Listeners on the default output device ITSELF — its sample rate
     /// and stream layout. An A2DP→HFP flip keeps the same device and
     /// changes these, so the default-device listener alone never fired.
@@ -309,7 +316,14 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// smaller permission).
     nonisolated static var usesProcessTapBackend: Bool {
         guard #available(macOS 14.4, *) else { return false }
-        return ProcessTapDebugFlag.isEnabled && !ProcessTapDebugFlag.recentlyHeardNothing
+        // Review 24.09: the tap only after its permission was asked on
+        // Daisy's own sheet and not refused — never a system dialog in the
+        // middle of a call, never a meeting that has to wait out a silent
+        // stretch to find out the tap was refused.
+        return ProcessTapDebugFlag.isEnabled
+            && ProcessTapDebugFlag.permissionAsked
+            && !ProcessTapDebugFlag.permissionDenied
+            && !ProcessTapDebugFlag.recentlyHeardNothing
     }
 
     /// `SysAudio:` line for the log report. Reports the backend that last
@@ -447,6 +461,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             slowRetryTask?.cancel()
             slowRetryTask = nil
             gaveUpNoticeShown = false
+            probingAfterSilentTap = false
             gapStartedAt = nil
             displayReturnPausedBySession = false
             silenceWarningFired = false
@@ -1133,6 +1148,48 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         outputFormatListenerBlock = nil
     }
 
+    /// The tap has been silent for the silent-content timeout. Move this
+    /// recording to ScreenCaptureKit: the tap's archive holds nothing
+    /// audible, so it is started again in SCK's format with the same
+    /// length of silence in front. Only with Screen Recording granted —
+    /// otherwise SCK cannot start and a working tap would be torn down
+    /// for nothing.
+    private func switchToScreenCaptureAfterSilentTap() async {
+        guard state == .capturing, backend == .processTap, !outputRestartInFlight else { return }
+        guard ScreenRecordingPermission.preflight() else {
+            log.notice("Tap silent, Screen Recording not granted — staying on the tap")
+            return
+        }
+        outputRestartInFlight = true
+        defer {
+            outputRestartInFlight = false
+            lastOutputRestartAt = Date()
+        }
+        outputQueue.sync {
+            if let writer = archiveWriter {
+                pendingLeadingSilence = Double(archiveFramesWritten) / writer.processingFormat.sampleRate
+            }
+            archiveWriter = nil
+            if let url = archiveURL { try? FileManager.default.removeItem(at: url) }
+            archiveFramesWritten = 0
+            deliveredFormat = nil
+        }
+        backend = .screenCaptureKit
+        probingAfterSilentTap = true
+        if !quietDiagnostics { ProcessTapDebugFlag.lastActiveBackend = "scstream-after-silent-tap" }
+        if await rebuildStream(reason: "silent-tap-to-scstream") {
+            // One fired warning per session: the probe's own silence must
+            // not raise the SCK toast for a quiet room.
+            silentContentWarningFired = true
+            log.notice("Tap was silent — this recording continues on ScreenCaptureKit")
+        } else {
+            log.error("ScreenCaptureKit did not start after a silent tap — back to the tap")
+            backend = .processTap
+            probingAfterSilentTap = false
+            _ = await rebuildStream(reason: "back-to-tap")
+        }
+    }
+
     /// The route moved while the engine was being built: build again on
     /// the route that exists now. Quiet — the person did nothing, and the
     /// recording has lost at most the setup's fraction of a second.
@@ -1427,6 +1484,12 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         if backend == .processTap, !quietDiagnostics, ProcessTapDebugFlag.heardNothingAt != nil {
             ProcessTapDebugFlag.heardNothingAt = nil
             log.notice("Process tap heard sound — the silent-tap fallback is cleared")
+        }
+        if probingAfterSilentTap, backend == .screenCaptureKit {
+            // SCK hears what the tap did not: the tap was the fault.
+            probingAfterSilentTap = false
+            if !quietDiagnostics { ProcessTapDebugFlag.heardNothingAt = Date() }
+            log.warning("ScreenCaptureKit heard sound the process tap missed — the tap is set aside for a week")
         }
         if gaveUpNoticeShown {
             withdrawLossNotice(saying: String(localized: "The other side can be heard again."))
@@ -1763,6 +1826,18 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
            now.timeIntervalSince(captureStartedAt) >= Self.silentContentTimeoutSec {
             silentContentWarningFired = true
             log.warning("Silent-content system capture (backend=\(self.backend.rawValue, privacy: .public)): buffers arriving but nothing audible after \(Int(now.timeIntervalSince(captureStartedAt)), privacy: .public)s")
+            // Review 24.09: a silent tap is not proof the tap is broken —
+            // an in-person meeting has no system sound at all. Ask
+            // ScreenCaptureKit, in this same recording.
+            if backend == .processTap, !quietDiagnostics {
+                Task { @MainActor [weak self] in await self?.switchToScreenCaptureAfterSilentTap() }
+                return
+            }
+            // The probe's own silence is a quiet room, not a fault.
+            if probingAfterSilentTap {
+                log.notice("ScreenCaptureKit is silent too — nothing is playing; the tap is not blamed")
+                return
+            }
             // On the tap backend this shape has one overwhelmingly likely
             // cause that the ScreenCaptureKit path doesn't share: a denied
             // System Audio Recording permission. Core Audio reports no
@@ -1770,10 +1845,6 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             // fires on schedule handing us buffers of pure zeros. This
             // monitor is the ONLY thing that notices, so it has to say
             // the actual likely cause rather than the SCStream one.
-            if backend == .processTap, !quietDiagnostics {
-                ProcessTapDebugFlag.heardNothingAt = Date()
-                log.warning("Process tap heard nothing — the next recordings use ScreenCaptureKit for a week, unless a tap hears sound first")
-            }
             let message = backend == .processTap
                 ? String(localized: "Daisy is recording the other side but there's no sound in it. Check System Settings → Privacy & Security → System Audio Recording and make sure Daisy is allowed.")
                 : String(localized: "Daisy is capturing the other side but there's no sound in it — they won't be recorded. This usually means DRM-protected playback or a macOS capture glitch. Try a different source or restart the recording.")
@@ -1967,6 +2038,21 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                 log.error("System audio archive open failed: \(error.localizedDescription, privacy: .public)")
                 archiveURL = nil
                 return
+            }
+            // After a backend switch the archive starts over; silence in
+            // front keeps every later second where it was.
+            if pendingLeadingSilence > 0, let writer = archiveWriter {
+                let format = writer.processingFormat
+                var remaining = Int(pendingLeadingSilence * format.sampleRate)
+                pendingLeadingSilence = 0
+                while remaining > 0 {
+                    let n = min(Int(format.sampleRate), remaining)
+                    guard let silence = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(n)) else { break }
+                    silence.frameLength = AVAudioFrameCount(n)
+                    guard (try? writer.write(from: silence)) != nil else { break }
+                    archiveFramesWritten &+= UInt64(n)
+                    remaining -= n
+                }
             }
         }
         // Format guard (2026-08-10). `AVAudioFile.write(from:)` raises
