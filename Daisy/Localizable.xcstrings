@@ -395,6 +395,16 @@
         }
       }
     },
+    "Install Daisy %@ and Restart" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установить Daisy %@ и перезапустить"
+          }
+        }
+      }
+    },
     "The other side can be heard again." : {
       "localizations" : {
         "ru" : {

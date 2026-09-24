@@ -82,13 +82,13 @@ struct AboutView: View {
                 // controls regular-size so the switch matches the one below.
                 LabeledContent {
                     HStack(spacing: 8) {
-                        Button("Check for Updates…") {
-                            updater.checkForUpdates()
+                        Button(updater.checkOrInstallTitle) {
+                            updater.checkOrInstall()
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .tint(Color.daisyTextPrimary)
-                        .disabled(!updater.canCheckForUpdates)
+                        .disabled(!updater.canCheckOrInstall)
 
                         Toggle("", isOn: $updater.automaticallyChecksForUpdates)
                             .labelsHidden()

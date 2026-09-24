@@ -162,10 +162,10 @@ struct DaisyApp: App {
                 // disables it entirely when Sparkle isn't linked yet,
                 // which is the state on the first build before the
                 // SPM dep is added in Xcode.
-                Button("Check for Updates…") {
-                    SparkleUpdater.shared.checkForUpdates()
+                Button(SparkleUpdater.shared.checkOrInstallTitle) {
+                    SparkleUpdater.shared.checkOrInstall()
                 }
-                .disabled(!SparkleUpdater.shared.canCheckForUpdates)
+                .disabled(!SparkleUpdater.shared.canCheckOrInstall)
             }
             // ⌘R — refresh "Your Day" on demand: calendar meetings AND
             // the day-card brief (Egor 2026-07-25; was calendar-only).
@@ -302,9 +302,9 @@ private struct CompactMenuView: View {
                 disabled: session.status == .recording) {
                 session.reset()
             }
-            row("Check for Updates…", "arrow.down.circle",
-                disabled: !SparkleUpdater.shared.canCheckForUpdates) {
-                SparkleUpdater.shared.checkForUpdates()
+            row(SparkleUpdater.shared.checkOrInstallTitle, "arrow.down.circle",
+                disabled: !SparkleUpdater.shared.canCheckOrInstall) {
+                SparkleUpdater.shared.checkOrInstall()
             }
 
             Divider().padding(.vertical, 4)

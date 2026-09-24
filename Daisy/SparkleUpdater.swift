@@ -182,6 +182,26 @@ final class SparkleUpdater {
     /// For a Settings row: install the staged update right now.
     func installStagedUpdate() { stagedOffer.installNow() }
 
+    /// The version already downloaded and waiting to install — observable,
+    /// unlike `stagedOffer`. While it is set Sparkle refuses a new check
+    /// (`canCheckForUpdates == false`), which left «Check for Updates»
+    /// greyed out with nothing to say why, and the offer itself waits for
+    /// its poll (Egor, 24.09). The same button installs it instead.
+    private(set) var stagedVersion: String?
+    fileprivate func noteStaged(_ version: String) { stagedVersion = version }
+
+    /// «Check for Updates…», or «Install Daisy 1.0.8.9 and Restart» when
+    /// one is already downloaded.
+    var checkOrInstallTitle: String {
+        if let stagedVersion { return String(localized: "Install Daisy \(stagedVersion) and Restart") }
+        return String(localized: "Check for Updates…")
+    }
+    var canCheckOrInstall: Bool { stagedVersion != nil || canCheckForUpdates }
+    func checkOrInstall() {
+        if stagedVersion != nil, stagedOffer.installNow() { return }
+        checkForUpdates()
+    }
+
     /// Starts Sparkle's normal background update cycle immediately after
     /// launch. Sparkle itself continues to schedule later checks according to
     /// `SUScheduledCheckInterval`; this launch check means a user who opens
@@ -399,6 +419,7 @@ private final class DaisyUpdaterDelegate: NSObject, SPUUpdaterDelegate {
             version: item.displayVersionString,
             install: immediateInstallHandler
         )
+        SparkleUpdater.shared.noteStaged(item.displayVersionString)
         return true
     }
 
@@ -462,6 +483,9 @@ final class SparkleUpdater {
         // disabled via `canCheckForUpdates == false` until Sparkle is
         // added as an SPM dependency.
     }
+    var checkOrInstallTitle: String { String(localized: "Check for Updates…") }
+    var canCheckOrInstall: Bool { false }
+    func checkOrInstall() {}
 
     /// No-op until Sparkle is linked (see the real implementation).
     func checkForUpdatesAfterLaunch() {}
