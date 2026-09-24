@@ -213,6 +213,12 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// capture; a display that flaps would otherwise re-announce every
     /// edge.
     private var gaveUpNoticeShown = false
+    /// The warning toast that goes with the notice. It stays up until
+    /// dismissed — 24 hours — so it is ours to take down when the other
+    /// side comes back (third user, 24.09: the pill said «can’t hear the
+    /// other side» until the end of a meeting that was recording fine).
+    private var lossToastID: UUID?
+    var lossNoticeShownForTesting: Bool { gaveUpNoticeShown }
     /// Told once when a capture that had given up is live again, so the
     /// session can say so — the person was already told they'd lost the
     /// other side.
@@ -1152,7 +1158,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                 Task { @MainActor [weak self] in await self?.restartCaptureNow() }
             }
         )
-        ToastCenter.shared.showAction(
+        lossToastID = ToastCenter.shared.showAction(
             String(localized: "Daisy can’t hear the other side — sound is going to a Bluetooth headset. Switch output to speakers or wired headphones."),
             actionLabel: String(localized: "Retry capture"),
             style: .warning,
@@ -1177,7 +1183,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                 Task { @MainActor [weak self] in await self?.restartCaptureNow() }
             }
         )
-        ToastCenter.shared.showAction(
+        lossToastID = ToastCenter.shared.showAction(
             String(localized: "Daisy stopped hearing the other side. Your microphone is still recording; Daisy keeps trying."),
             actionLabel: String(localized: "Restart capture"),
             style: .warning,
@@ -1238,14 +1244,43 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         slowRetryTask?.cancel()
         slowRetryTask = nil
         restartsInWindow.removeAll()
-        gaveUpNoticeShown = false
         lastError = nil
-        WidgetBubbleCenter.shared.dismiss(tag: CaptureProblemNotification.bubbleTag)
-        ToastCenter.shared.show(
-            String(localized: "The other side is back — system audio is recording again."),
-            style: .success
-        )
+        withdrawLossNotice(saying: String(localized: "The other side is back — system audio is recording again."))
         log.notice("System audio capture recovered")
+    }
+
+    /// Audible sound from the other side. After an announced loss it is
+    /// the proof that the loss is over — whatever ended it: the person
+    /// switched output away from Bluetooth, a restart worked, macOS came
+    /// round on its own.
+    func noteAudibleAudio() {
+        lastAudibleSampleAt = Date()
+        receivedAudibleAudio = true
+        // Real audible content arrived → the remote side IS being
+        // captured. Clear the silent-content warning so the "Only your
+        // voice — couldn't reach the other side" banner disappears the
+        // moment the other party speaks. It can't re-fire: path 2 in
+        // checkForSilentCapture() requires !receivedAudibleAudio, which
+        // is now permanently true for this session.
+        silentContentWarningFired = false
+        if gaveUpNoticeShown {
+            withdrawLossNotice(saying: String(localized: "The other side can be heard again."))
+            log.notice("System audio audible again after an announced loss — notice withdrawn")
+        }
+    }
+
+    /// Take every trace of the loss notice off the screen — pill, banner,
+    /// the day-long toast — say in one short line that it is over, and
+    /// let the next loss be announced again. Two messages that contradict
+    /// each other leave the person unsure whether it is recording at all.
+    private func withdrawLossNotice(saying message: String) {
+        gaveUpNoticeShown = false
+        CaptureProblemNotification.cancel()
+        if let lossToastID { ToastCenter.shared.dismiss(id: lossToastID) }
+        lossToastID = nil
+        if !quietDiagnostics {
+            ToastCenter.shared.show(message, style: .success)
+        }
     }
 
     private func armDisplayReturnRecovery() {
@@ -1324,8 +1359,11 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             disarmDisplayReturnRecovery()
             // A later death in this same session is a distinct outage and
             // deserves its own notice, not silence because we already
-            // warned once before this recovery.
+            // warned once before this recovery. The old one comes down.
             gaveUpNoticeShown = false
+            CaptureProblemNotification.cancel()
+            if let lossToastID { ToastCenter.shared.dismiss(id: lossToastID) }
+            lossToastID = nil
             log.notice("System audio capture is back after the display returned")
             onCaptureRecovered?()
         }
@@ -1734,16 +1772,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                 // stall. It re-fires only if delivery stops again ≥30s.
                 self.silenceWarningFired = false
                 if peak > Self.audibleFloorDB {
-                    self.lastAudibleSampleAt = Date()
-                    self.receivedAudibleAudio = true
-                    // Real audible content arrived → the remote side IS
-                    // being captured. Clear the silent-content warning so
-                    // the "Only your voice — couldn't reach the other
-                    // side" banner disappears the moment the other party
-                    // speaks. It can't re-fire: path 2 in
-                    // checkForSilentCapture() requires !receivedAudibleAudio,
-                    // which is now permanently true for this session.
-                    self.silentContentWarningFired = false
+                    self.noteAudibleAudio()
                 }
             }
         }

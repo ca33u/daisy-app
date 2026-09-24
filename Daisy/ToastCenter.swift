@@ -42,14 +42,16 @@ final class ToastCenter {
     /// `perform()` and dismisses the toast. Tapping anywhere else on
     /// the toast just dismisses without running the action. Used for
     /// time-bounded "Daisy is about to do X — click to cancel"
-    /// prompts (auto-stop on calendar end, etc.).
+    /// prompts (auto-stop on calendar end, etc.). Returns the toast's id
+    /// so a caller can take down its own toast later — and only its own.
+    @discardableResult
     func showAction(
         _ message: String,
         actionLabel: String,
         style: Toast.Style = .info,
         duration: Duration = .seconds(30),
         perform: @escaping @MainActor () -> Void
-    ) {
+    ) -> UUID {
         hideTask?.cancel()
         let toastID = UUID()
         let action = Toast.Action(label: actionLabel) { [weak self] in
@@ -68,11 +70,19 @@ final class ToastCenter {
                 }
             }
         }
+        return toastID
     }
 
     func dismiss() {
         hideTask?.cancel()
         current = nil
+    }
+
+    /// Take down toast `id` if it is still the one on screen; a toast
+    /// that has since replaced it stays.
+    func dismiss(id: UUID) {
+        guard current?.id == id else { return }
+        dismiss()
     }
 
     private init() {}

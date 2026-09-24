@@ -215,6 +215,16 @@
         }
       }
     },
+    "The other side can be heard again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Собеседников снова слышно."
+          }
+        }
+      }
+    },
     "The other side is back — system audio is recording again." : {
       "localizations" : {
         "ru" : {
