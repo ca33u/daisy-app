@@ -219,6 +219,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// other side» until the end of a meeting that was recording fine).
     private var lossToastID: UUID?
     var lossNoticeShownForTesting: Bool { gaveUpNoticeShown }
+    var lossToastIDForTesting: UUID? { lossToastID }
     /// Told once when a capture that had given up is live again, so the
     /// session can say so — the person was already told they'd lost the
     /// other side.

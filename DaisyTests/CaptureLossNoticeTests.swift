@@ -12,6 +12,10 @@
 //  The notice must come down on the first audible frame after it, and a
 //  later loss must be announced again.
 //
+//  The toast center is one per process and other suites run beside this
+//  one, so the toast is checked by ITS id — was ours taken down — never
+//  by whatever happens to be on screen.
+//
 
 import Foundation
 import Testing
@@ -50,15 +54,16 @@ struct CaptureLossNoticeTests {
         await settle()
         #expect(capture.lossNoticeShownForTesting)
         #expect(host.shown == [CaptureProblemNotification.bubbleTag])
-        #expect(ToastCenter.shared.current?.style == .warning)
+        let warning = capture.lossToastIDForTesting
+        #expect(warning != nil, "The day-long warning must be tracked to be taken down")
 
         // Output switched to the speakers; the first audible frame.
         capture.noteAudibleAudio()
         await settle()
         #expect(!capture.lossNoticeShownForTesting)
         #expect(host.hidden == 1, "The pill must come down")
-        #expect(ToastCenter.shared.current?.style == .success, "The day-long warning must be replaced")
-        #expect(ToastCenter.shared.current?.action == nil)
+        #expect(capture.lossToastIDForTesting == nil)
+        #expect(ToastCenter.shared.current?.id != warning, "The day-long warning must be gone")
 
         // More sound says nothing more.
         capture.noteAudibleAudio()
