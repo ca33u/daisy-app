@@ -948,6 +948,29 @@ final class WhisperEngine {
     /// is pure release→paste latency. The anti-hallucination thresholds
     /// + VAD are identical across all profiles — only the search width /
     /// retry / worker counts change.
+    /// Stretches of `range` (seconds) not overlapped by any segment,
+    /// `minimum` seconds or longer.
+    nonisolated static func uncoveredStretches(in range: (start: Double, end: Double), by segments: [WhisperSegment],
+                                               minimum: Double) -> [(start: Double, end: Double)] {
+        var gaps: [(start: Double, end: Double)] = []
+        var cursor = range.start
+        for seg in segments.sorted(by: { $0.start < $1.start }) where seg.end > range.start && seg.start < range.end {
+            if seg.start - cursor >= minimum { gaps.append((cursor, seg.start)) }
+            cursor = max(cursor, seg.end)
+        }
+        if range.end - cursor >= minimum { gaps.append((cursor, range.end)) }
+        return gaps
+    }
+
+    /// RMS level of `samples` (16 kHz) between two times, in dBFS.
+    nonisolated static func rmsDB(_ samples: [Float], from start: Double, to end: Double) -> Double {
+        let lo = max(0, Int(start * audioSampleRate)), hi = min(samples.count, Int(end * audioSampleRate))
+        guard hi > lo else { return -160 }
+        var sum: Double = 0
+        for i in lo..<hi { sum += Double(samples[i] * samples[i]) }
+        return 10 * log10(max(sum / Double(hi - lo), 1e-16))
+    }
+
     enum DecodeProfile: Sendable, Equatable {
         case full
         case lite
@@ -1300,6 +1323,10 @@ final class WhisperEngine {
             echoTerms: [[String]]
         ) async throws -> (kept: [WhisperSegment], rawCount: Int) {
         var allRaw: [(spanOffsetSec: Double, segs: [TranscriptionSegment])] = []
+        /// Where each decoded VAD span sat, for the lost-span rescue below.
+        var spanRanges: [(start: Double, end: Double)] = []
+        /// What the pass heard, for pinning the rescue's language.
+        var heardLanguages: [String] = []
         let decodeStart = Date()
         for span in speechSpans {
             // Cooperative cancellation point between spans — a
@@ -1321,9 +1348,11 @@ final class WhisperEngine {
             // Skip pathologically short chunks — Whisper produces
             // garbage on sub-200ms inputs even with our thresholds.
             if Double(chunk.count) / Self.audioSampleRate < 0.20 { continue }
+            spanRanges.append((offsetSec, offsetSec + Double(chunk.count) / Self.audioSampleRate))
             let results = try await box.kit.transcribe(audioArray: chunk, decodeOptions: options)
             for result in results {
                 allRaw.append((offsetSec, result.segments))
+                if !result.language.isEmpty { heardLanguages.append(result.language) }
             }
         }
         let decodeMs = Int(Date().timeIntervalSince(decodeStart) * 1000)
@@ -1336,11 +1365,12 @@ final class WhisperEngine {
         // segments were dropped — a silent 0-segment dictation was
         // impossible to diagnose from the pass log alone). Privacy-safe:
         // counts + one logprob number, never transcript text.
-        var previousText: String?
-        var kept: [WhisperSegment] = []
         var dEmpty = 0, dHalluc = 0, dLogprob = 0, dShort = 0, dDup = 0, dBiasEcho = 0
         var worstLogprob = 0.0
-        for (offsetSec, segs) in allRaw {
+        func postFilter(_ raw: [(spanOffsetSec: Double, segs: [TranscriptionSegment])]) -> [WhisperSegment] {
+        var previousText: String?
+        var kept: [WhisperSegment] = []
+        for (offsetSec, segs) in raw {
             for seg in segs {
                 let text = seg.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !text.isEmpty else { dEmpty += 1; continue }
@@ -1398,6 +1428,78 @@ final class WhisperEngine {
                     end: offsetSec + Double(seg.end),
                     text: text
                 ))
+            }
+        }
+        return kept
+        }  // postFilter
+
+        var kept = postFilter(allRaw)
+
+        // Lost-speech rescue (24.09, Egor's test recording). A VAD span
+        // that mixes speech with something loop-shaped — a rap chorus,
+        // «бутер, бутер, бутер» — trips the compression threshold, the
+        // temperature fallback re-samples the WHOLE span, and part of it
+        // comes back empty or as a stock hallucination: both dropped
+        // above, and nine seconds of clear speech vanished from the final
+        // transcript while the rest of the span survived. Decoded on its
+        // own, that speech comes back verbatim. So on the final pass,
+        // every stretch of 3 s or more inside a span that kept nothing
+        // AND is not silent is decoded again in 8-second pieces through
+        // the same filters.
+        if profile == .full {
+            // Deterministic: the piece is short and on its own now, and
+            // the stochastic fallback is exactly what lost it the first
+            // time (its re-samples fail the confidence floor).
+            var rescueOptions = options
+            rescueOptions.temperatureFallbackCount = 0
+            // And no no-speech gate: speech over music (a video, a call
+            // with a soundtrack) reads as "no speech" at the strict 0.4
+            // and came back as empty text. The stretch already proved it
+            // is not silence by its level; the logprob, loop and
+            // hallucination filters still stand.
+            rescueOptions.noSpeechThreshold = nil
+            // Nor the decoder's own quality gates: with the fallback off,
+            // a doubtful FIRST token makes WhisperKit hand back an empty
+            // segment instead of trying (seen on this very recording).
+            // The post-filter below judges the text instead.
+            rescueOptions.firstTokenLogProbThreshold = nil
+            rescueOptions.logProbThreshold = nil
+            rescueOptions.compressionRatioThreshold = nil
+            // A short piece left to detect its own language can guess
+            // wrong and decode to nothing; the whole pass knows better.
+            if rescueOptions.language == nil,
+               let heard = Dictionary(grouping: heardLanguages, by: { $0 }).max(by: { $0.value.count < $1.value.count })?.key {
+                rescueOptions.language = heard
+                rescueOptions.detectLanguage = false
+            }
+            var rescued: [WhisperSegment] = []
+            var gapsTried = 0
+            for range in spanRanges {
+                for gap in Self.uncoveredStretches(in: range, by: kept, minimum: 3)
+                where Self.rmsDB(samples, from: gap.start, to: gap.end) > -45 {
+                    try Task.checkCancellation()
+                    gapsTried += 1
+                    var pieces: [(spanOffsetSec: Double, segs: [TranscriptionSegment])] = []
+                    var t = gap.start
+                    while gap.end - t >= 0.5 {
+                        // A remainder under 2 s rides with this piece: on
+                        // its own it decodes to invented words.
+                        var e = min(gap.end, t + 8)
+                        if gap.end - e < 2 { e = gap.end }
+                        let lo = max(0, Int(t * Self.audioSampleRate))
+                        let hi = min(samples.count, Int(e * Self.audioSampleRate))
+                        if hi > lo {
+                            let results = try await box.kit.transcribe(audioArray: Array(samples[lo..<hi]), decodeOptions: rescueOptions)
+                            for result in results { pieces.append((t, result.segments)) }
+                        }
+                        t = e
+                    }
+                    rescued += postFilter(pieces)
+                }
+            }
+            if gapsTried > 0 {
+                kept = (kept + rescued).sorted { $0.start < $1.start }
+                log.notice("Whisper lost-speech rescue: \(gapsTried, privacy: .public) audible stretch(es) with no text re-decoded, \(rescued.count, privacy: .public) segment(s) recovered")
             }
         }
         if (dEmpty + dHalluc + dLogprob + dShort + dDup + dBiasEcho) > 0 {
