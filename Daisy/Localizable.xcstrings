@@ -315,6 +315,76 @@
         }
       }
     },
+    "System Audio Recording" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запись системного звука"
+          }
+        }
+      }
+    },
+    "Captures the other side when System Audio Recording isn’t allowed" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Записывает собеседников, если запись системного звука не разрешена"
+          }
+        }
+      }
+    },
+    "Allow…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешить…"
+          }
+        }
+      }
+    },
+    "Check again" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверить снова"
+          }
+        }
+      }
+    },
+    "Allowed — Daisy hears the other side through sound alone, Bluetooth headphones included." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешено — Daisy слышит собеседников только по звуку, в том числе в Bluetooth-наушниках."
+          }
+        }
+      }
+    },
+    "Not allowed — Daisy uses Screen Recording instead. Allow it in System Settings, then check again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не разрешено — Daisy использует запись экрана. Разрешите в Системных настройках и проверьте снова."
+          }
+        }
+      }
+    },
+    "Records the other side of meetings — sound only, without the screen." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Записывает собеседников на встрече — только звук, без экрана."
+          }
+        }
+      }
+    },
     "The other side can be heard again." : {
       "localizations" : {
         "ru" : {

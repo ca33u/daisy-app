@@ -25,6 +25,7 @@
 //  the Nyquist of whatever the output turns out to be.
 //
 
+import AppKit
 import AVFoundation
 import Foundation
 import os
@@ -46,6 +47,27 @@ enum ProcessTapPermission {
     static var denied: Bool {
         get { UserDefaults.standard.bool(forKey: deniedKey) }
         set { UserDefaults.standard.set(newValue, forKey: deniedKey) }
+    }
+
+    enum State: Equatable { case notAsked, granted, denied }
+
+    static var isAvailable: Bool {
+        guard #available(macOS 14.4, *) else { return false }
+        return ProcessTapDebugFlag.isEnabled
+    }
+
+    static var state: State {
+        !asked ? .notAsked : (denied ? .denied : .granted)
+    }
+
+    /// Privacy & Security → System Audio Recording Only; the pane's own
+    /// anchor, falling back to Privacy & Security if macOS doesn't know it.
+    static func openSettings() {
+        let urls = ["x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture",
+                    "x-apple.systempreferences:com.apple.preference.security"]
+        for string in urls {
+            if let url = URL(string: string), NSWorkspace.shared.open(url) { return }
+        }
     }
 
     /// Show the sheet: the tap would be used, and nobody asked yet.

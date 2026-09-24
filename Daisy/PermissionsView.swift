@@ -25,6 +25,13 @@ struct PermissionsView: View {
 
     @Bindable private var permissions = SystemPermissions.shared
 
+    /// System Audio Recording, as the last probe heard it (24.09). Not a
+    /// TCC read — there is none — so it is refreshed on appear and after
+    /// "Check again".
+    @State private var systemAudio = ProcessTapPermission.state
+    @State private var checkingSystemAudio = false
+    @State private var showsTapSheet = false
+
     /// Observable Google account state — moved here from
     /// `ConnectionsView` in build 42 (2026-05-28). Drives the
     /// Connect / Disconnect button labels and the connected-as email
@@ -46,6 +53,7 @@ struct PermissionsView: View {
         .formStyle(.grouped)
         .onAppear {
             permissions.refresh()
+            systemAudio = ProcessTapPermission.state
         }
     }
 
@@ -96,9 +104,14 @@ struct PermissionsView: View {
 
         // ── For meeting recording: asked lazily on first use ──
         Section {
+            if ProcessTapPermission.isAvailable {
+                systemAudioRow
+            }
             permissionRow(
                 title: String(localized: "Screen Recording"),
-                caption: String(localized: "Captures the other side of meetings"),
+                caption: ProcessTapPermission.isAvailable
+                    ? String(localized: "Captures the other side when System Audio Recording isn’t allowed")
+                    : String(localized: "Captures the other side of meetings"),
                 iconName: "rectangle.on.rectangle",
                 isRequired: false,
                 status: permissions.screenRecording,
@@ -152,6 +165,68 @@ struct PermissionsView: View {
     }
 
     // MARK: - Row
+
+    // MARK: - System Audio Recording row (process tap, 24.09)
+
+    /// How Daisy hears the other side on macOS 14.4+. Its status comes
+    /// from the probe (Daisy's own inaudible tone, tapped), because macOS
+    /// has no way to read this permission.
+    @ViewBuilder
+    private var systemAudioRow: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "waveform")
+                .font(.callout)
+                .foregroundStyle(systemAudio == .granted ? Color.daisySuccess
+                                 : systemAudio == .denied ? Color.daisyWarning : .secondary)
+                .frame(width: 18)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("System Audio Recording")
+                    .font(.callout.weight(.medium))
+                Text(systemAudioCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            switch systemAudio {
+            case .notAsked:
+                Button("Allow…") { showsTapSheet = true }
+                    .buttonStyle(.bordered).controlSize(.small).tint(Color.daisyTextPrimary)
+            case .denied:
+                HStack(spacing: 6) {
+                    Button("Check again") { Task { await recheckSystemAudio() } }
+                        .disabled(checkingSystemAudio)
+                    Button("Open Settings…") { ProcessTapPermission.openSettings() }
+                }
+                .buttonStyle(.bordered).controlSize(.small)
+            case .granted:
+                Button("Open Settings…") { ProcessTapPermission.openSettings() }
+                    .buttonStyle(.bordered).controlSize(.small)
+            }
+        }
+        .font(.callout)
+        .padding(.vertical, 4)
+        .sheet(isPresented: $showsTapSheet, onDismiss: { systemAudio = ProcessTapPermission.state }) {
+            TapPermissionSheet()
+        }
+    }
+
+    private var systemAudioCaption: String {
+        switch systemAudio {
+        case .granted: String(localized: "Allowed — Daisy hears the other side through sound alone, Bluetooth headphones included.")
+        case .denied: String(localized: "Not allowed — Daisy uses Screen Recording instead. Allow it in System Settings, then check again.")
+        case .notAsked: String(localized: "Records the other side of meetings — sound only, without the screen.")
+        }
+    }
+
+    private func recheckSystemAudio() async {
+        checkingSystemAudio = true
+        defer { checkingSystemAudio = false }
+        let result = await ProcessTapPermission.probe(timeout: .seconds(2))
+        ProcessTapPermission.record(result)
+        systemAudio = ProcessTapPermission.state
+    }
 
     // MARK: - Google Calendar row (OAuth, custom shape)
 
