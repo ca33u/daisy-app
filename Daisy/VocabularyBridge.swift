@@ -50,36 +50,43 @@ final class VocabularyBridge {
         applying = true
         defer { applying = false }
         let current = DictationDictionary.shared.replacements
-        var local = current
-        let deleted = Set(registry.entries.values.filter(\.isDeleted).map(\.rule.id))
-        local.removeAll { deleted.contains($0.id) }
-        for rule in registry.rules {
-            let mine = Self.toLocal(rule)
-            if let index = local.firstIndex(where: { $0.id == rule.id }) {
-                local[index] = mine
-            } else {
-                local.append(mine)
-                log.notice("Vocabulary from another device: \(rule.kind.rawValue, privacy: .public)")
-            }
-        }
-        // The registry's order for what it knows; this Mac's own place
-        // for the rest, which `localChanged` sends up next.
-        let positions = Dictionary(uniqueKeysWithValues: registry.entries.values.filter { !$0.isDeleted }.map { ($0.rule.id, $0.position) })
-        local = local.enumerated()
-            .sorted { (positions[$0.element.id] ?? Double($0.offset), $0.offset) < (positions[$1.element.id] ?? Double($1.offset), $1.offset) }
-            .map(\.element)
+        let local = Self.merge(local: current, with: registry)
+        let added = Set(local.map(\.id)).subtracting(current.map(\.id)).count
+        if added > 0 { log.notice("Vocabulary from another device: \(added, privacy: .public) new rule(s)") }
         if local != current { DictationDictionary.shared.replaceAll(local) }
         mirrored = Set(local.map(\.id))
     }
 
+    /// This Mac's list after what the registry says: rules another
+    /// device deleted go, rules it added or changed come in, and the
+    /// order is the registry's for what it knows — this Mac's own place
+    /// for rules it has not seen yet, which `localChanged` sends up next.
+    nonisolated static func merge(local current: [DictationReplacement], with registry: VocabularyRegistry) -> [DictationReplacement] {
+        var local = current
+        let deleted = Set(registry.entries.values.filter(\.isDeleted).map(\.rule.id))
+        local.removeAll { deleted.contains($0.id) }
+        for rule in registry.rules {
+            let mine = toLocal(rule)
+            if let index = local.firstIndex(where: { $0.id == rule.id }) {
+                local[index] = mine
+            } else {
+                local.append(mine)
+            }
+        }
+        let positions = Dictionary(uniqueKeysWithValues: registry.entries.values.filter { !$0.isDeleted }.map { ($0.rule.id, $0.position) })
+        return local.enumerated()
+            .sorted { (positions[$0.element.id] ?? Double($0.offset), $0.offset) < (positions[$1.element.id] ?? Double($1.offset), $1.offset) }
+            .map(\.element)
+    }
+
     // MARK: - The Mac's rule ⇄ the shared one (same fields, two modules)
 
-    static func toShared(_ rule: DictationReplacement) -> SharedDictationReplacement {
+    nonisolated static func toShared(_ rule: DictationReplacement) -> SharedDictationReplacement {
         SharedDictationReplacement(id: rule.id, kind: rule.kind == .term ? .term : .correction,
                                        from: rule.from, to: rule.to, caseSensitive: rule.caseSensitive)
     }
 
-    static func toLocal(_ rule: SharedDictationReplacement) -> DictationReplacement {
+    nonisolated static func toLocal(_ rule: SharedDictationReplacement) -> DictationReplacement {
         DictationReplacement(id: rule.id, kind: rule.kind == .term ? .term : .correction,
                              from: rule.from, to: rule.to, caseSensitive: rule.caseSensitive)
     }
