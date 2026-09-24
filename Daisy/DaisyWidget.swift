@@ -55,9 +55,13 @@ struct DaisyWidget: View {
 
     /// True for the "loader" states whose petals rotate — those
     /// run at 60fps (see `body`); everything else at 30fps.
+    /// Only the moments the widget really can't take a tap. Summaries
+    /// are background work and show nothing here (Egor, 24.09: «обработка
+    /// саммари в виджете не нужна — человек должен сразу запустить другую
+    /// запись»).
     private static func isLoadingStatus(_ status: RecordingSession.Status) -> Bool {
         switch status {
-        case .preparing, .stopping, .summarizing: return true
+        case .preparing, .stopping: return true
         default: return false
         }
     }
@@ -472,16 +476,8 @@ struct DaisyWidget: View {
         // `--color-petal-center` and the in-app `daisyHomeAccent`)
         // so it's a calmer cousin of recording orange — never
         // confused with "still capturing".
-        if case .finished = status, summaryGen == .generating {
-            // "Summary cooking" → STATIC warm amber. The opacity sin-pulse
-            // was removed: a centre blinking 0.55↔0.95 under the (now
-            // static) petals re-introduced exactly the "loader + blinking
-            // core" glitch we deliberately removed from .preparing. The
-            // amber HUE (a calm cousin of recording orange) plus the
-            // "Generating summary…" tooltip carry the signal — no blink.
-            // `daisyHomeAccent`: `daisyCenterIdle` turned white (23.09).
-            return Color.daisyHomeAccent
-        }
+        // No "summary cooking" colour any more (24.09): after Stop the
+        // widget is simply ready for the next recording.
         switch status {
         // Recording — center hue encodes the active mode so the
         // user can tell at a peripheral glance which gesture they
@@ -520,9 +516,9 @@ struct DaisyWidget: View {
             // model download is still signalled as text (the status/tooltip
             // WhisperEngine.state switch below), just not in the core.
             return Color.white.opacity(0.92)
-        // Finished + processing → plain white. The "done" celebration
-        // is the scale-pop animation, not a colour change.
-        case .stopping, .summarizing, .finished: return Color.white.opacity(0.92)
+        // After Stop: the resting centre — the widget is ready for the
+        // next recording; summaries are background work (24.09).
+        case .stopping, .summarizing, .finished: return Color.daisyCenterIdle
         case .failed: return .daisyError
         // The shared resting centre (DaisyPalette.centerIdle, white) —
         // the same on the phone, the watch and Windows (Egor, 23.09).
@@ -533,13 +529,6 @@ struct DaisyWidget: View {
     // MARK: - Strings
 
     private var tooltip: String {
-        // Surface the post-Stop summary phase even though status is
-        // already `.finished` — the user just hit Stop and is
-        // wondering "is anything still happening?".
-        if case .finished = session.status,
-           session.summaryGenerationState == .generating {
-            return String(localized: "Generating summary…")
-        }
         if let problem = systemAudioProblem {
             return session.status == .paused
                 ? String(localized: "\(problem) Click to resume · right-click for Stop & save")
@@ -598,10 +587,6 @@ struct DaisyWidget: View {
     }
 
     private var accessibilityLabel: String {
-        if case .finished = session.status,
-           session.summaryGenerationState == .generating {
-            return String(localized: "Daisy. Recording finished. Summary still generating in the background.")
-        }
         // The failure comes FIRST in the sentence: a screen reader
         // announces from the start, and "Recording" heard alone is
         // exactly the wrong takeaway.
