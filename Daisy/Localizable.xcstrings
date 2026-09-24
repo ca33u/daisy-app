@@ -385,6 +385,16 @@
         }
       }
     },
+    "Recording now — the meters show what the recording hears." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Идёт запись — индикаторы показывают, что слышит запись."
+          }
+        }
+      }
+    },
     "The other side can be heard again." : {
       "localizations" : {
         "ru" : {

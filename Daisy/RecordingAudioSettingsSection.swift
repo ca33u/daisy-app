@@ -79,7 +79,7 @@ struct RecordingAudioSettingsSection: View {
             }
 
             if recordingIsActive {
-                Label("Audio tests are unavailable while a recording is active.", systemImage: "record.circle")
+                Label("Recording now — the meters show what the recording hears.", systemImage: "record.circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -289,7 +289,19 @@ struct RecordingAudioSettingsSection: View {
         micMonitorRun = run
         microphoneResult = .idle
         microphoneLevelDB = -160
-        guard !recordingIsActive else { return }
+        // During a recording the probe must not take the device, but the
+        // meter must not read «silence» either — that looked like a dead
+        // microphone mid-meeting (Egor, 24.09). Show the session's own.
+        if recordingIsActive {
+            // The pre-recording run no longer owns the probe and so won't
+            // stop it; it must not keep the microphone during a meeting.
+            microphoneProbe.stop()
+            while !Task.isCancelled, micMonitorRun == run {
+                microphoneLevelDB = RecordingSession.current?.recorder.levelDB ?? -160
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            return
+        }
 
         // The previous run may not have stopped it yet.
         microphoneProbe.stop()
@@ -342,7 +354,15 @@ struct RecordingAudioSettingsSection: View {
         systemMonitorRun = run
         systemAudioResult = .idle
         systemAudioLevelDB = -160
-        guard settings.captureSystemAudio, !recordingIsActive else { return }
+        guard settings.captureSystemAudio else { return }
+        if recordingIsActive {
+            await systemAudioProbe.stop()
+            while !Task.isCancelled, systemMonitorRun == run {
+                systemAudioLevelDB = RecordingSession.current?.systemAudio.peakLevelDB ?? -160
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            return
+        }
         // The Screen Recording gate belongs to the ScreenCaptureKit
         // backend. With the process-tap spike on, the probe uses a Core
         // Audio tap, which needs System Audio Recording instead — and
