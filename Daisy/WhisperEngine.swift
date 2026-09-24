@@ -1474,6 +1474,12 @@ final class WhisperEngine {
                 rescueOptions.detectLanguage = false
             }
             var rescued: [WhisperSegment] = []
+            // What the post-filter threw away from the rescue's pieces,
+            // by reason — the rescue runs with the decoder's own gates
+            // off, so a hallucination it produced should show in the log
+            // without a rerun (review 24.09).
+            let before = (halluc: dHalluc, logprob: dLogprob, short: dShort, dup: dDup, echo: dBiasEcho)
+            var rescueRaw = 0
             var gapsTried = 0
             for range in spanRanges {
                 for gap in Self.uncoveredStretches(in: range, by: kept, minimum: 3)
@@ -1496,12 +1502,16 @@ final class WhisperEngine {
                         }
                         t = e
                     }
+                    rescueRaw += pieces.reduce(0) { total, piece in
+                        total + piece.segs.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+                    }
                     rescued += postFilter(pieces)
                 }
             }
             if gapsTried > 0 {
                 kept = (kept + rescued).sorted { $0.start < $1.start }
-                log.notice("Whisper lost-speech rescue: \(gapsTried, privacy: .public) audible stretch(es) with no text re-decoded, \(rescued.count, privacy: .public) segment(s) recovered")
+                let dropped = max(0, rescueRaw - rescued.count)
+                log.notice("Whisper lost-speech rescue: \(gapsTried, privacy: .public) audible stretch(es) with no text re-decoded, \(rescued.count, privacy: .public) segment(s) recovered, \(dropped, privacy: .public) of \(rescueRaw, privacy: .public) dropped by the post-filter (halluc=\(dHalluc - before.halluc, privacy: .public) logprob=\(dLogprob - before.logprob, privacy: .public) short=\(dShort - before.short, privacy: .public) dup=\(dDup - before.dup, privacy: .public) biasEcho=\(dBiasEcho - before.echo, privacy: .public))")
             }
         }
         if (dEmpty + dHalluc + dLogprob + dShort + dDup + dBiasEcho) > 0 {

@@ -299,7 +299,7 @@ final class ImportTranscriptionQueue {
                 session, options: job.options, replaceLiveTranscript: finishing)
             jobs.removeAll { $0.id == job.id }
             persist()
-            log.info("Import job done: \(job.title, privacy: .private)\(finishing ? " — live transcript replaced by the final pass" : "", privacy: .public)")
+            log.info("Import job done: \(job.title, privacy: .private)\(finishing ? " — final pass over a live transcript (see the processing log for whether it replaced it)" : "", privacy: .public)")
             if finishing { await summarizeFinished(sessionID: job.sessionID) }
         } catch is CancellationError {
             // Pre-empted by a recording → job stays for the next tick.

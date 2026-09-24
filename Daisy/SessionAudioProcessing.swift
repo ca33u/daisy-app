@@ -252,6 +252,24 @@ final class SessionAudioProcessing {
             segments = AcousticEchoDedup.filter(segments)
         }
 
+        // A final pass that heard less than the live text did must not
+        // replace it: «No speech detected.» over a meeting's live
+        // transcript is the loss the ordinary finalize already refuses
+        // (it keeps its live segments on a 0-segment pass). Here the
+        // live text stays, the marker still goes — the recording is
+        // finished, just with the text it had — and the summary is made
+        // from the live text (review 24.09).
+        if replaceLiveTranscript {
+            let liveWords = Self.spokenWordCount(inTranscriptMarkdown: originalMarkdown)
+            let finalWords = segments.reduce(0) { $0 + Self.spokenWordCount(in: $1.text) }
+            if let reason = Self.reasonToKeepLiveTranscript(liveWords: liveWords, finalWords: finalWords) {
+                log.error("Final pass for \(session.id, privacy: .public) kept the live transcript: \(reason, privacy: .public)")
+                try? FileManager.default.removeItem(at: session.directoryURL.appendingPathComponent(".recording"))
+                await SessionStore.shared.refresh()
+                return session.id
+            }
+        }
+
         statusText = String(localized: "Writing the new transcript")
         let markdown = Self.renderDerivedTranscript(
             originalMarkdown: originalMarkdown,
@@ -449,6 +467,49 @@ final class SessionAudioProcessing {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd-HHmmss-SSS"
         return "\(parentID)-retranscribed-\(formatter.string(from: now))"
+    }
+
+    /// Why a final pass must not replace a live transcript, or nil when
+    /// it may: it found no words where the live text had some, or kept
+    /// less than half of a live text long enough for the ratio to mean
+    /// something. The final pass legitimately shrinks a live text —
+    /// echo and loops go — but not by half.
+    nonisolated static func reasonToKeepLiveTranscript(liveWords: Int, finalWords: Int) -> String? {
+        if finalWords == 0, liveWords > 0 {
+            return "the final pass found no speech; the live text has \(liveWords) words"
+        }
+        if liveWords >= 20, finalWords * 2 < liveWords {
+            return "the final pass kept \(finalWords) words of the live text's \(liveWords)"
+        }
+        return nil
+    }
+
+    /// Words said in a transcript.md: the lines under `## Transcript`,
+    /// without the `**[m:ss · Name]**` stamps and without italic notes
+    /// such as «No speech detected.».
+    nonisolated static func spokenWordCount(inTranscriptMarkdown markdown: String) -> Int {
+        var inTranscript = false
+        var count = 0
+        for rawLine in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("## ") {
+                inTranscript = line == "## Transcript"
+                continue
+            }
+            guard inTranscript, !line.isEmpty, !line.hasPrefix("_") else { continue }
+            var text = line
+            while let open = text.range(of: "**["), let close = text.range(of: "]**", range: open.upperBound..<text.endIndex) {
+                text.removeSubrange(open.lowerBound..<close.upperBound)
+            }
+            count += spokenWordCount(in: text)
+        }
+        return count
+    }
+
+    nonisolated static func spokenWordCount(in text: String) -> Int {
+        text.split(whereSeparator: \.isWhitespace)
+            .filter { $0.contains { $0.isLetter || $0.isNumber } }
+            .count
     }
 
     static func renderDerivedTranscript(
