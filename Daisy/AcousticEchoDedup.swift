@@ -362,7 +362,9 @@ enum AcousticEchoDedup {
             while j < mic.count, !echo[j] { j += 1 }
             let stretch = Array(mic[i..<j])
             let content = stretch.filter { $0.count >= 3 }
-            let shared = content.filter { remoteSet.contains($0) }.count
+            let shared = content.filter { word in
+                remoteSet.contains(word) || remote.contains { sameStem(word, $0) }
+            }.count
             let touchesEcho = (i > 0 && echo[i - 1]) || (j < mic.count && echo[j])
             let mostlyRemote = !content.isEmpty && Double(shared) / Double(content.count) >= 0.5
             let hasRun = (longestCommonRun(stretch, remote, excluding: [Bool](repeating: false, count: stretch.count))?.length ?? 0) >= 3
@@ -380,6 +382,16 @@ enum AcousticEchoDedup {
             .trimmingCharacters(in: CharacterSet.whitespaces.union(.punctuationCharacters).subtracting(CharacterSet(charactersIn: ".?!…")))
         guard joined.contains(where: { $0.isLetter || $0.isNumber }) else { return "" }
         return joined.prefix(1).uppercased() + joined.dropFirst()
+    }
+
+    /// The same word in another form, as two passes of Whisper spell
+    /// it: «песня» and «песни» (24.09, the one word of an echo left
+    /// behind as a line of its own). Both four letters or more and the
+    /// same up to their last two.
+    private static func sameStem(_ a: String, _ b: String) -> Bool {
+        guard a.count >= 4, b.count >= 4 else { return false }
+        let length = max(4, min(a.count, b.count) - 2)
+        return a.prefix(length) == b.prefix(length)
     }
 
     /// Words of a line: the raw token and its normalized form. Tokens

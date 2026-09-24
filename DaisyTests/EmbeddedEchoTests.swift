@@ -61,4 +61,14 @@ struct EmbeddedEchoTests {
         #expect(AcousticEchoDedup.cutEcho(from: mine.text, remote: ["давайте", "обсудим", "бюджет", "на", "следующий", "квартал"]) == nil)
         #expect(AcousticEchoDedup.filter([remote, mine]).count == 2)
     }
+
+    @Test func aWordLeftBehindInAnotherFormGoesToo() {
+        // 24.09, 1.0.8.10 on the speakers: «песня» against the remote's
+        // «песни» survived as a line of its own.
+        let mic = line("Apple Music был только iTunes. Чтобы вы понимали, топ-чарт, номер один, песня, стоит «Баста моя игра», второе место «Хлеб, чай, сахар».", .microphone, 43, 51.5)
+        let remote = line("Apple Music был только iTunes. Чтобы вы понимали, топ-чарт номер один песни. Стоит Баста «Моя игра», второе место «Хлеб, чай, сахар».", .systemAudio, 43, 51.5)
+        let out = AcousticEchoDedup.filter([mic, remote])
+        #expect(out.count == 1)
+        #expect(out.first?.id == remote.id)
+    }
 }
