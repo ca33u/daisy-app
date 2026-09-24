@@ -189,6 +189,9 @@ public final class VocabularyRegistryStore {
             start = start.merged(with: remote)
         }
         registry = start
+        // What iCloud had at launch is this device's too from now on —
+        // signed out tomorrow, it still has the words.
+        saveLocally()
         observer = NotificationCenter.default.addObserver(
             forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: kvs, queue: .main
         ) { [weak self] _ in
