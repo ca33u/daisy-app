@@ -1018,6 +1018,12 @@ final class WhisperEngine {
     /// and voice-note passes are byte-identical to before. Only the
     /// dictation final pass populates it (see `Transcriber.runFinalPass`).
     func transcribe(samples: [Float], language: String?, profile: DecodeProfile = .full, biasTerms: [String] = []) async throws -> [WhisperSegment] {
+        // A full pass decodes by speech spans. Started in the first
+        // seconds after launch — a queued job — it used to find the
+        // speech detector still loading and decode the whole file as one
+        // span, where the lost-speech rescue looped (24.09). Wait for the
+        // detector first, before taking the decoder from anyone.
+        if profile == .full { _ = await prepareSpeechDetection() }
         // A dictation is someone waiting at a text field with the key
         // just released; it goes ahead of everything else in the line,
         // and a long pass in progress lets it through between spans.
@@ -1054,6 +1060,8 @@ final class WhisperEngine {
         profile: DecodeProfile = .full,
         biasTerms: [String] = []
     ) async throws -> [WhisperSegment] {
+        // Same as the pass above: spans need the detector loaded.
+        if profile == .full { _ = await prepareSpeechDetection() }
         try await acquireSlot()
         defer { releaseSlot() }
         try Task.checkCancellation()
