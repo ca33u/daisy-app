@@ -42,6 +42,10 @@ nonisolated struct ImportTranscriptionJob: Codable, Identifiable, Sendable, Equa
     let createdAt: Date
     var attempts: Int
     var lastError: String?
+    /// A recording whose final pass was cut short by the next recording
+    /// (incident 23.09): it already has the live transcript, which this
+    /// job REPLACES in place. Optional so older queue files still decode.
+    var finishesLiveTranscript: Bool?
 
     nonisolated static let maxAttempts = 3
 
@@ -140,7 +144,8 @@ final class ImportTranscriptionQueue {
         directoryURL: URL,
         title: String,
         options: SessionRetranscriptionOptions,
-        notBefore: Date?
+        notBefore: Date?,
+        finishesLiveTranscript: Bool = false
     ) {
         // One job per session: a second drop of the same session (or a
         // re-run of "Transcribe now") replaces the old schedule.
@@ -156,7 +161,8 @@ final class ImportTranscriptionQueue {
             notBefore: notBefore,
             createdAt: Date(),
             attempts: 0,
-            lastError: nil
+            lastError: nil,
+            finishesLiveTranscript: finishesLiveTranscript ? true : nil
         ))
         persist()
         tick()
@@ -277,16 +283,24 @@ final class ImportTranscriptionQueue {
         let transcriptOnDisk = FileManager.default.fileExists(
             atPath: session.directoryURL.appendingPathComponent("transcript.md").path
         )
-        guard session.transcriptURL == nil, !transcriptOnDisk else {
+        // 24.09: a rotated recording ALWAYS has its live transcript — so
+        // this guard dropped every "finish the final pass" job, silently,
+        // since the day the queue took them (Egor's 13:36 recording kept
+        // its live text, no summary, and a stale .recording marker).
+        let finishing = job.finishesLiveTranscript == true
+        guard finishing || (session.transcriptURL == nil && !transcriptOnDisk) else {
+            log.info("Import job dropped: session already has a transcript")
             jobs.removeAll { $0.id == job.id }
             persist()
             return
         }
         do {
-            _ = try await SessionAudioProcessing.shared.retranscribe(session, options: job.options)
+            _ = try await SessionAudioProcessing.shared.retranscribe(
+                session, options: job.options, replaceLiveTranscript: finishing)
             jobs.removeAll { $0.id == job.id }
             persist()
-            log.info("Import job done: \(job.title, privacy: .private)")
+            log.info("Import job done: \(job.title, privacy: .private)\(finishing ? " — live transcript replaced by the final pass" : "", privacy: .public)")
+            if finishing { await summarizeFinished(sessionID: job.sessionID) }
         } catch is CancellationError {
             // Pre-empted by a recording → job stays for the next tick.
             // Removed by the user → cancel(sessionID:) already took it out.
@@ -323,6 +337,29 @@ final class ImportTranscriptionQueue {
             }
             persist()
         }
+    }
+
+    /// The interrupted recording never got its summary; give it one now,
+    /// the way Re-summarize does, unless one is already there.
+    private func summarizeFinished(sessionID: String) async {
+        await SessionStore.shared.refresh()
+        guard let session = SessionStore.shared.sessions.first(where: { $0.id == sessionID }),
+              !session.transcriptText.isEmpty,
+              !FileManager.default.fileExists(atPath: session.directoryURL.appendingPathComponent("summary.json").path),
+              Summarizer.shared.availability == .available else { return }
+        let localeHint = RecordingSession.resolveSummaryLocaleHint(
+            transcript: session.transcriptText,
+            transcriptLocale: session.locale,
+            summaryLanguageOverride: AppSettings.currentSummaryLanguage
+        )
+        guard let summary = await Summarizer.shared.summarize(
+            transcript: session.transcriptText, title: session.title, localeHint: localeHint
+        ) else {
+            log.warning("Finished recording \(sessionID, privacy: .public): summary failed — \(Summarizer.shared.lastError ?? "no summary", privacy: .public)")
+            return
+        }
+        await SessionStore.shared.updateSummary(summary, for: session)
+        log.notice("Finished recording \(sessionID, privacy: .public): summary written")
     }
 
     private enum Resolution {

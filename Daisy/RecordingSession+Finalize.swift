@@ -1902,7 +1902,8 @@ extension RecordingSession {
             // A moment's delay: the recording that interrupted this one
             // is starting right now, and two Whisper passes at once is
             // how the first one got cancelled in the first place.
-            notBefore: Date().addingTimeInterval(60)
+            notBefore: Date().addingTimeInterval(60),
+            finishesLiveTranscript: true
         )
         log.notice("Rotated session \(sessionID, privacy: .public) queued for its final pass (\(stage, privacy: .public))")
     }

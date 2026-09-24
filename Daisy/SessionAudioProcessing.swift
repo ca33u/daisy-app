@@ -98,15 +98,20 @@ final class SessionAudioProcessing {
         }
     }
 
+    /// `replaceLiveTranscript`: the session's transcript is the live text
+    /// of a recording whose final pass never ran (the next recording
+    /// started). Write the final transcript INTO this session, replacing
+    /// it, and clear the `.recording` marker — not a derived copy.
     func retranscribe(
         _ session: StoredSession,
-        options: SessionRetranscriptionOptions
+        options: SessionRetranscriptionOptions,
+        replaceLiveTranscript: Bool = false
     ) async throws -> StoredSession.ID {
         guard !isRunning else { throw ProcessingError.busy }
         guard !recordingOrFinalizeIsActive else { throw ProcessingError.recordingActive }
         let sourceFiles = SessionAudioFiles.discover(in: session.directoryURL)
         guard sourceFiles.hasAny else { throw ProcessingError.noAudio }
-        let isFirstTranscript = session.transcriptURL == nil
+        let isFirstTranscript = session.transcriptURL == nil || replaceLiveTranscript
 
         isRunning = true
         statusText = isFirstTranscript
@@ -275,8 +280,12 @@ final class SessionAudioProcessing {
         if isFirstTranscript {
             try Self.commitFirstTranscript(
                 from: stagingDirectory,
-                to: session.directoryURL
+                to: session.directoryURL,
+                replacing: replaceLiveTranscript
             )
+            if replaceLiveTranscript {
+                try? FileManager.default.removeItem(at: session.directoryURL.appendingPathComponent(".recording"))
+            }
         } else {
             try Self.copyOptionalSidecar(
                 named: "markers.json",
@@ -564,15 +573,20 @@ final class SessionAudioProcessing {
     /// never overwritten if another process created one while we worked.
     nonisolated private static func commitFirstTranscript(
         from stagingDirectory: URL,
-        to sessionDirectory: URL
+        to sessionDirectory: URL,
+        replacing: Bool = false
     ) throws {
         let fm = FileManager.default
         let stagedTranscript = stagingDirectory.appendingPathComponent("transcript.md")
         let transcript = sessionDirectory.appendingPathComponent("transcript.md")
-        guard !fm.fileExists(atPath: transcript.path) else {
-            throw CocoaError(.fileWriteFileExists)
+        if replacing, fm.fileExists(atPath: transcript.path) {
+            _ = try fm.replaceItemAt(transcript, withItemAt: stagedTranscript)
+        } else {
+            guard !fm.fileExists(atPath: transcript.path) else {
+                throw CocoaError(.fileWriteFileExists)
+            }
+            try fm.moveItem(at: stagedTranscript, to: transcript)
         }
-        try fm.moveItem(at: stagedTranscript, to: transcript)
 
         let stagedSpeakers = stagingDirectory.appendingPathComponent("speakers.json")
         if fm.fileExists(atPath: stagedSpeakers.path) {
