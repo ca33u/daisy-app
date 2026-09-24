@@ -17,6 +17,14 @@ struct RecordingAudioSettingsSection: View {
     @State private var outputDevices: [AudioInputDevice] = []
     @State private var selectedOutputUID = ""
     @State private var microphoneProbe = CoreAudioMicRecorder()
+    /// Which run of each monitor owns its probe. SwiftUI starts the new
+    /// `.task(id:)` before the cancelled one has unwound, so the old run's
+    /// cleanup used to stop the probe the new run had just started — the
+    /// meter then froze on a stopped device's last level (24.09, «−67 dB»
+    /// with the Mac's own level meter moving). A run stops the probe only
+    /// if it is still the owner.
+    @State private var micMonitorRun = UUID()
+    @State private var systemMonitorRun = UUID()
     @State private var systemAudioProbe = SystemAudioCapture()
     @State private var microphoneLevelDB: Float = -160
     @State private var systemAudioLevelDB: Float = -160
@@ -277,10 +285,14 @@ struct RecordingAudioSettingsSection: View {
     /// warning the old button test produced; clear it as soon as real
     /// signal appears.
     private func runLiveMicrophoneMonitor() async {
+        let run = UUID()
+        micMonitorRun = run
         microphoneResult = .idle
         microphoneLevelDB = -160
         guard !recordingIsActive else { return }
 
+        // The previous run may not have stopped it yet.
+        microphoneProbe.stop()
         do {
             try microphoneProbe.start(
                 preferredDeviceUID: settings.selectedMicDeviceUID,
@@ -290,13 +302,13 @@ struct RecordingAudioSettingsSection: View {
             microphoneResult = .failed(error.localizedDescription)
             return
         }
-        defer { microphoneProbe.stop() }
+        defer { if micMonitorRun == run { microphoneProbe.stop() } }
 
         var quietTicks = 0
         var ticks = 0
         while !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(100))
-            if Task.isCancelled { break }
+            if Task.isCancelled || micMonitorRun != run { break }
             let level = microphoneProbe.levelDB
             microphoneLevelDB = level
             if level > -48 {
@@ -326,6 +338,8 @@ struct RecordingAudioSettingsSection: View {
     ///   • buffers-but-silent just shows the "play any audio" hint.
     ///   • the first audible buffer flips a lasting green verdict.
     private func runLiveSystemAudioMonitor() async {
+        let run = UUID()
+        systemMonitorRun = run
         systemAudioResult = .idle
         systemAudioLevelDB = -160
         guard settings.captureSystemAudio, !recordingIsActive else { return }
@@ -336,6 +350,9 @@ struct RecordingAudioSettingsSection: View {
         // user the spike exists for (Screen Recording denied or reset).
         guard SystemAudioCapture.usesProcessTapBackend || ScreenRecordingPermission.isGranted else { return }
 
+        // The previous run may still be holding the capture.
+        await systemAudioProbe.stop()
+        guard systemMonitorRun == run, !Task.isCancelled else { return }
         do {
             try await systemAudioProbe.start(quietDiagnostics: true)
         } catch {
@@ -348,7 +365,7 @@ struct RecordingAudioSettingsSection: View {
         var ticks = 0
         while !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(100))
-            if Task.isCancelled { break }
+            if Task.isCancelled || systemMonitorRun != run { break }
 
             // The stream died and in-class recovery gave up (quiet mode
             // suppressed its toasts) — surface it here instead.
@@ -375,7 +392,7 @@ struct RecordingAudioSettingsSection: View {
                 systemAudioResult = .failed(String(localized: "No system-audio buffers arrived. Change the macOS output device, avoid Bluetooth, and test again."))
             }
         }
-        await systemAudioProbe.stop()
+        if systemMonitorRun == run { await systemAudioProbe.stop() }
     }
 
     private func refreshDevices() {
