@@ -27,6 +27,43 @@ struct MediaImportTests {
         #expect(MediaImport.errorText(.containerUnsupported("talk.mkv")).contains("mp4"))
     }
 
+    @Test func theSameFileSharedAgainIsTheSessionItAlreadyBecame() async throws {
+        // 24.09: a call recording shared from Notes four times was four
+        // sessions, each transcribed from scratch.
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("import-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let base = SessionsBase(base: root)
+        let source = root.appendingPathComponent("Call with Anna.caf")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try writeTone(to: source, seconds: 3)
+
+        let first = try await MediaImport.importFile(source, into: base)
+        let again = try await MediaImport.importFile(source, into: base, titleOverride: "Call with Anna")
+        #expect(!first.alreadyImported)
+        #expect(again.alreadyImported)
+        #expect(again.sessionID == first.sessionID)
+        let folders = try FileManager.default.contentsOfDirectory(atPath: base.sessionsDirectory.path)
+            .filter { !$0.hasPrefix(".") }
+        #expect(folders.count == 1)
+    }
+
+    @Test func aDifferentRecordingFromTheSameSecondIsStillImported() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("import-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let base = SessionsBase(base: root)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let a = root.appendingPathComponent("a.caf"), b = root.appendingPathComponent("b.caf")
+        try writeTone(to: a, seconds: 3)
+        try writeTone(to: b, seconds: 5)
+        let date = Date(timeIntervalSince1970: 1_790_000_000)
+        for url in [a, b] { try FileManager.default.setAttributes([.creationDate: date, .modificationDate: date], ofItemAtPath: url.path) }
+
+        let first = try await MediaImport.importFile(a, into: base)
+        let second = try await MediaImport.importFile(b, into: base)
+        #expect(!second.alreadyImported)
+        #expect(second.sessionID != first.sessionID)
+    }
+
     @Test func titlesComeFromTheFileName() {
         #expect(MediaImport.title(fromFileName: "Interview 2026-03-04.m4a") == "Interview 2026-03-04")
         #expect(MediaImport.title(fromFileName: "board_meeting.mp4") == "board meeting")

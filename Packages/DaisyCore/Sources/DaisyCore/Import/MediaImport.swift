@@ -105,6 +105,9 @@ public nonisolated struct MediaImportResult: Sendable, Equatable {
     public let directoryURL: URL
     public let title: String
     public let durationSec: Int
+    /// The file was already a session; that session is returned and
+    /// nothing new was made.
+    public var alreadyImported: Bool = false
 }
 
 public nonisolated enum MediaImport {
@@ -211,10 +214,18 @@ public nonisolated enum MediaImport {
 
         let probe = try await probe(source)
         let sessionsDirectory = try base.ensureSessionsDirectory()
+        let sessionTitle = titleOverride ?? Self.title(fromFileName: name)
+        // 24.09: one call recording shared four times was four sessions
+        // (…-2, -3, -4), each transcribed from scratch. The same file
+        // again is the session it already became.
+        if let existing = existingSession(for: source, probe: probe, title: sessionTitle, in: sessionsDirectory) {
+            log.info("\(name, privacy: .private) is already \(existing.sessionID, privacy: .public) — not imported again")
+            return existing
+        }
         let sessionID = SessionID.unique(for: probe.startedAt, in: sessionsDirectory)
         let directory = sessionsDirectory.appendingPathComponent(sessionID, isDirectory: true)
         let marker = ImportMarker(
-            title: titleOverride ?? title(fromFileName: name),
+            title: sessionTitle,
             startedAt: probe.startedAt,
             durationSec: probe.durationSec,
             folderSlug: folderSlug,
@@ -250,6 +261,35 @@ public nonisolated enum MediaImport {
         log.info("Imported \(name, privacy: .private) as \(sessionID, privacy: .public) (\(probe.durationSec, privacy: .public) s)")
         return MediaImportResult(sessionID: sessionID, directoryURL: directory,
                                  title: marker.title, durationSec: probe.durationSec)
+    }
+
+    /// The session an earlier import of this same file became, if any.
+    ///
+    /// Same recording means: a folder named for the same instant (the
+    /// session id is the file's own date, so a re-share lands in the
+    /// `-2`, `-3` family of the first), the same duration, and — for
+    /// audio, which is copied byte for byte — the same size. A video's
+    /// audio is extracted anew each time, so there the title stands in
+    /// for the size.
+    static func existingSession(for source: URL, probe: Probe, title: String, in sessionsDirectory: URL) -> MediaImportResult? {
+        let root = SessionID.make(for: probe.startedAt)
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: sessionsDirectory.path) else { return nil }
+        let video = isVideo(source)
+        let sourceSize = (try? source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        for name in names.sorted() where name == root || name.hasPrefix(root + "-") {
+            let directory = sessionsDirectory.appendingPathComponent(name, isDirectory: true)
+            guard let marker = ImportMarker.load(from: directory), marker.durationSec == probe.durationSec else { continue }
+            if video {
+                guard marker.title == title else { continue }
+            } else {
+                let stored = SessionAudioFiles.discover(in: directory).system.first
+                let storedSize = stored.flatMap { (try? $0.resourceValues(forKeys: [.fileSizeKey]))?.fileSize }
+                guard let sourceSize, storedSize == sourceSize else { continue }
+            }
+            return MediaImportResult(sessionID: name, directoryURL: directory, title: marker.title,
+                                     durationSec: marker.durationSec, alreadyImported: true)
+        }
+        return nil
     }
 
     /// Video → its audio track as m4a. Passthrough first (no re-encode,
