@@ -16,7 +16,8 @@
 //
 //  Output is a basic transcript (mic + system as two sections, no speaker
 //  diarization or LLM summary — the live finalize state is gone). Reuses
-//  the proven decode + transcribe path from VoiceMemoIngestor.
+//  the proven decode + transcribe path the Voice Memos importer used
+//  (removed 24.09 — Voice Memos come in through Daisy for iPhone now).
 //
 
 import Foundation
@@ -67,7 +68,7 @@ final class InterruptedRecordingRecovery {
 
         ToastCenter.shared.show(String(localized: "Recovering an unfinished recording…"), style: .info)
 
-        let language = VoiceMemoScanner.whisperLanguage(
+        let language = WhisperLocale.language(
             from: UserDefaults.standard.string(forKey: "daisy.defaultTranscriptionLocale") ?? "auto"
         )
 
@@ -229,5 +230,17 @@ final class InterruptedRecordingRecovery {
             lines.append("")
         }
         return lines.joined(separator: "\n")
+    }
+}
+
+/// The transcription locale setting as the two-letter code Whisper takes;
+/// nil for "auto". (Was `VoiceMemoScanner.whisperLanguage`, kept when the
+/// Voice Memos importer went, 24.09.)
+nonisolated enum WhisperLocale {
+    static func language(from locale: String) -> String? {
+        let l = locale.lowercased()
+        if l.isEmpty || l == "auto" { return nil }
+        let two = l.prefix(2)
+        return two.isEmpty ? nil : String(two)
     }
 }

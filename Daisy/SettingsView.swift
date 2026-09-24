@@ -1863,9 +1863,6 @@ struct SettingsView: View {
                     .foregroundStyle(.tertiary)
             }
 
-            // ── Voice Memos import (moved to bottom of Transcription,
-            // 2026-06-24) ─────────────────────────────────────────
-            VoiceMemoImportSection(settings: settings)
         }
         .formStyle(.grouped)
         .task(id: cacheRefreshTick) {

@@ -116,13 +116,6 @@ final class AppSettings {
             )
         }
     }
-    /// Opt-in: import Apple Voice Memos recordings as transcripts into a
-    /// "Voice Memos" subfolder of the transcripts folder. Off by default.
-    /// Reading the Voice Memos library needs Full Disk Access (the
-    /// Settings → Transcription row guides the user). Drives `VoiceMemoScanner`.
-    var ingestVoiceMemos: Bool {
-        didSet { defaults.set(ingestVoiceMemos, forKey: Self.k_ingestVoiceMemos) }
-    }
     /// WHEN the summarizer runs. Substrate for `summaryTiming` — kept
     /// as a stored Bool because two paths read it directly, including
     /// `QuitFinalizeRecovery`, which reads UserDefaults from a context
@@ -1221,7 +1214,6 @@ final class AppSettings {
             forKey: Self.k_protectSensitiveDataBeforeCloudAI
         )
         // Default OFF — opt-in, and reading Voice Memos needs Full Disk Access.
-        self.ingestVoiceMemos = defaults.bool(forKey: Self.k_ingestVoiceMemos)
         // Default OFF — when the user hasn't picked a summarizer
         // provider yet (no Anthropic / OpenAI key, no MCP server,
         // Apple Intelligence not detected) auto-summarize would
@@ -1724,7 +1716,6 @@ final class AppSettings {
     private static let k_workingHoursEnabled = "daisy.workingHoursEnabled"
     private static let k_workingDayStartMinutes = "daisy.workingDayStartMinutes"
     private static let k_workingDayEndMinutes = "daisy.workingDayEndMinutes"
-    private static let k_ingestVoiceMemos = "daisy.ingestVoiceMemos"
     private static let k_autoSummarize = "daisy.autoSummarize"
     private static let k_preMeetingBriefEnabled = "daisy.preMeetingBriefEnabled"
     private static let k_morningBriefEnabled = "daisy.morningBriefEnabled"

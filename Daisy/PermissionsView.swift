@@ -39,12 +39,6 @@ struct PermissionsView: View {
     /// returned.
     @State private var googleConnectError: String?
 
-    /// Whether Daisy can read the Voice Memos library — drives the Full
-    /// Disk Access row below, which appears only while Voice Memos import
-    /// is enabled (the grant request moved here from the Voice Memos
-    /// section on 2026-06-24).
-    @State private var voiceMemoAccess: VoiceMemoLibrary.AccessStatus = .ok
-
     var body: some View {
         Form {
             permissionsSection
@@ -52,7 +46,6 @@ struct PermissionsView: View {
         .formStyle(.grouped)
         .onAppear {
             permissions.refresh()
-            voiceMemoAccess = VoiceMemoLibrary.accessStatus()
         }
     }
 
@@ -156,17 +149,6 @@ struct PermissionsView: View {
             Text("Notifications")
         }
 
-        // ── Full Disk Access — only for Voice Memos import ────
-        // Shown only while Voice Memos import is on, so people who don't
-        // use it aren't nagged for a permission they don't need. Moved
-        // here from the Voice Memos section (Settings → Transcription).
-        if settings.ingestVoiceMemos {
-            Section {
-                voiceMemosFullDiskAccessRow
-            } header: {
-                Text("For Voice Memos import")
-            }
-        }
     }
 
     // MARK: - Row
@@ -256,62 +238,6 @@ struct PermissionsView: View {
     }
 
     // MARK: - Voice Memos Full Disk Access row
-
-    /// Full Disk Access row — custom because FDA has no request API (you
-    /// can only deep-link to System Settings) and its state is inferred
-    /// from whether we can read the Voice Memos library, not from
-    /// `SystemPermissions`. The section header ("For Voice Memos import")
-    /// carries the context. (No "Optional" badge on any row since 24.09 —
-    /// Egor: every row here is optional, so the badge said nothing.)
-    @ViewBuilder
-    private var voiceMemosFullDiskAccessRow: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "lock.shield")
-                .font(.callout)
-                .foregroundStyle(voiceMemoFDAColor)
-                .frame(width: 18)
-                .padding(.top, 2)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Full Disk Access")
-                    .font(.callout.weight(.medium))
-                Text(voiceMemoFDACaption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 12)
-
-            if voiceMemoAccess != .noLibrary {
-                Button(voiceMemoAccess == .ok ? "Open Settings…" : "Open Full Disk Access") {
-                    SystemPermissions.shared.openFullDiskAccessSettings()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .tint(voiceMemoAccess == .ok ? .secondary : Color.daisyTextPrimary)
-            }
-        }
-        .font(.callout)
-        .padding(.vertical, 4)
-    }
-
-    private var voiceMemoFDAColor: Color {
-        switch voiceMemoAccess {
-        case .ok:                  return Color.daisySuccess
-        case .needsFullDiskAccess: return Color.daisyWarning
-        case .noLibrary, .error:   return .secondary
-        }
-    }
-
-    private var voiceMemoFDACaption: String {
-        switch voiceMemoAccess {
-        case .ok:                  return String(localized: "Granted — Daisy can read your Voice Memos library.")
-        case .needsFullDiskAccess: return String(localized: "Grant Full Disk Access, then reopen this tab.")
-        case .noLibrary:           return String(localized: "No Voice Memos library found on this Mac.")
-        case .error(let msg):      return msg
-        }
-    }
 
     // MARK: - Generic permission row
 

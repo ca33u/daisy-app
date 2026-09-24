@@ -119,7 +119,7 @@ final class QuitFinalizeRecovery {
             style: .info
         )
 
-        let language = VoiceMemoScanner.whisperLanguage(
+        let language = WhisperLocale.language(
             from: UserDefaults.standard.string(forKey: "daisy.defaultTranscriptionLocale") ?? "auto"
         )
         let mic = await transcribeChannel(micCafs, language: language)

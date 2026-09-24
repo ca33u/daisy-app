@@ -11,7 +11,7 @@
 //
 //  Embedding contract: renders ITS OWN `Section { … } header/footer` so
 //  it can be dropped straight into a Settings `Form` (mirrors
-//  `VoiceMemoImportSection`). Don't wrap it in another Section.
+//  the other sections). Don't wrap it in another Section.
 //
 //  Rows: system folders (Inbox / Notes) are plain, control-free — they're
 //  structural and can't be renamed/deleted. Everything else (the seeded

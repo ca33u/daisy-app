@@ -73,16 +73,6 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         // (Settings → "Ask before auto-stopping").
         AutoStopPromptNotification.register()
 
-        // Voice Memos import (Settings → Transcription). Reads the raw
-        // UserDefaults bool — same rationale as `compactMenuBarOnly`
-        // above: the @main App's State wiring isn't guaranteed visible
-        // this early, and the persisted value is the source of truth.
-        // No-op unless the user opted in; arms a daily scan + one
-        // delayed pass.
-        VoiceMemoScanner.shared.start(
-            enabled: UserDefaults.standard.bool(forKey: "daisy.ingestVoiceMemos")
-        )
-
         // Recover any recording interrupted by a crash / power loss: a
         // refresh detects "audio but no transcript" folders and hands them
         // to InterruptedRecordingRecovery. Delayed so it doesn't fight

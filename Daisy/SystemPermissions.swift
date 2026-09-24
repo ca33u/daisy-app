@@ -236,10 +236,6 @@ final class SystemPermissions {
     func openCalendarSettings()      { openPrivacyPane("Privacy_Calendars") }
     func openAccessibilitySettings() { openPrivacyPane("Privacy_Accessibility") }
     func openScreenRecordingSettings() { openPrivacyPane("Privacy_ScreenCapture") }
-    /// Full Disk Access — needed to read the Voice Memos library
-    /// (`VoiceMemoLibrary`). There's no API to prompt for FDA, so this
-    /// deep-links the user straight to the pane.
-    func openFullDiskAccessSettings() { openPrivacyPane("Privacy_AllFiles") }
     /// Notifications-specific deeplink — macOS x-apple URL targets
     /// the per-app Notifications pane directly.
     func openNotificationSettings() {
