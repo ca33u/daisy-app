@@ -132,6 +132,23 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// listener lets us tear it down + restart against the new
     /// default output so audio keeps flowing.
     private var outputDeviceListenerBlock: AudioObjectPropertyListenerBlock?
+    /// The output route moved while the engine was being built. Incident
+    /// 23.09, Bluetooth part: a call app taking a headset's microphone
+    /// flips it from A2DP to HFP, and if that lands while SCStream is
+    /// being set up the stream binds to a route that no longer exists and
+    /// delivers nothing. The listener used to be installed only after the
+    /// build, so this change went unseen; now it is installed before, and
+    /// a change during setup is remembered and answered by a rebuild.
+    private var routeChangedDuringSetup = false
+    /// Listeners on the default output device ITSELF — its sample rate
+    /// and stream layout. An A2DP→HFP flip keeps the same device and
+    /// changes these, so the default-device listener alone never fired.
+    private var watchedOutputDevice: AudioObjectID = kAudioObjectUnknown
+    private var outputFormatListenerBlock: AudioObjectPropertyListenerBlock?
+    private static let outputFormatSelectors: [AudioObjectPropertySelector] = [
+        kAudioDevicePropertyNominalSampleRate,
+        kAudioDevicePropertyStreamConfiguration,
+    ]
 
     /// True after the property listener has been successfully
     /// installed. Drives idempotency in install/remove pairs.
@@ -292,7 +309,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// smaller permission).
     nonisolated static var usesProcessTapBackend: Bool {
         guard #available(macOS 14.4, *) else { return false }
-        return ProcessTapDebugFlag.isEnabled
+        return ProcessTapDebugFlag.isEnabled && !ProcessTapDebugFlag.recentlyHeardNothing
     }
 
     /// `SysAudio:` line for the log report. Reports the backend that last
@@ -464,12 +481,33 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         self.quietDiagnostics = quietDiagnostics
         captureGeneration &+= 1
 
-        let engine: Engine
+        // Listen BEFORE building, so a route change during setup is seen.
+        routeChangedDuringSetup = false
+        let routeAtSetup = Self.outputRoute()
+        log.notice("Output route at setup: \(routeAtSetup.description, privacy: .public) (backend=\(self.backend.rawValue, privacy: .public))")
+        installOutputDeviceListener()
+
+        var engine: Engine
         do {
             engine = try await makeEngine()
+        } catch where backend == .processTap && isFreshStart {
+            // The tap is the default, ScreenCaptureKit the fallback: a tap
+            // that won't start must not cost the meeting its other side.
+            log.error("Process tap failed to start (\(error.localizedDescription, privacy: .public)) — falling back to ScreenCaptureKit")
+            backend = .screenCaptureKit
+            if !quietDiagnostics { ProcessTapDebugFlag.lastActiveBackend = backend.rawValue }
+            do {
+                engine = try await makeEngine()
+            } catch {
+                state = .idle
+                lastError = error.localizedDescription
+                removeOutputDeviceListener()
+                throw error
+            }
         } catch {
             state = .idle
             lastError = error.localizedDescription
+            removeOutputDeviceListener()
             throw error
         }
 
@@ -479,7 +517,11 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         if !quietDiagnostics {
             startSilenceMonitor()
         }
-        installOutputDeviceListener()
+        let routeNow = Self.outputRoute()
+        if routeChangedDuringSetup || routeNow != routeAtSetup {
+            log.notice("Output route changed during setup (\(routeAtSetup.description, privacy: .public) → \(routeNow.description, privacy: .public)) — rebuilding")
+            Task { @MainActor [weak self] in await self?.rebuildAfterSetupRouteChange() }
+        }
 
         // NO eager placeholder file. (Removed 2026-05-31 — root cause of
         // the recurring 0-byte system_audio.caf.) We used to stamp a
@@ -995,15 +1037,121 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         if status == noErr {
             outputDeviceListenerBlock = block
             outputDeviceListenerInstalled = true
+            watchDefaultOutputFormat()
             log.info("Output device listener installed")
         } else {
             log.error("Failed to install output device listener: status=\(status, privacy: .public)")
         }
     }
 
+    // MARK: - Output route (incident 23.09, Bluetooth)
+
+    /// What the default output is right now — the device, its rate and
+    /// its channel count. Two snapshots that differ mean the route moved,
+    /// whether the default device changed or the same headset flipped
+    /// profile.
+    struct OutputRoute: Equatable {
+        var deviceID: AudioObjectID
+        var name: String
+        var sampleRate: Double
+        var outputChannels: Int
+        var bluetooth: Bool
+
+        var description: String {
+            "\(name) [\(deviceID)] \(Int(sampleRate)) Hz × \(outputChannels)\(bluetooth ? " BT" : "")"
+        }
+    }
+
+    nonisolated static func outputRoute() -> OutputRoute {
+        var deviceID = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceID)
+        guard deviceID != kAudioObjectUnknown else {
+            return OutputRoute(deviceID: deviceID, name: "none", sampleRate: 0, outputChannels: 0, bluetooth: false)
+        }
+        var rate: Float64 = 0
+        size = UInt32(MemoryLayout<Float64>.size)
+        address.mSelector = kAudioDevicePropertyNominalSampleRate
+        AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &rate)
+
+        var name: CFString = "" as CFString
+        size = UInt32(MemoryLayout<CFString>.size)
+        address.mSelector = kAudioObjectPropertyName
+        _ = withUnsafeMutablePointer(to: &name) { AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, $0) }
+
+        var channels = 0
+        address.mSelector = kAudioDevicePropertyStreamConfiguration
+        address.mScope = kAudioObjectPropertyScopeOutput
+        var listSize: UInt32 = 0
+        if AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &listSize) == noErr, listSize > 0 {
+            let raw = UnsafeMutableRawPointer.allocate(byteCount: Int(listSize), alignment: MemoryLayout<AudioBufferList>.alignment)
+            defer { raw.deallocate() }
+            if AudioObjectGetPropertyData(deviceID, &address, 0, nil, &listSize, raw) == noErr {
+                let list = UnsafeMutableAudioBufferListPointer(raw.assumingMemoryBound(to: AudioBufferList.self))
+                channels = list.reduce(0) { $0 + Int($1.mNumberChannels) }
+            }
+        }
+        return OutputRoute(deviceID: deviceID, name: name as String, sampleRate: rate,
+                           outputChannels: channels, bluetooth: isBluetoothTransport(deviceID: deviceID))
+    }
+
+    /// Follow the default output device's own format: re-pointed every
+    /// time the default device changes.
+    private func watchDefaultOutputFormat() {
+        let device = Self.outputRoute().deviceID
+        guard device != watchedOutputDevice else { return }
+        unwatchOutputFormat()
+        guard device != kAudioObjectUnknown else { return }
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            Task { @MainActor [weak self] in await self?.handleOutputDeviceChange() }
+        }
+        for selector in Self.outputFormatSelectors {
+            var address = AudioObjectPropertyAddress(
+                mSelector: selector,
+                mScope: selector == kAudioDevicePropertyStreamConfiguration ? kAudioObjectPropertyScopeOutput : kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain)
+            AudioObjectAddPropertyListenerBlock(device, &address, DispatchQueue.global(qos: .userInitiated), block)
+        }
+        watchedOutputDevice = device
+        outputFormatListenerBlock = block
+    }
+
+    private func unwatchOutputFormat() {
+        guard watchedOutputDevice != kAudioObjectUnknown, let block = outputFormatListenerBlock else { return }
+        for selector in Self.outputFormatSelectors {
+            var address = AudioObjectPropertyAddress(
+                mSelector: selector,
+                mScope: selector == kAudioDevicePropertyStreamConfiguration ? kAudioObjectPropertyScopeOutput : kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain)
+            AudioObjectRemovePropertyListenerBlock(watchedOutputDevice, &address, DispatchQueue.global(qos: .userInitiated), block)
+        }
+        watchedOutputDevice = kAudioObjectUnknown
+        outputFormatListenerBlock = nil
+    }
+
+    /// The route moved while the engine was being built: build again on
+    /// the route that exists now. Quiet — the person did nothing, and the
+    /// recording has lost at most the setup's fraction of a second.
+    private func rebuildAfterSetupRouteChange() async {
+        guard state == .capturing, !outputRestartInFlight else { return }
+        if backend == .processTap, let t = tap, t.hostDeviceIsAlive { return }
+        outputRestartInFlight = true
+        defer {
+            outputRestartInFlight = false
+            lastOutputRestartAt = Date()
+        }
+        let ok = await rebuildStream(reason: "route-changed-during-setup")
+        log.notice("Rebuild after a route change during setup: \(ok ? "ok" : "failed", privacy: .public) on \(Self.outputRoute().description, privacy: .public)")
+    }
+
     /// Remove the property listener installed by
     /// `installOutputDeviceListener`. Idempotent.
     private func removeOutputDeviceListener() {
+        unwatchOutputFormat()
         guard outputDeviceListenerInstalled, let block = outputDeviceListenerBlock else { return }
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice,
@@ -1028,7 +1176,16 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// emits the property change 2–3 times in rapid succession as the
     /// audio graph settles).
     private func handleOutputDeviceChange() async {
+        watchDefaultOutputFormat()
+        if state == .starting {
+            routeChangedDuringSetup = true
+            log.notice("Output route changed during setup: \(Self.outputRoute().description, privacy: .public)")
+            return
+        }
         guard state == .capturing else { return }
+        if let started = captureStartedAt {
+            log.notice("Output route changed \(String(format: "%.1f", Date().timeIntervalSince(started)), privacy: .public) s into capture: \(Self.outputRoute().description, privacy: .public)")
+        }
         guard !outputRestartInFlight else { return }
         // Process tap: a global tap captures at the HAL, below routing,
         // and its aggregate is hosted on the built-in output rather than
@@ -1148,11 +1305,14 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     func announceBluetoothSilence() {
         guard !quietDiagnostics, !gaveUpNoticeShown else { return }
         gaveUpNoticeShown = true
+        // Wording approved by Egor, 24.09: short, and it blames nobody —
+        // the loss is Daisy's to fix (the incident note), not macOS's.
+        let advice = String(localized: "Switch from Bluetooth headphones to wired ones or the device speakers.")
         CaptureProblemNotification.post(
-            title: String(localized: "Daisy can’t hear the other side"),
-            body: String(localized: "With sound going to a Bluetooth headset, macOS gives Daisy nothing to record. Switch output to the speakers or wired headphones and the other side comes back — your microphone is recording either way."),
+            title: String(localized: "Can’t hear the other side"),
+            body: advice,
             alwaysBanner: true,
-            actionTitle: String(localized: "Retry capture"),
+            actionTitle: String(localized: "Retry"),
             actionSymbol: "arrow.clockwise",
             autoDismiss: 120,
             action: { [weak self] in
@@ -1160,8 +1320,8 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             }
         )
         lossToastID = ToastCenter.shared.showAction(
-            String(localized: "Daisy can’t hear the other side — sound is going to a Bluetooth headset. Switch output to speakers or wired headphones."),
-            actionLabel: String(localized: "Retry capture"),
+            advice,
+            actionLabel: String(localized: "Retry"),
             style: .warning,
             duration: .seconds(24 * 3600),
             perform: { [weak self] in
@@ -1264,6 +1424,10 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         // checkForSilentCapture() requires !receivedAudibleAudio, which
         // is now permanently true for this session.
         silentContentWarningFired = false
+        if backend == .processTap, !quietDiagnostics, ProcessTapDebugFlag.heardNothingAt != nil {
+            ProcessTapDebugFlag.heardNothingAt = nil
+            log.notice("Process tap heard sound — the silent-tap fallback is cleared")
+        }
         if gaveUpNoticeShown {
             withdrawLossNotice(saying: String(localized: "The other side can be heard again."))
             log.notice("System audio audible again after an announced loss — notice withdrawn")
@@ -1606,6 +1770,10 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             // fires on schedule handing us buffers of pure zeros. This
             // monitor is the ONLY thing that notices, so it has to say
             // the actual likely cause rather than the SCStream one.
+            if backend == .processTap, !quietDiagnostics {
+                ProcessTapDebugFlag.heardNothingAt = Date()
+                log.warning("Process tap heard nothing — the next recordings use ScreenCaptureKit for a week, unless a tap hears sound first")
+            }
             let message = backend == .processTap
                 ? String(localized: "Daisy is recording the other side but there's no sound in it. Check System Settings → Privacy & Security → System Audio Recording and make sure Daisy is allowed.")
                 : String(localized: "Daisy is capturing the other side but there's no sound in it — they won't be recorded. This usually means DRM-protected playback or a macOS capture glitch. Try a different source or restart the recording.")

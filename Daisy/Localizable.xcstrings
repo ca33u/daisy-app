@@ -215,6 +215,26 @@
         }
       }
     },
+    "Can’t hear the other side" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Собеседников не слышно"
+          }
+        }
+      }
+    },
+    "Switch from Bluetooth headphones to wired ones or the device speakers." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переключите Bluetooth-наушники на проводные или динамики устройства"
+          }
+        }
+      }
+    },
     "The other side can be heard again." : {
       "localizations" : {
         "ru" : {

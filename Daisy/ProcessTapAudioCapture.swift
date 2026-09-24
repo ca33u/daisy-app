@@ -86,9 +86,31 @@ nonisolated enum ProcessTapDebugFlag {
     /// `defaults write` away from testing the other, not a rebuild.
     static let hostOnDefaultOutputKey = "daisy.debug.processTapHostDefaultOutput"
 
+    /// ON by default since 24.09 (incident 23.09, Bluetooth part): the
+    /// tap reads below device routing, so a headset flipping to HFP for a
+    /// call is not an event for it, while ScreenCaptureKit gave three
+    /// users no frames at all with Bluetooth output. An explicit `false`
+    /// (the Settings row, or `defaults write`) still means ScreenCaptureKit.
     static var isEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: key) }
+        get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+
+    /// When a tap capture last ran past the silent-content timeout without
+    /// one audible frame. On the tap that is what a denied System Audio
+    /// Recording permission looks like — Core Audio reports no error and
+    /// hands over pure zeros — so the next week of recordings goes through
+    /// ScreenCaptureKit instead of risking another silent meeting. Cleared
+    /// the moment a tap hears anything.
+    static var heardNothingAt: Date? {
+        get { UserDefaults.standard.object(forKey: "daisy.processTapHeardNothingAt") as? Date }
+        set { UserDefaults.standard.set(newValue, forKey: "daisy.processTapHeardNothingAt") }
+    }
+    static let heardNothingFallback: TimeInterval = 7 * 86_400
+
+    static var recentlyHeardNothing: Bool {
+        guard let at = heardNothingAt else { return false }
+        return Date().timeIntervalSince(at) < heardNothingFallback
     }
 
     static var meetingAppsOnly: Bool {
