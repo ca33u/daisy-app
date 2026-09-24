@@ -48,6 +48,8 @@ public nonisolated final class ArchiveBlockReader: @unchecked Sendable {
     /// the output has a hole in it and every timestamp after that hole
     /// is earlier than the real one.
     public private(set) var skippedParts: [URL] = []
+    /// Parts that opened and held no audio at all.
+    public private(set) var emptyParts: [URL] = []
 
     public init(urls: [URL],
                 blockSeconds: Double = 600,
@@ -80,6 +82,14 @@ public nonisolated final class ArchiveBlockReader: @unchecked Sendable {
                 if fileIndex >= urls.count { exhausted = true; break }
                 let url = urls[fileIndex]
                 fileIndex += 1
+                // A part that opens and holds no frames is empty, not
+                // missing: the caller finishes an empty recording as
+                // such instead of failing it forever (24.09).
+                if FileManager.default.fileExists(atPath: url.path),
+                   let file = try? AVAudioFile(forReading: url), file.length == 0 {
+                    emptyParts.append(url)
+                    continue
+                }
                 guard FileManager.default.fileExists(atPath: url.path),
                       let next = CAFPartPuller(url: url, out: outFormat) else {
                     skippedParts.append(url)
