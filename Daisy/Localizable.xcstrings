@@ -95,12 +95,12 @@
         }
       }
     },
-    "Daisy %@ is ready to install." : {
+    "Daisy %@ is ready to install" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Daisy %@ готова к установке."
+            "value" : "Daisy %@ готова к установке"
           }
         }
       }

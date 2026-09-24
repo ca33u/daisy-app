@@ -154,7 +154,7 @@ final class SparkleUpdater {
     @ObservationIgnored fileprivate let stagedOffer: StagedUpdateOffer = {
         let offer = StagedUpdateOffer()
         offer.present = { version in
-            let text = String(localized: "Daisy \(version) is ready to install.")
+            let text = String(localized: "Daisy \(version) is ready to install")
             WidgetBubbleCenter.shared.show(WidgetBubbleContent(
                 text: text,
                 actionTitle: String(localized: "Install and Restart"),
