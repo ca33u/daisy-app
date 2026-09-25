@@ -131,6 +131,17 @@ public final class PhoneDiarizer {
     }
     #endif
 
+    /// Fetch the models ahead of their first use (25.09): the first
+    /// transcription may run offline, and a recording diarized without
+    /// its models simply keeps `Me` on every line. Loads and drops them.
+    public static func prefetchModels() async throws {
+        #if canImport(FluidAudio)
+        _ = try await DiarizerModels.downloadIfNeeded()
+        #else
+        throw PhoneDiarizerError.unavailable
+        #endif
+    }
+
     /// A pass over one recording, block by block — with a speaker
     /// database of its own, so voices from the last recording never
     /// leak into this one.
