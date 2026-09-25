@@ -277,8 +277,9 @@ name, or `Me` when unset; the system stream uses `Remote A`, `Remote B`,
 (§3.6) the microphone stream carries everyone, so after diarization its
 labels follow the system-stream rule — `Remote A`, `Remote B`, … — except
 the cluster recognised as the owner's voice, which takes the display
-name. Before diarization the phone writes every segment as `Me` (or the
-display name): honest for a voice note, provisional for a meeting.
+name. Without diarization (`daisy_diarization` absent) the phone writes
+every segment as `Me` (or the display name): honest for a voice note,
+provisional for a meeting.
 
 Screenshot timecodes in `## Screenshots` and `## Marked moments` come
 from `screenshots/index.json`. A frame whose value is **greater than
@@ -445,12 +446,14 @@ What an `iphone` session carries when it arrives:
 | `microphone.caf` (+ `.partN`) | the **whole room**: owner and everyone present, **16 kHz mono int16** (since 2026-09-21; sessions recorded before that are at the phone's native rate, 48 kHz float32). Readers must not assume either — resample as for any `.caf`. May be **absent**: the phone applies the same retention policy as the Mac (`-1` delete after transcript + summary is the default), and `daisy_mic_audio_status` keeps the value written at the time of recording |
 | `system_audio.*` | never present; `daisy_system_audio_status: off` |
 | `daisy_mic_audio_status` | `captured (N B)` / `truncated (…)` / `empty`, as §3.1 |
-| `daisy_speaker_map` | `{}` — the phone does not diarize |
+| `daisy_speaker_map` | `{}` — the phone labels voices but never names anyone but the owner |
+| `daisy_diarization` | `true` when the phone separated voices (below); absent otherwise |
+| `speakers.json` | the other voices' centroids, under their final labels, when `daisy_diarization: true` |
 | `daisy_transcription_model`, `daisy_transcription_language`, `detected_locale` | the phone transcribes with the Mac's default Whisper model and writes the same three keys the Mac writes on re-transcription |
 | `daisy_event_*` | when the recording was started from a calendar meeting |
 | `daisy_diag_*` | battery, thermal state, background start, queue wait, decode time, real-time factor, peak memory — the phone's own field-day telemetry; ignored by every other reader |
 | `screenshots/` | photos taken from the record screen (§2), indexed by media second |
-| body | `**[m:ss · Me]**` (or the display name) on every segment |
+| body | without `daisy_diarization`: `**[m:ss · Me]**` (or the display name) on every segment; with it: the rules below |
 
 **The rule of §2.1 does not apply** to any session in the table above.
 Its microphone track is not the owner; it is the meeting. A reader that diarizes such a
@@ -470,10 +473,25 @@ session diarizes the microphone track **whole**, and then:
    who is who. An unlabelled owner is recoverable by renaming; an
    owner's name on someone else's words is not.
 
-The phone's own transcript (every segment `Me`) is a first pass, not a
-claim about who spoke; a diarized re-transcription on the Mac replaces
-it in a child session (`daisy_parent_session`), as any re-transcription
-does.
+**The phone diarizes too (since 2026-09-25).** After transcribing, it
+applies the three rules above to its own transcript and writes
+`daisy_diarization: true` and `speakers.json`. Where it differs from the
+Mac:
+
+- the owner's profile is the phone's own, learnt from rehearsal takes
+  (§3.7 — the speaker of a take is the owner). The Mac's profiles do not
+  travel, so a phone with no takes yet labels every voice `Remote …`
+  (rule 3);
+- a voice heard in a single stretch shorter than 4 s joins the voice
+  nearest in time, so one person is not split in two;
+- when it finds one voice, it changes nothing: the lines stay `Me` and
+  `daisy_diarization` is not written. One voice cannot tell a voice note
+  from a lecture.
+
+A transcript without `daisy_diarization` (every segment `Me`) is a first
+pass, not a claim about who spoke. Either way a diarized re-transcription
+on the Mac replaces the phone's in a child session
+(`daisy_parent_session`), as any re-transcription does.
 
 ---
 
