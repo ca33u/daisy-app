@@ -449,93 +449,98 @@ struct MainView: View {
                 // finalise — or bin a mistake — without hunting in the
                 // kebab menu. Only during recording / paused.
                 if session.status == .recording || session.status == .paused {
-                    Button {
-                        Task { await session.stop() }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "stop.fill")
-                                .font(.callout.weight(.semibold))
-                            Text("Stop & save")
-                                .font(.callout.weight(.medium))
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
+                    // One row for both Stop buttons (Egor, 25.09): as two
+                    // list rows they sat ~1.5 pt apart, against the
+                    // ~15 pt between the Pause capsule and Stop & save.
+                    // The spacing here is that gap, so the trio reads as
+                    // three evenly spaced capsules.
+                    VStack(spacing: 15) {
+                        Button {
+                            Task { await session.stop() }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "stop.fill")
+                                    .font(.callout.weight(.semibold))
+                                Text("Stop & save")
+                                    .font(.callout.weight(.medium))
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            // 2026-05-25 — padding tracks RecordCapsule's
+                            // pad recipe exactly so the two capsules
+                            // render as a matched pair (same width, same
+                            // height, same internal rhythm — Pause toggle
+                            // on top, Stop & save underneath). Egor's
+                            // pass bumped horizontal 8 → 12 to give the
+                            // stop glyph + label room from the capsule
+                            // curve. If RecordCapsule's h-pad ever moves,
+                            // bump this one in lockstep.
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 14)
+                            .foregroundStyle(Color.daisyTextPrimary)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(Color.daisyBgElevated)
+                                    // Hover tints the capsule's own fill,
+                                    // never the label: 5% ink over the
+                                    // destructive red below would mute it
+                                    // exactly where it matters. Scheme ink is
+                                    // right here — unlike the record capsule,
+                                    // this fill follows the colour scheme.
+                                    .daisyHover(Capsule(style: .continuous))
+                            )
+                            .overlay(
+                                Capsule(style: .continuous).strokeBorder(Color.daisyDivider, lineWidth: 0.5)
+                            )
                         }
-                        // 2026-05-25 — padding tracks RecordCapsule's
-                        // pad recipe exactly so the two capsules
-                        // render as a matched pair (same width, same
-                        // height, same internal rhythm — Pause toggle
-                        // on top, Stop & save underneath). Egor's
-                        // pass bumped horizontal 8 → 12 to give the
-                        // stop glyph + label room from the capsule
-                        // curve. If RecordCapsule's h-pad ever moves,
-                        // bump this one in lockstep.
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 14)
-                        .foregroundStyle(Color.daisyTextPrimary)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(Color.daisyBgElevated)
-                                // Hover tints the capsule's own fill,
-                                // never the label: 5% ink over the
-                                // destructive red below would mute it
-                                // exactly where it matters. Scheme ink is
-                                // right here — unlike the record capsule,
-                                // this fill follows the colour scheme.
-                                .daisyHover(Capsule(style: .continuous))
-                        )
-                        .overlay(
-                            Capsule(style: .continuous).strokeBorder(Color.daisyDivider, lineWidth: 0.5)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    // Same negative-inset compensation as RecordCapsule
-                    // above so the Stop button lines up with the
-                    // capsule edges (and therefore with the sidebar
-                    // row chips above) instead of sitting indented.
-                    .listRowInsets(EdgeInsets(top: 0, leading: -8, bottom: 4, trailing: -8))
-                    .listRowBackground(Color.clear)
+                        .buttonStyle(.plain)
 
-                    // Stop & discard — third and last, because it's the
-                    // one that destroys. Same capsule recipe as Stop &
-                    // save (matched trio) with destructive ink instead
-                    // of a filled red button: a red slab directly under
-                    // the two neutral capsules would pull the eye to the
-                    // action we least want tapped. Never fires without
-                    // the confirmation alert — the same one the widget's
-                    // right-click menu raises.
-                    Button {
-                        DiscardRecordingPrompt.confirmAndDiscard(session)
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "trash")
-                                .font(.callout.weight(.semibold))
-                            Text("Stop & discard")
-                                .font(.callout.weight(.medium))
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
+                        // Stop & discard — third and last, because it's the
+                        // one that destroys. Same capsule recipe as Stop &
+                        // save (matched trio) with destructive ink instead
+                        // of a filled red button: a red slab directly under
+                        // the two neutral capsules would pull the eye to the
+                        // action we least want tapped. Never fires without
+                        // the confirmation alert — the same one the widget's
+                        // right-click menu raises.
+                        Button {
+                            DiscardRecordingPrompt.confirmAndDiscard(session)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "trash")
+                                    .font(.callout.weight(.semibold))
+                                Text("Stop & discard")
+                                    .font(.callout.weight(.medium))
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            // Tracks RecordCapsule's pad recipe in lockstep
+                            // with the Stop & save button above it.
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 14)
+                            .foregroundStyle(Color.daisyError)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(Color.daisyBgElevated)
+                                    // Hover tints the capsule's own fill,
+                                    // never the label: 5% ink over the
+                                    // destructive red below would mute it
+                                    // exactly where it matters. Scheme ink is
+                                    // right here — unlike the record capsule,
+                                    // this fill follows the colour scheme.
+                                    .daisyHover(Capsule(style: .continuous))
+                            )
+                            .overlay(
+                                Capsule(style: .continuous).strokeBorder(Color.daisyDivider, lineWidth: 0.5)
+                            )
                         }
-                        // Tracks RecordCapsule's pad recipe in lockstep
-                        // with the Stop & save button above it.
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 14)
-                        .foregroundStyle(Color.daisyError)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(Color.daisyBgElevated)
-                                // Hover tints the capsule's own fill,
-                                // never the label: 5% ink over the
-                                // destructive red below would mute it
-                                // exactly where it matters. Scheme ink is
-                                // right here — unlike the record capsule,
-                                // this fill follows the colour scheme.
-                                .daisyHover(Capsule(style: .continuous))
-                        )
-                        .overlay(
-                            Capsule(style: .continuous).strokeBorder(Color.daisyDivider, lineWidth: 0.5)
-                        )
+                        .buttonStyle(.plain)
+                        .help("Stop recording and delete it — audio, transcript and screenshots. Asks first.")
                     }
-                    .buttonStyle(.plain)
-                    .help("Stop recording and delete it — audio, transcript and screenshots. Asks first.")
+                    // Same negative-inset compensation as RecordCapsule
+                    // above so the Stop buttons line up with the capsule
+                    // edges (and therefore with the sidebar row chips
+                    // above) instead of sitting indented.
                     .listRowInsets(EdgeInsets(top: 0, leading: -8, bottom: 4, trailing: -8))
                     .listRowBackground(Color.clear)
                 }
