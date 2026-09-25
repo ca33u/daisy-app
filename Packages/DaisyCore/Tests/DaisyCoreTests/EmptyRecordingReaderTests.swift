@@ -37,3 +37,22 @@ struct EmptyRecordingReaderTests {
         #expect(reader.emptyParts.isEmpty)
     }
 }
+
+@Suite("Transcript: how many words were said")
+struct SpokenWordCountTests {
+    @Test func stampsAndNotesAreNotWords() {
+        let md = """
+        # Meeting
+
+        > recorded 25 Sep · 0:01
+
+        ## Transcript
+
+        **[0:00 · Egor]** Раз, два, три.
+
+        _Nothing was recorded — the audio file has no sound in it._
+        """
+        #expect(TranscriptDocument.spokenWordCount(md) == 3)
+        #expect(TranscriptDocument.spokenWordCount("# Meeting\n\n## Transcript\n\n") == 0)
+    }
+}

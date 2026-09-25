@@ -108,6 +108,28 @@ public nonisolated enum TranscriptDocument {
         return after.split(separator: "\n").contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
     }
 
+    /// Words said in a transcript.md: the lines under the Transcript
+    /// heading, without the `**[m:ss · Name]**` stamps and without italic
+    /// notes («_Nothing was recorded…_»).
+    public static func spokenWordCount(_ markdown: String) -> Int {
+        var inTranscript = false
+        var count = 0
+        for rawLine in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("## ") {
+                inTranscript = line == transcriptHeading
+                continue
+            }
+            guard inTranscript, !line.isEmpty, !line.hasPrefix("_") else { continue }
+            var text = line
+            while let open = text.range(of: "**["), let close = text.range(of: "]**", range: open.upperBound..<text.endIndex) {
+                text.removeSubrange(open.lowerBound..<close.upperBound)
+            }
+            count += text.split(whereSeparator: \.isWhitespace).filter { $0.contains { $0.isLetter || $0.isNumber } }.count
+        }
+        return count
+    }
+
     // MARK: - Formatting (Mac `MarkdownExporter`)
 
     /// `m:ss`, or `h:mm:ss` past an hour. Rounded, as the Mac does for
