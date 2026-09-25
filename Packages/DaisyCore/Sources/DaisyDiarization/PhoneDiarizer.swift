@@ -29,12 +29,18 @@ import FluidAudio
 /// The spike's name for a voice's stretch; the shared type now.
 public typealias DiarizedSpan = SpeakerSpan
 
-public struct DiarizationOutcome: Sendable, Equatable, Codable {
+public nonisolated struct DiarizationOutcome: Sendable, Equatable, Codable {
     public var spans: [DiarizedSpan]
     /// Average 256-d embedding per speaker, L2-normalised — the thing a
     /// `SpeakerProfile` would be compared against, if the phone had one.
     public var centroids: [String: [Float]]
     public var seconds: Double
+
+    public nonisolated init(spans: [DiarizedSpan], centroids: [String: [Float]], seconds: Double) {
+        self.spans = spans
+        self.centroids = centroids
+        self.seconds = seconds
+    }
 
     public nonisolated var speakerCount: Int { Set(spans.map(\.speakerId)).count }
 }
