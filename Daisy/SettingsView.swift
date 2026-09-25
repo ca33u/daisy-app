@@ -258,17 +258,24 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                GlassSegmentedControl(
-                    selection: $settingsTab,
-                    segments: [
-                        .init(value: .general, title: String(localized: "General")),
-                        .init(value: .recording, title: String(localized: "Recording")),
-                        .init(value: .transcription, title: String(localized: "Transcription")),
-                        .init(value: .summary, title: String(localized: "Summary")),
-                        .init(value: .permissions, title: String(localized: "Permissions")),
-                        .init(value: .connections, title: String(localized: "Connections")),
-                    ]
-                )
+                // 25.09: a user on a narrow window lost the Connections
+                // tab — the toolbar collapsed our GlassSegmentedControl
+                // into the «>>» overflow, which showed only the current
+                // chip because a custom view has no menu representation.
+                // The stock Picker gets one from SwiftUI: under «>>» all
+                // six tabs are listed. Egor: try the stock control — the
+                // macOS 26 crash it was once suspected of turned out to
+                // be low disk / model download (see history above).
+                Picker("Settings", selection: $settingsTab) {
+                    Text("General").tag(SettingsTab.general)
+                    Text("Recording").tag(SettingsTab.recording)
+                    Text("Transcription").tag(SettingsTab.transcription)
+                    Text("Summary").tag(SettingsTab.summary)
+                    Text("Permissions").tag(SettingsTab.permissions)
+                    Text("Connections").tag(SettingsTab.connections)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
         }
         // Consume any one-shot deep-link from AppNavigation. Set on
