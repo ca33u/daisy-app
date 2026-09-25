@@ -75,15 +75,28 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
         do {
             _ = try await database.recordZone(for: zoneID)
         } catch {
+            // Cancelled is not "no zone": creating one now would only be
+            // cancelled too, and the text would hide what happened.
+            if Self.isCancellation(error) { throw error }
             log.notice("Zone lookup: \(Self.describe(error), privacy: .public)")
             do {
                 _ = try await database.save(CKRecordZone(zoneID: zoneID))
                 log.notice("Created zone \(Self.zoneName, privacy: .public)")
             } catch {
+                if Self.isCancellation(error) { throw error }
                 throw SyncError.cloud("zone: " + Self.describe(error))
             }
         }
         zoneReady = true
+    }
+
+    /// The operation was cancelled — by the task that ran it or by the
+    /// system (the app leaving the screen) — rather than refused. Not a
+    /// failure of the sync; the next pass does the same work.
+    public static func isCancellation(_ error: any Error) -> Bool {
+        if error is CancellationError { return true }
+        if let ck = error as? CKError, ck.code == .operationCancelled { return true }
+        return false
     }
 
     /// The CloudKit error with everything the server said — the code
