@@ -43,6 +43,40 @@ guard !files.isEmpty else {
     exit(2)
 }
 
+// `--blocks`: the phone's real path (25.09) — 600 s blocks through one
+// block pass, each pair of voices' centroid cosine, then the stretches
+// per voice after `absorbFleetingVoices`.
+if let flag = arguments.firstIndex(of: "--blocks") {
+    arguments.remove(at: flag)
+    for url in arguments.map({ URL(fileURLWithPath: $0) }) {
+        let reader = ArchiveBlockReader(urls: [url], blockSeconds: 600)
+        let diarizer = PhoneDiarizer()
+        guard let pass = try? await diarizer.makeBlockPass() else { print("no diarizer"); exit(1) }
+        while let block = reader.nextBlock() {
+            let samples = block.samples, at = block.startSec
+            await Task.detached { pass.process(samples: samples, atSec: at) }.value
+        }
+        let outcome = pass.finish()
+        var seconds: [String: Double] = [:]
+        for span in outcome.spans { seconds[span.speakerId, default: 0] += span.endSec - span.startSec }
+        print("\(url.lastPathComponent): \(Int(outcome.seconds)) s, \(outcome.speakerCount) voice(s)")
+        for id in seconds.keys.sorted() { print(String(format: "  %@ spoke %.1f s", id, seconds[id]!)) }
+        let ids = outcome.centroids.keys.sorted()
+        for i in ids.indices { for j in ids.indices where j > i {
+            print(String(format: "  cos(%@,%@) = %.3f", ids[i], ids[j], SpeakerAttribution.cosine(outcome.centroids[ids[i]]!, outcome.centroids[ids[j]]!)))
+        } }
+        var stretches: [String: [Double]] = [:]
+        for span in outcome.spans { stretches[span.speakerId, default: []].append(span.endSec - span.startSec) }
+        for id in stretches.keys.sorted() {
+            let list = stretches[id]!
+            print(String(format: "  %@: %d stretch(es), longest %.1f s", id, list.count, list.max() ?? 0))
+        }
+        let cleaned = SpeakerAttribution.absorbFleetingVoices(spans: outcome.spans, centroids: outcome.centroids)
+        print("  after absorbing fleeting voices: \(Set(cleaned.spans.map(\.speakerId)).count) voice(s)")
+    }
+    exit(0)
+}
+
 if sweep {
     for url in files {
         guard let samples = Resampler.decodeToMono16k(urls: [url]) else { continue }

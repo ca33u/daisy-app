@@ -26,17 +26,8 @@ import FluidAudio
 #endif
 
 /// One stretch of one voice.
-public nonisolated struct DiarizedSpan: Sendable, Equatable, Codable {
-    public var speakerId: String
-    public var startSec: Double
-    public var endSec: Double
-
-    public init(speakerId: String, startSec: Double, endSec: Double) {
-        self.speakerId = speakerId
-        self.startSec = startSec
-        self.endSec = endSec
-    }
-}
+/// The spike's name for a voice's stretch; the shared type now.
+public typealias DiarizedSpan = SpeakerSpan
 
 public struct DiarizationOutcome: Sendable, Equatable, Codable {
     public var spans: [DiarizedSpan]
@@ -77,6 +68,8 @@ public final class PhoneDiarizer {
 
     #if canImport(FluidAudio)
     private var manager: DiarizerManager?
+    /// Loaded once; each recording gets a manager of its own on them.
+    private var models: DiarizerModels?
     #endif
 
     /// The clustering threshold this instance runs with. Defaults to
@@ -100,7 +93,26 @@ public final class PhoneDiarizer {
         #if canImport(FluidAudio)
         guard manager == nil else { return }
         let started = Date()
-        let models = try await DiarizerModels.downloadIfNeeded()
+        let models = try await loadedModels()
+        let manager = makeManager(models: models)
+        self.manager = manager
+        lastLoadSeconds = Date().timeIntervalSince(started)
+        isReady = true
+        log.info("Diarizer ready in \(Int(self.lastLoadSeconds ?? 0), privacy: .public) s")
+        #else
+        throw PhoneDiarizerError.unavailable
+        #endif
+    }
+
+    #if canImport(FluidAudio)
+    private func loadedModels() async throws -> DiarizerModels {
+        if let models { return models }
+        let loaded = try await DiarizerModels.downloadIfNeeded()
+        models = loaded
+        return loaded
+    }
+
+    private func makeManager(models: DiarizerModels) -> DiarizerManager {
         let config = DiarizerConfig(
             clusteringThreshold: threshold,
             minSpeechDuration: Self.minSpeechDuration,
@@ -109,10 +121,18 @@ public final class PhoneDiarizer {
         )
         let manager = DiarizerManager(config: config)
         manager.initialize(models: models)
-        self.manager = manager
-        lastLoadSeconds = Date().timeIntervalSince(started)
+        return manager
+    }
+    #endif
+
+    /// A pass over one recording, block by block — with a speaker
+    /// database of its own, so voices from the last recording never
+    /// leak into this one.
+    public func makeBlockPass() async throws -> DiarizationBlockPass {
+        #if canImport(FluidAudio)
+        let models = try await loadedModels()
         isReady = true
-        log.info("Diarizer ready in \(Int(self.lastLoadSeconds ?? 0), privacy: .public) s")
+        return DiarizationBlockPass(manager: makeManager(models: models))
         #else
         throw PhoneDiarizerError.unavailable
         #endif
@@ -124,6 +144,7 @@ public final class PhoneDiarizer {
     public func unload() {
         #if canImport(FluidAudio)
         manager = nil
+        models = nil
         #endif
         isReady = false
     }
