@@ -88,6 +88,9 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         // that's what the crash-recovery scan above is for.)
         installPowerLifecycleObservers()
         hideListDetailToolbarSeparator()
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "daisy.debugToolbarProbe") { runToolbarProbe() }
+        #endif
 
         DispatchQueue.main.async {
             for window in NSApp.windows where window.canBecomeMain {

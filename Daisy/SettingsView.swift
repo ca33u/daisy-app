@@ -229,54 +229,64 @@ struct SettingsView: View {
     @State private var resolvedAgentPath: String?
     @Bindable private var nav = AppNavigation.shared
 
+    /// The six tabs, above the page (25.09). They used to sit in the
+    /// window toolbar, and there macOS 26 decided where they went: too
+    /// narrow a window moved them into «>>», whose menu sometimes listed
+    /// the six tabs, sometimes one empty checked row, and sometimes the
+    /// tabs vanished with no «>>» at all — a user lost the Connections
+    /// tab (webhooks). Swapping the toolbar item for a pop-up when narrow
+    /// left the «Daisy» pill inside a 672 pt glass capsule. So they live
+    /// in the page, where SwiftUI lays them out: segments when they fit,
+    /// otherwise a pop-up («Основные ⌄»). Never «>>», any width.
+    private var settingsTabsHeader: some View {
+        ViewThatFits(in: .horizontal) {
+            settingsTabPicker
+                .pickerStyle(.segmented)
+                .fixedSize()
+            settingsTabPicker
+                .pickerStyle(.menu)
+                .fixedSize()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var settingsTabPicker: some View {
+        Picker("Settings", selection: $settingsTab) {
+            Text("General").tag(SettingsTab.general)
+            Text("Recording").tag(SettingsTab.recording)
+            Text("Transcription").tag(SettingsTab.transcription)
+            Text("Summary").tag(SettingsTab.summary)
+            Text("Permissions").tag(SettingsTab.permissions)
+            Text("Connections").tag(SettingsTab.connections)
+        }
+        .labelsHidden()
+    }
+
     var body: some View {
-        // Custom text-only Liquid-Glass tab strip in the window toolbar
-        // (ToolbarItem .principal below), replacing the native TabView.
-        // The strip lives OFF the SwiftUI `glassEffect()`/DesignLibrary
-        // path this app disabled — it uses AppKit's NSGlassEffectView
-        // (see GlassSegmentedControl.swift). Content is a plain switch so
-        // we control per-cell padding, which `.tabItem` locks.
+        // The tab strip is `settingsTabsHeader`, above the page — see its
+        // note for why it left the window toolbar (25.09). Content is a
+        // plain switch so we control per-cell padding, which `.tabItem`
+        // locks.
         //
         // History (kept for context): 2026-05-22 / 2026-05-28 there were
         // two aborted attempts to swap the TabView for a custom HStack of
         // tab buttons on macOS 26, both reverted when the crash then in
         // view turned out to correlate with low disk / a partly-downloaded
         // model / recording start-stop cycles rather than the segmented
-        // control itself. This control is different: it carries no
-        // SwiftUI glass and no NSSegmentedControl, so it's off both of
-        // those crash pathways.
-        Group {
-            switch settingsTab {
-            case .general:       generalTab
-            case .recording:     recordingTab
-            case .transcription: transcriptionTab
-            case .summary:       summaryTab
-            case .permissions:   PermissionsView(settings: settings)
-            case .connections:   ConnectionsView(settings: settings)
-            }
-        }
-        .scrollContentBackground(.hidden)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                // 25.09: a user on a narrow window lost the Connections
-                // tab — the toolbar collapsed our GlassSegmentedControl
-                // into the «>>» overflow, which showed only the current
-                // chip because a custom view has no menu representation.
-                // The stock Picker gets one from SwiftUI: under «>>» all
-                // six tabs are listed. Egor: try the stock control — the
-                // macOS 26 crash it was once suspected of turned out to
-                // be low disk / model download (see history above).
-                Picker("Settings", selection: $settingsTab) {
-                    Text("General").tag(SettingsTab.general)
-                    Text("Recording").tag(SettingsTab.recording)
-                    Text("Transcription").tag(SettingsTab.transcription)
-                    Text("Summary").tag(SettingsTab.summary)
-                    Text("Permissions").tag(SettingsTab.permissions)
-                    Text("Connections").tag(SettingsTab.connections)
+        // control itself.
+        VStack(spacing: 12) {
+            settingsTabsHeader
+            Group {
+                switch settingsTab {
+                case .general:       generalTab
+                case .recording:     recordingTab
+                case .transcription: transcriptionTab
+                case .summary:       summaryTab
+                case .permissions:   PermissionsView(settings: settings)
+                case .connections:   ConnectionsView(settings: settings)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
             }
+            .scrollContentBackground(.hidden)
         }
         // Consume any one-shot deep-link from AppNavigation. Set on
         // appear (initial entry into Settings) AND on change (user
@@ -3840,3 +3850,4 @@ enum TestResult: Equatable {
 #Preview {
     SettingsView(settings: AppSettings())
 }
+
