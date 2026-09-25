@@ -601,20 +601,19 @@ struct SessionDetailView: View {
                     Label("Delete", systemImage: "trash")
                 }
             } label: {
-                toolbarIcon("ellipsis")
+                // Round, not a pill (Egor, 25.09): a square label and the
+                // circle border shape make the glass a circle.
+                Image(systemName: "ellipsis")
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(Color.daisyTextPrimary)
+                    .font(.body.weight(.medium))
+                    .frame(width: 20, height: 20)
             }
+            .buttonBorderShape(.circle)
             // DEFAULT menu style (do NOT set `.borderlessButton`): only the
-            // default style draws the control's own Liquid Glass background,
-            // and that capsule wraps the label INCLUDING toolbarIcon's
-            // horizontal padding — which is what actually widens the pill.
-            // `.borderlessButton` suppressed that background, so the old
-            // padding leaked into the inter-item gap instead of the capsule.
-            // `.menuIndicator(.hidden)` hides the default style's disclosure
-            // chevron so the pill holds just the centred ⋯ glyph. No
-            // `.fixedSize()` — its only job was collapsing the borderless
-            // chevron's phantom width; with the indicator hidden and this as
-            // its own item, it's unneeded and would re-pin the label to its
-            // intrinsic size, defeating the padding.
+            // default style draws the control's own Liquid Glass background.
+            // `.menuIndicator(.hidden)` hides its disclosure chevron so the
+            // circle holds just the centred ⋯ glyph.
             .menuIndicator(.hidden)
             // Menu in a macOS 26 toolbar inherits `.tint` for its label
             // glyph — bypasses Image.foregroundStyle. Pin the tint locally so
@@ -696,19 +695,6 @@ struct SessionDetailView: View {
     /// the padding here is the capsule's interior breathing room, the same
     /// way `.padding(.horizontal, 10)` widens the Summarize pill. The kebab
     /// is the only caller now that Copy was removed, so this only affects ⋯.
-    private func toolbarIcon(_ name: String) -> some View {
-        Image(systemName: name)
-            .symbolRenderingMode(.monochrome)
-            .foregroundStyle(Color.daisyTextPrimary)
-            .font(.body.weight(.medium))
-            // Symmetric interior padding so the centred ⋯ glyph sits in a
-            // proper capsule instead of a tight rounded square. Now that the
-            // menu draws its own default-style glass background (not a
-            // borderless control inside a group), this padding genuinely
-            // widens the PILL rather than leaking into the inter-item gap.
-            .padding(.horizontal, 16)
-    }
-
     // MARK: - Header (title + metadata; actions live in toolbar)
 
     private var header: some View {

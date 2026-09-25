@@ -87,6 +87,7 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         // archive stays consistent. (A *hard* power cut sends no warning —
         // that's what the crash-recovery scan above is for.)
         installPowerLifecycleObservers()
+        hideListDetailToolbarSeparator()
 
         DispatchQueue.main.async {
             for window in NSApp.windows where window.canBecomeMain {
@@ -172,6 +173,39 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         window.backgroundColor = Self.windowBackground
         window.titlebarAppearsTransparent = true
         window.styleMask.insert(.fullSizeContentView)
+    }
+
+    /// The Library's three columns give the window toolbar a tracking
+    /// separator over the list/detail border, and on macOS 26 it draws a
+    /// short line (`NSSeparatorToolbarItemView`, 1×28 pt) beside the
+    /// column's own full-height divider (Egor, 25.09: «лишний маленький
+    /// дивайдер»). The separator ITEM must stay — hiding it moved the Tags
+    /// pill out of the list's section into the detail's. Only the line's
+    /// view is hidden. SwiftUI rebuilds the toolbar when the section
+    /// changes, and a resize can lay it out again, so both re-hide.
+    private func hideListDetailToolbarSeparator() {
+        let hide: @MainActor () -> Void = {
+            for window in NSApp.windows where window.canBecomeMain {
+                guard let frame = window.contentView?.superview else { continue }
+                Self.hideSeparatorLines(in: frame)
+            }
+        }
+        NotificationCenter.default.addObserver(forName: NSToolbar.willAddItemNotification, object: nil, queue: .main) { note in
+            guard note.userInfo?["item"] is NSTrackingSeparatorToolbarItem else { return }
+            // The item's view exists only once the toolbar has laid it out.
+            DispatchQueue.main.async { MainActor.assumeIsolated { hide() } }
+        }
+        NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { hide() }
+        }
+    }
+
+    private static func hideSeparatorLines(in view: NSView) {
+        if String(describing: type(of: view)) == "NSSeparatorToolbarItemView" {
+            view.isHidden = true
+            return
+        }
+        for sub in view.subviews { hideSeparatorLines(in: sub) }
     }
 
     /// Dynamic AppKit counterpart to `Color.daisyBgPrimary`, including the
