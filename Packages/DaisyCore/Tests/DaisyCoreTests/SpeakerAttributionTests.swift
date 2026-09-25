@@ -92,4 +92,24 @@ struct SpeakerAttributionTests {
         #expect(out.spans.map(\.speakerId) == ["A", "A"])
         #expect(out.centroids["A"] == unit([1, 0]))   // the solid voice's centroid, under its new label
     }
+
+    // MARK: - Names across two diarizations
+
+    @Test func namesFollowTheirVoiceToNewLetters() {
+        let phone: [String: [Float]] = ["A": unit([1, 0, 0]), "B": unit([0, 1, 0]), "C": unit([0, 0, 1])]
+        let mac: [String: [Float]] = ["A": unit([0.05, 1, 0]), "B": unit([0, 0.1, 1]), "C": unit([1, 0.1, 0])]
+        let carried = SpeakerAttribution.carryNames(["B": "Egor", "C": "Garmin agent", "A": "Remote B"], from: phone, to: mac)
+        #expect(carried == ["A": "Egor", "B": "Garmin agent"])
+    }
+
+    @Test func aVoiceNobodyMatchesLosesItsName() {
+        let carried = SpeakerAttribution.carryNames(["A": "Maria"], from: ["A": unit([1, 0])], to: ["A": unit([0, 1])])
+        #expect(carried.isEmpty)
+    }
+
+    @Test func twoNamesNeverLandOnOneVoice() {
+        let old: [String: [Float]] = ["A": unit([1, 0.1]), "B": unit([1, 0.2])]
+        let carried = SpeakerAttribution.carryNames(["A": "Ann", "B": "Bob"], from: old, to: ["A": unit([1, 0.1])])
+        #expect(carried == ["A": "Ann"])
+    }
 }

@@ -123,6 +123,38 @@ public nonisolated enum SpeakerAttribution {
         max(0, max(a.startSec, b.startSec) - min(a.endSec, b.endSec))
     }
 
+    /// Names given to one diarization, carried to another of the same
+    /// audio (25.09). The phone diarizes and the person names voices
+    /// there; when the Mac later re-diarizes the same recording its
+    /// clusters get fresh letters, and the names used to be lost. Each
+    /// named voice goes to the new cluster whose centroid is closest,
+    /// above `threshold`, closest pair first, one to one. Aliases
+    /// (`Remote B`) are not names and are not carried.
+    public static func carryNames(
+        _ names: [String: String],
+        from oldCentroids: [String: [Float]],
+        to newCentroids: [String: [Float]],
+        threshold: Float = ownerMatchThreshold
+    ) -> [String: String] {
+        var pairs: [(old: String, new: String, score: Float)] = []
+        for (oldLabel, name) in names where !name.isEmpty && SpeakerMapping.aliasedLabel(name) == nil {
+            guard let a = oldCentroids[oldLabel] else { continue }
+            for (newLabel, b) in newCentroids {
+                let score = cosine(a, b)
+                if score >= threshold { pairs.append((oldLabel, newLabel, score)) }
+            }
+        }
+        pairs.sort { $0.score != $1.score ? $0.score > $1.score : ($0.old, $0.new) < ($1.old, $1.new) }
+        var usedOld = Set<String>(), usedNew = Set<String>()
+        var out: [String: String] = [:]
+        for pair in pairs where !usedOld.contains(pair.old) && !usedNew.contains(pair.new) {
+            out[pair.new] = names[pair.old]
+            usedOld.insert(pair.old)
+            usedNew.insert(pair.new)
+        }
+        return out
+    }
+
     public struct RoomResult: Sendable, Equatable {
         public var segments: [TranscriptSegment]
         /// The other voices' centroids, under their final labels.

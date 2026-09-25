@@ -210,6 +210,7 @@ final class SessionAudioProcessing {
             biasTerms: biasTerms
         )
 
+        var carriedNames: [String: String] = [:]
         if isPhoneSession, options.diarize {
             let owner = SpeakerProfileStore.shared.ownerProfile?.embedding
             let assigned = PhoneSpeakerAssignment.apply(
@@ -219,6 +220,15 @@ final class SessionAudioProcessing {
             )
             log.notice("Phone session: \(microphoneOutput.centroids.count, privacy: .public) cluster(s), owner \(assigned.ownerCluster ?? "not found", privacy: .public) (score \(String(format: "%.2f", assigned.ownerScore), privacy: .public), profile \(owner == nil ? "absent" : "present", privacy: .public))")
             microphoneOutput = ChannelOutput(segments: assigned.segments, centroids: assigned.centroids)
+            // 25.09: the phone diarizes too, and names given there sit in
+            // the parent's map under the phone's letters. They follow
+            // their voice to this pass's letters, or the child would
+            // open with every name gone.
+            carriedNames = Self.namesFromParent(originalMarkdown: originalMarkdown, directory: session.directoryURL,
+                                                to: assigned.centroids)
+            if !carriedNames.isEmpty {
+                log.notice("Phone session: \(carriedNames.count, privacy: .public) name(s) carried from the parent")
+            }
         } else if !isPhoneSession, !processingFiles.microphone.isEmpty {
             // A Mac session: the mic IS the owner (§2.1) — the one place
             // the owner's voice can be learnt from without asking.
@@ -277,7 +287,8 @@ final class SessionAudioProcessing {
             options: options,
             segments: segments,
             audioFiles: processingFiles.all.map(\.lastPathComponent),
-            isFirstTranscript: isFirstTranscript
+            isFirstTranscript: isFirstTranscript,
+            speakerMap: carriedNames
         )
         try markdown.write(
             to: stagingDirectory.appendingPathComponent("transcript.md"),
@@ -518,7 +529,8 @@ final class SessionAudioProcessing {
         options: SessionRetranscriptionOptions,
         segments: [TranscriptSegment],
         audioFiles: [String],
-        isFirstTranscript: Bool = false
+        isFirstTranscript: Bool = false,
+        speakerMap: [String: String] = [:]
     ) -> String {
         let derivedTitle = isFirstTranscript
             ? session.title
@@ -584,10 +596,22 @@ final class SessionAudioProcessing {
         markdown = SessionStore.upsertFrontmatter(in: markdown, key: "daisy_transcription_model", value: yamlQuote(options.modelID))
         markdown = SessionStore.upsertFrontmatter(in: markdown, key: "daisy_transcription_language", value: options.language)
         markdown = SessionStore.upsertFrontmatter(in: markdown, key: "daisy_diarization", value: options.diarize ? "true" : "false")
-        markdown = SessionStore.upsertFrontmatter(in: markdown, key: "daisy_speaker_map", value: "{}")
+        markdown = SessionStore.upsertFrontmatter(in: markdown, key: "daisy_speaker_map", value: SessionStore.encodeYAMLDict(speakerMap))
         let encodedAudio = audioFiles.map(yamlQuote).joined(separator: ", ")
         markdown = SessionStore.upsertFrontmatter(in: markdown, key: "daisy_audio_files", value: "[\(encodedAudio)]")
         return markdown
+    }
+
+    /// The parent's names (its map, its `speakers.json`) moved onto
+    /// `centroids` — this pass's clusters under their final labels.
+    nonisolated static func namesFromParent(originalMarkdown: String, directory: URL,
+                                            to centroids: [String: [Float]]) -> [String: String] {
+        guard let raw = frontmatterValue("daisy_speaker_map", in: originalMarkdown) else { return [:] }
+        let names = parseYAMLDict(raw)
+        guard !names.isEmpty,
+              let data = try? Data(contentsOf: directory.appendingPathComponent("speakers.json")),
+              let parent = try? JSONDecoder().decode(SpeakerCentroidsFile.self, from: data) else { return [:] }
+        return SpeakerAttribution.carryNames(names, from: parent.centroids, to: centroids)
     }
 
     nonisolated private static func preservedFrontmatter(from markdown: String) -> String {

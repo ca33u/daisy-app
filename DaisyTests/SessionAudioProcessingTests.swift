@@ -132,6 +132,21 @@ struct SessionAudioProcessingTests {
         #expect(firstTranscript.contains("duration_sec: 90"))
     }
 
+    @Test("Names given on the phone follow their voice into the Mac's re-diarization")
+    func phoneNamesCarryIntoTheChild() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("carry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try JSONEncoder().encode(SpeakerCentroidsFile(centroids: ["A": [1, 0], "B": [0, 1]]))
+            .write(to: dir.appendingPathComponent("speakers.json"))
+        let parent = "---\ndaisy_origin: iphone\ndaisy_speaker_map: {B: \"Egor\"}\n---\n"
+        let carried = SessionAudioProcessing.namesFromParent(originalMarkdown: parent, directory: dir,
+                                                             to: ["A": [0.1, 0.99], "B": [0.99, 0.1]])
+        #expect(carried == ["A": "Egor"])
+        #expect(SessionAudioProcessing.namesFromParent(originalMarkdown: "---\ndaisy_speaker_map: {}\n---\n",
+                                                       directory: dir, to: ["A": [1, 0]]).isEmpty)
+    }
+
     @Test("M4A export combines retained tracks into a readable file")
     func exportsM4A() throws {
         let directory = try temporaryDirectory()
