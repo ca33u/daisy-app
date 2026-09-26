@@ -18,6 +18,31 @@ extension DaisyAppDelegate {
     /// with what the toolbar holds at each and a picture of the window —
     /// a check that needs neither the screen nor anyone's clicks.
     /// Output: /tmp/daisy-probe/.
+    /// Our tab group: present, visible, which tab, how it is drawn, and
+    /// whether the toolbar needed «>>».
+    private func tabsState(_ window: NSWindow) -> String {
+        guard let toolbar = window.toolbar else { return "TABS: no toolbar" }
+        let visible = toolbar.visibleItems?.contains { $0.itemIdentifier == SettingsTabsToolbar.identifier } ?? false
+        var clipped = false
+        var groupViews: [String] = []
+        func walk(_ v: NSView) {
+            let name = String(describing: type(of: v))
+            if name == "NSToolbarClippedItemsIndicator", !v.isHidden { clipped = true }
+            if let control = v as? NSSegmentedControl, control.segmentCount == 6 {
+                groupViews.append("segmented6 w=\(Int(v.frame.width)) shown=\(!v.isHiddenOrHasHiddenAncestor && v.window != nil && v.alphaValue > 0)")
+            }
+            if let popup = v as? NSPopUpButton, popup.numberOfItems >= 6 {
+                groupViews.append("popup '\(popup.titleOfSelectedItem ?? "")' items=\(popup.numberOfItems) w=\(Int(v.frame.width)) shown=\(!v.isHiddenOrHasHiddenAncestor && v.alphaValue > 0)")
+            }
+            v.subviews.forEach(walk)
+        }
+        if let frame = window.contentView?.superview { walk(frame) }
+        guard let group = toolbar.items.first(where: { $0.itemIdentifier == SettingsTabsToolbar.identifier }) as? NSToolbarItemGroup else {
+            return "TABS: not in toolbar; clipped=\(clipped)"
+        }
+        return "TABS: in toolbar visible=\(visible) selected=\(group.selectedIndex) subitems=\(group.subitems.count) representation=\(group.controlRepresentation.rawValue) clipped=\(clipped) views=\(groupViews)"
+    }
+
     func runToolbarProbe() {
         let out = URL(fileURLWithPath: "/tmp/daisy-probe", isDirectory: true)
         try? FileManager.default.removeItem(at: out)
@@ -94,12 +119,60 @@ extension DaisyAppDelegate {
                 }
                 let items = window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? []
                 let visible = window.toolbar?.visibleItems?.map(\.itemIdentifier.rawValue) ?? []
-                note("== width \(Int(window.frame.width))\nitems: \(items)\nvisible: \(visible)\n" + lines.joined(separator: "\n"))
+                note("== width \(Int(window.frame.width))\nitems: \(items)\nvisible: \(visible)\n" + tabsState(window) + "\n" + lines.joined(separator: "\n"))
                 if let frameView = window.contentView?.superview,
                    let rep = frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds) {
                     frameView.cacheDisplay(in: frameView.bounds, to: rep)
                     try? rep.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent("w\(Int(width))-\(report.count).png"))
                 }
+            }
+            // Picking a tab in the toolbar control turns the page, both
+            // in the segments (wide) and in the pop-up (narrow).
+            func pageHasConnections() -> Bool {
+                func find(_ v: NSView) -> Bool {
+                    if let c = v as? NSSegmentedControl, c.segmentCount == 2, (0..<2).contains(where: { c.label(forSegment: $0) == String(localized: "MCP server") || c.label(forSegment: $0)?.contains("MCP") == true }) { return true }
+                    return v.subviews.contains(where: find)
+                }
+                return window.contentView.map(find) ?? false
+            }
+            func shownTabControl() -> NSControl? {
+                var found: NSControl?
+                func walk(_ v: NSView) {
+                    if found == nil, !v.isHiddenOrHasHiddenAncestor {
+                        if let c = v as? NSSegmentedControl, c.segmentCount == 6 { found = c }
+                        if let p = v as? NSPopUpButton, p.numberOfItems >= 6 { found = p }
+                    }
+                    v.subviews.forEach(walk)
+                }
+                if let frame = window.contentView?.superview { walk(frame) }
+                return found
+            }
+            for width in [1300.0, 900] {
+                var frame = window.frame
+                frame.size.width = width
+                window.setFrame(frame, display: true)
+                try? await Task.sleep(for: .seconds(1.5))
+                guard let control = shownTabControl() else { note("PICK \(Int(width)): no tab control shown"); continue }
+                if let seg = control as? NSSegmentedControl {
+                    seg.selectedSegment = 5
+                } else if let pop = control as? NSPopUpButton {
+                    pop.selectItem(at: 5)
+                }
+                control.sendAction(control.action, to: control.target)
+                try? await Task.sleep(for: .seconds(1))
+                let r = control.convert(control.bounds, to: nil)
+                let centre = Int(r.midX), windowCentre = Int(window.frame.width / 2)
+                note("PICK \(Int(width)) via \(type(of: control)): connections page=\(pageHasConnections()) \(tabsState(window)) centre=\(centre) windowCentre=\(windowCentre)")
+                // Back to General through the model, as a deep link would.
+                AppNavigation.shared.pendingSettingsTab = .general
+                try? await Task.sleep(for: .seconds(1))
+                note("DEEPLINK general: \(tabsState(window)) connections page=\(pageHasConnections())")
+            }
+            for section in [MainSection.home, .settings, .library, .settings] {
+                AppNavigation.shared.section = section
+                try? await Task.sleep(for: .seconds(2))
+                let ids = window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? []
+                note("== section \(section): tabs items=\(ids.filter { $0.contains("settingsTabs") }.count) \(tabsState(window))")
             }
             note("done")
         }

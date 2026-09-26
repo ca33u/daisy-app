@@ -212,6 +212,9 @@ struct SettingsView: View {
     /// child — that's why early onboarding clicks felt broken
     /// (user wanted Summary, got Capture).
     @State private var settingsTab: SettingsTab = .general
+    /// The tabs as the toolbar's own tab control (see SettingsTabsToolbar).
+    @State private var toolbarTabs = SettingsTabsToolbar()
+    @State private var toolbarTabsInstalled = false
     /// Live `/api/tags` model list for the Ollama picker (empty until
     /// fetched / when the server is unreachable → static catalog).
     @State private var ollamaInstalledModels: [String] = []
@@ -229,15 +232,16 @@ struct SettingsView: View {
     @State private var resolvedAgentPath: String?
     @Bindable private var nav = AppNavigation.shared
 
-    /// The six tabs, above the page (25.09). They used to sit in the
-    /// window toolbar, and there macOS 26 decided where they went: too
-    /// narrow a window moved them into «>>», whose menu sometimes listed
-    /// the six tabs, sometimes one empty checked row, and sometimes the
-    /// tabs vanished with no «>>» at all — a user lost the Connections
-    /// tab (webhooks). Swapping the toolbar item for a pop-up when narrow
-    /// left the «Daisy» pill inside a 672 pt glass capsule. So they live
-    /// in the page, where SwiftUI lays them out: segments when they fit,
-    /// otherwise a pop-up («Основные ⌄»). Never «>>», any width.
+    static let tabOrder: [SettingsTab] = [.general, .recording, .transcription, .summary, .permissions, .connections]
+
+    private var tabTitles: [String] {
+        [String(localized: "General"), String(localized: "Recording"), String(localized: "Transcription"),
+         String(localized: "Summary"), String(localized: "Permissions"), String(localized: "Connections")]
+    }
+
+    /// Fallback only: the tabs above the page, for a window whose toolbar
+    /// would not take the system tab control. Segments when they fit,
+    /// otherwise a pop-up — never «>>».
     private var settingsTabsHeader: some View {
         ViewThatFits(in: .horizontal) {
             settingsTabPicker
@@ -275,7 +279,7 @@ struct SettingsView: View {
         // model / recording start-stop cycles rather than the segmented
         // control itself.
         VStack(spacing: 12) {
-            settingsTabsHeader
+            if !toolbarTabsInstalled { settingsTabsHeader }
             Group {
                 switch settingsTab {
                 case .general:       generalTab
@@ -287,6 +291,23 @@ struct SettingsView: View {
                 }
             }
             .scrollContentBackground(.hidden)
+        }
+        .background(WindowFinder { window in
+            guard let window, !toolbarTabsInstalled else { return }
+            toolbarTabs.onSelect = { index in
+                if Self.tabOrder.indices.contains(index) { settingsTab = Self.tabOrder[index] }
+            }
+            toolbarTabsInstalled = toolbarTabs.install(
+                in: window, titles: tabTitles,
+                selected: Self.tabOrder.firstIndex(of: settingsTab) ?? 0
+            )
+        })
+        .onChange(of: settingsTab) { _, tab in
+            toolbarTabs.select(Self.tabOrder.firstIndex(of: tab) ?? 0)
+        }
+        .onDisappear {
+            toolbarTabs.uninstall()
+            toolbarTabsInstalled = false
         }
         // Consume any one-shot deep-link from AppNavigation. Set on
         // appear (initial entry into Settings) AND on change (user
@@ -3851,3 +3872,26 @@ enum TestResult: Equatable {
     SettingsView(settings: AppSettings())
 }
 
+
+/// Hands over the window this view lands in (nil when it leaves one).
+private struct WindowFinder: NSViewRepresentable {
+    let found: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView { Probe(found: found) }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class Probe: NSView {
+        let found: (NSWindow?) -> Void
+        init(found: @escaping (NSWindow?) -> Void) {
+            self.found = found
+            super.init(frame: .zero)
+        }
+        required init?(coder: NSCoder) { fatalError() }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            let window = self.window
+            // After SwiftUI has put its own toolbar items in place.
+            DispatchQueue.main.async { self.found(window) }
+        }
+    }
+}
