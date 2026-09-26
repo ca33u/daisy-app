@@ -297,6 +297,7 @@ struct SettingsView: View {
             toolbarTabs.onSelect = { index in
                 if Self.tabOrder.indices.contains(index) { settingsTab = Self.tabOrder[index] }
             }
+            toolbarTabs.onLost = { toolbarTabsInstalled = false }
             toolbarTabsInstalled = toolbarTabs.install(
                 in: window, titles: tabTitles,
                 selected: Self.tabOrder.firstIndex(of: settingsTab) ?? 0

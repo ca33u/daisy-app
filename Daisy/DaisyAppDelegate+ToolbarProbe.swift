@@ -174,6 +174,22 @@ extension DaisyAppDelegate {
                 let ids = window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? []
                 note("== section \(section): tabs items=\(ids.filter { $0.contains("settingsTabs") }.count) \(tabsState(window))")
             }
+            // The toolbar drops the group behind our back (as a SwiftUI
+            // rebuild could): the page must show its own tabs.
+            var wide = window.frame
+            wide.size.width = 1300
+            window.setFrame(wide, display: true)
+            try? await Task.sleep(for: .seconds(1.5))
+            if let toolbar = window.toolbar,
+               let index = toolbar.items.firstIndex(where: { $0.itemIdentifier == SettingsTabsToolbar.identifier }) {
+                toolbar.removeItem(at: index)
+                try? await Task.sleep(for: .seconds(1.5))
+                func pageTabs(_ v: NSView) -> Int {
+                    ((v as? NSSegmentedControl)?.segmentCount == 6 && !v.isHiddenOrHasHiddenAncestor ? 1 : 0) + v.subviews.map(pageTabs).reduce(0, +)
+                }
+                let inPage = window.contentView.map(pageTabs) ?? 0
+                note("LOST: \(tabsState(window)); tabs in page=\(inPage)")
+            }
             note("done")
         }
     }

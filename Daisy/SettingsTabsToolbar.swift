@@ -30,6 +30,12 @@ final class SettingsTabsToolbar: NSObject {
 
     /// Called with the index the person picked.
     var onSelect: ((Int) -> Void)?
+    /// Called when the tabs left the toolbar without `uninstall()` —
+    /// SwiftUI rebuilt it and dropped an item it does not know. The
+    /// caller shows its own tabs then, so no one is left without them.
+    var onLost: (() -> Void)?
+
+    private var removalObserver: (any NSObjectProtocol)?
 
     private(set) var group: NSToolbarItemGroup?
     private weak var toolbar: NSToolbar?
@@ -66,10 +72,28 @@ final class SettingsTabsToolbar: NSObject {
         toolbar.delegate = original
         guard toolbar.items.contains(where: { $0.itemIdentifier == Self.identifier }) else { return false }
         toolbar.centeredItemIdentifiers = [Self.identifier]
+        removalObserver = NotificationCenter.default.addObserver(
+            forName: NSToolbar.didRemoveItemNotification, object: toolbar, queue: .main
+        ) { [weak self] note in
+            guard (note.userInfo?["item"] as? NSToolbarItem)?.itemIdentifier == Self.identifier else { return }
+            MainActor.assumeIsolated {
+                guard let self, self.group != nil else { return }
+                self.stopObserving()
+                self.group = nil
+                self.toolbar = nil
+                self.onLost?()
+            }
+        }
         return true
     }
 
+    private func stopObserving() {
+        if let removalObserver { NotificationCenter.default.removeObserver(removalObserver) }
+        removalObserver = nil
+    }
+
     func uninstall() {
+        stopObserving()
         guard let toolbar else { return }
         if let index = toolbar.items.firstIndex(where: { $0.itemIdentifier == Self.identifier }) {
             toolbar.removeItem(at: index)
