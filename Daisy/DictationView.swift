@@ -28,6 +28,12 @@ struct DictationView: View {
     }
 
     @State private var tab: Tab = .vocabulary
+    /// The two tabs as the toolbar's own tab control (see ToolbarTabs):
+    /// a custom glass strip in the toolbar vanishes into «>>» in a narrow
+    /// window, the system's folds into a pop-up (26.09, as Settings).
+    @State private var toolbarTabs = ToolbarTabs(identifier: "app.essazanov.Daisy.dictationTabs")
+    @State private var toolbarTabsInstalled = false
+    private static let tabOrder: [Tab] = [.vocabulary, .history]
     @State private var showingAddWord = false
     @State private var showingBulkImport = false
 
@@ -56,14 +62,24 @@ struct DictationView: View {
     @Bindable private var history = DictationHistory.shared
 
     var body: some View {
-        // Custom text-only Liquid-Glass tab strip in the window toolbar
-        // (ToolbarItem .principal below), replacing the native TabView
-        // whose per-cell padding is system-locked. `selection:` keeps the
-        // active tab stable and lets external surfaces deep-link.
-        Group {
-            switch tab {
-            case .vocabulary: vocabularyTab
-            case .history:    historyTab
+        // The tabs are the toolbar's own tab control (toolbarTabs); only
+        // if the toolbar will not keep it do they show above the page.
+        VStack(spacing: 12) {
+            if !toolbarTabsInstalled {
+                Picker("Dictation", selection: $tab) {
+                    Text("Vocabulary").tag(Tab.vocabulary)
+                    Text("History").tag(Tab.history)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .padding(.top, 12)
+            }
+            Group {
+                switch tab {
+                case .vocabulary: vocabularyTab
+                case .history:    historyTab
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -75,16 +91,6 @@ struct DictationView: View {
             BulkImportVocabularyView()
         }
         .toolbar {
-            // Text-only glass tab strip, centered at toolbar level.
-            ToolbarItem(placement: .principal) {
-                GlassSegmentedControl(
-                    selection: $tab,
-                    segments: [
-                        .init(value: .vocabulary, title: String(localized: "Vocabulary")),
-                        .init(value: .history, title: String(localized: "History")),
-                    ]
-                )
-            }
             // Bulk import — vocabulary tab only (nothing to import into
             // History). Sits left of "Add word".
             if tab == .vocabulary {
@@ -120,6 +126,23 @@ struct DictationView: View {
                 }
                 .help("Add a word to your dictation vocabulary")
             }
+        }
+        .background(WindowFinder { window in
+            guard let window, !toolbarTabsInstalled else { return }
+            toolbarTabs.onSelect = { index in
+                if Self.tabOrder.indices.contains(index) { tab = Self.tabOrder[index] }
+            }
+            toolbarTabs.onLost = { toolbarTabsInstalled = false }
+            toolbarTabsInstalled = toolbarTabs.install(
+                in: window,
+                titles: [String(localized: "Vocabulary"), String(localized: "History")],
+                selected: Self.tabOrder.firstIndex(of: tab) ?? 0
+            )
+        })
+        .onChange(of: tab) { _, new in toolbarTabs.select(Self.tabOrder.firstIndex(of: new) ?? 0) }
+        .onDisappear {
+            toolbarTabs.uninstall()
+            toolbarTabsInstalled = false
         }
     }
 

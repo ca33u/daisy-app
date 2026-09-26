@@ -1,8 +1,9 @@
 //
-//  SettingsTabsToolbar.swift
+//  ToolbarTabs.swift
 //  Daisy
 //
-//  The Settings tabs as the system's own toolbar tab control (25.09).
+//  A page's tabs as the system's own toolbar tab control — Settings
+//  (25.09) and Dictation (26.09).
 //
 //  SwiftUI puts a segmented `Picker` in the toolbar as a drawn view with
 //  no menu of its own. When the window was too narrow, macOS moved it
@@ -23,16 +24,25 @@
 //
 
 import AppKit
+import SwiftUI
 
 @MainActor
-final class SettingsTabsToolbar: NSObject {
-    static let identifier = NSToolbarItem.Identifier("app.essazanov.Daisy.settingsTabs")
+final class ToolbarTabs: NSObject {
+    let identifier: NSToolbarItem.Identifier
+    private var titles: [String] = []
+    private weak var window: NSWindow?
+
+    init(identifier: String) {
+        self.identifier = NSToolbarItem.Identifier(identifier)
+    }
 
     /// Called with the index the person picked.
     var onSelect: ((Int) -> Void)?
-    /// Called when the tabs left the toolbar without `uninstall()` —
-    /// SwiftUI rebuilt it and dropped an item it does not know. The
-    /// caller shows its own tabs then, so no one is left without them.
+    /// Called when the tabs left the toolbar without `uninstall()` and
+    /// could not be put back — the caller shows its own tabs then, so no
+    /// one is left without them. SwiftUI rebuilds a toolbar whose items
+    /// change (Dictation's buttons follow its tab) and drops an item it
+    /// does not know; that is answered by adding the tabs again first.
     var onLost: (() -> Void)?
 
     private var removalObserver: (any NSObjectProtocol)?
@@ -45,12 +55,14 @@ final class SettingsTabsToolbar: NSObject {
     @discardableResult
     func install(in window: NSWindow, titles: [String], selected: Int) -> Bool {
         guard let toolbar = window.toolbar else { return false }
-        if self.toolbar === toolbar, toolbar.items.contains(where: { $0.itemIdentifier == Self.identifier }) {
+        if self.toolbar === toolbar, toolbar.items.contains(where: { $0.itemIdentifier == identifier }) {
             select(selected)
             return true
         }
+        self.titles = titles
+        self.window = window
         let group = NSToolbarItemGroup(
-            itemIdentifier: Self.identifier,
+            itemIdentifier: identifier,
             titles: titles,
             selectionMode: .selectOne,
             labels: titles,
@@ -58,7 +70,12 @@ final class SettingsTabsToolbar: NSObject {
             action: #selector(picked(_:))
         )
         group.controlRepresentation = .automatic
-        group.label = String(localized: "Settings")
+        // The page's tabs are the last thing to hide: when the toolbar is
+        // tight, buttons beside them go to «>>» first and the tabs fold
+        // into their pop-up (Dictation's wide text buttons took their room
+        // at 900 pt and sent them to «>>», 26.09).
+        group.visibilityPriority = .high
+        group.label = titles.joined(separator: " / ")
         group.paletteLabel = group.label
         if #available(macOS 27.0, *) { group.role = .tabs }
         group.selectedIndex = selected
@@ -68,23 +85,38 @@ final class SettingsTabsToolbar: NSObject {
         let original = toolbar.delegate
         let proxy = DelegateProxy(original: original, item: group)
         toolbar.delegate = proxy
-        toolbar.insertItem(withItemIdentifier: Self.identifier, at: toolbar.items.count)
+        toolbar.insertItem(withItemIdentifier: identifier, at: toolbar.items.count)
         toolbar.delegate = original
-        guard toolbar.items.contains(where: { $0.itemIdentifier == Self.identifier }) else { return false }
-        toolbar.centeredItemIdentifiers = [Self.identifier]
+        guard toolbar.items.contains(where: { $0.itemIdentifier == identifier }) else { return false }
+        toolbar.centeredItemIdentifiers = [identifier]
+        stopObserving()
+        let id = identifier
         removalObserver = NotificationCenter.default.addObserver(
             forName: NSToolbar.didRemoveItemNotification, object: toolbar, queue: .main
         ) { [weak self] note in
-            guard (note.userInfo?["item"] as? NSToolbarItem)?.itemIdentifier == Self.identifier else { return }
-            MainActor.assumeIsolated {
-                guard let self, self.group != nil else { return }
-                self.stopObserving()
-                self.group = nil
-                self.toolbar = nil
-                self.onLost?()
-            }
+            guard (note.userInfo?["item"] as? NSToolbarItem)?.itemIdentifier == id else { return }
+            MainActor.assumeIsolated { self?.dropped() }
         }
         return true
+    }
+
+    /// The toolbar let go of the tabs behind our back: add them again
+    /// once SwiftUI has finished rebuilding; give up only if that fails.
+    private func dropped() {
+        guard let group else { return }
+        let selected = group.selectedIndex
+        stopObserving()
+        self.group = nil
+        self.toolbar = nil
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard let window = self.window, self.install(in: window, titles: self.titles, selected: selected) else {
+                    self.onLost?()
+                    return
+                }
+            }
+        }
     }
 
     private func stopObserving() {
@@ -95,11 +127,12 @@ final class SettingsTabsToolbar: NSObject {
     func uninstall() {
         stopObserving()
         guard let toolbar else { return }
-        if let index = toolbar.items.firstIndex(where: { $0.itemIdentifier == Self.identifier }) {
+        if let index = toolbar.items.firstIndex(where: { $0.itemIdentifier == identifier }) {
             toolbar.removeItem(at: index)
         }
-        toolbar.centeredItemIdentifiers.remove(Self.identifier)
+        toolbar.centeredItemIdentifiers.remove(identifier)
         self.toolbar = nil
+        window = nil
         group = nil
     }
 
@@ -144,5 +177,28 @@ private final class DelegateProxy: NSObject, NSToolbarDelegate {
 
     override func forwardingTarget(for aSelector: Selector!) -> Any? {
         original
+    }
+}
+
+/// Hands over the window a view lands in (nil when it leaves one) —
+/// after SwiftUI has put its own toolbar items in place.
+struct WindowFinder: NSViewRepresentable {
+    let found: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView { Probe(found: found) }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class Probe: NSView {
+        let found: (NSWindow?) -> Void
+        init(found: @escaping (NSWindow?) -> Void) {
+            self.found = found
+            super.init(frame: .zero)
+        }
+        required init?(coder: NSCoder) { fatalError() }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            let window = self.window
+            DispatchQueue.main.async { self.found(window) }
+        }
     }
 }

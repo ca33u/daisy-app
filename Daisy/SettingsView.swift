@@ -212,8 +212,8 @@ struct SettingsView: View {
     /// child — that's why early onboarding clicks felt broken
     /// (user wanted Summary, got Capture).
     @State private var settingsTab: SettingsTab = .general
-    /// The tabs as the toolbar's own tab control (see SettingsTabsToolbar).
-    @State private var toolbarTabs = SettingsTabsToolbar()
+    /// The tabs as the toolbar's own tab control (see ToolbarTabs).
+    @State private var toolbarTabs = ToolbarTabs(identifier: "app.essazanov.Daisy.settingsTabs")
     @State private var toolbarTabsInstalled = false
     /// Live `/api/tags` model list for the Ollama picker (empty until
     /// fetched / when the server is unreachable → static catalog).
@@ -3874,25 +3874,3 @@ enum TestResult: Equatable {
 }
 
 
-/// Hands over the window this view lands in (nil when it leaves one).
-private struct WindowFinder: NSViewRepresentable {
-    let found: (NSWindow?) -> Void
-
-    func makeNSView(context: Context) -> NSView { Probe(found: found) }
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    final class Probe: NSView {
-        let found: (NSWindow?) -> Void
-        init(found: @escaping (NSWindow?) -> Void) {
-            self.found = found
-            super.init(frame: .zero)
-        }
-        required init?(coder: NSCoder) { fatalError() }
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            let window = self.window
-            // After SwiftUI has put its own toolbar items in place.
-            DispatchQueue.main.async { self.found(window) }
-        }
-    }
-}
