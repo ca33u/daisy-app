@@ -35,6 +35,11 @@ public nonisolated final class DiarizationBlockPass: @unchecked Sendable {
     #endif
 
     public private(set) var secondsHeard: Double = 0
+    /// Blocks handed in and blocks that failed, with the first error —
+    /// so «no voices» can be told apart from «could not listen».
+    public private(set) var blocks = 0
+    public private(set) var failedBlocks = 0
+    public private(set) var firstError: String?
 
     /// One block of 16 kHz mono samples starting at `atSec`. Blocks under
     /// three seconds are skipped (as on the Mac); a failing block loses
@@ -42,11 +47,14 @@ public nonisolated final class DiarizationBlockPass: @unchecked Sendable {
     public func process(samples: [Float], atSec: Double) {
         #if canImport(FluidAudio)
         guard samples.count > PhoneDiarizer.minimumSamples else { return }
+        blocks += 1
         do {
             let result = try manager.performCompleteDiarization(samples, atTime: atSec)
             raw.append(contentsOf: result.segments)
             secondsHeard += Double(samples.count) / 16_000
         } catch {
+            failedBlocks += 1
+            if firstError == nil { firstError = String(describing: error) }
             log.error("Diarization of the block at \(Int(atSec), privacy: .public) s failed: \(error.localizedDescription, privacy: .public)")
         }
         #endif

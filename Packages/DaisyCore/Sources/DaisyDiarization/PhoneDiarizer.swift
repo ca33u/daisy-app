@@ -22,6 +22,7 @@ import Foundation
 import os
 
 #if canImport(FluidAudio)
+import CoreML
 import FluidAudio
 #endif
 
@@ -111,9 +112,21 @@ public final class PhoneDiarizer {
     }
 
     #if canImport(FluidAudio)
+    /// CPU and Neural Engine, never the GPU (26.09). FluidAudio's default
+    /// is `.all`, and iOS refuses GPU work from an app in the background:
+    /// a 1 h 48 min watch recording, diarized by the queue with the app
+    /// put away, failed every block and came out all «Me» — the same
+    /// audio in the foreground gave 8 voices. Whisper already runs this
+    /// way and decodes in the background fine.
+    nonisolated static var modelConfiguration: MLModelConfiguration {
+        let configuration = MLModelConfiguration()
+        configuration.computeUnits = .cpuAndNeuralEngine
+        return configuration
+    }
+
     private func loadedModels() async throws -> DiarizerModels {
         if let models { return models }
-        let loaded = try await DiarizerModels.downloadIfNeeded()
+        let loaded = try await DiarizerModels.downloadIfNeeded(configuration: Self.modelConfiguration)
         models = loaded
         return loaded
     }
@@ -136,7 +149,7 @@ public final class PhoneDiarizer {
     /// its models simply keeps `Me` on every line. Loads and drops them.
     public static func prefetchModels() async throws {
         #if canImport(FluidAudio)
-        _ = try await DiarizerModels.downloadIfNeeded()
+        _ = try await DiarizerModels.downloadIfNeeded(configuration: Self.modelConfiguration)
         #else
         throw PhoneDiarizerError.unavailable
         #endif
