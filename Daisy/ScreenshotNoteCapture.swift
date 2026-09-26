@@ -82,25 +82,49 @@ final class ScreenshotNoteCapture {
 
     var isWatching: Bool { source != nil }
 
+    /// Set while the first look at the folder runs off the main thread.
+    private var starting = false
+
     /// Start watching the folder macOS drops screenshots into. Idempotent.
+    ///
+    /// The first touch of the folder happens off the main thread (26.09).
+    /// Desktop is TCC-protected, and the first read is what raises «Daisy
+    /// would like to access files in your Desktop folder» — the thread
+    /// that asked then waits for the answer. This ran from `DaisyApp.init`
+    /// on the main thread, so a fresh build or a new user with screenshot
+    /// notes on sat with no window at all until the prompt was answered.
     func start() {
-        guard source == nil else { return }
+        guard source == nil, !starting else { return }
         guard let dir = Self.screenshotFolder() else {
             log.error("No screenshot folder resolved — capture not started")
             return
         }
-        // Snapshot what's already there. Everything present now is
-        // history — we only ever react to files that appear later.
-        known = Self.imageNames(in: dir)
+        starting = true
+        Task.detached(priority: .utility) {
+            // Snapshot what's already there. Everything present now is
+            // history — we only ever react to files that appear later.
+            let names = Self.imageNames(in: dir)
+            let fd = open(dir.path, O_EVTONLY)
+            let openError = errno
+            await MainActor.run { self.finishStart(dir: dir, names: names, fd: fd, openError: openError) }
+        }
+    }
 
-        let fd = open(dir.path, O_EVTONLY)
+    private func finishStart(dir: URL, names: Set<String>, fd: CInt, openError: CInt) {
+        // Switched off while the folder was being asked for.
+        guard starting else {
+            if fd >= 0 { close(fd) }
+            return
+        }
+        starting = false
+        known = names
         guard fd >= 0 else {
             // Desktop / Documents / Downloads are TCC-protected: the
             // first open() is what raises the system's "Daisy would like
             // to access files in your Desktop folder" prompt. A denial
             // lands here and must say so — silence is how a feature
             // becomes "it does nothing".
-            log.error("Can't watch \(dir.path, privacy: .private) (errno \(errno, privacy: .public)) — folder access likely denied")
+            log.error("Can't watch \(dir.path, privacy: .private) (errno \(openError, privacy: .public)) — folder access likely denied")
             ToastCenter.shared.show(
                 String(localized: "Daisy can’t see your screenshots folder. Grant access in System Settings → Privacy & Security → Files and Folders."),
                 style: .warning
@@ -140,6 +164,7 @@ final class ScreenshotNoteCapture {
     }
 
     func stop() {
+        starting = false
         source?.cancel()
         source = nil
         watchedFD = -1
