@@ -31,6 +31,9 @@
 import Foundation
 import Observation
 import os
+// CoreML: only for `MLComputeUnits` in WhisperKit's compute options —
+// platform-free, and WhisperKit already stands on it.
+import CoreML
 import WhisperKit
 
 /// `WhisperKit` is a non-Sendable class; the decode runs off the main
@@ -251,6 +254,7 @@ public final class WhisperEngine: Transcribing {
         state = .loading
         let folder = modelDirectory
         let tokenizerFolder = tokenizerDirectory
+        let melOnCPU = melOnCPUOnly
         let started = Date()
         log.info("Whisper: loading \(Self.modelID, privacy: .public) from \(folder.lastPathComponent, privacy: .public)…")
         beginProgress(startedAt: started)
@@ -260,6 +264,7 @@ public final class WhisperEngine: Transcribing {
                 let config = WhisperKitConfig(
                     modelFolder: folder.path,
                     tokenizerFolder: tokenizerFolder,
+                    computeOptions: melOnCPU ? ModelComputeOptions(melCompute: .cpuOnly) : nil,
                     verbose: true,
                     logLevel: .debug,
                     prewarm: false,
@@ -302,6 +307,8 @@ public final class WhisperEngine: Transcribing {
         /// Word timings, seconds into the samples — only when asked for
         /// (rehearsal takes, §3.7); empty otherwise.
         public var words: [WordTiming] = []
+        /// Windows WhisperKit had to decode again at a higher temperature.
+        public var fallbacks = 0
         public init(segments: [TranscriptSegment], language: String?, realTimeFactor: Double, words: [WordTiming] = []) {
             self.segments = segments
             self.language = language
@@ -352,6 +359,19 @@ public final class WhisperEngine: Transcribing {
     /// from WhisperKit's segment-discovery callback — for the system's
     /// continued-processing UI (backlog 7 A-1), which expires a task that
     /// looks stalled.
+    /// Windows WhisperKit decodes at once. Each holds its own decoder
+    /// buffers, so memory rises with it; see the note at the call site.
+    public var concurrentWorkers = 4
+    /// DEBUG measurements only: run `.full` without the temperature
+    /// fallback, to see what the fallback costs. Never set in the app.
+    public var debugWithoutFallback = false
+    /// Where the mel spectrogram runs. WhisperKit's default is CPU+GPU;
+    /// iOS keeps a background app off the GPU. Read at load. Measured on
+    /// the phone 26.09 against the ~800 MB decode spike: on the CPU it did
+    /// not help (3 spikes in 4 passes, against 1 in 4) and each pass was
+    /// slower — so it stays off; kept for the DEBUG probe.
+    public var melOnCPUOnly = false
+
     public func run(
         samples: [Float], profile: Profile = .full, language: String? = nil,
         wordTimestamps: Bool = false,
@@ -367,6 +387,8 @@ public final class WhisperEngine: Transcribing {
         defer { releaseSlot() }
         let origin = Date()
         let started = Date()
+        let workers = concurrentWorkers
+        let withoutFallback = debugWithoutFallback
         let raw = try await Task.detached(priority: .userInitiated) { () throws -> RawPass in
             // The Mac's `DecodeProfile`, minus the bias prompt.
             // `concurrentWorkerCount` 4, not the Mac's 16: a phone has
@@ -395,7 +417,7 @@ public final class WhisperEngine: Transcribing {
             let options = DecodingOptions(
                 task: .transcribe,
                 language: language,
-                temperatureFallbackCount: profile.temperatureFallbackCount,
+                temperatureFallbackCount: withoutFallback ? 0 : profile.temperatureFallbackCount,
                 topK: profile.topK,
                 detectLanguage: language == nil,
                 skipSpecialTokens: true,
@@ -405,7 +427,7 @@ public final class WhisperEngine: Transcribing {
                 compressionRatioThreshold: 2.4,
                 logProbThreshold: -1.0,
                 noSpeechThreshold: 0.4,
-                concurrentWorkerCount: 4,
+                concurrentWorkerCount: workers,
                 chunkingStrategy: profile.chunking
             )
             let audioSeconds = Double(samples.count) / 16_000
@@ -422,6 +444,7 @@ public final class WhisperEngine: Transcribing {
             var segments: [RawSegment] = []
             var words: [WordTiming] = []
             var language: String?
+            let fallbacks = results.reduce(0) { $0 + Int($1.timings.totalDecodingFallbacks) }
             for result in results {
                 if language == nil, !result.language.isEmpty { language = result.language }
                 for s in result.segments {
@@ -436,15 +459,17 @@ public final class WhisperEngine: Transcribing {
                     }
                 }
             }
-            return RawPass(segments: segments, language: language, words: words)
+            return RawPass(segments: segments, language: language, words: words, fallbacks: fallbacks)
         }.value
         let decodeSeconds = Date().timeIntervalSince(started)
         let audioSeconds = Double(samples.count) / 16_000
         let segments = Self.segments(from: raw.segments, origin: origin)
         let rtf = audioSeconds > 0 ? decodeSeconds / audioSeconds : 0
         log.info("Whisper pass: \(Int(audioSeconds), privacy: .public) s audio in \(Int(decodeSeconds), privacy: .public) s (RTF \(String(format: "%.2f", rtf), privacy: .public)), \(segments.count, privacy: .public) segments, language \(raw.language ?? "-", privacy: .public)")
-        return Transcription(segments: segments, language: segments.isEmpty ? nil : raw.language, realTimeFactor: rtf,
-                             words: raw.words.sorted { $0.s < $1.s })
+        var transcription = Transcription(segments: segments, language: segments.isEmpty ? nil : raw.language, realTimeFactor: rtf,
+                                          words: raw.words.sorted { $0.s < $1.s })
+        transcription.fallbacks = raw.fallbacks
+        return transcription
     }
 
     // MARK: - Segments
@@ -464,6 +489,7 @@ public final class WhisperEngine: Transcribing {
         var segments: [RawSegment]
         var language: String?
         var words: [WordTiming] = []
+        var fallbacks = 0
     }
 
     /// WhisperKit segments → transcript segments. Sorted by start; empty

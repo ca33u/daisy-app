@@ -30,6 +30,11 @@ public nonisolated struct SessionDiagnostics: Codable, Sendable, Equatable {
     /// wants from the real phone, per session, not from a one-off run.
     public var transcribeRTF: Double?
     public var peakMemoryMB: Int?
+    /// What iOS lets the app use on this phone, at the start of the job:
+    /// footprint plus headroom (26.09). The peak means little without it —
+    /// 1.9 GB is half of a 15 Pro Max's allowance and most of an older
+    /// phone's. The app fills it; this package has no call for it.
+    public var memoryLimitMB: Int?
 
     public init() {}
 
@@ -43,6 +48,7 @@ public nonisolated struct SessionDiagnostics: Codable, Sendable, Equatable {
         public static let transcribeSec = "daisy_diag_transcribe_sec"
         public static let transcribeRTF = "daisy_diag_transcribe_rtf"
         public static let peakMemoryMB = "daisy_diag_peak_memory_mb"
+        public static let memoryLimitMB = "daisy_diag_memory_limit_mb"
     }
 
     /// Frontmatter lines, in a fixed order, only for the values known.
@@ -57,6 +63,7 @@ public nonisolated struct SessionDiagnostics: Codable, Sendable, Equatable {
         if let v = transcribeSec { out.append(.init(key: Key.transcribeSec, value: String(v))) }
         if let v = transcribeRTF { out.append(.init(key: Key.transcribeRTF, value: String(format: "%.3f", v))) }
         if let v = peakMemoryMB { out.append(.init(key: Key.peakMemoryMB, value: String(v))) }
+        if let v = memoryLimitMB { out.append(.init(key: Key.memoryLimitMB, value: String(v))) }
         return out
     }
 
@@ -71,6 +78,7 @@ public nonisolated struct SessionDiagnostics: Codable, Sendable, Equatable {
         d.transcribeSec = p[Key.transcribeSec].flatMap(Int.init)
         d.transcribeRTF = p[Key.transcribeRTF].flatMap(Double.init)
         d.peakMemoryMB = p[Key.peakMemoryMB].flatMap(Int.init)
+        d.memoryLimitMB = p[Key.memoryLimitMB].flatMap(Int.init)
         return d
     }
 

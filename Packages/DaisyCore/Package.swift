@@ -122,6 +122,16 @@ let package = Package(
                 .defaultIsolation(MainActor.self),
             ]
         ),
+        // 26.09: the phone's ~750 MB decode spike, reproduced where it
+        // can be watched — the same WhisperEngine on a file, memory every
+        // 10 ms, the spike placed on the audio. Run by hand.
+        .executableTarget(
+            name: "DecodeProbe",
+            dependencies: ["DaisyCore"],
+            swiftSettings: [
+                .defaultIsolation(MainActor.self),
+            ]
+        ),
         .testTarget(
             name: "DaisyCoreTests",
             dependencies: ["DaisyCore", "DaisyPalette", "DaisyDesign", "DaisyLink"],
