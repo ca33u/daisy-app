@@ -214,6 +214,18 @@ final class AudioHandoffServer {
 
     // MARK: - Diarization after the fact
 
+    /// `daisy_diarization: true` in the session's transcript.
+    nonisolated static func phoneDiarized(_ session: StoredSession) -> Bool {
+        guard let url = session.transcriptURL,
+              let markdown = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        return phoneDiarized(markdown: markdown)
+    }
+
+    nonisolated static func phoneDiarized(markdown: String) -> Bool {
+        SessionAudioProcessing.frontmatterValue("daisy_diarization", in: markdown)?
+            .trimmingCharacters(in: .whitespaces).lowercased() == "true"
+    }
+
     private func persistPending() {
         try? JSONEncoder().encode(pendingDiarization).write(to: pendingURL, options: .atomic)
     }
@@ -231,6 +243,19 @@ final class AudioHandoffServer {
                 guard let session = SessionStore.shared.sessions.first(where: { $0.id == id }) else {
                     pendingDiarization.removeFirst()
                     persistPending()
+                    continue
+                }
+                // The phone told the voices apart itself (26.09, §3.6):
+                // its owner profile is learnt where it listens — a room,
+                // far from the mouth — and the Mac's, from a close
+                // microphone, would likely not know the owner there. A
+                // second pass would only add a child session with fresh
+                // letters. The audio stays or goes by the usual policy.
+                if Self.phoneDiarized(session) {
+                    log.notice("Audio handoff: \(id, privacy: .public) was diarized on the phone — not again")
+                    pendingDiarization.removeFirst()
+                    persistPending()
+                    purgeIfPolicySays(session.directoryURL)
                     continue
                 }
                 activeDiarization = id

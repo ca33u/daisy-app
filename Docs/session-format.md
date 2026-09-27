@@ -489,9 +489,13 @@ Mac:
   from a lecture.
 
 A transcript without `daisy_diarization` (every segment `Me`) is a first
-pass, not a claim about who spoke. Either way a diarized re-transcription
-on the Mac replaces the phone's in a child session
-(`daisy_parent_session`), as any re-transcription does.
+pass, not a claim about who spoke: when its audio reaches the Mac, the
+Mac diarizes it in a child session (`daisy_parent_session`), as any
+re-transcription does. A transcript with `daisy_diarization: true` stands
+— the Mac does not diarize it again on its own (since 2026-09-26). The
+two devices keep separate owner profiles, each learnt where it listens,
+and the Mac's, from a close microphone, would likely not know the owner
+in a room recording. A re-transcription the user asks for still runs.
 
 ---
 
