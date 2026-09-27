@@ -484,9 +484,10 @@ Mac:
   (rule 3);
 - a voice heard in a single stretch shorter than 4 s joins the voice
   nearest in time, so one person is not split in two;
-- when it finds one voice, it changes nothing: the lines stay `Me` and
-  `daisy_diarization` is not written. One voice cannot tell a voice note
-  from a lecture.
+- when it finds one voice, the lines stay `Me` — one voice cannot tell a
+  voice note from a lecture — but `daisy_diarization: true` is written
+  (since 2026-09-27): the file was listened to, and a reader may treat
+  it as one person speaking (a summary without invented participants).
 
 A transcript without `daisy_diarization` (every segment `Me`) is a first
 pass, not a claim about who spoke: when its audio reaches the Mac, the
