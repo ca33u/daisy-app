@@ -72,7 +72,7 @@ sweep).
 | `transcript.md` | The document. UTF-8, YAML frontmatter + Markdown body. §3 |
 | `summary.json` | AI summary. §4 |
 | `microphone.caf` | The user's own voice — on the Mac. On a phone session (§3.6) it is the whole room |
-| `microphone.part2.caf`, `.part3.caf`, … | Continuation files after a mid-recording format change |
+| `microphone.part2.caf`, `.part3.caf`, … | Continuation files after a mid-recording format change — or, on a phone session (§3.6), a recording **continued later** into the same session ("Continue recording", 2026-09-27). Either way the parts are one timeline, back to back: part N starts where part N−1 ends, the transcript's `[m:ss]` stamps and `duration_sec` count across all of them, and `daisy_audio_parts` lists every part the session has had, even one retention already deleted |
 | `system_audio.caf` | Everyone else. Never split |
 | `system_audio.<ext>` | Imported audio, keeping its original container |
 | `screenshots/001.jpg` … | Captured frames, `%03d` + extension |

@@ -97,6 +97,72 @@ public nonisolated enum TranscriptDocument {
         return lines
     }
 
+    /// A continued recording (27.09): the phone recorded more into a
+    /// session that already has its transcript. The new audio is a
+    /// further `microphone.partN.caf` (§2 — parts are one timeline, back
+    /// to back), so `segments` arrive already shifted onto that timeline.
+    ///
+    /// They go at the end of `## Transcript`; the subtitle's length and
+    /// the `## Screenshots` section (a photo may have been taken during
+    /// the continuation) are rewritten; everything else — the frontmatter,
+    /// edits made to earlier lines, any section below — is left as it is.
+    /// The caller updates `duration_sec` and `daisy_audio_parts`.
+    public static func appending(
+        _ segments: [TranscriptSegment],
+        to markdown: String,
+        duration: TimeInterval,
+        userDisplayName: String?,
+        screenshots: [String: Double]
+    ) -> String {
+        var lines = markdown.components(separatedBy: "\n")
+        // Body starts after the frontmatter's closing `---`.
+        var bodyStart = 0
+        if lines.first == "---", let close = lines.dropFirst().firstIndex(of: "---") { bodyStart = close + 1 }
+
+        // The subtitle: "> recorded <date> · <length>".
+        if let i = lines[bodyStart...].firstIndex(where: { $0.hasPrefix("> recorded ") }),
+           let dot = lines[i].range(of: " · ", options: .backwards) {
+            lines[i] = String(lines[i][..<dot.lowerBound]) + " · " + formatDuration(duration)
+        }
+
+        // Screenshots: out, then back in from the index, above the transcript.
+        if let start = lines[bodyStart...].firstIndex(of: screenshotsHeading) {
+            let end = lines[(start + 1)...].firstIndex { $0.hasPrefix("## ") } ?? lines.count
+            lines.removeSubrange(start..<end)
+        }
+        var transcriptAt = lines[bodyStart...].firstIndex(of: transcriptHeading)
+        if !screenshots.isEmpty {
+            let section = bodyLines(title: "", started: nil, duration: duration, segments: [],
+                                    userDisplayName: nil, screenshots: screenshots)
+                .drop { $0 != screenshotsHeading }
+                .prefix { $0 != transcriptHeading }
+            let at = transcriptAt ?? lines.count
+            lines.insert(contentsOf: section, at: at)
+            transcriptAt = transcriptAt.map { $0 + section.count }
+        }
+
+        // The new lines, at the end of `## Transcript`.
+        var added: [String] = []
+        for segment in segments {
+            let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            let label = segment.speakerLabel(displayName: userDisplayName)
+            added.append("**[\(formatDuration(max(0, segment.startSec))) · \(label)]** \(text)")
+            added.append("")
+        }
+        guard !added.isEmpty else { return lines.joined(separator: "\n") }
+        guard let heading = transcriptAt else {
+            while lines.last == "" { lines.removeLast() }
+            return (lines + ["", transcriptHeading, ""] + added).joined(separator: "\n")
+        }
+        var end = lines[(heading + 1)...].firstIndex { $0.hasPrefix("## ") } ?? lines.count
+        // Before the blank lines that close the section, so the spacing stays one line.
+        while end > heading + 1, lines[end - 1].isEmpty { end -= 1 }
+        let insert = [""] + added.dropLast()
+        lines.insert(contentsOf: insert, at: end)
+        return lines.joined(separator: "\n")
+    }
+
     /// Does this body carry a real transcript — at least one non-empty
     /// line after the literal heading (§7.4)? Read from the file on disk
     /// by callers, never from a flag.
