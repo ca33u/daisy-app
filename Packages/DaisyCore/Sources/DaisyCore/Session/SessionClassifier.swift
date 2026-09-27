@@ -159,6 +159,12 @@ public nonisolated enum SessionClassifier {
                   let d = ISO8601DateFormatter().date(from: markerText.trimmingCharacters(in: .whitespacesAndNewlines)) {
             startedAt = d
         }
+        // A recording still waiting for its transcript reads as the
+        // transcript will name it, not as its folder (27.09, the phone's
+        // rows said «2026-09-27T15-09-44Z» until the queue got there).
+        if !hasTranscript, !isImported, startedAt != .distantPast {
+            title = TranscriptDocument.defaultTitle(for: startedAt)
+        }
         return SessionSummary(
             id: id,
             directoryURL: directory,

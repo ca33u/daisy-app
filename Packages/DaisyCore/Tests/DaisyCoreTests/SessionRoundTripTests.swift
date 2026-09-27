@@ -220,6 +220,7 @@ struct SessionRoundTripTests {
         let row = try #require(SessionClassifier.summarize(directory: url))
         #expect(row.state == .interrupted)        // marker + audio, no transcript
         #expect(row.startedAt == started.addingTimeInterval(1))   // from the marker
+        #expect(row.title == TranscriptDocument.defaultTitle(for: started.addingTimeInterval(1)))   // not the folder id
         // Finishing pass: transcript lands, marker goes.
         try SessionWriter.finish(directory: url, transcript: "---\ntitle: \"done\"\nstarted: 2026-09-08T04:00:01Z\n---\n\n# done\n")
         #expect(!FileManager.default.fileExists(atPath: url.appendingPathComponent(".recording").path))
