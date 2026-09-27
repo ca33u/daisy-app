@@ -226,6 +226,23 @@ struct SessionRoundTripTests {
         #expect(SessionClassifier.classify(directory: url) == .valid)
     }
 
+    @Test func aWaitingImportShowsItsOwnTitleLengthAndFolder() throws {
+        let base = try makeBase()
+        let sessions = try base.ensureSessionsDirectory()
+        let url = sessions.appendingPathComponent("2026-09-27T14-26-28Z", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        try writeBlob(bytes: 1024, as: "microphone.m4a", in: url)
+        try ImportMarker(title: "IMG 5231", startedAt: started, durationSec: 5, folderSlug: "work",
+                         sourcePath: "/tmp/IMG_5231.MOV", originalName: "IMG_5231.MOV",
+                         mode: .copy, importedAt: started).write(to: url)
+        let row = try #require(SessionClassifier.summarize(directory: url))
+        #expect(!row.hasTranscript)
+        #expect(row.title == "IMG 5231")
+        #expect(row.startedAt == started)
+        #expect(row.durationSec == 5)
+        #expect(row.folder == "work")
+    }
+
     @Test func classifierShapes() throws {
         let base = try makeBase()
         let sessions = try base.ensureSessionsDirectory()

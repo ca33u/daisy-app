@@ -147,6 +147,14 @@ public nonisolated enum SessionClassifier {
             if let k = parsed.kind.flatMap(SessionKind.init(rawValue:)) { kind = k }
             origin = parsed["daisy_origin"]
             if let f = parsed["daisy_folder"]?.lowercased(), !f.isEmpty { folder = f }
+        } else if isImported, let marker = ImportMarker.load(from: directory) {
+            // An import waiting for its transcript already knows what it
+            // is — the row said «2026-09-27T14-26-28Z» and no length
+            // until the queue got to it (27.09).
+            title = marker.title
+            startedAt = marker.startedAt
+            durationSec = marker.durationSec
+            if !marker.folderSlug.isEmpty { folder = marker.folderSlug.lowercased() }
         } else if let markerText = try? String(contentsOf: directory.appendingPathComponent(recordingMarkerName), encoding: .utf8),
                   let d = ISO8601DateFormatter().date(from: markerText.trimmingCharacters(in: .whitespacesAndNewlines)) {
             startedAt = d
