@@ -76,6 +76,7 @@ sweep).
 | `system_audio.caf` | Everyone else. Never split |
 | `system_audio.<ext>` | Imported audio, keeping its original container |
 | `screenshots/001.jpg` … | Captured frames, `%03d` + extension |
+| `attachments/<name>.pdf` | Documents attached to the session (phone, 2026-09-28): a deck, a contract, the agenda. Read by the summary and the phone's chat; never synced as files (the text sync carries text only) |
 | `screenshots/index.json` | `{"001.jpg": 12.0}` — filename → seconds into the recording; a value past `duration_sec` means the frame was added after the recording ended (§3.3) |
 | `screenshots/highlights.json` | `["001.jpg", …]` — frames OCR found visually distinct |
 | `markers.json` | Moments the user marked by hotkey, written as they happen |
@@ -344,6 +345,23 @@ The general rule this is an instance of: **`daisy_kind: note` sessions
 have no audio-derived fields.** A voice note is a note with audio and a
 transcript; a screenshot note is a note with neither. Both are notes,
 and neither owes the meeting shape anything.
+
+#### Document notes (phone, 2026-09-28)
+
+A PDF can be a session of its own: a note with no audio whose content is
+the document. It is marked by `daisy_document_note: true` and carries
+`title`, `started`, `duration_sec: 0`, `daisy_kind: note`, `daisy_folder`,
+`daisy_origin` and the marker. The document is in `attachments/`; the
+body is the heading and a relative link to it:
+
+```markdown
+# Launch plan
+
+[Launch plan.pdf](attachments/Launch%20plan.pdf)
+```
+
+`summary.json` is made from the document's text. Like any note it has no
+audio-derived fields, and nothing in it is a transcript.
 
 ### 3.5 The other minimal profile: recovered recordings
 
