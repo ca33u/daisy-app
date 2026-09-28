@@ -509,7 +509,6 @@ extension RecordingSession {
                 let t_writeSummary = Date()
                 let url = directory.appendingPathComponent("summary.json")
                 do {
-                    let data = try JSONEncoder().encode(summary)
                     // Atomic, like every other write in the app. The
                     // second write below replaces this file in place,
                     // and a crash or a full disk halfway through a
@@ -517,7 +516,7 @@ extension RecordingSession {
                     // good summary used to be — decoded with `try?` on
                     // the read side, so it surfaces as "no summary" and
                     // looks like generation failed (audit 2026-09-01).
-                    try data.write(to: url, options: [.atomic])
+                    try SummaryFileWriter.write(summary, to: url)
                     summaryPersisted = true
                 } catch {
                     log.error("Failed to write summary.json: \(error.localizedDescription, privacy: .public)")
@@ -547,7 +546,7 @@ extension RecordingSession {
                     summarizer.adopt(voiced)
                     let url = directory.appendingPathComponent("summary.json")
                     do {
-                        try JSONEncoder().encode(voiced).write(to: url, options: [.atomic])
+                        try SummaryFileWriter.write(voiced, to: url)
                     } catch {
                         log.error("Failed to rewrite summary.json after voice polish: \(error.localizedDescription, privacy: .public)")
                     }

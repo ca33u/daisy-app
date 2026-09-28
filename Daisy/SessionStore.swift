@@ -807,8 +807,7 @@ final class SessionStore {
     func updateSummary(_ summary: MeetingSummary, for session: StoredSession) async -> Bool {
         let url = session.directoryURL.appendingPathComponent("summary.json")
         do {
-            let data = try JSONEncoder().encode(summary)
-            try data.write(to: url, options: .atomic)
+            try SummaryFileWriter.write(summary, to: url)
             await refresh()
             return true
         } catch {
