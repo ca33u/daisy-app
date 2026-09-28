@@ -182,8 +182,14 @@ case "${CHANNEL}" in
     *) echo "  ✗ channel must be 'stable' or 'beta' (got '${CHANNEL}')" >&2; exit 1 ;;
 esac
 DMG_NAME="Daisy-${VERSION}.dmg"
-ARCHIVE_PATH="${DAISY_REPO}/build/Daisy-${VERSION}.xcarchive"
-EXPORT_PATH="${DAISY_REPO}/build/export-${VERSION}"
+# Archives and the export in a `.noindex` folder (2026-09-28): Spotlight
+# and LaunchServices skip it, so the 20-odd Daisy.app copies a release
+# history leaves behind no longer crowd Finder's "Open With" menu. The
+# archive stays for its dSYMs (crash symbolication); the export is only
+# the notarised app on its way into the DMG and is removed after it.
+ARCHIVE_DIR="${DAISY_REPO}/build/archives.noindex"
+ARCHIVE_PATH="${ARCHIVE_DIR}/Daisy-${VERSION}.xcarchive"
+EXPORT_PATH="${ARCHIVE_DIR}/export-${VERSION}"
 DMG_PATH="${DAISY_REPO}/build/${DMG_NAME}"
 APPCAST_FILE="${DAISY_WEB_REPO}/public/appcast.xml"
 
@@ -274,6 +280,7 @@ echo
 # -----------------------------------------------------------------------------
 
 echo "▸ [1/6] xcodebuild archive…"
+mkdir -p "${ARCHIVE_DIR}"
 rm -rf "${ARCHIVE_PATH}"
 xcodebuild \
     -project "${DAISY_REPO}/Daisy.xcodeproj" \
@@ -398,6 +405,9 @@ echo "▸ [4b/6] notarising DMG…"
 notarise_with_retry "${DMG_PATH}" "DMG"
 xcrun stapler staple "${DMG_PATH}"
 echo "  → ${DMG_PATH}"
+# The app is inside the DMG now; the exported copy would only be one more
+# "Daisy (x.y.z)" in "Open With".
+rm -rf "${EXPORT_PATH}"
 echo
 
 # -----------------------------------------------------------------------------
