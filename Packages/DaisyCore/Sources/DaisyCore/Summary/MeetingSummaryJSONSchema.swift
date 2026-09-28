@@ -37,7 +37,11 @@ public nonisolated enum MeetingSummaryJSONSchema {
           "type": "array",
           "items": { "type": "string" }
         },
-        "clientFollowUp": { "type": "string" }
+        "clientFollowUp": { "type": "string" },
+        "actions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/action" }
+        }
       },
       "required": ["summary", "sections", "actionItems", "clientFollowUp"],
       "$defs": {
@@ -52,6 +56,19 @@ public nonisolated enum MeetingSummaryJSONSchema {
             }
           },
           "required": ["title", "bullets"]
+        },
+        "action": {
+          "type": "object",
+          "properties": {
+            "text": { "type": "string" },
+            "kind": { "enum": ["meeting", "email", "message", "task", "code", "bug", "feature", "decision", "question", "other"] },
+            "owner": { "type": ["string", "null"] },
+            "due": { "type": ["string", "null"] },
+            "with": { "type": "array", "items": { "type": "string" } },
+            "confidence": { "type": "number" },
+            "payload": { "type": ["object", "null"] }
+          },
+          "required": ["text", "kind"]
         },
         "bullet": {
           "type": "object",

@@ -117,6 +117,26 @@ public nonisolated enum SummaryPrompt {
           "actionItems": [
             "Imperative next step. If the transcript identifies the owner (someone said 'I'll send the X' or another participant assigned it to them), prefix with the owner's name or role and a colon: 'Maria: send the contract by Thursday'. Otherwise just the imperative."
           ],
+          "actions": [
+            {
+              "text": "The same next step as the actionItems entry at the same position, without the owner prefix.",
+              "kind": "One of: meeting (a call or meeting to set up), email (an email to send), message (a chat or text message), task (a to-do), code (a change to code), bug, feature, decision (something decided, no action), question (left open), other.",
+              "owner": "Who does it, as named in the transcript; \"me\" when it is the person who recorded the meeting; null when nobody was named.",
+              "due": "ISO 8601 date (2026-10-03) or date-time (2026-10-03T15:00) ONLY when a day or time was said; resolve relative days ('by Friday') from the meeting date given with the title; null otherwise.",
+              "with": ["Names of the people the step involves (attendees, recipients) — names only, never email addresses."],
+              "confidence": "Number 0-1: 1 when the step was said outright, lower when you inferred it.",
+              "payload": {
+                "title": "For meeting: its name. Otherwise null.",
+                "attendees": ["For meeting: who should be there."],
+                "start": "For meeting: ISO 8601 date-time only if said.",
+                "durationMinutes": "For meeting: number only if said.",
+                "to": ["For email/message: recipient names."],
+                "subject": "For email: a short subject line.",
+                "points": ["For email/message: the 1-4 points it must make."],
+                "location": "For code/bug/feature: where (repo, screen, file) only if said."
+              }
+            }
+          ],
           "clientFollowUp": "Ready-to-send follow-up message a client / vendor / partner could receive. Second person, polite-professional, 80-180 words. STRUCTURE AS 2-4 SHORT PARAGRAPHS SEPARATED BY A BLANK LINE (\\n\\n). Suggested shape: (1) one-line opener acknowledging the meeting / thanks for time; (2) short paragraph recapping what was discussed / agreed; (3) explicit next concrete step(s) with owner and timeline; (4) optional one-line sign-off only if it adds something (a question, an offer to follow up). Do NOT cram everything into one wall of text — short paragraphs are the whole point. \(followUpGate)"
         }
 
@@ -133,6 +153,9 @@ public nonisolated enum SummaryPrompt {
             outline. Putting them in BOTH places creates a visible
             duplicate. Sections should describe what was DISCUSSED;
             actionItems captures what comes NEXT.
+          - `actions` has exactly one object per `actionItems` entry, in
+            the same order. Never invent a date, a time, a recipient or an
+            owner that the transcript does not contain — leave it null.
           - Empty sections array is acceptable ONLY if the transcript
             is so short (<30 seconds of substantive content) that an
             outline would be padding; in that case put the gist in

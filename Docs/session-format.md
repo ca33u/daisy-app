@@ -561,13 +561,27 @@ applies as for any phone session.
                         "bullets": [ { "text": "string",
                                        "children": [ /* bullets */ ] } ] } ],
   "actionItems":    [ "string" ],
-  "clientFollowUp": "string"
+  "clientFollowUp": "string",
+  "actions":        [ { "id": "string", "text": "string", "kind": "meeting|email|message|task|code|bug|feature|decision|question|other",
+                        "owner": "string|null", "due": "ISO 8601 date or date-time|null", "with": [ "string" ],
+                        "confidence": 0.0, "payload": { /* title, attendees, start, durationMinutes, to, subject, points, location */ },
+                        "status": { "state": "done|sent|scheduled", "at": "ISO 8601", "destination": "string",
+                                    "identifier": "string" } } ]   // phone, 2026-09-28
 }
 ```
 
-All four keys are always written, including empty arrays and strings.
-Unknown keys are ignored on read — older files carry `decisions` and
-`followUps`, which no longer mean anything.
+All four original keys are always written, including empty arrays and
+strings. Unknown keys are ignored on read — older files carry `decisions`
+and `followUps`, which no longer mean anything.
+
+`actions` (the phone, 2026-09-28, backlog 22) is the same list as
+`actionItems`, one object per string in the same order, typed so an action
+can be made from it; `status` records what it became (a calendar event, a
+reminder, a sent mail) and is written back into this file. It is written
+**beside** `actionItems`, never instead: a reader that knows only the
+strings keeps working. A file without `actions` reads as one `other` item
+per string. A writer that does not know `actions` drops it when it
+rewrites the file — the strings survive, the types and statuses do not.
 
 **Writes must be atomic.** A torn write leaves truncated JSON, and
 because reads are best-effort, the user simply sees no summary and never

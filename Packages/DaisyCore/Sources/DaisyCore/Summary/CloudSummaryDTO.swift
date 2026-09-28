@@ -15,6 +15,9 @@ nonisolated struct CloudSummaryDTO: Codable {
     let sections: [DTOSection]?
     let actionItems: [String]?
     let clientFollowUp: String?
+    /// Backlog 22 Д-0; absent from older prompts and from the proxy until
+    /// it carries them — then the strings stand alone.
+    let actions: [DTOAction]?
 
     func toMeetingSummary() -> MeetingSummary {
         let lede: String = {
@@ -27,8 +30,16 @@ nonisolated struct CloudSummaryDTO: Codable {
             summary: lede,
             sections: (sections ?? []).map { $0.toSummarySection() },
             actionItems: actionItems ?? [],
-            clientFollowUp: clientFollowUp ?? ""
+            clientFollowUp: clientFollowUp ?? "",
+            actions: typedActions
         )
+    }
+
+    /// The typed list, one per string when the model kept to the order;
+    /// nil (so the strings stand alone) when it returned none.
+    private var typedActions: [ActionItem]? {
+        guard let actions, !actions.isEmpty else { return nil }
+        return actions.compactMap { $0.toActionItem() }
     }
 
     var isEffectivelyEmpty: Bool {
@@ -143,5 +154,97 @@ nonisolated struct DTOBullet: Codable {
 
     func toSummaryBullet() -> SummaryBullet {
         SummaryBullet(text: text, children: (children ?? []).map { $0.toSummaryBullet() })
+    }
+}
+
+/// One `actions` entry as a model writes it — every field optional, kinds
+/// and numbers tolerated in whatever shape they come.
+nonisolated struct DTOAction: Codable {
+    let text: String?
+    let kind: String?
+    let owner: String?
+    let due: String?
+    let people: [String]?
+    let confidence: Double?
+    let payload: DTOPayload?
+
+    enum CodingKeys: String, CodingKey {
+        case text, kind, owner, due, people = "with", confidence, payload
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        text = try? c.decodeIfPresent(String.self, forKey: .text)
+        kind = try? c.decodeIfPresent(String.self, forKey: .kind)
+        owner = try? c.decodeIfPresent(String.self, forKey: .owner)
+        due = try? c.decodeIfPresent(String.self, forKey: .due)
+        people = (try? c.decodeIfPresent([String].self, forKey: .people))
+            ?? (try? c.decodeIfPresent(String.self, forKey: .people)).flatMap { $0.map { [$0] } }
+        if let number = try? c.decodeIfPresent(Double.self, forKey: .confidence) {
+            confidence = number
+        } else if let string = try? c.decodeIfPresent(String.self, forKey: .confidence) {
+            confidence = Double(string)
+        } else {
+            confidence = nil
+        }
+        payload = try? c.decodeIfPresent(DTOPayload.self, forKey: .payload)
+    }
+
+    func toActionItem() -> ActionItem? {
+        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        let kind = kind.flatMap { ActionItem.Kind(rawValue: $0.lowercased().trimmingCharacters(in: .whitespaces)) } ?? .other
+        func clean(_ s: String?) -> String? {
+            guard let s = s?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty,
+                  !["null", "none", "n/a", "-"].contains(s.lowercased()) else { return nil }
+            return s
+        }
+        let dueValue = clean(due).flatMap { ActionItem.date(from: $0) != nil ? $0 : nil }
+        let mapped = payload?.toPayload()
+        return ActionItem(text: text, kind: kind, owner: clean(owner), due: dueValue,
+                          with: (people ?? []).compactMap(clean),
+                          confidence: min(1, max(0, confidence ?? 1)),
+                          payload: mapped?.isEmpty == true ? nil : mapped)
+    }
+}
+
+nonisolated struct DTOPayload: Codable {
+    let title: String?
+    let attendees: [String]?
+    let start: String?
+    let durationMinutes: Int?
+    let to: [String]?
+    let subject: String?
+    let points: [String]?
+    let location: String?
+
+    enum CodingKeys: String, CodingKey {
+        case title, attendees, start, durationMinutes, to, subject, points, location
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        title = try? c.decodeIfPresent(String.self, forKey: .title)
+        attendees = try? c.decodeIfPresent([String].self, forKey: .attendees)
+        start = try? c.decodeIfPresent(String.self, forKey: .start)
+        durationMinutes = (try? c.decodeIfPresent(Int.self, forKey: .durationMinutes))
+            ?? (try? c.decodeIfPresent(Double.self, forKey: .durationMinutes)).flatMap { $0.map { Int($0) } }
+        to = (try? c.decodeIfPresent([String].self, forKey: .to))
+            ?? (try? c.decodeIfPresent(String.self, forKey: .to)).flatMap { $0.map { [$0] } }
+        subject = try? c.decodeIfPresent(String.self, forKey: .subject)
+        points = try? c.decodeIfPresent([String].self, forKey: .points)
+        location = try? c.decodeIfPresent(String.self, forKey: .location)
+    }
+
+    func toPayload() -> ActionItem.Payload {
+        func clean(_ s: String?) -> String? {
+            guard let s = s?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty, s.lowercased() != "null" else { return nil }
+            return s
+        }
+        return ActionItem.Payload(
+            title: clean(title), attendees: attendees?.compactMap(clean),
+            start: clean(start).flatMap { ActionItem.date(from: $0) != nil ? $0 : nil },
+            durationMinutes: durationMinutes.flatMap { $0 > 0 && $0 <= 600 ? $0 : nil },
+            to: to?.compactMap(clean), subject: clean(subject), points: points?.compactMap(clean),
+            location: clean(location))
     }
 }

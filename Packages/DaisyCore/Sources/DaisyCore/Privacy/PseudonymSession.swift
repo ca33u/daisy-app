@@ -103,7 +103,25 @@ public nonisolated struct PseudonymSession: Sendable {
             summary: restore(summary.summary),
             sections: summary.sections.map { SummarySection(title: restore($0.title), bullets: $0.bullets.map(bullet)) },
             actionItems: summary.actionItems.map { restore($0) },
-            clientFollowUp: restore(summary.clientFollowUp))
+            clientFollowUp: restore(summary.clientFollowUp),
+            // Backlog 22: the typed steps carry names too — owner, people,
+            // recipients — and must come back with them, not as markers.
+            actions: summary.actions.map { action in
+                var a = action
+                a.text = restore(a.text)
+                a.owner = a.owner.map { restore($0) }
+                a.with = a.with.map { restore($0) }
+                if var p = a.payload {
+                    p.title = p.title.map { restore($0) }
+                    p.attendees = p.attendees?.map { restore($0) }
+                    p.to = p.to?.map { restore($0) }
+                    p.subject = p.subject.map { restore($0) }
+                    p.points = p.points?.map { restore($0) }
+                    p.location = p.location.map { restore($0) }
+                    a.payload = p
+                }
+                return a
+            })
     }
 
     // MARK: - Protect

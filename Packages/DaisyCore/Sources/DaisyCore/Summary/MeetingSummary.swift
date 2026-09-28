@@ -19,12 +19,19 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
     public let actionItems: [String]
     /// Ready-to-send follow-up; empty for purely internal meetings.
     public let clientFollowUp: String
+    /// Backlog 22 Д-0: the same next steps as records — kind, owner, due,
+    /// people, confidence, and the status an action gave them. Written
+    /// beside `actionItems`, never instead of it; derived from the strings
+    /// when a file does not carry it.
+    public private(set) var actions: [ActionItem]
 
-    public init(summary: String, sections: [SummarySection] = [], actionItems: [String], clientFollowUp: String) {
+    public init(summary: String, sections: [SummarySection] = [], actionItems: [String], clientFollowUp: String,
+                actions: [ActionItem]? = nil) {
         self.summary = summary
         self.sections = sections
         self.actionItems = actionItems
         self.clientFollowUp = clientFollowUp
+        self.actions = actions ?? actionItems.enumerated().map { ActionItem.legacy($1, index: $0) }
     }
 
     public init(from decoder: Decoder) throws {
@@ -33,6 +40,8 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
         sections = try c.decodeIfPresent([SummarySection].self, forKey: .sections) ?? []
         actionItems = try c.decodeIfPresent([String].self, forKey: .actionItems) ?? []
         clientFollowUp = try c.decodeIfPresent(String.self, forKey: .clientFollowUp) ?? ""
+        let typed = (try? c.decodeIfPresent([ActionItem].self, forKey: .actions)) ?? nil
+        actions = typed ?? actionItems.enumerated().map { ActionItem.legacy($1, index: $0) }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -41,10 +50,18 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
         try c.encode(sections, forKey: .sections)
         try c.encode(actionItems, forKey: .actionItems)
         try c.encode(clientFollowUp, forKey: .clientFollowUp)
+        try c.encode(actions, forKey: .actions)
+    }
+
+    /// The same summary with one action's status changed.
+    public func setting(_ status: ActionItem.Status?, forAction id: String) -> MeetingSummary {
+        var copy = self
+        if let index = copy.actions.firstIndex(where: { $0.id == id }) { copy.actions[index].status = status }
+        return copy
     }
 
     private enum CodingKeys: String, CodingKey {
-        case summary, sections, actionItems, clientFollowUp
+        case summary, sections, actionItems, clientFollowUp, actions
     }
 }
 
@@ -103,6 +120,16 @@ public nonisolated enum SummaryStore {
     }
 
     public enum WriteError: Error { case alreadyExists }
+
+    /// Backlog 22 Д-1: an action's status, written back into the file —
+    /// the one place the phone and the Mac both read.
+    @discardableResult
+    public static func setStatus(_ status: ActionItem.Status?, forAction id: String, in directory: URL) -> MeetingSummary? {
+        guard let summary = read(from: directory) else { return nil }
+        let updated = summary.setting(status, forAction: id)
+        try? write(updated, to: directory, replacing: true)
+        return updated
+    }
 
     /// Бэклог 15 П-3: `replacing` is how "Re-summarize" gets past the
     /// guard below. The guard exists so a retry after a crash cannot

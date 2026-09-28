@@ -41,7 +41,8 @@ struct SummaryTests {
         try SummaryStore.write(summary, to: dir)
 
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: SummaryStore.url(in: dir))) as? [String: Any]
-        #expect(Set(json?.keys.map { $0 } ?? []) == ["summary", "sections", "actionItems", "clientFollowUp"])
+        // The four keys of §4, plus `actions` beside the strings (backlog 22).
+        #expect(Set(json?.keys.map { $0 } ?? []) == ["summary", "sections", "actionItems", "clientFollowUp", "actions"])
         #expect(SummaryStore.read(from: dir) == summary)
 
         #expect(throws: SummaryStore.WriteError.self) {
