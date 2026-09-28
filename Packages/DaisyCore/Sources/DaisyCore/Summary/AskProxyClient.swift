@@ -31,7 +31,8 @@ public nonisolated struct AskProxyClient: Sendable {
 
     /// `history` is the earlier turns, oldest first (question, answer).
     public func ask(question: String, sources: [AskPrompt.Source], history: [CloudText.Message],
-                    today: String, credential: ProxyCredential, knownPeople: [String]) async throws -> Result {
+                    today: String, answerLanguage: String? = nil, credential: ProxyCredential,
+                    knownPeople: [String]) async throws -> Result {
         var pseudonyms = PseudonymSession(knownPeople: knownPeople)
         let protectedSources = sources.map { source -> AskPrompt.Source in
             var s = source
@@ -40,7 +41,8 @@ public nonisolated struct AskProxyClient: Sendable {
             s.pieces = s.pieces.map { ($0.0, pseudonyms.protect($0.1)) }
             return s
         }
-        let material = AskPrompt.user(question: pseudonyms.protect(question), sources: protectedSources, today: today)
+        let material = AskPrompt.user(question: pseudonyms.protect(question), sources: protectedSources, today: today,
+                                      answerLanguage: answerLanguage)
         let turns = history.suffix(AskLimits.historyTurns * 2).map { ["role": $0.role.rawValue, "text": pseudonyms.protect($0.text)] }
         let body: [String: Any] = [
             "material": material,

@@ -66,7 +66,10 @@ public nonisolated enum AskPrompt {
 
     /// The user turn: the material, then the question. Names are markers
     /// by then on the proxy path; the phone restores them in the answer.
-    public static func user(question: String, sources: [Source], today: String) -> String {
+    /// `answerLanguage`: the question's language as the phone detected it
+    /// (English name). Said outright, because with mostly Russian material
+    /// an English question got a Russian answer (phone, 28.09).
+    public static func user(question: String, sources: [Source], today: String, answerLanguage: String? = nil) -> String {
         var parts: [String] = ["Today is \(today).", "Meeting material:"]
         for source in sources {
             var block = "=== Meeting \(source.number): \(neutralized(source.title)) — \(source.date) ==="
@@ -82,6 +85,7 @@ public nonisolated enum AskPrompt {
             parts.append(block)
         }
         parts.append("=== End of material ===")
+        if let answerLanguage { parts.append("Answer in \(answerLanguage), the language of the question.") }
         parts.append("Question: \(question)")
         return parts.joined(separator: "\n\n")
     }
