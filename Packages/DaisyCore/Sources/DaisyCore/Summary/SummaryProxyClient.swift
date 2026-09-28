@@ -15,6 +15,21 @@
 
 import Foundation
 
+/// What lets the phone use Daisy's proxy (backlog 19 А-1): a live
+/// subscription Apple signed, or the trial — the first three summaries or
+/// questions, counted by the server per device token.
+public nonisolated enum ProxyCredential: Sendable, Equatable {
+    case subscription(String)
+    case trial(String)
+
+    var fields: [String: Any] {
+        switch self {
+        case .subscription(let jws): ["signedTransaction": jws]
+        case .trial(let token): ["trialToken": token]
+        }
+    }
+}
+
 public nonisolated struct SummaryProxyClient: Sendable {
     /// Where `daisy-api` answers. Not live until it is deployed.
     public static let defaultEndpoint = URL(string: "https://api.mydaisy.io/api/summary")!
@@ -22,6 +37,8 @@ public nonisolated struct SummaryProxyClient: Sendable {
     public enum Failure: LocalizedError, Equatable, Sendable {
         /// The subscription ran out, was refunded, or the receipt is not ours.
         case subscription
+        /// The free three are used; a subscription is next.
+        case trialUsed
         /// Today's characters are spent, or too many requests this minute.
         case limit
         /// The provider refused or answered with something that is not a summary.
@@ -33,6 +50,7 @@ public nonisolated struct SummaryProxyClient: Sendable {
         public var errorDescription: String? {
             switch self {
             case .subscription: "The summary subscription isn't active. The transcript is safe; renew to get the summary."
+            case .trialUsed: "Your free summaries and questions are used. The transcript is safe; subscribe to get the summary."
             case .limit: "Today's summary allowance is used up. The transcript is safe; the summary will be made later."
             case .provider: "The summary service couldn't make this summary. The transcript is safe; Daisy will try again."
             case .server: "Daisy's summary server can't be reached. The transcript is safe; Daisy will try again."
@@ -45,6 +63,8 @@ public nonisolated struct SummaryProxyClient: Sendable {
         public let summary: MeetingSummary
         /// What was replaced before sending — shown to the person.
         public let report: SensitiveDataProtectionReport
+        /// Free uses left, when this one was on the trial.
+        public let trialRemaining: Int?
     }
 
     let endpoint: URL
@@ -57,7 +77,7 @@ public nonisolated struct SummaryProxyClient: Sendable {
 
     public func summarize(
         transcript: String, title: String, localeHint: String?, singleVoice: Bool,
-        signedTransaction: String, knownPeople: [String]
+        credential: ProxyCredential, knownPeople: [String]
     ) async throws -> Result {
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > 40 else { throw Failure.tooShort }
@@ -66,12 +86,11 @@ public nonisolated struct SummaryProxyClient: Sendable {
         let sentTitle = pseudonyms.protect(title)
         let sentTranscript = pseudonyms.protect(trimmed)
         let body: [String: Any] = [
-            "signedTransaction": signedTransaction,
             "title": sentTitle,
             "transcript": sentTranscript,
             "localeHint": localeHint as Any,
             "singleVoice": singleVoice,
-        ]
+        ].merging(credential.fields) { a, _ in a }
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
@@ -89,6 +108,7 @@ public nonisolated struct SummaryProxyClient: Sendable {
         switch status {
         case 200: break
         case 401: throw Failure.subscription
+        case 402: throw Failure.trialUsed
         case 429: throw Failure.limit
         case 502: throw Failure.provider
         case 400:
@@ -99,6 +119,7 @@ public nonisolated struct SummaryProxyClient: Sendable {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let text = json["text"] as? String else { throw Failure.provider }
         let summary = try CloudSummaryCall.decode(text, provider: "Daisy")
-        return Result(summary: pseudonyms.restore(summary), report: pseudonyms.report)
+        return Result(summary: pseudonyms.restore(summary), report: pseudonyms.report,
+                      trialRemaining: json["trialRemaining"] as? Int)
     }
 }

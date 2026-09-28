@@ -45,7 +45,7 @@ struct SummaryProxyClientTests {
         ProxyStub.reply = ["text": #"{"summary":"[[DAISY_PERSON_001]] передаёт клиентов [[DAISY_PERSON_002]]","sections":[],"actionItems":["Написать [[DAISY_EMAIL_001]]"],"clientFollowUp":""}"#]
         let result = try await client().summarize(
             transcript: transcript, title: "AIBY | Мария и Влад", localeHint: "ru", singleVoice: false,
-            signedTransaction: "jws", knownPeople: ["Мария", "Влад", "Кирилл"])
+            credential: .subscription("jws"), knownPeople: ["Мария", "Влад", "Кирилл"])
 
         let sent = String(describing: ProxyStub.lastBody)
         for secret in ["Мария", "Влад", "Кирилл", "kirill@aiby.com"] {
@@ -74,14 +74,27 @@ struct SummaryProxyClientTests {
     }
 
     @Test func threeFailuresAreThreeDifferentThings() async {
-        let cases: [(Int, SummaryProxyClient.Failure)] = [(401, .subscription), (429, .limit), (502, .provider), (500, .server)]
+        let cases: [(Int, SummaryProxyClient.Failure)] = [(401, .subscription), (402, .trialUsed), (429, .limit),
+                                                          (502, .provider), (500, .server)]
         for (status, expected) in cases {
             ProxyStub.status = status
             ProxyStub.reply = ["error": "x"]
             await #expect(throws: expected) {
                 try await client().summarize(transcript: transcript, title: "t", localeHint: nil, singleVoice: false,
-                                             signedTransaction: "jws", knownPeople: [])
+                                             credential: .subscription("jws"), knownPeople: [])
             }
         }
+    }
+
+    /// Backlog 19 А-1: before a subscription, the device token goes instead
+    /// of a transaction, and the server's count of free uses comes back.
+    @Test func theTrialSendsTheTokenAndReadsWhatIsLeft() async throws {
+        ProxyStub.status = 200
+        ProxyStub.reply = ["text": #"{"summary":"s","sections":[],"actionItems":[],"clientFollowUp":""}"#, "trialRemaining": 2]
+        let result = try await client().summarize(transcript: transcript, title: "t", localeHint: nil, singleVoice: false,
+                                                  credential: .trial("3F2504E0-4F89-41D3-9A0C-0305E82C3301"), knownPeople: [])
+        #expect(ProxyStub.lastBody["trialToken"] as? String == "3F2504E0-4F89-41D3-9A0C-0305E82C3301")
+        #expect(ProxyStub.lastBody["signedTransaction"] == nil)
+        #expect(result.trialRemaining == 2)
     }
 }

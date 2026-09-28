@@ -25,11 +25,13 @@ public nonisolated struct AskProxyClient: Sendable {
     public struct Result: Sendable {
         public let answer: String
         public let report: SensitiveDataProtectionReport
+        /// Free uses left, when this question was on the trial.
+        public let trialRemaining: Int?
     }
 
     /// `history` is the earlier turns, oldest first (question, answer).
     public func ask(question: String, sources: [AskPrompt.Source], history: [CloudText.Message],
-                    today: String, signedTransaction: String, knownPeople: [String]) async throws -> Result {
+                    today: String, credential: ProxyCredential, knownPeople: [String]) async throws -> Result {
         var pseudonyms = PseudonymSession(knownPeople: knownPeople)
         let protectedSources = sources.map { source -> AskPrompt.Source in
             var s = source
@@ -41,10 +43,9 @@ public nonisolated struct AskProxyClient: Sendable {
         let material = AskPrompt.user(question: pseudonyms.protect(question), sources: protectedSources, today: today)
         let turns = history.suffix(AskLimits.historyTurns * 2).map { ["role": $0.role.rawValue, "text": pseudonyms.protect($0.text)] }
         let body: [String: Any] = [
-            "signedTransaction": signedTransaction,
             "material": material,
             "history": turns,
-        ]
+        ].merging(credential.fields) { a, _ in a }
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
@@ -61,12 +62,14 @@ public nonisolated struct AskProxyClient: Sendable {
         switch (response as? HTTPURLResponse)?.statusCode ?? 0 {
         case 200: break
         case 401: throw SummaryProxyClient.Failure.subscription
+        case 402: throw SummaryProxyClient.Failure.trialUsed
         case 429: throw SummaryProxyClient.Failure.limit
         case 502: throw SummaryProxyClient.Failure.provider
         default: throw SummaryProxyClient.Failure.server
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let text = json["text"] as? String else { throw SummaryProxyClient.Failure.provider }
-        return Result(answer: pseudonyms.restore(text), report: pseudonyms.report)
+        return Result(answer: pseudonyms.restore(text), report: pseudonyms.report,
+                      trialRemaining: json["trialRemaining"] as? Int)
     }
 }
