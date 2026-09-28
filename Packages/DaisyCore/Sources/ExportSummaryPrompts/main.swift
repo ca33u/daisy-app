@@ -28,6 +28,14 @@ let payload: [String: Any] = [
     // the transcript fences inside the transcript itself.
     "userTemplate": SummaryPrompt.meetingUserPrompt(title: "{{TITLE}}", transcript: "{{TRANSCRIPT}}"),
     "schema": MeetingSummaryJSONSchema.json,
+    // Backlog 21 Ч-1: a question to one's recordings. The phone sends the
+    // material already built (AskPrompt.user), pseudonymized; the server
+    // adds this system prompt and nothing else.
+    "ask": [
+        "system": AskPrompt.system,
+        "maxMaterialChars": AskLimits.contextCharacters + 4_000,
+        "historyTurns": AskLimits.historyTurns,
+    ] as [String: Any],
     // Backlog 17 С-7: the coach's notes on a rehearsal take.
     "feedback": [
         "system": Dictionary(uniqueKeysWithValues: (["auto"] + RehearsalFeedbackPrompt.languages.keys.sorted()).map {
