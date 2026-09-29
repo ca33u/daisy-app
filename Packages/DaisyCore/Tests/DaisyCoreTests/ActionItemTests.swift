@@ -53,6 +53,32 @@ struct ActionItemTests {
         #expect(read.actions.first?.status?.identifier == "E1")
     }
 
+    @Test func notMineAndTheLinkAreWrittenAndOpenMeansNotClosed() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let summary = MeetingSummary(summary: "s", actionItems: ["a", "b"], clientFollowUp: "",
+                                     actions: [ActionItem(id: "a1", text: "a"), ActionItem(id: "a2", text: "b")])
+        try SummaryStore.write(summary, to: dir)
+        SummaryStore.setStatus(.init(state: .dismissed), forAction: "a1", in: dir)
+        SummaryStore.updateAction("a2", in: dir) {
+            $0.status = .init(state: .scheduled, destination: "reminders", identifier: "R1")
+            $0.sameAs = "2026-09-08T09-00-00Z/x7"
+        }
+        let read = try #require(SummaryStore.read(from: dir))
+        #expect(read.actions[0].status?.state == .dismissed)
+        #expect(!read.actions[0].isOpen)
+        #expect(read.actions[1].sameAs == "2026-09-08T09-00-00Z/x7")
+        #expect(read.actions[1].isOpen)
+    }
+
+    @Test func aStateFromALaterBuildStillDecodes() throws {
+        let json = #"{"summary":"s","actionItems":["a"],"clientFollowUp":"","actions":[{"id":"a1","text":"a","kind":"task","with":[],"confidence":1,"status":{"state":"archived","at":"2026-09-29T10:00:00Z"}}]}"#
+        let summary = try JSONDecoder().decode(MeetingSummary.self, from: Data(json.utf8))
+        #expect(summary.actions.first?.id == "a1")
+        #expect(summary.actions.first?.status?.state == .done)
+    }
+
     @Test func mineMeansNoOwnerMeOrMyName() {
         #expect(ActionItem(text: "x").isMine(ownerName: "Egor"))
         #expect(ActionItem(text: "x", owner: "me").isMine(ownerName: nil))

@@ -60,6 +60,13 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
         return copy
     }
 
+    /// The same summary with one action changed in place.
+    public func updating(action id: String, _ change: (inout ActionItem) -> Void) -> MeetingSummary {
+        var copy = self
+        if let index = copy.actions.firstIndex(where: { $0.id == id }) { change(&copy.actions[index]) }
+        return copy
+    }
+
     private enum CodingKeys: String, CodingKey {
         case summary, sections, actionItems, clientFollowUp, actions
     }
@@ -127,6 +134,16 @@ public nonisolated enum SummaryStore {
     public static func setStatus(_ status: ActionItem.Status?, forAction id: String, in directory: URL) -> MeetingSummary? {
         guard let summary = read(from: directory) else { return nil }
         let updated = summary.setting(status, forAction: id)
+        try? write(updated, to: directory, replacing: true)
+        return updated
+    }
+
+    /// Backlog 24 М-6: one action rewritten — its status and its link to
+    /// the earlier step it repeats, in one write.
+    @discardableResult
+    public static func updateAction(_ id: String, in directory: URL, _ change: (inout ActionItem) -> Void) -> MeetingSummary? {
+        guard let summary = read(from: directory) else { return nil }
+        let updated = summary.updating(action: id, change)
         try? write(updated, to: directory, replacing: true)
         return updated
     }

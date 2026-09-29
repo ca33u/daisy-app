@@ -565,8 +565,9 @@ applies as for any phone session.
   "actions":        [ { "id": "string", "text": "string", "kind": "meeting|email|message|task|code|bug|feature|decision|question|other",
                         "owner": "string|null", "due": "ISO 8601 date or date-time|null", "with": [ "string" ],
                         "confidence": 0.0, "payload": { /* title, attendees, start, durationMinutes, to, subject, points, location */ },
-                        "status": { "state": "done|sent|scheduled", "at": "ISO 8601", "destination": "string",
-                                    "identifier": "string" } } ]   // phone, 2026-09-28
+                        "status": { "state": "done|sent|scheduled|dismissed", "at": "ISO 8601", "destination": "string",
+                                    "identifier": "string" },
+                        "sameAs": "<session id>/<action id>|null" } ]   // phone, 2026-09-28 / 2026-09-29
 }
 ```
 
@@ -582,6 +583,15 @@ reminder, a sent mail) and is written back into this file. It is written
 strings keeps working. A file without `actions` reads as one `other` item
 per string. A writer that does not know `actions` drops it when it
 rewrites the file — the strings survive, the types and statuses do not.
+(The Mac keeps `actions` while `actionItems` are unchanged — 1.0.8.15.)
+
+Statuses (2026-09-29, backlog 24 М-6): `done` with destination `manual` is
+a step ticked off by hand; `dismissed` is «not mine» — out of the person's
+steps and out of any count, reversible. A state a reader does not know
+reads as `done`, so one new value never makes the whole list unreadable.
+`sameAs` points at an earlier meeting's still-open step this one repeats:
+instead of a second reminder, the earlier one's date was moved, and the
+two share its `identifier`.
 
 **Writes must be atomic.** A torn write leaves truncated JSON, and
 because reads are best-effort, the user simply sees no summary and never

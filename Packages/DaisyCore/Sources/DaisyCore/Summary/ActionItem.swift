@@ -27,11 +27,23 @@ public nonisolated struct ActionItem: Codable, Sendable, Equatable, Identifiable
 
     /// What the step was turned into, and when.
     public struct Status: Codable, Sendable, Equatable {
-        public enum State: String, Codable, Sendable { case done, sent, scheduled }
+        /// `dismissed` — "not mine" (backlog 24 М-6): out of the person's
+        /// steps and out of the count, reversible like the rest.
+        public enum State: String, Codable, Sendable {
+            case done, sent, scheduled, dismissed
+
+            /// A state a later build adds reads as `done`, so the item —
+            /// and every item beside it — still decodes.
+            public init(from decoder: Decoder) throws {
+                let raw = try decoder.singleValueContainer().decode(String.self)
+                self = State(rawValue: raw) ?? .done
+            }
+        }
         public var state: State
         /// ISO 8601 — a string, so every encoder writes it the same way.
         public var at: String
-        /// `calendar`, `reminders`, `mail`, `messages`, `share`, `chatgpt`, `claude`, `shortcuts`.
+        /// `calendar`, `reminders`, `mail`, `messages`, `share`, `chatgpt`, `claude`, `shortcuts`;
+        /// `manual` for a step marked done by hand.
         public var destination: String?
         /// `eventIdentifier` / `calendarItemIdentifier` when it became one.
         public var identifier: String?
@@ -86,10 +98,13 @@ public nonisolated struct ActionItem: Codable, Sendable, Equatable, Identifiable
     public var confidence: Double
     public var payload: Payload?
     public var status: Status?
+    /// Backlog 24 М-6: `<session id>/<action id>` of the earlier, still open
+    /// step this one repeats — the reminder was moved instead of doubled.
+    public var sameAs: String?
 
     public init(id: String = UUID().uuidString, text: String, kind: Kind = .other, owner: String? = nil,
                 due: String? = nil, with: [String] = [], confidence: Double = 1, payload: Payload? = nil,
-                status: Status? = nil) {
+                status: Status? = nil, sameAs: String? = nil) {
         self.id = id
         self.text = text
         self.kind = kind
@@ -99,7 +114,12 @@ public nonisolated struct ActionItem: Codable, Sendable, Equatable, Identifiable
         self.confidence = confidence
         self.payload = payload
         self.status = status
+        self.sameAs = sameAs
     }
+
+    /// Nothing has closed it yet: no status, or only put somewhere to be
+    /// done later (a reminder, an event).
+    public var isOpen: Bool { status == nil || status?.state == .scheduled }
 
     /// A said-outright item; low-confidence ones are shown grey and not counted.
     public var isConfident: Bool { confidence >= 0.6 }
