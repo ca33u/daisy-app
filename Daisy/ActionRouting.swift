@@ -12,6 +12,7 @@
 //  as the MCP tool `route_action_to_destination`.
 //
 
+import AppKit
 import DaisyCore
 import Foundation
 
@@ -55,6 +56,39 @@ enum ActionRouting {
         let (excerpt, timecode) = Self.excerpt(for: item.text, in: session.transcriptText)
         return Step(index: index, text: item.text, owner: item.owner, due: item.due, timecode: timecode,
                     excerpt: excerpt, meetingTitle: session.title, meetingDate: session.startedAt)
+    }
+
+    /// Every step of a session as records: the file's typed ones, else
+    /// read from the strings as every reader does.
+    static func actions(of session: StoredSession) -> [ActionItem] {
+        struct File: Decodable { let actions: [ActionItem]? }
+        if let data = try? Data(contentsOf: session.directoryURL.appendingPathComponent("summary.json")),
+           let typed = (try? JSONDecoder().decode(File.self, from: data))?.actions, !typed.isEmpty {
+            return typed
+        }
+        return (session.summary?.actionItems ?? []).enumerated().map { ActionItem.legacy($1, index: $0) }
+    }
+
+    // MARK: - М-1: the recap, from the Mac
+
+    /// Mail's compose window with the recap for the people who were there
+    /// (the event's addresses — this Mac's calendar leaves the owner out).
+    /// Once Mail takes it, every step nothing else has claimed is marked
+    /// as gone to the participants, as on the phone.
+    static func composeRecap(for session: StoredSession) {
+        let language = MeetingRecap.Language(locale: session.locale)
+        let actions = actions(of: session)
+        guard let service = NSSharingService(named: .composeEmail) else { return }
+        service.recipients = MeetingRecap.recipients(eventEmails: session.meetingAttendeeEmails, ownEmails: [], leadEmails: [])
+        service.subject = MeetingRecap.subject(title: session.title, date: session.startedAt, language: language)
+        let delegate = RecapShareDelegate(directory: session.directoryURL, count: actions.count)
+        service.delegate = delegate
+        RecapShareDelegate.current = delegate
+        service.perform(withItems: [MeetingRecap.body(actions: actions, language: language)])
+    }
+
+    static func stepsText(of session: StoredSession) -> String {
+        MeetingRecap.stepsText(actions: actions(of: session), language: MeetingRecap.Language(locale: session.locale))
     }
 
     /// The file's own typed record of the step, read without this app's
@@ -145,5 +179,30 @@ enum ActionRouting {
         ActionStatusWriter.set(.init(state: .sent, destination: destination.name, identifier: link),
                                forStep: index, in: session.directoryURL)
         return link ?? ""
+    }
+}
+
+/// Held while Mail's compose window is open; marks the recap sent when
+/// Mail took it.
+private final class RecapShareDelegate: NSObject, NSSharingServiceDelegate {
+    @MainActor static var current: RecapShareDelegate?
+    let directory: URL
+    let count: Int
+
+    init(directory: URL, count: Int) {
+        self.directory = directory
+        self.count = count
+    }
+
+    func sharingService(_ sharingService: NSSharingService, didShareItems items: [Any]) {
+        let directory = directory, count = count
+        Task { @MainActor in
+            ActionStatusWriter.markRecapSent(steps: count, in: directory)
+            RecapShareDelegate.current = nil
+        }
+    }
+
+    func sharingService(_ sharingService: NSSharingService, didFailToShareItems items: [Any], error: any Error) {
+        Task { @MainActor in RecapShareDelegate.current = nil }
     }
 }

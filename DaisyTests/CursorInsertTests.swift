@@ -51,6 +51,15 @@ struct CursorInsertTests {
         #expect((actions[1]["status"] as? [String: Any])?["identifier"] as? String == "Slack")
     }
 
+    @Test func theRecapMarksOnlyStepsNothingElseClaimed() throws {
+        let dir = try folder(#"{"summary":"s","sections":[],"actionItems":["A","B"],"clientFollowUp":"","actions":[{"id":"a1","text":"A","kind":"task","with":[],"confidence":1,"status":{"state":"scheduled","at":"2026-09-29T10:00:00Z","destination":"reminders","identifier":"R1"}},{"id":"a2","text":"B","kind":"task","with":[],"confidence":1}]}"#)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        ActionStatusWriter.markRecapSent(steps: 2, in: dir)
+        let actions = try #require(try read(dir)["actions"] as? [[String: Any]])
+        #expect((actions[0]["status"] as? [String: Any])?["destination"] as? String == "reminders")
+        #expect((actions[1]["status"] as? [String: Any])?["destination"] as? String == "participants")
+    }
+
     @Test func aStepThatIsNotThereChangesNothing() throws {
         let json = #"{"summary":"s","sections":[],"actionItems":["One"],"clientFollowUp":""}"#
         let dir = try folder(json)

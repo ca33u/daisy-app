@@ -178,6 +178,7 @@ struct SessionDetailView: View {
                         showsCopy: session.summary != nil,
                         accessory: {
                             HStack(spacing: 12) {
+                                recapButtons
                                 stepsSendMenu
                                 stepsInsertMenu
                             }
@@ -1301,6 +1302,28 @@ struct SessionDetailView: View {
             .fixedSize()
             .disabled(PreviousAppTracker.shared.name == nil)
             .help(insertHelp)
+        }
+    }
+
+    /// Backlog 24 М-1: the recap to the people who were there, and the
+    /// steps as one text for anywhere else.
+    @ViewBuilder
+    private var recapButtons: some View {
+        if let summary = session.summary, !summary.actionItems.isEmpty {
+            Button {
+                ActionRouting.composeRecap(for: session)
+            } label: {
+                Image(systemName: "envelope")
+            }
+            .buttonStyle(.borderless)
+            .help(session.meetingAttendeeEmails.isEmpty
+                  ? String(localized: "Mail the decisions and next steps — add the recipients yourself.")
+                  : String(localized: "Mail the decisions and next steps to the meeting's attendees."))
+            ShareLink(item: ActionRouting.stepsText(of: session)) {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .buttonStyle(.borderless)
+            .help(String(localized: "Share the next steps as one text."))
         }
     }
 

@@ -10697,6 +10697,26 @@
         }
       }
     },
+    "Mail the decisions and next steps — add the recipients yourself." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправить решения и шаги письмом — адресатов добавите сами."
+          }
+        }
+      }
+    },
+    "Mail the decisions and next steps to the meeting's attendees." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправить решения и шаги письмом участникам встречи."
+          }
+        }
+      }
+    },
     "Make an internal integration at notion.so/profile/integrations, then share the parent page or database with it. Test creates a probe page you can delete." : {
       "localizations" : {
         "ru" : {
@@ -16279,6 +16299,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Поделиться аналитикой"
+          }
+        }
+      }
+    },
+    "Share the next steps as one text." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поделиться шагами одним текстом."
           }
         }
       }

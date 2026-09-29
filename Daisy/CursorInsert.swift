@@ -93,6 +93,20 @@ enum ActionStatusWriter {
         set(.init(state: .sent, destination: "paste", identifier: app), forStep: index, in: directory)
     }
 
+    /// М-1: every step nothing else has claimed went to the participants.
+    static func markRecapSent(steps count: Int, in directory: URL) {
+        for index in 0..<count where !hasStatus(index, in: directory) {
+            set(.init(state: .sent, destination: "participants"), forStep: index, in: directory)
+        }
+    }
+
+    private static func hasStatus(_ index: Int, in directory: URL) -> Bool {
+        guard let data = try? Data(contentsOf: directory.appendingPathComponent("summary.json")),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let actions = root["actions"] as? [[String: Any]], actions.indices.contains(index) else { return false }
+        return actions[index]["status"] != nil
+    }
+
     static func set(_ status: ActionItem.Status, forStep index: Int, in directory: URL) {
         let url = directory.appendingPathComponent("summary.json")
         guard let data = try? Data(contentsOf: url),
