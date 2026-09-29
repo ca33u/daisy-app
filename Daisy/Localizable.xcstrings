@@ -5168,6 +5168,16 @@
         }
       }
     },
+    "Copy Text" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скопировать текст"
+          }
+        }
+      }
+    },
     "Copy the claude mcp add command" : {
       "localizations" : {
         "ru" : {
@@ -10807,6 +10817,16 @@
         }
       }
     },
+    "Make sure the people you recorded would be fine with it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Убедитесь, что люди, которых вы записали, не против."
+          }
+        }
+      }
+    },
     "Mark this moment" : {
       "localizations" : {
         "ru" : {
@@ -14369,6 +14389,16 @@
         }
       }
     },
+    "Quote copied" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цитата скопирована"
+          }
+        }
+      }
+    },
     "Re-inserts your most recent dictation at the cursor — for when it landed in the wrong window or nowhere at all" : {
       "localizations" : {
         "ru" : {
@@ -16403,12 +16433,42 @@
         }
       }
     },
+    "Share Quote" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поделиться цитатой"
+          }
+        }
+      }
+    },
+    "Share Quote…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поделиться цитатой…"
+          }
+        }
+      }
+    },
     "Share the next steps as one text." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Поделиться шагами одним текстом."
+          }
+        }
+      }
+    },
+    "Share…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поделиться…"
           }
         }
       }
@@ -19370,6 +19430,36 @@
         }
       }
     },
+    "With the audio — %lld s" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Со звуком — %lld с"
+          }
+        }
+      }
+    },
+    "With the audio — the first minute of it" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Со звуком — первая минута"
+          }
+        }
+      }
+    },
+    "Without the audio" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Без звука"
+          }
+        }
+      }
+    },
     "Without the microphone Daisy can't record anything — the rest can wait." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -19476,6 +19566,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Всё готово"
+          }
+        }
+      }
+    },
+    "You’re sharing someone else’s voice" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вы делитесь чужим голосом"
           }
         }
       }

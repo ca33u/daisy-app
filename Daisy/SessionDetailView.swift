@@ -69,6 +69,9 @@ struct SessionDetailView: View {
     /// Pending "scroll the transcript to this moment" ask. Carries an id
     /// so asking twice for the same second still moves the pane.
     @State private var transcriptScroll: ScrollableTextView.ScrollRequest?
+    /// Backlog 24 М-11: the selection a quote is being made of.
+    @State private var quoteSelection: QuoteRequest?
+    struct QuoteRequest: Identifiable { let id = UUID(); let text: String }
     /// Position in `session.distinctScreenshots` for the header stepper.
     /// -1 = not started, so the first tap lands on frame 1.
     @State private var screenStep = -1
@@ -287,6 +290,9 @@ struct SessionDetailView: View {
         // in its own pill automatically — visual grammar matches the
         // Daisy mark + title pill on the left.
         .toolbar { detailToolbar }
+        .sheet(item: $quoteSelection) { request in
+            QuoteSheet(session: session, transcript: mappedTranscriptText, selection: request.text)
+        }
         .alert("Delete this session?",
                isPresented: $confirmDelete) {
             Button("Cancel", role: .cancel) {}
@@ -1546,7 +1552,8 @@ struct SessionDetailView: View {
                             previewedScreenshot = frame.map(FrameRef.init)
                         }
                         : nil,
-                    scrollRequest: transcriptScroll
+                    scrollRequest: transcriptScroll,
+                    onQuote: { selection in quoteSelection = QuoteRequest(text: selection) }
                 )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(height: 600)

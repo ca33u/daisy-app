@@ -419,6 +419,9 @@ struct ScrollableTextView: NSViewRepresentable {
     /// spoken at that moment; the same value twice in a row is a no-op,
     /// so a repeated jump needs a distinct request (see `ScrollRequest`).
     var scrollRequest: ScrollRequest?
+    /// Backlog 24 М-11: non-nil ⇒ a selection's context menu offers
+    /// «Share Quote…», handing over the selected text.
+    var onQuote: ((String) -> Void)?
 
     /// A scroll ask that survives being repeated: the id changes even
     /// when the seconds don't, so "jump again to the same place" works
@@ -433,7 +436,8 @@ struct ScrollableTextView: NSViewRepresentable {
         font: NSFont = NSFont.preferredFont(forTextStyle: .body),
         maxHeight: CGFloat? = nil,
         onTimecodeTap: ((Double) -> Void)? = nil,
-        scrollRequest: ScrollRequest? = nil
+        scrollRequest: ScrollRequest? = nil,
+        onQuote: ((String) -> Void)? = nil
     ) {
         self.text = text
         self.font = font
@@ -441,6 +445,7 @@ struct ScrollableTextView: NSViewRepresentable {
         self.maxHeight = maxHeight
         self.onTimecodeTap = onTimecodeTap
         self.scrollRequest = scrollRequest
+        self.onQuote = onQuote
     }
 
     init(attributed: NSAttributedString, maxHeight: CGFloat? = nil) {
@@ -468,6 +473,25 @@ struct ScrollableTextView: NSViewRepresentable {
         var lastFont: NSFont?
         var lastAttributed: NSAttributedString?
         var lastScrollRequest: ScrollRequest?
+        var onQuote: ((String) -> Void)?
+
+        func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+            guard onQuote != nil else { return menu }
+            let range = view.selectedRange()
+            guard range.length > 0 else { return menu }
+            let selected = (view.string as NSString).substring(with: range)
+            let item = NSMenuItem(title: String(localized: "Share Quote…"), action: #selector(shareQuote(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = selected
+            menu.insertItem(item, at: 0)
+            menu.insertItem(.separator(), at: 1)
+            return menu
+        }
+
+        @objc func shareQuote(_ sender: NSMenuItem) {
+            guard let text = sender.representedObject as? String else { return }
+            onQuote?(text)
+        }
         var onTimecodeTap: ((Double) -> Void)?
 
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
@@ -530,6 +554,7 @@ struct ScrollableTextView: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        context.coordinator.onQuote = onQuote
         guard let tv = scroll.documentView as? NSTextView else { return }
         context.coordinator.onTimecodeTap = onTimecodeTap
         // BEFORE the early-outs below: those guard the expensive
