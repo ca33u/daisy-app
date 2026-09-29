@@ -562,9 +562,9 @@ applies as for any phone session.
                                        "children": [ /* bullets */ ] } ] } ],
   "actionItems":    [ "string" ],
   "clientFollowUp": "string",
-  "actions":        [ { "id": "string", "text": "string", "kind": "meeting|email|message|task|code|bug|feature|decision|question|other",
+  "actions":        [ { "id": "string", "text": "string", "kind": "meeting|email|message|call|task|code|bug|feature|decision|question|other",
                         "owner": "string|null", "due": "ISO 8601 date or date-time|null", "with": [ "string" ],
-                        "confidence": 0.0, "payload": { /* title, attendees, start, durationMinutes, to, subject, points, location */ },
+                        "confidence": 0.0, "payload": { /* title, attendees, start, durationMinutes, to, subject, points, location, editsCurrentEvent, place */ },
                         "status": { "state": "done|sent|scheduled|dismissed", "at": "ISO 8601", "destination": "string",
                                     "identifier": "string" },
                         "sameAs": "<session id>/<action id>|null" } ]   // phone, 2026-09-28 / 2026-09-29
@@ -589,6 +589,16 @@ Statuses (2026-09-29, backlog 24 М-6): `done` with destination `manual` is
 a step ticked off by hand; `dismissed` is «not mine» — out of the person's
 steps and out of any count, reversible. A state a reader does not know
 reads as `done`, so one new value never makes the whole list unreadable.
+Destinations the phone writes: `calendar`, `reminders`, `mail`, `messages`,
+`telegram`, `whatsapp`, `participants` (the recap went to everyone —
+the item keeps its own button), `file` (identifier: the file's name),
+`call` (done: they talked), `nextMeeting` (a question carried to the next
+meeting with these people; identifier: that event), `chatgpt`, `claude`,
+`manual`, or a share-sheet activity's name. `call` (2026-09-29) is a phone
+call to make; a `meeting` with `payload.editsCurrentEvent` changes this
+meeting or its next occurrence (the change in `start` / `attendees` /
+`durationMinutes`), `payload.place` is where a meeting will be. A kind a
+reader does not know reads as `other`.
 `sameAs` points at an earlier meeting's still-open step this one repeats:
 instead of a second reminder, the earlier one's date was moved, and the
 two share its `identifier`.
