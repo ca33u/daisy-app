@@ -175,7 +175,8 @@ struct SessionDetailView: View {
                         storageKey: "daisy.session.detail.summaryExpanded",
                         copyLabel: String(localized: "Copy summary"),
                         copyText: summaryCopyText,
-                        showsCopy: session.summary != nil
+                        showsCopy: session.summary != nil,
+                        accessory: { stepsInsertMenu }
                     ) {
                         VStack(alignment: .leading, spacing: 18) {
                             // 2026-05-26 — three cases:
@@ -240,7 +241,8 @@ struct SessionDetailView: View {
                         storageKey: "daisy.session.detail.followUpExpanded",
                         copyLabel: String(localized: "Copy follow-up"),
                         copyText: { session.summary?.clientFollowUp ?? "" },
-                        showsCopy: !(session.summary?.clientFollowUp.isEmpty ?? true)
+                        showsCopy: !(session.summary?.clientFollowUp.isEmpty ?? true),
+                        accessory: { followUpInsertButton }
                     ) {
                         followUpSection(summary)
                     }
@@ -1249,6 +1251,80 @@ struct SessionDetailView: View {
             sample += " " + firstBullet
         }
         return SummaryLabels.for(language: LanguageDetector.detect(sample))
+    }
+
+    // MARK: - Backlog 24 М-10: insert at the cursor
+
+    /// «Insert into Mail» — the app the person came from — or, with none,
+    /// the generic title and a hint.
+    private var insertTitle: String {
+        if let name = PreviousAppTracker.shared.name { return String(localized: "Insert into \(name)") }
+        return String(localized: "Insert at Cursor")
+    }
+
+    private var insertHelp: String {
+        if let name = PreviousAppTracker.shared.name {
+            return String(localized: "Puts the text where the cursor is in \(name).")
+        }
+        return String(localized: "Open a mail or a chat, then come back.")
+    }
+
+    /// Every next step, one by one or all together, into the app used last.
+    @ViewBuilder
+    private var stepsInsertMenu: some View {
+        if let steps = session.summary?.actionItems, !steps.isEmpty {
+            Menu {
+                ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                    Button(step.count > 80 ? String(step.prefix(80)) + "…" : step) {
+                        insertStep(index, step)
+                    }
+                }
+                if steps.count > 1 {
+                    Divider()
+                    Button(String(localized: "All Next Steps")) {
+                        let all = steps.map { "• " + $0 }.joined(separator: "\n")
+                        Task {
+                            guard let app = await CursorInsert.insert(all) else { return }
+                            for index in steps.indices { markPasted(index, into: app) }
+                        }
+                    }
+                }
+            } label: {
+                Label(insertTitle, systemImage: "text.cursor")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .disabled(PreviousAppTracker.shared.name == nil)
+            .help(insertHelp)
+        }
+    }
+
+    /// The follow-up, whole, into the app used last — ⌘⇧V in this window.
+    @ViewBuilder
+    private var followUpInsertButton: some View {
+        if let followUp = session.summary?.clientFollowUp, !followUp.isEmpty {
+            Button {
+                Task { await CursorInsert.insert(followUp) }
+            } label: {
+                Label(insertTitle, systemImage: "text.cursor")
+            }
+            .buttonStyle(.borderless)
+            .keyboardShortcut("v", modifiers: [.command, .shift])
+            .disabled(PreviousAppTracker.shared.name == nil)
+            .help(insertHelp)
+        }
+    }
+
+    private func insertStep(_ index: Int, _ step: String) {
+        Task {
+            guard let app = await CursorInsert.insert(step) else { return }
+            markPasted(index, into: app)
+        }
+    }
+
+    /// The step's status, as the phone writes it: sent, by paste, into which app.
+    private func markPasted(_ index: Int, into app: String) {
+        ActionStatusWriter.markPasted(step: index, into: app, in: session.directoryURL)
     }
 
     /// Document-style section: H2-weight heading, hairline rule under

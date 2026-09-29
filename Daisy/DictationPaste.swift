@@ -194,7 +194,25 @@ final class DictationPaste {
     /// the "landed nowhere" bubble. A re-paste that lands nowhere needs
     /// no prompt: the user explicitly asked to paste and can just ask
     /// again.
-    private enum DeliveryContext { case freshDictation, repaste }
+    private enum DeliveryContext {
+        case freshDictation, repaste
+        /// Backlog 24 М-10: a meeting's step or follow-up, inserted at the
+        /// caret of the app the person came from.
+        case step
+    }
+
+    /// Backlog 24 М-10: text that is not a dictation (a next step, the
+    /// follow-up) by the same road — no dictation bookkeeping.
+    func insert(_ text: String) {
+        deliver(text, context: .step)
+    }
+
+    /// The toast for text that landed: a dictation says so, a step does not.
+    private static func landedMessage(_ context: DeliveryContext) -> String {
+        context == .step
+            ? String(localized: "Inserted — clipboard untouched.")
+            : String(localized: "Dictation inserted — clipboard untouched.")
+    }
 
     /// Re-paste the most recent dictation at the current caret — Wispr's
     /// "paste last transcript". The words a dictation put nowhere (no
@@ -233,10 +251,7 @@ final class DictationPaste {
         //    to the clipboard route below.
         let axOutcome = attemptAXInsert(transcript)
         if axOutcome == .inserted {
-            ToastCenter.shared.show(
-                String(localized: "Dictation inserted — clipboard untouched."),
-                style: .success
-            )
+            ToastCenter.shared.show(Self.landedMessage(context), style: .success)
             return
         }
 
@@ -262,7 +277,7 @@ final class DictationPaste {
         // type-to-select) nor written to the clipboard. The bubble names
         // the re-paste hotkey; the text is in the history either way.
         if !clipboardRoute, axOutcome == .noFocusedField, Self.frontmostIsVoid() {
-            if context == .repaste {
+            if context != .freshDictation {
                 ToastCenter.shared.show(
                     String(localized: "Click into a text field first, then paste again."),
                     style: .info
@@ -281,10 +296,7 @@ final class DictationPaste {
            axOutcome == .refused,
            AXIsProcessTrusted(),
            attemptTypeInsert(transcript) {
-            ToastCenter.shared.show(
-                String(localized: "Dictation inserted — clipboard untouched."),
-                style: .success
-            )
+            ToastCenter.shared.show(Self.landedMessage(context), style: .success)
             presentLandedNowhereBubbleIfNeeded(transcript, context: context, axOutcome: axOutcome)
             return
         }
@@ -326,7 +338,9 @@ final class DictationPaste {
         switch autoPaste {
         case .pasted:
             ToastCenter.shared.show(
-                String(localized: "Dictation pasted — your previous clipboard is coming right back."),
+                context == .step
+                    ? String(localized: "Pasted — your previous clipboard is coming right back.")
+                    : String(localized: "Dictation pasted — your previous clipboard is coming right back."),
                 style: .success
             )
         case .needsAccessibility:

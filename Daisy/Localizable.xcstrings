@@ -2661,6 +2661,16 @@
         }
       }
     },
+    "All Next Steps" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Все шаги"
+          }
+        }
+      }
+    },
     "All projects" : {
       "localizations" : {
         "ru" : {
@@ -9752,6 +9762,36 @@
         }
       }
     },
+    "Insert at Cursor" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вставить у курсора"
+          }
+        }
+      }
+    },
+    "Insert into %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вставить в %@"
+          }
+        }
+      }
+    },
+    "Inserted — clipboard untouched." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вставлено — буфер обмена не тронут."
+          }
+        }
+      }
+    },
     "Inside Daisy's container (default)" : {
       "localizations" : {
         "ru" : {
@@ -12761,6 +12801,26 @@
         }
       }
     },
+    "Open a mail or a chat, then come back and insert." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Откройте письмо или чат, затем вернитесь и вставьте."
+          }
+        }
+      }
+    },
+    "Open a mail or a chat, then come back." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Откройте письмо или чат, затем вернитесь."
+          }
+        }
+      }
+    },
     "Open Accessibility settings" : {
       "localizations" : {
         "ru" : {
@@ -13286,6 +13346,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Вставьте свои тексты — письма, посты, заметки или экспорт из другого приложения диктовки. Daisy выучит ваш голос из них так же, как из диктовок."
+          }
+        }
+      }
+    },
+    "Pasted — your previous clipboard is coming right back." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вставлено — прежний буфер обмена сейчас вернётся."
           }
         }
       }
@@ -14069,6 +14139,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Зачем"
+          }
+        }
+      }
+    },
+    "Puts the text where the cursor is in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вставляет текст туда, где курсор в %@."
           }
         }
       }

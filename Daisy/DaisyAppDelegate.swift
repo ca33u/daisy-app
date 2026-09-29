@@ -25,6 +25,8 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         // icon's click from the transcription popover to a dropdown menu
         // (see DaisyApp's conditional MenuBarExtra). Dock icon + menus stay.
         NSApp.setActivationPolicy(.regular)
+        // Backlog 24 М-10: «Insert at cursor» goes to the app used before Daisy.
+        PreviousAppTracker.shared.start()
 
         // Apply the persisted System / Light / Dark preference globally.
         // `DaisyColors` supplies paired tokens, so SwiftUI content, AppKit
