@@ -32,6 +32,7 @@
 //     Casing-only rename → `renameInPlace`, no migration.
 //
 
+import DaisyCore
 import SwiftUI
 
 struct FolderManagementSection: View {
@@ -44,6 +45,8 @@ struct FolderManagementSection: View {
     @State private var pendingDelete: SessionFolder?
     /// Drives the add / rename name-editor sheet.
     @State private var editing: FolderEdit?
+    /// Backlog 24 М-8: the folder whose trackers are being edited.
+    @State private var editingTrackers: SessionFolder?
 
     var body: some View {
         Section {
@@ -90,6 +93,9 @@ struct FolderManagementSection: View {
         } message: { folder in
             let n = countFor(folder)
             Text(String(localized: "\(n) recordings will move to Inbox. This can’t be undone."))
+        }
+        .sheet(item: $editingTrackers) { folder in
+            FolderTrackersSheet(folder: folder)
         }
         .sheet(item: $editing) { edit in
             switch edit {
@@ -150,6 +156,15 @@ struct FolderManagementSection: View {
             }
             .buttonStyle(.borderless)
             .help("Rename")
+
+            Button {
+                editingTrackers = folder
+            } label: {
+                Image(systemName: FolderRegistryBridge.shared.project(for: folder.slug) == nil ? "link" : "link.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help(String(localized: "Trackers — where a step from this project's meetings becomes an issue"))
 
             Button {
                 requestDelete(folder)
@@ -426,5 +441,63 @@ private struct FolderEditSheet: View {
             dismiss()
         }
         // else: parent toasted a collision — keep the sheet open.
+    }
+}
+
+// MARK: - Backlog 24 М-8: trackers
+
+/// GitHub, Linear, Jira for one project — the same fields as on the phone,
+/// in the folder registry both devices share.
+private struct FolderTrackersSheet: View {
+    let folder: SessionFolder
+    @Environment(\.dismiss) private var dismiss
+    @State private var repo = ""
+    @State private var linearTeam = ""
+    @State private var jiraBase = ""
+    @State private var jiraProjectID = ""
+    @State private var jiraIssueType = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Trackers for “\(folder.name)”").font(.headline)
+            Form {
+                TextField("GitHub repository", text: $repo, prompt: Text(verbatim: "owner/name"))
+                TextField("Linear team", text: $linearTeam, prompt: Text(verbatim: "ENG"))
+                TextField("Jira site", text: $jiraBase, prompt: Text(verbatim: "https://acme.atlassian.net"))
+                TextField("Jira project ID", text: $jiraProjectID, prompt: Text(verbatim: "10001"))
+                TextField("Jira issue type ID", text: $jiraIssueType, prompt: Text(String(localized: "optional")))
+            }
+            Text("A step from this project's meetings opens as a new issue there, filled in — you check it and create it. No sign-in; Daisy only builds the link.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") {
+                    func clean(_ s: String) -> String? {
+                        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                        return t.isEmpty ? nil : t
+                    }
+                    FolderRegistryBridge.shared.setProject(
+                        ProjectContext(repo: clean(repo), linearTeam: clean(linearTeam)?.uppercased(), jiraBase: clean(jiraBase),
+                                       jiraProjectID: clean(jiraProjectID), jiraIssueType: clean(jiraIssueType)),
+                        for: folder.slug)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+        .onAppear {
+            let project = FolderRegistryBridge.shared.project(for: folder.slug)
+            repo = project?.repo ?? ""
+            linearTeam = project?.linearTeam ?? ""
+            jiraBase = project?.jiraBase ?? ""
+            jiraProjectID = project?.jiraProjectID ?? ""
+            jiraIssueType = project?.jiraIssueType ?? ""
+        }
     }
 }

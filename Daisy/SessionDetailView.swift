@@ -1331,10 +1331,18 @@ struct SessionDetailView: View {
     @ViewBuilder
     private var stepsSendMenu: some View {
         let destinations = ActionRouting.destinations
-        if let steps = session.summary?.actionItems, !steps.isEmpty, !destinations.isEmpty {
+        let trackers = ActionRouting.trackers(for: session)
+        if let steps = session.summary?.actionItems, !steps.isEmpty, !destinations.isEmpty || !trackers.isEmpty {
             Menu {
                 ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                     Menu(step.count > 80 ? String(step.prefix(80)) + "…" : step) {
+                        // М-8: the project's trackers first — a new issue, filled in.
+                        ForEach(trackers) { tracker in
+                            Button(String(localized: "Issue in \(tracker.title)")) {
+                                ActionRouting.openIssue(step: index, of: session, in: tracker)
+                            }
+                        }
+                        if !trackers.isEmpty, !destinations.isEmpty { Divider() }
                         ForEach(destinations) { destination in
                             Button(destination.name) {
                                 let current = session

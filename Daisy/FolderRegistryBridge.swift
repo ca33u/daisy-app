@@ -30,6 +30,16 @@ final class FolderRegistryBridge {
 
     private init() {}
 
+    // MARK: - Backlog 24 М-8: a folder's trackers
+
+    func project(for slug: String) -> ProjectContext? {
+        store.registry.entry(slug)?.project
+    }
+
+    func setProject(_ project: ProjectContext, for slug: String) {
+        store.update { registry in registry.setProject(project, for: slug) }
+    }
+
     func start() {
         store.onExternalChange = { [weak self] registry in self?.apply(registry) }
         // First run: whatever this Mac has and the registry lacks goes up;

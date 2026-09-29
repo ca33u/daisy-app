@@ -87,6 +87,36 @@ enum ActionRouting {
         service.perform(withItems: [MeetingRecap.body(actions: actions, language: language)])
     }
 
+    // MARK: - М-8: a step as an issue in the folder's tracker
+
+    /// A tracker as the menu shows it.
+    struct TrackerChoice: Identifiable, Hashable {
+        let id: String
+        let title: String
+    }
+
+    static func trackers(for session: StoredSession) -> [TrackerChoice] {
+        TrackerLinks.trackers(in: FolderRegistryBridge.shared.project(for: session.folderSlug))
+            .map { TrackerChoice(id: $0.rawValue, title: $0.title) }
+    }
+
+    static func openIssue(step index: Int, of session: StoredSession, in choice: TrackerChoice) {
+        guard let tracker = TrackerLinks.Tracker(rawValue: choice.id) else { return }
+        openIssue(step: index, of: session, in: tracker)
+    }
+
+    /// Opens the tracker's new-issue page, filled in; the step is marked
+    /// as gone there (the issue's number is not known — none is invented).
+    static func openIssue(step index: Int, of session: StoredSession, in tracker: TrackerLinks.Tracker) {
+        guard let project = FolderRegistryBridge.shared.project(for: session.folderSlug),
+              let step = step(index, of: session) else { return }
+        let body = TrackerLinks.issueBody(step: step.text, meetingTitle: session.title, date: session.startedAt,
+                                          excerpt: step.excerpt, russian: session.locale.lowercased().hasPrefix("ru"))
+        guard let url = TrackerLinks.issueURL(tracker, project: project, title: step.text, body: body) else { return }
+        NSWorkspace.shared.open(url)
+        ActionStatusWriter.set(.init(state: .sent, destination: tracker.rawValue), forStep: index, in: session.directoryURL)
+    }
+
     static func stepsText(of session: StoredSession) -> String {
         MeetingRecap.stepsText(actions: actions(of: session), language: MeetingRecap.Language(locale: session.locale))
     }
