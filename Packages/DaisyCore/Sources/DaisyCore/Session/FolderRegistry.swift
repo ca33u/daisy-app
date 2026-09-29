@@ -24,6 +24,32 @@
 
 import Foundation
 
+/// Backlog 24 М-8: where a folder's work is tracked — a step from one of
+/// its meetings becomes an issue there through a prefilled link. Every
+/// field optional; nothing here is a credential.
+public nonisolated struct ProjectContext: Codable, Sendable, Equatable {
+    /// GitHub `owner/name`.
+    public var repo: String?
+    /// Linear team key (`ENG`).
+    public var linearTeam: String?
+    /// Jira site, `https://acme.atlassian.net`.
+    public var jiraBase: String?
+    /// Jira project id (the number, `pid`).
+    public var jiraProjectID: String?
+    /// Jira issue type id; the site's default when empty.
+    public var jiraIssueType: String?
+
+    public init(repo: String? = nil, linearTeam: String? = nil, jiraBase: String? = nil,
+                jiraProjectID: String? = nil, jiraIssueType: String? = nil) {
+        self.repo = repo; self.linearTeam = linearTeam; self.jiraBase = jiraBase
+        self.jiraProjectID = jiraProjectID; self.jiraIssueType = jiraIssueType
+    }
+
+    public var isEmpty: Bool {
+        [repo, linearTeam, jiraBase, jiraProjectID].allSatisfy { ($0 ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+}
+
 public nonisolated struct FolderRegistry: Codable, Sendable, Equatable {
     public struct Entry: Codable, Sendable, Equatable {
         /// Display name (case preserved); the slug is `name.lowercased()`.
@@ -33,14 +59,18 @@ public nonisolated struct FolderRegistry: Codable, Sendable, Equatable {
         /// Set when removed; the entry stays as a tombstone.
         public var deletedAt: Date?
         public var isDeleted: Bool { deletedAt != nil }
+        /// Backlog 24 М-8: the folder's trackers.
+        public var project: ProjectContext?
         /// Fields a newer version wrote; kept as they were.
         public var extra: [String: JSONValue] = [:]
-        public init(name: String, parentSlug: String? = nil, updatedAt: Date = Date(), deletedAt: Date? = nil) {
+        public init(name: String, parentSlug: String? = nil, updatedAt: Date = Date(), deletedAt: Date? = nil,
+                    project: ProjectContext? = nil) {
             self.name = name; self.parentSlug = parentSlug; self.updatedAt = updatedAt; self.deletedAt = deletedAt
+            self.project = project
         }
         var stamp: Date { max(updatedAt, deletedAt ?? .distantPast) }
 
-        private static let known: Set<String> = ["name", "parentSlug", "updatedAt", "deletedAt"]
+        private static let known: Set<String> = ["name", "parentSlug", "updatedAt", "deletedAt", "project"]
 
         public init(from decoder: any Decoder) throws {
             let c = try decoder.container(keyedBy: AnyCodingKey.self)
@@ -48,6 +78,7 @@ public nonisolated struct FolderRegistry: Codable, Sendable, Equatable {
             parentSlug = try c.decodeIfPresent(String.self, forKey: .init("parentSlug"))
             updatedAt = try c.decodeIfPresent(Date.self, forKey: .init("updatedAt")) ?? .distantPast
             deletedAt = try c.decodeIfPresent(Date.self, forKey: .init("deletedAt"))
+            project = try? c.decodeIfPresent(ProjectContext.self, forKey: .init("project"))
             extra = c.extras(except: Self.known)
         }
 
@@ -58,6 +89,7 @@ public nonisolated struct FolderRegistry: Codable, Sendable, Equatable {
             try c.encodeIfPresent(parentSlug, forKey: .init("parentSlug"))
             try c.encode(updatedAt, forKey: .init("updatedAt"))
             try c.encodeIfPresent(deletedAt, forKey: .init("deletedAt"))
+            try c.encodeIfPresent(project, forKey: .init("project"))
         }
     }
 
@@ -112,9 +144,23 @@ public nonisolated struct FolderRegistry: Codable, Sendable, Equatable {
         let slug = Self.slug(for: name)
         guard !slug.isEmpty, !Self.systemSlugs.contains(slug) else { return slug.isEmpty ? "inbox" : slug }
         let parent = parentSlug?.lowercased()
-        entries[slug] = Entry(name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-                              parentSlug: parent == slug ? nil : parent, updatedAt: now, deletedAt: nil)
+        // A rename or a revival keeps what the folder carried (М-8's trackers,
+        // a newer version's fields).
+        var entry = Entry(name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                          parentSlug: parent == slug ? nil : parent, updatedAt: now, deletedAt: nil,
+                          project: entries[slug]?.project)
+        entry.extra = entries[slug]?.extra ?? [:]
+        entries[slug] = entry
         return slug
+    }
+
+    /// Backlog 24 М-8: the folder's trackers; empty clears them.
+    public mutating func setProject(_ project: ProjectContext?, for slug: String, at now: Date = Date()) {
+        let slug = slug.lowercased()
+        guard var entry = entries[slug], !entry.isDeleted else { return }
+        entry.project = project?.isEmpty == true ? nil : project
+        entry.updatedAt = now
+        entries[slug] = entry
     }
 
     public mutating func remove(_ slug: String, at now: Date = Date()) {

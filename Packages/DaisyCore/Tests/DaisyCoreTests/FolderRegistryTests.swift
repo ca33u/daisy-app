@@ -4,6 +4,20 @@ import Foundation
 
 @Suite("FolderRegistry (§9, Ф3-C)")
 struct FolderRegistryTests {
+    @Test func aFoldersTrackersRideTheRegistryAndSurviveARecase() throws {
+        var phone = FolderRegistry()
+        phone.upsert(name: "Daisy")
+        phone.setProject(ProjectContext(repo: "ca33u/daisy-app", linearTeam: "DAI"), for: "daisy")
+        let data = try #require(phone.encoded())
+        let decoded = try #require(FolderRegistry.decode(data))
+        #expect(decoded.entry("daisy")?.project?.repo == "ca33u/daisy-app")
+        var mac = decoded
+        mac.upsert(name: "DAISY")                       // a recase on the other side
+        #expect(mac.entry("daisy")?.project?.linearTeam == "DAI")
+        mac.setProject(ProjectContext(), for: "daisy")  // emptied → cleared
+        #expect(mac.entry("daisy")?.project == nil)
+    }
+
     @Test func newerEntryWinsAndTombstonesHold() {
         let t0 = Date(timeIntervalSince1970: 1_000), t1 = t0.addingTimeInterval(10), t2 = t0.addingTimeInterval(20)
         var mac = FolderRegistry()

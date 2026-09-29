@@ -48,6 +48,10 @@ public nonisolated enum TranscriptTimeline {
         /// The line exactly as it stands in the file, for an editor that
         /// must put back what it did not change (§7.2).
         public var rawLine: String
+
+        public init(startSec: Double, speaker: String, text: String, rawLine: String) {
+            self.startSec = startSec; self.speaker = speaker; self.text = text; self.rawLine = rawLine
+        }
     }
 
     public struct Photo: Sendable, Equatable {
