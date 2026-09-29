@@ -61,7 +61,7 @@ public nonisolated enum MeetingSummaryJSONSchema {
           "type": "object",
           "properties": {
             "text": { "type": "string" },
-            "kind": { "enum": ["meeting", "email", "message", "task", "code", "bug", "feature", "decision", "question", "other"] },
+            "kind": { "enum": ["meeting", "email", "message", "call", "task", "code", "bug", "feature", "decision", "question", "other"] },
             "owner": { "type": ["string", "null"] },
             "due": { "type": ["string", "null"] },
             "with": { "type": "array", "items": { "type": "string" } },

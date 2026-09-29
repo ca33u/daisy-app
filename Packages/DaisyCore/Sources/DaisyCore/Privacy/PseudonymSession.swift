@@ -118,6 +118,7 @@ public nonisolated struct PseudonymSession: Sendable {
                     p.subject = p.subject.map { restore($0) }
                     p.points = p.points?.map { restore($0) }
                     p.location = p.location.map { restore($0) }
+                    p.place = p.place.map { restore($0) }
                     a.payload = p
                 }
                 return a

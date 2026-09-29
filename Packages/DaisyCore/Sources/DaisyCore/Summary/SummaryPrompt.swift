@@ -120,16 +120,18 @@ public nonisolated enum SummaryPrompt {
           "actions": [
             {
               "text": "The same next step as the actionItems entry at the same position, without the owner prefix.",
-              "kind": "One of: meeting (a call or meeting to set up), email (an email to send), message (a chat or text message), task (a to-do), code (a change to code), bug, feature, decision (something decided, no action), question (left open), other.",
+              "kind": "One of: meeting (a meeting or video call to put in the calendar), email (an email to send), message (a chat or text message), call (a phone call to make — 'I'll call Boris', 'call the bank'), task (a to-do), code (a change to code), bug, feature, decision (something decided, no action), question (left open), other.",
               "owner": "Who does it, as named in the transcript; \"me\" when it is the person who recorded the meeting; null when nobody was named.",
               "due": "ISO 8601 date (2026-10-03) or date-time (2026-10-03T15:00) ONLY when a day or time was said; resolve relative days ('by Friday') from the meeting date given with the title; null otherwise.",
               "with": ["Names of the people the step involves (attendees, recipients) — names only, never email addresses."],
               "confidence": "Number 0-1: 1 when the step was said outright, lower when you inferred it.",
               "payload": {
                 "title": "For meeting: its name. Otherwise null.",
-                "attendees": ["For meeting: who should be there."],
+                "attendees": ["For meeting: who should be there (for editsCurrentEvent: only the people to ADD)."],
                 "start": "For meeting: ISO 8601 date-time only if said.",
                 "durationMinutes": "For meeting: number only if said.",
+                "editsCurrentEvent": "For meeting: true ONLY when the step changes THIS meeting or its next occurrence ('let's move this to Thursday', 'add Olga next time', 'next time Ivan joins too') rather than setting up a different one; null otherwise.",
+                "place": "For meeting: where it will be, only if said ('the cafe on Mira', 'our office at Lenina 5'); null otherwise.",
                 "to": ["For email/message: recipient names."],
                 "subject": "For email: a short subject line.",
                 "points": ["For email/message: the 1-4 points it must make."],

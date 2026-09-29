@@ -19,7 +19,14 @@ import Foundation
 
 public nonisolated struct ActionItem: Codable, Sendable, Equatable, Identifiable {
     public enum Kind: String, Codable, Sendable, CaseIterable {
-        case meeting, email, message, task, code, bug, feature, decision, question, other
+        /// `call` — backlog 24 М-3: «созвонюсь с Борисом», «позвоню в банк».
+        case meeting, email, message, call, task, code, bug, feature, decision, question, other
+
+        /// A kind a later build adds reads as `other`, not as an unreadable list.
+        public init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Kind(rawValue: raw) ?? .other
+        }
 
         /// Kinds a person acts on; decisions are memory, questions go to the follow-up.
         public var isActionable: Bool { self != .decision && self != .question }
@@ -66,9 +73,16 @@ public nonisolated struct ActionItem: Codable, Sendable, Equatable, Identifiable
         public var subject: String?
         public var points: [String]?
         public var location: String?
+        /// Backlog 24 М-7: a `meeting` step that changes THIS meeting (or its
+        /// next occurrence) — the new time, people, length are in `start`,
+        /// `attendees`, `durationMinutes`.
+        public var editsCurrentEvent: Bool?
+        /// Backlog 24 М-15: where a `meeting` is to be, when it was said.
+        public var place: String?
 
         public init(title: String? = nil, attendees: [String]? = nil, start: String? = nil, durationMinutes: Int? = nil,
-                    to: [String]? = nil, subject: String? = nil, points: [String]? = nil, location: String? = nil) {
+                    to: [String]? = nil, subject: String? = nil, points: [String]? = nil, location: String? = nil,
+                    editsCurrentEvent: Bool? = nil, place: String? = nil) {
             self.title = title
             self.attendees = attendees
             self.start = start
@@ -77,11 +91,14 @@ public nonisolated struct ActionItem: Codable, Sendable, Equatable, Identifiable
             self.subject = subject
             self.points = points
             self.location = location
+            self.editsCurrentEvent = editsCurrentEvent
+            self.place = place
         }
 
         public var isEmpty: Bool {
             title == nil && (attendees ?? []).isEmpty && start == nil && durationMinutes == nil
                 && (to ?? []).isEmpty && subject == nil && (points ?? []).isEmpty && location == nil
+                && editsCurrentEvent != true && place == nil
         }
     }
 

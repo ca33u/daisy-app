@@ -79,6 +79,21 @@ struct ActionItemTests {
         #expect(summary.actions.first?.status?.state == .done)
     }
 
+    @Test func aCallAndAChangeToThisMeetingComeThroughTheDTO() throws {
+        let json = #"{"summary":"s","sections":[],"actionItems":["Call Boris","Move this to Thursday"],"clientFollowUp":"","actions":[{"text":"Call Boris","kind":"call","with":["Boris"]},{"text":"Move this to Thursday","kind":"meeting","payload":{"editsCurrentEvent":"true","start":"2026-10-02T15:00","place":"Cafe on Mira"}}]}"#
+        let summary = try CloudSummaryDTO.decode(from: json).toMeetingSummary()
+        #expect(summary.actions[0].kind == .call)
+        #expect(summary.actions[0].kind.isActionable)
+        #expect(summary.actions[1].payload?.editsCurrentEvent == true)
+        #expect(summary.actions[1].payload?.place == "Cafe on Mira")
+    }
+
+    @Test func aKindFromALaterBuildReadsAsOther() throws {
+        let json = #"{"summary":"s","actionItems":["a"],"clientFollowUp":"","actions":[{"id":"a1","text":"a","kind":"payment","with":[],"confidence":1}]}"#
+        let summary = try JSONDecoder().decode(MeetingSummary.self, from: Data(json.utf8))
+        #expect(summary.actions.first?.kind == .other)
+    }
+
     @Test func mineMeansNoOwnerMeOrMyName() {
         #expect(ActionItem(text: "x").isMine(ownerName: "Egor"))
         #expect(ActionItem(text: "x", owner: "me").isMine(ownerName: nil))

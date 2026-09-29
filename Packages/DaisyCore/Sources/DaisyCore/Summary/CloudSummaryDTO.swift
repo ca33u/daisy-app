@@ -216,9 +216,11 @@ nonisolated struct DTOPayload: Codable {
     let subject: String?
     let points: [String]?
     let location: String?
+    let editsCurrentEvent: Bool?
+    let place: String?
 
     enum CodingKeys: String, CodingKey {
-        case title, attendees, start, durationMinutes, to, subject, points, location
+        case title, attendees, start, durationMinutes, to, subject, points, location, editsCurrentEvent, place
     }
 
     init(from decoder: Decoder) throws {
@@ -233,6 +235,9 @@ nonisolated struct DTOPayload: Codable {
         subject = try? c.decodeIfPresent(String.self, forKey: .subject)
         points = try? c.decodeIfPresent([String].self, forKey: .points)
         location = try? c.decodeIfPresent(String.self, forKey: .location)
+        editsCurrentEvent = (try? c.decodeIfPresent(Bool.self, forKey: .editsCurrentEvent))
+            ?? (try? c.decodeIfPresent(String.self, forKey: .editsCurrentEvent)).flatMap { $0.map { $0.lowercased() == "true" } }
+        place = try? c.decodeIfPresent(String.self, forKey: .place)
     }
 
     func toPayload() -> ActionItem.Payload {
@@ -245,6 +250,6 @@ nonisolated struct DTOPayload: Codable {
             start: clean(start).flatMap { ActionItem.date(from: $0) != nil ? $0 : nil },
             durationMinutes: durationMinutes.flatMap { $0 > 0 && $0 <= 600 ? $0 : nil },
             to: to?.compactMap(clean), subject: clean(subject), points: points?.compactMap(clean),
-            location: clean(location))
+            location: clean(location), editsCurrentEvent: editsCurrentEvent == true ? true : nil, place: clean(place))
     }
 }
