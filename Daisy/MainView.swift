@@ -670,16 +670,27 @@ struct MainView: View {
     @ViewBuilder
     private var updateFooter: some View {
         if let upd = updater.availableUpdate {
+            // Installs what is downloaded; while Sparkle is still fetching
+            // it, says so and waits — a click then did nothing (29.09).
+            let downloading = updater.stagedVersion == nil ? updater.downloadingVersion : nil
             Button {
-                updater.checkForUpdates()
+                updater.checkOrInstall()
             } label: {
                 // Same column and type as the rows it now sits above.
                 HStack(spacing: 10) {
-                    Image(systemName: "arrowshape.down.circle.fill")
-                        .font(.body)
-                        .imageScale(.large)
-                        .frame(width: 24)
-                    Text(String(localized: "sidebar.update", defaultValue: "Update"))
+                    Group {
+                        if downloading != nil {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "arrowshape.down.circle.fill")
+                                .font(.body)
+                                .imageScale(.large)
+                        }
+                    }
+                    .frame(width: 24)
+                    Text(downloading.map { String(localized: "sidebar.updateDownloading",
+                                                  defaultValue: "Downloading \($0)…") }
+                         ?? String(localized: "sidebar.update", defaultValue: "Update"))
                         .font(.body.weight(.medium))
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -692,6 +703,7 @@ struct MainView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(downloading != nil)
             .help(Text("Update available: \(upd.shortVersion)"))
             // Bottom padding and the sidebar ground now belong to
             // `sidebarFooter`, which stacks this row above Settings /

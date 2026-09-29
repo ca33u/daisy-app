@@ -88,6 +88,12 @@ final class SparkleUpdater {
     /// delegate in this file can write it while callers stay read-only.
     fileprivate(set) var availableUpdate: AvailableUpdate?
 
+    /// The version Sparkle is downloading and unpacking in the background
+    /// (29.09: three minutes in which «Update» and «Check for Updates…»
+    /// did nothing — Sparkle refuses every call while its session runs —
+    /// and said nothing). Cleared once it is staged, or if it fails.
+    fileprivate(set) var downloadingVersion: String?
+
     /// Mirrored from `updater.automaticallyChecksForUpdates` so SwiftUI
     /// can observe the toggle and re-render the Settings row when
     /// Sparkle's preference changes externally (e.g., the user dismisses
@@ -188,12 +194,16 @@ final class SparkleUpdater {
     /// greyed out with nothing to say why, and the offer itself waits for
     /// its poll (Egor, 24.09). The same button installs it instead.
     private(set) var stagedVersion: String?
-    fileprivate func noteStaged(_ version: String) { stagedVersion = version }
+    fileprivate func noteStaged(_ version: String) {
+        stagedVersion = version
+        downloadingVersion = nil
+    }
 
     /// «Check for Updates…», or «Install Daisy 1.0.8.9 and Restart» when
     /// one is already downloaded.
     var checkOrInstallTitle: String {
         if let stagedVersion { return String(localized: "Install Daisy \(stagedVersion) and Restart") }
+        if let downloadingVersion { return String(localized: "Downloading Daisy \(downloadingVersion)…") }
         return String(localized: "Check for Updates…")
     }
     var canCheckOrInstall: Bool { stagedVersion != nil || canCheckForUpdates }
@@ -423,6 +433,24 @@ private final class DaisyUpdaterDelegate: NSObject, SPUUpdaterDelegate {
         return true
     }
 
+    /// The background download and unpacking — the stretch in which the
+    /// session is busy and every button has to say so (29.09).
+    nonisolated func updater(_ updater: SPUUpdater, willDownloadUpdate item: SUAppcastItem, with request: NSMutableURLRequest) {
+        let version = item.displayVersionString
+        Logger(subsystem: "app.essazanov.Daisy", category: "Updates").info("Downloading \(version, privacy: .public)")
+        Task { @MainActor in SparkleUpdater.shared.downloadingVersion = version }
+    }
+
+    nonisolated func updater(_ updater: SPUUpdater, failedToDownloadUpdate item: SUAppcastItem, error: any Error) {
+        Logger(subsystem: "app.essazanov.Daisy", category: "Updates")
+            .error("Download of \(item.displayVersionString, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+        Task { @MainActor in SparkleUpdater.shared.downloadingVersion = nil }
+    }
+
+    nonisolated func updater(_ updater: SPUUpdater, didAbortWithError error: any Error) {
+        Task { @MainActor in SparkleUpdater.shared.downloadingVersion = nil }
+    }
+
     nonisolated func allowedChannels(for updater: SPUUpdater) -> Set<String> {
         UserDefaults.standard.bool(forKey: "daisy.updates.betaChannel") ? ["beta"] : []
     }
@@ -452,7 +480,10 @@ private final class DaisyUpdaterDelegate: NSObject, SPUUpdaterDelegate {
     /// No update available (including after the user chose "Skip" for the
     /// offered version, or once we've relaunched into it) — clear the badge.
     nonisolated func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
-        Task { @MainActor in SparkleUpdater.shared.availableUpdate = nil }
+        Task { @MainActor in
+            SparkleUpdater.shared.availableUpdate = nil
+            SparkleUpdater.shared.downloadingVersion = nil
+        }
     }
 }
 
@@ -485,6 +516,8 @@ final class SparkleUpdater {
     }
     var checkOrInstallTitle: String { String(localized: "Check for Updates…") }
     var canCheckOrInstall: Bool { false }
+    let downloadingVersion: String? = nil
+    let stagedVersion: String? = nil
     func checkOrInstall() {}
 
     /// No-op until Sparkle is linked (see the real implementation).
