@@ -3235,6 +3235,16 @@
         }
       }
     },
+    "At: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Время: %@"
+          }
+        }
+      }
+    },
     "Attaches the last 24 hours of Daisy's logs. Nothing is sent automatically — review it first. If your mail lives in a browser, save the file instead and the questions go to your clipboard." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -8107,6 +8117,16 @@
         }
       }
     },
+    "Due: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Срок: %@"
+          }
+        }
+      }
+    },
     "e.g. Egor" : {
       "localizations" : {
         "ru" : {
@@ -8880,6 +8900,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Из кэша"
+          }
+        }
+      }
+    },
+    "From the meeting: %@, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "From the meeting: %1$@, %2$@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Со встречи: %1$@, %2$@"
           }
         }
       }
@@ -13207,6 +13243,16 @@
         }
       }
     },
+    "Owner: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Кто: %@"
+          }
+        }
+      }
+    },
     "Page" : {
       "localizations" : {
         "ru" : {
@@ -15789,6 +15835,16 @@
         }
       }
     },
+    "Send a Step" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправить шаг"
+          }
+        }
+      }
+    },
     "Send finished recordings into a Notion page or database." : {
       "localizations" : {
         "ru" : {
@@ -15899,6 +15955,16 @@
         }
       }
     },
+    "Sends one next step — not the whole meeting — to Notion or a destination in Connections." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправляет один шаг — не всю встречу — в Notion или в назначение из «Подключений»."
+          }
+        }
+      }
+    },
     "Sent to Anthropic or OpenAI by the CLI on your Mac, on your subscription — counts against your plan's limits." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -15932,6 +15998,16 @@
     },
     "Sent to Moonshot over HTTPS, using your API key — processed in China." : {
 
+    },
+    "Sent to Notion" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправлено в Notion"
+          }
+        }
+      }
     },
     "Sent to Notion · %@" : {
       "localizations" : {
@@ -16641,6 +16717,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Запуск…"
+          }
+        }
+      }
+    },
+    "Step: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаг: %@"
           }
         }
       }

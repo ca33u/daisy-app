@@ -68,6 +68,35 @@ actor NotionExporter {
         let parentKind = await readParentKind()
 
         let body = buildPageJSON(parentID: parentID, data: data, parentKind: parentKind)
+        return try await post(body, token: token)
+    }
+
+    /// Backlog 24 М-14: one next step as its own page, in the same parent
+    /// as the meetings. Marked as a step by its title, not a column — a
+    /// «Type» property would fail on every database that has none.
+    func createActionPage(title: String, lines: [String]) async throws -> URL {
+        guard let token = await readCredential(SecretKey.notionToken),
+              let rawParent = await readCredential(SecretKey.notionParentID),
+              !token.isEmpty, !rawParent.isEmpty else {
+            throw NotionError.missingCredentials
+        }
+        let normalized = rawParent.replacingOccurrences(of: "-", with: "").trimmingCharacters(in: .whitespaces)
+        guard normalized.count == 32 else { throw NotionError.invalidParentID }
+        let parentID = formatPageID(normalized)
+        let parentKind = await readParentKind()
+        let titleKey = parentKind == "database" ? "Name" : "title"
+        let parent: [String: Any] = parentKind == "database" ? ["database_id": parentID] : ["page_id": parentID]
+        let body: [String: Any] = [
+            "parent": parent,
+            "properties": [
+                titleKey: ["title": [["type": "text", "text": ["content": title.notionTrimmed]]]]
+            ],
+            "children": lines.filter { !$0.isEmpty }.map(paragraph),
+        ]
+        return try await post(body, token: token)
+    }
+
+    private func post(_ body: [String: Any], token: String) async throws -> URL {
         var request = URLRequest(url: URL(string: "https://api.notion.com/v1/pages")!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

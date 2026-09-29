@@ -26,6 +26,8 @@
 //                                 (and seed a SpeakerProfile)
 //   • route_session_to_destination — push a session to a configured
 //                                 destination
+//   • route_action_to_destination — push ONE next step of a session
+//                                 (backlog 24 М-14)
 //
 //  Every action tool reuses the EXACT store/service the SwiftUI UI
 //  uses (SessionStore / Summarizer / SpeakerProfileStore /
@@ -321,6 +323,36 @@ enum MCPTools {
                     openWorldHint: true
                 )
             ),
+            MCPTool(
+                name: "route_action_to_destination",
+                description: "MUTATES external state (creates a page/issue/message on the destination). Push ONE next step of a session — not the whole session — to Notion or one of the user's enabled destinations (Linear / Slack / webhook / another MCP server): the destination's template gets the step as the title and, as the body, its owner, due date, the meeting, the time and the transcript lines around it. The step is marked sent in the session's summary. Identify the step by its 0-based position in the session's next steps (get_session lists them in order).",
+                inputSchema: .object([
+                    "type": .string("object"),
+                    "properties": .object([
+                        "id": .object([
+                            "type": .string("string"),
+                            "description": .string("Session id as returned by list_sessions / search_sessions.")
+                        ]),
+                        "step": .object([
+                            "type": .string("integer"),
+                            "description": .string("0-based index of the next step in the session's summary.")
+                        ]),
+                        "destination": .object([
+                            "type": .string("string"),
+                            "description": .string("\"Notion\", or a destination id (preferred) or exact name from list_destinations. Must be enabled.")
+                        ])
+                    ]),
+                    "required": .array([.string("id"), .string("step"), .string("destination")]),
+                    "additionalProperties": .bool(false)
+                ]),
+                annotations: MCPToolAnnotations(
+                    title: "Send a next step to a destination",
+                    readOnlyHint: false,
+                    destructiveHint: false,
+                    idempotentHint: false,
+                    openWorldHint: true
+                )
+            ),
         ]
     }
 
@@ -388,6 +420,14 @@ enum MCPTools {
                     ?? { throw MCPToolError.missingArgument("id") }()
                 return await routeSessionToDestination(args: args)
 
+            case "route_action_to_destination":
+                guard MCPAccessToken.allowExternalActions else {
+                    return Self.externalActionsDisabled(tool: name)
+                }
+                let args = try arguments?.decoded(as: RouteActionArgs.self)
+                    ?? { throw MCPToolError.missingArgument("id") }()
+                return await routeActionToDestination(args: args)
+
             default:
                 return .error("Unknown tool: \(name)")
             }
@@ -434,6 +474,12 @@ enum MCPTools {
 
     private struct RouteSessionArgs: Decodable {
         let id: String
+        let destination: String
+    }
+
+    private struct RouteActionArgs: Decodable {
+        let id: String
+        let step: Int
         let destination: String
     }
 
@@ -725,6 +771,42 @@ enum MCPTools {
             "destination_name": .string(integration.name),
             "destination_kind": .string(integration.kind.rawValue)
         ])
+    }
+
+    /// Backlog 24 М-14: one step, through the same routing the UI's
+    /// «Send step to…» uses.
+    private static func routeActionToDestination(args: RouteActionArgs) async -> MCPToolCallResult {
+        let session: StoredSession
+        switch await resolveSession(id: args.id) {
+        case .success(let s): session = s
+        case .failure(let e): return e
+        }
+        let steps = session.summary?.actionItems ?? []
+        guard steps.indices.contains(args.step) else {
+            return .error("Step \(args.step) doesn't exist — this session has \(steps.count) next step(s), numbered from 0.")
+        }
+        let needle = args.destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        let destinations = ActionRouting.destinations
+        guard !destinations.isEmpty else {
+            return .error("No destinations are configured. Set up Notion or add one in Daisy → Connections.")
+        }
+        guard let destination = destinations.first(where: { $0.id == needle })
+            ?? destinations.first(where: { $0.name == needle })
+            ?? destinations.first(where: { $0.name.lowercased() == needle.lowercased() }) else {
+            return .error("No enabled destination matches '\(needle)'. Available: \(destinations.map(\.name).joined(separator: ", ")).")
+        }
+        guard let link = await ActionRouting.send(step: args.step, of: session, to: destination) else {
+            return .error("Sending the step to \(destination.name) failed — check Daisy for the error detail.")
+        }
+        var fields: [String: AnyJSON] = [
+            "ok": .bool(true),
+            "id": .string(session.id),
+            "step": .string(steps[args.step]),
+            "action": .string("route_action_to_destination"),
+            "destination_name": .string(destination.name),
+        ]
+        if !link.isEmpty { fields["link"] = .string(link) }
+        return ack(fields)
     }
 
     /// Encode a small acknowledgement object as the tool's text/JSON

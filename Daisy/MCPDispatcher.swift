@@ -26,18 +26,38 @@ enum MCPDispatcher {
     /// the destination side (we don't track previous sends).
     @discardableResult
     static func send(_ integration: MCPIntegration, for session: StoredSession) async -> Bool {
+        await send(integration, placeholders: makePlaceholders(for: session)).ok
+    }
+
+    /// What a destination answered: whether it took it, and its reply
+    /// (an MCP tool's text, a webhook's body) — where a created record's
+    /// URL usually is.
+    struct SendResult: Sendable {
+        let ok: Bool
+        let reply: String
+        /// The first link in the reply, if any.
+        var link: String? {
+            guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return nil }
+            let range = NSRange(reply.startIndex..., in: reply)
+            return detector.firstMatch(in: reply, range: range)?.url?.absoluteString
+        }
+    }
+
+    /// Backlog 24 М-14: the same transports with any set of placeholder
+    /// values — a session's, or one next step's.
+    static func send(_ integration: MCPIntegration, placeholders: [(key: String, value: String)]) async -> SendResult {
         guard let url = URL(string: integration.baseURL), url.scheme != nil else {
             ToastCenter.shared.show("\(integration.name): invalid server URL", style: .error)
-            return false
+            return SendResult(ok: false, reply: "")
         }
 
         ToastCenter.shared.show("Sending to \(integration.name)…", style: .info)
 
         switch integration.kind {
         case .mcp:
-            return await sendMCP(integration, to: url, session: session)
+            return await sendMCP(integration, to: url, placeholders: placeholders)
         case .webhook:
-            return await sendWebhook(integration, to: url, session: session)
+            return await sendWebhook(integration, to: url, placeholders: placeholders)
         }
     }
 
@@ -46,16 +66,15 @@ enum MCPDispatcher {
     private static func sendMCP(
         _ integration: MCPIntegration,
         to url: URL,
-        session: StoredSession
-    ) async -> Bool {
-        let placeholders = makePlaceholders(for: session)
+        placeholders: [(key: String, value: String)]
+    ) async -> SendResult {
         let arguments: AnyJSON
         do {
             arguments = try buildArguments(template: integration.argumentsTemplate, placeholders: placeholders)
         } catch {
             log.error("Template substitution failed: \(error.localizedDescription, privacy: .public)")
             ToastCenter.shared.show("\(integration.name): \(error.localizedDescription)", style: .error)
-            return false
+            return SendResult(ok: false, reply: "")
         }
 
         let client = MCPClient(baseURL: url)
@@ -67,12 +86,12 @@ enum MCPDispatcher {
             let snippet = text.isEmpty ? "" : " — " + String(text.prefix(80))
             ToastCenter.shared.show("Sent to \(integration.name)\(snippet)", style: .success)
             log.info("MCP send to \(integration.name, privacy: .private): ok")
-            return true
+            return SendResult(ok: true, reply: text)
         } catch {
             client.disconnect()
             log.error("MCP send to \(integration.name, privacy: .private) failed: \(error.localizedDescription, privacy: .public)")
             ToastCenter.shared.show("\(integration.name): \(error.localizedDescription)", style: .error)
-            return false
+            return SendResult(ok: false, reply: "")
         }
     }
 
@@ -82,9 +101,8 @@ enum MCPDispatcher {
     private static func sendWebhook(
         _ integration: MCPIntegration,
         to url: URL,
-        session: StoredSession
-    ) async -> Bool {
-        let placeholders = makePlaceholders(for: session)
+        placeholders: [(key: String, value: String)]
+    ) async -> SendResult {
         // Reuse the same template substitution + JSON validation as
         // the MCP path so a malformed template fails the same way
         // regardless of transport (better error messages).
@@ -106,7 +124,7 @@ enum MCPDispatcher {
         } catch {
             log.error("Webhook template error: \(error.localizedDescription, privacy: .public)")
             ToastCenter.shared.show("\(integration.name): \(error.localizedDescription)", style: .error)
-            return false
+            return SendResult(ok: false, reply: "")
         }
 
         var request = URLRequest(url: url)
@@ -123,24 +141,24 @@ enum MCPDispatcher {
         request.httpBody = bodyData
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 ToastCenter.shared.show("\(integration.name): no response", style: .error)
-                return false
+                return SendResult(ok: false, reply: "")
             }
             if (200..<300).contains(http.statusCode) {
                 ToastCenter.shared.show("Sent to \(integration.name)", style: .success)
                 log.info("Webhook send to \(integration.name, privacy: .private): \(http.statusCode)")
-                return true
+                return SendResult(ok: true, reply: String(data: data.prefix(8192), encoding: .utf8) ?? "")
             } else {
                 ToastCenter.shared.show("\(integration.name): HTTP \(http.statusCode)", style: .error)
                 log.error("Webhook send to \(integration.name, privacy: .private) failed: HTTP \(http.statusCode)")
-                return false
+                return SendResult(ok: false, reply: "")
             }
         } catch {
             log.error("Webhook send to \(integration.name, privacy: .private) failed: \(error.localizedDescription, privacy: .public)")
             ToastCenter.shared.show("\(integration.name): \(error.localizedDescription)", style: .error)
-            return false
+            return SendResult(ok: false, reply: "")
         }
     }
 
@@ -150,7 +168,7 @@ enum MCPDispatcher {
     /// the substitution loop (longest prefix first) so that, e.g.,
     /// `{{actionItemsBullets}}` doesn't get mangled by an earlier
     /// pass over `{{actionItems}}`.
-    private static func makePlaceholders(for session: StoredSession) -> [(key: String, value: String)] {
+    static func makePlaceholders(for session: StoredSession) -> [(key: String, value: String)] {
         let summary = session.summary
         let actionItems = summary?.actionItems ?? []
         let bullets = actionItems.map { "- " + $0 }.joined(separator: "\n")

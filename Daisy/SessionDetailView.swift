@@ -176,7 +176,12 @@ struct SessionDetailView: View {
                         copyLabel: String(localized: "Copy summary"),
                         copyText: summaryCopyText,
                         showsCopy: session.summary != nil,
-                        accessory: { stepsInsertMenu }
+                        accessory: {
+                            HStack(spacing: 12) {
+                                stepsSendMenu
+                                stepsInsertMenu
+                            }
+                        }
                     ) {
                         VStack(alignment: .leading, spacing: 18) {
                             // 2026-05-26 — three cases:
@@ -1296,6 +1301,31 @@ struct SessionDetailView: View {
             .fixedSize()
             .disabled(PreviousAppTracker.shared.name == nil)
             .help(insertHelp)
+        }
+    }
+
+    /// Backlog 24 М-14: one step to Notion or a Connections destination.
+    @ViewBuilder
+    private var stepsSendMenu: some View {
+        let destinations = ActionRouting.destinations
+        if let steps = session.summary?.actionItems, !steps.isEmpty, !destinations.isEmpty {
+            Menu {
+                ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                    Menu(step.count > 80 ? String(step.prefix(80)) + "…" : step) {
+                        ForEach(destinations) { destination in
+                            Button(destination.name) {
+                                let current = session
+                                Task { await ActionRouting.send(step: index, of: current, to: destination) }
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Label(String(localized: "Send a Step"), systemImage: "paperplane")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help(String(localized: "Sends one next step — not the whole meeting — to Notion or a destination in Connections."))
         }
     }
 

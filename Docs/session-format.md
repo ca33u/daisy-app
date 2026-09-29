@@ -594,7 +594,10 @@ Destinations the phone writes: `calendar`, `reminders`, `mail`, `messages`,
 the item keeps its own button), `file` (identifier: the file's name),
 `call` (done: they talked), `nextMeeting` (a question carried to the next
 meeting with these people; identifier: that event), `chatgpt`, `claude`,
-`manual`, or a share-sheet activity's name. `call` (2026-09-29) is a phone
+`manual`, or a share-sheet activity's name. The Mac writes `paste` (inserted
+at the cursor of another app; identifier: that app's name) and, for a step
+sent to Notion or a Connections destination, that destination's name with
+the link it answered with as the identifier (backlog 24 М-10, М-14). `call` (2026-09-29) is a phone
 call to make; a `meeting` with `payload.editsCurrentEvent` changes this
 meeting or its next occurrence (the change in `start` / `attendees` /
 `durationMinutes`), `payload.place` is where a meeting will be. A kind a
