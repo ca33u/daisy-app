@@ -9632,6 +9632,45 @@
         }
       }
     },
+    "in %lldh" : {
+      "comment" : "Menu bar countdown, whole hours",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "через %lld ч"
+          }
+        }
+      }
+    },
+    "in %lldh %lldm" : {
+      "comment" : "Menu bar countdown, hours and minutes",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "in %1$lldh %2$lldm"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "через %1$lld ч %2$lld мин"
+          }
+        }
+      }
+    },
+    "in %lldm" : {
+      "comment" : "Menu bar countdown, under an hour",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "через %lld мин"
+          }
+        }
+      }
+    },
     "in period" : {
       "localizations" : {
         "ru" : {
@@ -12325,6 +12364,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Notion: %@"
+          }
+        }
+      }
+    },
+    "now" : {
+      "comment" : "Menu bar: the next meeting starts right now",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "сейчас"
           }
         }
       }

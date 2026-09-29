@@ -149,6 +149,17 @@ struct AboutView: View {
                     detail: "Chat with the community",
                     url: URL(string: "https://discord.gg/JYCZRZXy6j")
                 )
+                // Russian UI only: the announcements channel is in Russian
+                // (Egor, 29.09). Keyed on the language the app is actually
+                // shown in, not the system region.
+                if Bundle.main.preferredLocalizations.first == "ru" {
+                    aboutLinkRow(
+                        icon: "paperplane",
+                        title: "Telegram",
+                        detail: "Анонсы — @daisyapp",
+                        url: URL(string: "https://t.me/daisyapp")
+                    )
+                }
                 aboutLinkRow(
                     icon: "doc.text",
                     title: "License",

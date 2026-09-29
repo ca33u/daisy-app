@@ -577,6 +577,54 @@ final class CalendarService {
         let trimmed = title.count > 18 ? title.prefix(18) + "…" : title[...]
         return "\(timeStr) · \(trimmed)"
     }
+
+    /// The menu-bar label as a countdown — «Q3 Review in 3h 5m» — instead
+    /// of the clock time (Egor, 29.09: a countdown reads faster than a time
+    /// you have to subtract from now). Same event selection and window as
+    /// `nextMeetingShortLabel`; `now` is passed in so a TimelineView can
+    /// re-render it every minute without touching the calendar.
+    func nextMeetingCountdownLabel(now: Date = Date()) -> String? {
+        let hasEventKit = (authorizationStatus == .fullAccess)
+        let hasGoogle = GoogleAccountStore.shared.isConnected
+        guard hasEventKit || hasGoogle else { return nil }
+
+        guard let next = Self.countdownEvent(in: upcomingEvents, now: now) else { return nil }
+        let title = next.title.trimmingCharacters(in: .whitespaces)
+        let trimmed = title.count > 18 ? title.prefix(18) + "…" : title[...]
+        return "\(trimmed) \(Self.countdownPhrase(until: next.startDate, now: now))"
+    }
+
+    /// How long a started meeting keeps the label, reading «now»: the tick
+    /// lands exactly on its start, and a meeting is joined in its first
+    /// minutes, not before it.
+    static let countdownNowGraceSec: TimeInterval = 5 * 60
+
+    /// The meeting the countdown is about: the first that has not been
+    /// running longer than the grace, within the window. `upcomingEvents`
+    /// includes meetings in progress (EventKit returns overlaps).
+    static func countdownEvent(in events: [DaisyMeeting], now: Date) -> DaisyMeeting? {
+        let cutoff = now.addingTimeInterval(upcomingWindowSec)
+        return events.first {
+            $0.startDate > now.addingTimeInterval(-countdownNowGraceSec) && $0.startDate <= cutoff
+        }
+    }
+
+    /// «in 3h 5m» / «in 42m» / «now» — and the Russian «через 3 ч 5 мин».
+    /// Minutes are rounded up, so «in 1m» never reads as «now» while the
+    /// meeting has not started.
+    nonisolated static func countdownPhrase(until start: Date, now: Date) -> String {
+        let totalMinutes = Int((start.timeIntervalSince(now) / 60).rounded(.up))
+        guard totalMinutes > 0 else { return String(localized: "now", comment: "Menu bar: the next meeting starts right now") }
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        if hours == 0 {
+            return String(localized: "in \(minutes)m", comment: "Menu bar countdown, under an hour")
+        }
+        if minutes == 0 {
+            return String(localized: "in \(hours)h", comment: "Menu bar countdown, whole hours")
+        }
+        return String(localized: "in \(hours)h \(minutes)m", comment: "Menu bar countdown, hours and minutes")
+    }
 }
 
 // MARK: - EKEvent → DaisyMeeting projection

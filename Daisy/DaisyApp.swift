@@ -17,6 +17,7 @@
 //
 
 import SwiftUI
+import os
 
 @main
 struct DaisyApp: App {
@@ -227,7 +228,8 @@ struct DaisyApp: App {
 //                  communicates "active"; adding text would crowd
 //                  the system bar at the worst time)
 //   • Setting on AND has upcoming event within 8h
-//                → icon + "14:30 · Q3 Review"
+//                → icon + "Q3 Review in 3h 5m" (a countdown; «now» for
+//                  the first five minutes of a meeting)
 //   • Default    → icon only
 //
 
@@ -237,14 +239,23 @@ private struct MenuBarLabel: View {
     @Bindable private var calendar = CalendarService.shared
 
     var body: some View {
-        if let next = nextMeetingLabel {
-            HStack(spacing: 4) {
+        // The countdown («Q3 Review in 3h 5m») changes every minute: the
+        // label reads `MinuteClock`, which ticks on the minute. Not a
+        // TimelineView — inside a MenuBarExtra label it re-rendered without
+        // end at launch (29.09: the main thread spun in
+        // MenuBarExtraHost.requestUpdate, the app never finished launching).
+        let next = nextMeetingLabel(now: MinuteClock.shared.now)
+        Group {
+            if let next {
+                HStack(spacing: 4) {
+                    Image(nsImage: DaisyMark.menuBarImage)
+                    Text(next)
+                }
+            } else {
                 Image(nsImage: DaisyMark.menuBarImage)
-                Text(next)
             }
-        } else {
-            Image(nsImage: DaisyMark.menuBarImage)
         }
+        .modifier(MenuBarLabelTrace(text: next))
     }
 
     /// Returns the menu-bar label text when ALL conditions hold:
@@ -253,15 +264,70 @@ private struct MenuBarLabel: View {
     ///     the menu bar — surfacing "Next meeting" mid-recording is
     ///     a distraction)
     ///   • Calendar service has an upcoming event within 8 hours
-    /// nil → fall back to icon-only.
-    private var nextMeetingLabel: String? {
+    /// nil → fall back to icon-only. The text is a countdown, not a clock
+    /// time (Egor, 29.09).
+    private func nextMeetingLabel(now: Date) -> String? {
         guard settings.menuBarShowsNextMeeting else { return nil }
         switch session.status {
         case .recording, .paused, .preparing, .stopping, .summarizing:
             return nil
         case .idle, .finished, .failed:
-            return calendar.nextMeetingShortLabel
+            return calendar.nextMeetingCountdownLabel(now: now)
         }
+    }
+}
+
+/// The menu-bar countdown's clock: `now`, moved on at each minute's start
+/// so «in 5m» becomes «in 4m» when the clock in the menu bar changes.
+/// A wake from sleep moves it at once; a repeating timer keeps its phase.
+@MainActor
+@Observable
+final class MinuteClock {
+    static let shared = MinuteClock()
+    private(set) var now = Date()
+    @ObservationIgnored private var timer: Timer?
+    @ObservationIgnored private var wake: NSObjectProtocol?
+
+    private init() {
+        let timer = Timer(fire: Self.nextMinute(after: Date()), interval: 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.now = Date() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+        wake = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.now = Date()
+                // After a sleep the timer's next fire may be minutes late;
+                // put it back on the minute.
+                self?.timer?.fireDate = Self.nextMinute(after: Date())
+            }
+        }
+    }
+
+    /// The start of the next minute (the reference date is minute-aligned).
+    nonisolated static func nextMinute(after date: Date) -> Date {
+        let t = date.timeIntervalSinceReferenceDate
+        return Date(timeIntervalSinceReferenceDate: (t / 60).rounded(.down) * 60 + 60)
+    }
+}
+
+/// DEBUG only: each change of the menu-bar text, with the second it
+/// happened — how the countdown's minute tick, «now» and the hiding while
+/// recording are checked on a live calendar (`log show … MenuBarLabel`).
+private struct MenuBarLabelTrace: ViewModifier {
+    let text: String?
+
+    func body(content: Content) -> some View {
+        #if DEBUG
+        content.onChange(of: text, initial: true) { _, new in
+            Logger(subsystem: "app.essazanov.Daisy", category: "MenuBarLabel")
+                .notice("menu bar label: \(new ?? "(icon only)", privacy: .public)")
+        }
+        #else
+        content
+        #endif
     }
 }
 
