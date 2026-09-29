@@ -16,10 +16,13 @@ struct PreMeetingBriefCard: View {
     let settings: AppSettings
 
     @Bindable private var briefStore = PreMeetingBriefStore.shared
+    /// Backlog 24 М-13: questions a past meeting carried to this one.
+    @State private var carried: [CarriedQuestion] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
+            carriedBlock
             content
         }
         .padding(.horizontal, 12)
@@ -35,6 +38,51 @@ struct PreMeetingBriefCard: View {
         .task(id: PreMeetingBriefStore.key(for: meeting)) {
             await briefStore.prepare(for: meeting, settings: settings)
         }
+        .task(id: meeting.id) { await loadCarried() }
+    }
+
+    // MARK: - Backlog 24 М-13
+
+    @ViewBuilder
+    private var carriedBlock: some View {
+        if !carried.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Open from last time")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.daisyHomeAccent)
+                ForEach(carried) { question in
+                    Button {
+                        AppNavigation.shared.openInLibrary(question.sessionID)
+                    } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Image(systemName: "questionmark.circle")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(question.text)
+                                .font(.caption)
+                                .foregroundStyle(.primary)
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 4)
+                            Text(question.meetingDate, format: .dateTime.day().month(.abbreviated))
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(String(localized: "From “\(question.meetingTitle)” — open it"))
+                }
+            }
+        }
+    }
+
+    private func loadCarried() async {
+        let ids = Set([meeting.externalID, meeting.localID].compactMap { $0 })
+        let sessions = SessionStore.shared.sessions.map { ($0.id, $0.title, $0.startedAt, $0.directoryURL) }
+        carried = await Task.detached(priority: .utility) {
+            CarriedQuestions.find(eventIDs: ids, in: sessions.map { (id: $0.0, title: $0.1, date: $0.2, directory: $0.3) })
+        }.value
     }
 
     private var state: PreMeetingBriefStore.State { briefStore.state(for: meeting) }

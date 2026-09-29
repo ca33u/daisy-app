@@ -236,3 +236,41 @@ private final class RecapShareDelegate: NSObject, NSSharingServiceDelegate {
         Task { @MainActor in RecapShareDelegate.current = nil }
     }
 }
+
+// MARK: - Backlog 24 М-13: questions carried to this meeting
+
+/// An open question a past meeting's step marked «for the next meeting»
+/// with these people (the phone's Next Meeting button), shown in this
+/// meeting's prep as «Open from last time».
+struct CarriedQuestion: Identifiable, Hashable, Sendable {
+    var id: String { sessionID + "/" + text }
+    let text: String
+    let sessionID: String
+    let meetingTitle: String
+    let meetingDate: Date
+}
+
+enum CarriedQuestions {
+    /// Sessions of the last two months whose summary carries a question
+    /// scheduled for the event with one of these ids (the provider's,
+    /// which both devices share, or this Mac's own).
+    nonisolated static func find(eventIDs: Set<String>,
+                                 in sessions: [(id: String, title: String, date: Date, directory: URL)],
+                                 now: Date = Date()) -> [CarriedQuestion] {
+        guard !eventIDs.isEmpty else { return [] }
+        struct File: Decodable { let actions: [ActionItem]? }
+        let since = now.addingTimeInterval(-60 * 86_400)
+        var out: [CarriedQuestion] = []
+        for session in sessions where session.date >= since {
+            guard let data = try? Data(contentsOf: session.directory.appendingPathComponent("summary.json")),
+                  let actions = (try? JSONDecoder().decode(File.self, from: data))?.actions else { continue }
+            for action in actions where action.kind == .question
+                && action.status?.state == .scheduled && action.status?.destination == "nextMeeting"
+                && eventIDs.contains(action.status?.identifier ?? "") {
+                out.append(CarriedQuestion(text: action.text, sessionID: session.id,
+                                           meetingTitle: session.title, meetingDate: session.date))
+            }
+        }
+        return out.sorted { $0.meetingDate < $1.meetingDate }
+    }
+}
