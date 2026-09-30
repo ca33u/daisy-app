@@ -26,6 +26,7 @@
 //  once models are cached (not yet adopted; see backlog).
 //
 
+import DaisyCore
 import Foundation
 import Observation
 import os
@@ -203,7 +204,8 @@ final class ParakeetEngine {
         guard let manager else { throw ParakeetEngineError.notReady }
         var decoderState = TdtDecoderState.make()   // 2 LSTM layers (v2/v3)
         let result = try await manager.transcribe(samples, decoderState: &decoderState)
-        return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Parakeet v3 has no «ё»: it writes <unk> in its place (30.09).
+        return UnknownTokenRepair.repair(result.text).trimmingCharacters(in: .whitespacesAndNewlines)
         #else
         throw ParakeetEngineError.notReady
         #endif

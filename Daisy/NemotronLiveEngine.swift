@@ -24,6 +24,7 @@
 //  serves every dictation locale (no latin/multilingual cache split).
 //
 
+import DaisyCore
 import Foundation
 import Observation
 import os
@@ -172,7 +173,9 @@ final class NemotronLiveEngine {
         await manager.reset()
         await manager.setLanguage(languageCode)
         await manager.setPartialCallback { text in
-            Task { @MainActor in onRunningText(text) }
+            // No «Ё» in Nemotron's vocabulary: <unk> at a sentence's start (30.09).
+            let repaired = UnknownTokenRepair.repair(text)
+            Task { @MainActor in onRunningText(repaired) }
         }
 
         let (stream, continuation) = AsyncStream<[Float]>.makeStream()
