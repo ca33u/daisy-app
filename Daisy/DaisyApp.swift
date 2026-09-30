@@ -195,26 +195,34 @@ struct DaisyApp: App {
             }
         }
 
-        // Menu-bar icon — ONE MenuBarExtra, `.window` style. Clicking it
-        // opens a popover whose CONTENT branches on "Compact menu bar":
-        //  • Default    → full ContentView (live record + transcription).
-        //  • Compact ON → CompactMenuView: just the quick actions, so the
-        //    transcription mini-window never shows.
-        // The branch lives in the content (ViewBuilder), NOT at the scene
-        // level — `SceneBuilder` rejects if/else, so two conditional
-        // MenuBarExtra scenes won't compile. Content branching updates live
-        // when the toggle flips; Dock icon + app menus stay untouched.
-        MenuBarExtra {
-            if settings.compactMenuBarOnly {
-                CompactMenuView(session: session, settings: settings)
-            } else {
-                ContentView(session: session, settings: settings)
-                    .frame(width: 420, height: 580)
-            }
+        // Menu-bar icon — two MenuBarExtra scenes, one inserted at a time
+        // by "Compact menu bar":
+        //  • Default    → `.window` popover with the full ContentView (live
+        //    record + transcription).
+        //  • Compact ON → `.menu`: a native dropdown with the quick actions
+        //    (CompactMenuItems), so the transcription window never shows.
+        // `SceneBuilder` rejects if/else; `isInserted` flips live with the
+        // toggle. Dock icon + app menus stay untouched.
+        //
+        // 30.09: before, the compact choice was a menu-looking view inside
+        // the `.window` popover, and it opened far from the icon (a user on
+        // macOS 26.6: the window kept the full view's 420×580 frame and the
+        // short list sat in its middle, ~290 pt below the bar, with the
+        // frame's outline around it).
+        MenuBarExtra(isInserted: Binding(get: { !settings.compactMenuBarOnly }, set: { _ in })) {
+            ContentView(session: session, settings: settings)
+                .frame(width: 420, height: 580)
         } label: {
             MenuBarLabel(session: session, settings: settings)
         }
         .menuBarExtraStyle(.window)
+
+        MenuBarExtra(isInserted: Binding(get: { settings.compactMenuBarOnly }, set: { _ in })) {
+            CompactMenuItems(session: session, settings: settings)
+        } label: {
+            MenuBarLabel(session: session, settings: settings)
+        }
+        .menuBarExtraStyle(.menu)
     }
 }
 
@@ -333,73 +341,44 @@ private struct MenuBarLabelTrace: ViewModifier {
 
 // MARK: - Compact menu-bar popover
 //
-// Menu-bar popover content when "Compact menu bar" is on — the quick
-// actions from ContentView's "⋯ More" menu, without the live
-// transcription UI. NOTE: this is a compact POPOVER styled like a menu,
-// not a true native NSMenu dropdown — SwiftUI's MenuBarExtra can't switch
-// to `.menu` style conditionally, so a real dropdown would need an AppKit
-// NSStatusItem. Good enough to keep the transcription window out of the way.
+// "Compact menu bar": a native dropdown menu — the quick actions from
+// ContentView's "⋯ More" menu, without the live transcription UI. Its own
+// `.menu` MenuBarExtra scene (see DaisyApp), so macOS draws and places it
+// like any menu bar menu.
 
-private struct CompactMenuView: View {
+private struct CompactMenuItems: View {
     @Bindable var session: RecordingSession
     @Bindable var settings: AppSettings
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            row("Summarize now", "sparkles",
-                disabled: session.segments.isEmpty || session.summarizer.isSummarizing) {
-                Task { await session.runSummary() }
-            }
-            row("Open Library…", "books.vertical") {
-                AppNavigation.shared.section = .library
-                openWindow(id: "main")
-                NSApp.activate(ignoringOtherApps: true)
-            }
-            row("Settings…", "gear") {
-                AppNavigation.shared.section = .settings
-                openWindow(id: "main")
-                NSApp.activate(ignoringOtherApps: true)
-            }
+        Button {
+            Task { await session.runSummary() }
+        } label: { Label("Summarize now", systemImage: "sparkles") }
+            .disabled(session.segments.isEmpty || session.summarizer.isSummarizing)
+        Button {
+            AppNavigation.shared.section = .library
+            openWindow(id: "main")
+            NSApp.activate(ignoringOtherApps: true)
+        } label: { Label("Open Library…", systemImage: "books.vertical") }
+        Button {
+            AppNavigation.shared.section = .settings
+            openWindow(id: "main")
+            NSApp.activate(ignoringOtherApps: true)
+        } label: { Label("Settings…", systemImage: "gear") }
 
-            Divider().padding(.vertical, 4)
+        Divider()
 
-            row("New recording", "plus.circle",
-                disabled: session.status == .recording) {
-                session.reset()
-            }
-            row(SparkleUpdater.shared.checkOrInstallTitle, "arrow.down.circle",
-                disabled: !SparkleUpdater.shared.canCheckOrInstall) {
-                SparkleUpdater.shared.checkOrInstall()
-            }
-
-            Divider().padding(.vertical, 4)
-
-            row("Quit Daisy", "power") {
-                NSApp.terminate(nil)
-            }
+        Button { session.reset() } label: { Label("New recording", systemImage: "plus.circle") }
+            .disabled(session.status == .recording)
+        Button { SparkleUpdater.shared.checkOrInstall() } label: {
+            Label(SparkleUpdater.shared.checkOrInstallTitle, systemImage: "arrow.down.circle")
         }
-        .padding(6)
-        .frame(width: 240)
-    }
+        .disabled(!SparkleUpdater.shared.canCheckOrInstall)
 
-    @ViewBuilder
-    private func row(_ title: String, _ icon: String,
-                     disabled: Bool = false,
-                     action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .frame(width: 16)
-                    .foregroundStyle(.secondary)
-                Text(title)
-                Spacer(minLength: 0)
-            }
-            .contentShape(Rectangle())
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-        }
-        .buttonStyle(.plain)
-        .disabled(disabled)
+        Divider()
+
+        Button { NSApp.terminate(nil) } label: { Label("Quit Daisy", systemImage: "power") }
+            .keyboardShortcut("q")
     }
 }
