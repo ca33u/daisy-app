@@ -96,10 +96,10 @@ nonisolated enum ProcessTapDebugFlag {
         set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 
-    /// When ScreenCaptureKit last heard sound in a recording where the tap,
-    /// silent for the silent-content timeout, had heard none — the tap was
-    /// at fault, so the next week of recordings goes through
-    /// ScreenCaptureKit. A silent tap alone sets nothing: an in-person
+    /// When the tap was set aside: ScreenCaptureKit heard at once what a
+    /// tap, silent for the silent-content timeout, had not — in two
+    /// recordings in a row (TapBlame, 30.09) — so the next week of
+    /// recordings goes through ScreenCaptureKit. A silent tap alone sets nothing: an in-person
     /// meeting is silent on both (review 24.09). Cleared the moment a tap
     /// hears anything.
     static var heardNothingAt: Date? {
@@ -107,6 +107,13 @@ nonisolated enum ProcessTapDebugFlag {
         set { UserDefaults.standard.set(newValue, forKey: "daisy.processTapHeardNothingAt") }
     }
     static let heardNothingFallback: TimeInterval = 7 * 86_400
+
+    /// Recordings in a row where ScreenCaptureKit heard at once what a
+    /// silent tap had not (TapBlame); two set the week-long fallback.
+    static var blameStreak: Int {
+        get { UserDefaults.standard.integer(forKey: "daisy.processTapBlameStreak") }
+        set { UserDefaults.standard.set(newValue, forKey: "daisy.processTapBlameStreak") }
+    }
 
     /// Mirrors of `ProcessTapPermission` for the nonisolated backend
     /// choice: the sheet asked, and the probe did not hear its tone.

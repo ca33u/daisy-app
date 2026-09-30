@@ -144,6 +144,17 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// capture moved to ScreenCaptureKit to find out why. If SCK hears
     /// sound, the tap was the problem; if SCK is silent too, the room is.
     private var probingAfterSilentTap = false
+    /// When this recording moved to ScreenCaptureKit after a silent tap —
+    /// the start of the window in which SCK hearing sound blames the tap.
+    private var switchedAfterSilentTapAt: Date?
+
+    /// 30.09 (a log from Egor's second Mac): the Settings meter's own capture
+    /// ran beside a recording's — two «Output route at setup» a second
+    /// apart, and at Stop the recording's stream was already gone. The
+    /// meter never starts while a recording captures, and a recording
+    /// that starts stops every meter first.
+    private static var recordingCaptureActive = false
+    private static let diagnosticMeters = NSHashTable<SystemAudioCapture>.weakObjects()
     /// Stalled-tap rebuilds this capture; two, then the silence monitor
     /// and its announcements take over.
     private var tapStallRebuilds = 0
@@ -495,6 +506,19 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                 ProcessTapDebugFlag.lastTapHostDevice = nil
             }
         }
+        if quietDiagnostics {
+            guard !Self.recordingCaptureActive else {
+                log.notice("Settings meter not started — a recording is capturing system audio")
+                return
+            }
+            Self.diagnosticMeters.add(self)
+        } else {
+            Self.recordingCaptureActive = true
+            for meter in Self.diagnosticMeters.allObjects where meter !== self && meter.state != .stopped && meter.state != .idle {
+                log.notice("Stopping the Settings meter's capture — a recording starts")
+                await meter.stop()
+            }
+        }
         state = .starting
         lastError = nil
         self.quietDiagnostics = quietDiagnostics
@@ -503,7 +527,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         // Listen BEFORE building, so a route change during setup is seen.
         routeChangedDuringSetup = false
         let routeAtSetup = Self.outputRoute()
-        log.notice("Output route at setup: \(routeAtSetup.description, privacy: .public) (backend=\(self.backend.rawValue, privacy: .public))")
+        log.notice("Output route at setup: \(routeAtSetup.description, privacy: .public) (backend=\(self.backend.rawValue, privacy: .public))\(quietDiagnostics ? " — Settings meter" : "")")
         installOutputDeviceListener()
 
         var engine: Engine
@@ -1183,6 +1207,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         probingAfterSilentTap = true
         if !quietDiagnostics { ProcessTapDebugFlag.lastActiveBackend = "scstream-after-silent-tap" }
         if await rebuildStream(reason: "silent-tap-to-scstream") {
+            switchedAfterSilentTapAt = Date()
             // One fired warning per session: the probe's own silence must
             // not raise the SCK toast for a quiet room.
             silentContentWarningFired = true
@@ -1509,15 +1534,32 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         // checkForSilentCapture() requires !receivedAudibleAudio, which
         // is now permanently true for this session.
         silentContentWarningFired = false
-        if backend == .processTap, !quietDiagnostics, ProcessTapDebugFlag.heardNothingAt != nil {
+        if backend == .processTap, !quietDiagnostics,
+           ProcessTapDebugFlag.heardNothingAt != nil || ProcessTapDebugFlag.blameStreak > 0 {
             ProcessTapDebugFlag.heardNothingAt = nil
+            ProcessTapDebugFlag.blameStreak = 0
             log.notice("Process tap heard sound — the silent-tap fallback is cleared")
         }
         if probingAfterSilentTap, backend == .screenCaptureKit {
-            // SCK hears what the tap did not: the tap was the fault.
             probingAfterSilentTap = false
-            if !quietDiagnostics { ProcessTapDebugFlag.heardNothingAt = Date() }
-            log.warning("ScreenCaptureKit heard sound the process tap missed — the tap is set aside for a week")
+            // 30.09: SCK hearing sound blames the tap only when it hears it
+            // at once — sound that begins later was simply not there for the
+            // tap either (a quiet room). And one such recording sets the tap
+            // aside for itself only; a week, after two in a row.
+            let outcome = TapBlame.decide(switchedAt: switchedAfterSilentTapAt ?? .distantPast, heardAt: Date(),
+                                          streak: ProcessTapDebugFlag.blameStreak)
+            if !quietDiagnostics {
+                ProcessTapDebugFlag.blameStreak = outcome.streak
+                if outcome.setAsideForWeek { ProcessTapDebugFlag.heardNothingAt = Date() }
+            }
+            switch (outcome.blame, outcome.setAsideForWeek) {
+            case (false, _):
+                log.notice("Sound began after the switch to ScreenCaptureKit — a quiet room, the tap is not blamed")
+            case (true, false):
+                log.warning("ScreenCaptureKit heard sound the process tap missed — this recording stays on ScreenCaptureKit; the next starts on the tap again")
+            case (true, true):
+                log.warning("ScreenCaptureKit heard sound the process tap missed — twice in a row, the tap is set aside for a week")
+            }
         }
         if gaveUpNoticeShown {
             withdrawLossNotice(saying: String(localized: "The other side can be heard again."))
@@ -1881,6 +1923,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     }
 
     func stop() async {
+        if !quietDiagnostics { Self.recordingCaptureActive = false }
         // The retry loop outlives a failure, not the recording.
         slowRetryTask?.cancel()
         slowRetryTask = nil
@@ -2232,5 +2275,31 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             }
         }
         return buffer
+    }
+}
+
+
+/// 30.09: when ScreenCaptureKit hearing sound after a silent tap puts the
+/// blame on the tap. Only sound within the first seconds after the switch
+/// counts — if the tap had missed sound that was playing, it is still
+/// playing; sound that starts later was absent for the tap too. The blame
+/// costs this recording only; the week-long fallback needs two recordings
+/// in a row.
+nonisolated enum TapBlame {
+    static let probeWindow: TimeInterval = 10
+    static let streakForWeek = 2
+
+    struct Outcome: Equatable {
+        let blame: Bool
+        let setAsideForWeek: Bool
+        let streak: Int
+    }
+
+    static func decide(switchedAt: Date, heardAt: Date, streak: Int) -> Outcome {
+        guard heardAt.timeIntervalSince(switchedAt) <= probeWindow else {
+            return Outcome(blame: false, setAsideForWeek: false, streak: streak)
+        }
+        let next = streak + 1
+        return Outcome(blame: true, setAsideForWeek: next >= streakForWeek, streak: next)
     }
 }

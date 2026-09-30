@@ -405,6 +405,7 @@ enum LogReporter {
         Disk:       \(diskLine())
         ScreenRec:  \(ScreenRecordingPermission.diagnosticsLine())
         Locale:     ui=\(Bundle.main.preferredLocalizations.first ?? "?") summaryLanguage=\(settings.summaryLanguage.isEmpty ? "auto" : settings.summaryLanguage)
+        Summary:    provider=\(Summarizer.shared.providerKind.rawValue) local=\(Summarizer.shared.providerIsEffectivelyLocal)
         AppleSpeech: \(appleSpeech)
         Route:      \(AudioInputDevices.routeDiagnostics(selectedMicUID: settings.selectedMicDeviceUID))
         SysAudio:   \(SystemAudioCapture.backendDiagnosticsLine())

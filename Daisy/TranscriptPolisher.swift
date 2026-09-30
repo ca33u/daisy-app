@@ -259,8 +259,12 @@ nonisolated enum TranscriptPolisher {
         var replacements: [UUID: String] = [:]
         var applied = 0
         var timedOut = false
+        // The same refusal twice in a row, at once: the provider will not
+        // take this pass at all (no key, model unavailable, a policy) —
+        // the rest is not sent to be refused again.
+        var lastRefusal: String?
 
-        for (index, chunk) in chunks.enumerated() {
+        chunkLoop: for (index, chunk) in chunks.enumerated() {
             // The caller's own rotation guard runs after this returns,
             // but a provider that ignores cancellation would otherwise
             // keep shipping the OLD session's transcript while the user
@@ -281,13 +285,27 @@ nonisolated enum TranscriptPolisher {
             }
 
             let deadline = min(chunkDeadlineSeconds, left)
-            guard let reply = await withDeadline(seconds: deadline, operation: {
+            let reply: String
+            switch await withDeadlineResult(seconds: deadline, operation: {
                 try await summarize(
                     SummaryPrompt.transcriptPolishPayload(lines: chunk.lines),
                     .transcriptPolish(context)
                 ).clientFollowUp
-            }) else {
-                log.warning("Polish chunk \(index, privacy: .public) failed or timed out — chunk kept as-is")
+            }) {
+            case .value(let text):
+                reply = text
+                lastRefusal = nil
+            case .timedOut:
+                log.warning("Polish chunk \(index, privacy: .public) timed out after \(Int(deadline), privacy: .public)s — chunk kept as-is")
+                lastRefusal = nil
+                continue
+            case .failed(let reason):
+                log.warning("Polish chunk \(index, privacy: .public) refused by the provider: \(reason, privacy: .public) — chunk kept as-is")
+                if reason == lastRefusal {
+                    log.warning("Polish stopped: the provider refuses every chunk the same way — the other \(chunks.count - index - 1, privacy: .public) kept as-is")
+                    break chunkLoop
+                }
+                lastRefusal = reason
                 continue
             }
 
@@ -1037,6 +1055,33 @@ nonisolated enum TranscriptPolisher {
     /// Shared by the post-stop LLM passes: `SpeakerNameSuggester` races
     /// its single request the same way, and a second copy of this would
     /// be a second place for the cancellation semantics to drift.
+    /// How a deadline-bound call ended — the reason kept, so a provider
+    /// that refuses at once is not logged as «timed out» (30.09: sixteen
+    /// chunks «failed or timed out» in a tenth of a second).
+    enum DeadlineResult: Sendable {
+        case value(String)
+        case failed(String)
+        case timedOut
+    }
+
+    static func withDeadlineResult(
+        seconds: Double,
+        operation: @escaping @Sendable () async throws -> String
+    ) async -> DeadlineResult {
+        await withTaskGroup(of: DeadlineResult.self) { group in
+            group.addTask {
+                do { return .value(try await operation()) } catch { return .failed(error.localizedDescription) }
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(seconds))
+                return .timedOut
+            }
+            let first = await group.next() ?? .timedOut
+            group.cancelAll()
+            return first
+        }
+    }
+
     static func withDeadline(
         seconds: Double,
         operation: @escaping @Sendable () async throws -> String
