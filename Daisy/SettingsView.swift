@@ -1512,8 +1512,10 @@ struct SettingsView: View {
 
     private var transcriptionTab: some View {
         Form {
-            Section {
-                ModelPreparationView(settings: settings, preparation: modelPreparation, includeSpeakers: true)
+            if modelPreparation.needsAttention(settings: settings) {
+                Section {
+                    ModelPreparationView(settings: settings, preparation: modelPreparation, includeSpeakers: true)
+                }
             }
             // One "Transcription" block, two rows. Friendly names (no model
             // IDs / engine vendor names), no helper captions, no separate

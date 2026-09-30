@@ -65,6 +65,16 @@ final class NemotronLiveEngine {
 
     private init() {}
 
+    /// The multilingual 560 ms variant is on disk (its encoder is the
+    /// bundle that arrives last): a cached load, no download.
+    nonisolated static func hasCachedModel() -> Bool {
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return false }
+        let variant = appSupport.appendingPathComponent("FluidAudio/Models/nemotron-multilingual/multilingual/560ms", isDirectory: true)
+        return ["encoder.mlmodelc", "decoder.mlmodelc", "joint.mlmodelc", "preprocessor.mlmodelc"].allSatisfy {
+            FileManager.default.fileExists(atPath: variant.appendingPathComponent($0).path)
+        }
+    }
+
     var isReady: Bool {
         if case .ready = state {
             #if canImport(FluidAudio)

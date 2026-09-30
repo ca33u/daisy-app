@@ -80,6 +80,26 @@ final class ModelPreparation {
             && (settings.dictationEngine != .parakeet || ParakeetEngine.shared.isReady)
     }
 
+    /// Settings shows the preparation card only when there is something to
+    /// do (Egor, 30.09: with every model on disk it still asked to
+    /// «download and check» after each launch — the «ready» state lives in
+    /// memory only). Something to do: a preparation running or failed, a
+    /// failed engine, or a model the chosen engines need that is not on disk.
+    func needsAttention(settings: AppSettings) -> Bool {
+        if isRunning || error != nil { return true }
+        if case .failed = WhisperEngine.shared.state { return true }
+        if WhisperEngine.cachedModelFolder(variant: WhisperEngine.shared.modelID) == nil { return true }
+        if settings.dictationEngine == .parakeet {
+            if case .failed = ParakeetEngine.shared.state { return true }
+            if !ParakeetEngine.hasCompleteModel() { return true }
+        }
+        if settings.dictationUseNemotronLive {
+            if case .failed = NemotronLiveEngine.shared.state { return true }
+            if !NemotronLiveEngine.hasCachedModel() { return true }
+        }
+        return false
+    }
+
     /// True once a recording or transcription began while a background
     /// preparation was mid-way. The remaining steps are skipped — a 600 MB
     /// download and a CoreML load next to a live recording is memory
