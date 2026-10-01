@@ -1189,6 +1189,13 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             log.notice("Tap silent, Screen Recording not granted — staying on the tap")
             return
         }
+        // 01.10: with Bluetooth output ScreenCaptureKit's loopback delivers
+        // nothing (the 23.09 incident) — moving there trades a quiet tap
+        // for a deaf stream. Stay.
+        guard !Self.outputRoute().bluetooth else {
+            log.notice("Tap silent with Bluetooth output — staying on the tap: ScreenCaptureKit hears nothing over Bluetooth")
+            return
+        }
         outputRestartInFlight = true
         defer {
             outputRestartInFlight = false
@@ -1217,6 +1224,37 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             backend = .processTap
             probingAfterSilentTap = false
             _ = await rebuildStream(reason: "back-to-tap")
+        }
+    }
+
+    /// The way back from `switchToScreenCaptureAfterSilentTap`, the same
+    /// way: the archive so far becomes leading silence for the next one,
+    /// so the file stays one continuous recording.
+    private func returnToTapAfterSilentProbe() async {
+        guard state == .capturing, backend == .screenCaptureKit, probingAfterSilentTap, !outputRestartInFlight else { return }
+        probingAfterSilentTap = false
+        outputRestartInFlight = true
+        defer {
+            outputRestartInFlight = false
+            lastOutputRestartAt = Date()
+        }
+        outputQueue.sync {
+            if let writer = archiveWriter {
+                pendingLeadingSilence = Double(archiveFramesWritten) / writer.processingFormat.sampleRate
+            }
+            archiveWriter = nil
+            if let url = archiveURL { try? FileManager.default.removeItem(at: url) }
+            archiveFramesWritten = 0
+            deliveredFormat = nil
+        }
+        backend = .processTap
+        if !quietDiagnostics { ProcessTapDebugFlag.lastActiveBackend = "tap-after-silent-probe" }
+        if await rebuildStream(reason: "silent-probe-back-to-tap") {
+            log.notice("ScreenCaptureKit silent too for \(Int(TapBlame.silentProbeSeconds), privacy: .public)s — a quiet room; back to the tap, nobody blamed")
+        } else {
+            log.error("The tap did not start again after a silent probe — staying on ScreenCaptureKit")
+            backend = .screenCaptureKit
+            _ = await rebuildStream(reason: "back-to-scstream")
         }
     }
 
@@ -1846,6 +1884,15 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         guard state == .capturing else { return }
         let now = Date()
 
+        // 01.10: ScreenCaptureKit, asked after a silent tap, silent too for
+        // half a minute — nothing is playing, a quiet room. The tap is the
+        // better default; go back to it, blaming nobody.
+        if probingAfterSilentTap, backend == .screenCaptureKit, !outputRestartInFlight,
+           TapBlame.probeIsOver(switchedAt: switchedAfterSilentTapAt, now: now) {
+            Task { @MainActor [weak self] in await self?.returnToTapAfterSilentProbe() }
+            return
+        }
+
         // Path 1 — NO BUFFERS arriving (BT loopback, SCKit Tahoe
         // no-delivery, denied permission). Warn once per session.
         if !silenceWarningFired {
@@ -2293,6 +2340,14 @@ nonisolated enum TapBlame {
         let blame: Bool
         let setAsideForWeek: Bool
         let streak: Int
+    }
+
+    /// ScreenCaptureKit has had its half minute and heard nothing: back to the tap.
+    static let silentProbeSeconds: TimeInterval = 30
+
+    static func probeIsOver(switchedAt: Date?, now: Date) -> Bool {
+        guard let switchedAt else { return false }
+        return now.timeIntervalSince(switchedAt) >= silentProbeSeconds
     }
 
     static func decide(switchedAt: Date, heardAt: Date, streak: Int) -> Outcome {

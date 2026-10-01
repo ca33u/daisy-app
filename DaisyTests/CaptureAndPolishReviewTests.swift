@@ -29,6 +29,12 @@ struct CaptureAndPolishReviewTests {
         #expect(late == .init(blame: false, setAsideForWeek: false, streak: 1))
     }
 
+    @Test func aSilentProbeEndsAfterHalfAMinute() {
+        #expect(!TapBlame.probeIsOver(switchedAt: switched, now: switched.addingTimeInterval(29)))
+        #expect(TapBlame.probeIsOver(switchedAt: switched, now: switched.addingTimeInterval(30)))
+        #expect(!TapBlame.probeIsOver(switchedAt: nil, now: switched))
+    }
+
     @Test func aProviderThatRefusesAtOnceIsAskedTwiceNotForEveryChunk() async {
         let calls = Counter()
         let segments = (0..<40).map { i in
