@@ -192,6 +192,24 @@ public nonisolated enum SessionWriter {
         }
     }
 
+    /// §8: what an import, a sync pass or a watch hand-over was building
+    /// when the app died. Never user data — the source of each is still
+    /// where it came from (the shared inbox, the server, the watch) — so
+    /// at launch, before any of them runs, the leftovers are removed.
+    public static let transientPrefixes = [".daisy-import-", ".daisy-sync-", ".daisy-watch-", ".daisy-retranscribe-", ".daisy-audio-"]
+
+    @discardableResult
+    public static func sweepTransient(in base: SessionsBase) -> Int {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(at: base.sessionsDirectory, includingPropertiesForKeys: nil, options: []) else { return 0 }
+        var removed = 0
+        for url in entries where transientPrefixes.contains(where: { url.lastPathComponent.hasPrefix($0) }) {
+            if (try? fm.removeItem(at: url)) != nil { removed += 1 }
+        }
+        if removed > 0 { log.notice("Removed \(removed, privacy: .public) leftover staging item(s)") }
+        return removed
+    }
+
     private static func move(_ draft: DraftSession) throws -> URL {
         let fm = FileManager.default
         if fm.fileExists(atPath: draft.publishedURL.path) {

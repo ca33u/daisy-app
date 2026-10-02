@@ -98,7 +98,8 @@ public nonisolated enum SessionDocument {
             let key = line[..<colonIdx].trimmingCharacters(in: .whitespaces)
             var valueRaw = line[line.index(after: colonIdx)...].trimmingCharacters(in: .whitespaces)
             if valueRaw.hasPrefix("\"") && valueRaw.hasSuffix("\"") && valueRaw.count >= 2 {
-                valueRaw = String(valueRaw.dropFirst().dropLast())
+                // §3.1: strip the quotes and undo `yamlQuote`'s two escapes.
+                valueRaw = unescaped(String(valueRaw.dropFirst().dropLast()))
             }
             if !parsed.raw.contains(where: { $0.key == key }) {
                 parsed.raw.append((key: key, value: valueRaw))
@@ -181,8 +182,28 @@ public nonisolated enum SessionDocument {
         guard trimmed.hasPrefix("\""), trimmed.hasSuffix("\""), trimmed.count >= 2 else {
             return trimmed
         }
-        return String(trimmed.dropFirst().dropLast())
-            .replacingOccurrences(of: "\\\"", with: "\"")
+        return unescaped(String(trimmed.dropFirst().dropLast()))
+    }
+
+    /// `\"` → `"` and `\\` → `\`, in one pass — the reverse of `yamlQuote`.
+    /// Any other backslash is left as written.
+    static func unescaped(_ s: String) -> String {
+        guard s.contains("\\") else { return s }
+        var out = ""
+        var escaping = false
+        for ch in s {
+            if escaping {
+                if ch != "\"" && ch != "\\" { out.append("\\") }
+                out.append(ch)
+                escaping = false
+            } else if ch == "\\" {
+                escaping = true
+            } else {
+                out.append(ch)
+            }
+        }
+        if escaping { out.append("\\") }
+        return out
     }
 
     /// `daisy_speaker_map` writer. §3.2: **bare keys**, quoted values,
@@ -231,7 +252,7 @@ public nonisolated enum SessionDocument {
                 key = String(key.dropFirst().dropLast())
             }
             if value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 {
-                value = String(value.dropFirst().dropLast())
+                value = unescaped(String(value.dropFirst().dropLast()))
             }
             if !key.isEmpty, !value.isEmpty {
                 out[key] = value

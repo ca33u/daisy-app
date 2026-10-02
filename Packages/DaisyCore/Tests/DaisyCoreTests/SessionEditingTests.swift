@@ -56,9 +56,8 @@ struct SessionEditingTests {
         try SessionEditing.saveTitle("Ask \"Roman\"", to: tmp)
         let out = try String(contentsOf: tmp, encoding: .utf8)
         #expect(out.contains("title: \"Ask \\\"Roman\\\"\""))
-        // The Mac's reader strips the quotes and nothing else (§3.1, the
-        // listed gap) — the phone reads the same file the same way.
-        #expect(SessionDocument.parseFrontmatter(in: out).title == "Ask \\\"Roman\\\"")
+        // §3.1: read back as typed — the escapes are undone (audit 02.10).
+        #expect(SessionDocument.parseFrontmatter(in: out).title == "Ask \"Roman\"")
         #expect(SessionDocument.yamlUnquote("\"Ask \\\"Roman\\\"\"") == "Ask \"Roman\"")
         #expect(SessionEditing.split(out).body == SessionEditing.split(file).body)
     }

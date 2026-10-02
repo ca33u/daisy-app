@@ -60,6 +60,33 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
         return copy
     }
 
+    /// A summary built again over an older one: a step that is the same
+    /// step keeps what was done with it — its status (the reminder, the
+    /// event, "done") and its `sameAs` link. Without this a rebuilt summary
+    /// reads every step as untouched and the reminders are made twice.
+    /// Exact text first, then `similar`; an old step is given away once.
+    public func carryingStatuses(from old: MeetingSummary, similar: (String, String) -> Bool) -> MeetingSummary {
+        var copy = self
+        var left = old.actions.filter { $0.status != nil || $0.sameAs != nil }
+        func norm(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        func take(_ index: Int, where match: (ActionItem) -> Bool) {
+            guard copy.actions[index].status == nil, copy.actions[index].sameAs == nil,
+                  let found = left.firstIndex(where: match) else { return }
+            copy.actions[index].status = left[found].status
+            copy.actions[index].sameAs = left[found].sameAs
+            left.remove(at: found)
+        }
+        for index in copy.actions.indices {
+            let text = norm(copy.actions[index].text)
+            take(index) { norm($0.text) == text }
+        }
+        for index in copy.actions.indices {
+            let text = copy.actions[index].text
+            take(index) { similar($0.text, text) }
+        }
+        return copy
+    }
+
     /// The same summary with one action changed in place.
     public func updating(action id: String, _ change: (inout ActionItem) -> Void) -> MeetingSummary {
         var copy = self

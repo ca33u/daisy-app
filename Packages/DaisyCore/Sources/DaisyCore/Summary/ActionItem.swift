@@ -157,6 +157,17 @@ public nonisolated struct ActionItem: Codable, Sendable, Equatable, Identifiable
     /// Whether `due` named a time of day, not only a date.
     public var dueHasTime: Bool { (due ?? "").contains("T") }
 
+    /// `yyyy-MM-dd` of `date` in the person's own time zone — the day
+    /// `date(from:)` reads back. (`.iso8601` formatting gives the GMT day,
+    /// which east of Greenwich is yesterday until the morning.)
+    public static func day(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .current
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: date)
+    }
+
     public static func date(from string: String?) -> Date? {
         guard let s = string?.trimmingCharacters(in: .whitespaces), !s.isEmpty else { return nil }
         let full = ISO8601DateFormatter()

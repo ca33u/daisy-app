@@ -73,10 +73,18 @@ public nonisolated enum SessionClassifier {
 
     /// §6 verdict for one folder.
     public static func classify(directory: URL) -> SessionState {
+        inspect(directory: directory).state
+    }
+
+    /// The verdict, and the transcript's text when it was read for it —
+    /// so `summarize` does not read every `transcript.md` a second time
+    /// (the scan runs on each Library refresh).
+    static func inspect(directory: URL) -> (state: SessionState, transcript: String?) {
         let fm = FileManager.default
         guard (try? fm.contentsOfDirectory(atPath: directory.path)) != nil else {
-            return .unreadable
+            return (.unreadable, nil)
         }
+        var transcriptText: String?
         let transcriptURL = directory.appendingPathComponent("transcript.md")
         let retainedAudio = SessionAudioFiles.discover(in: directory)
         let hasAudio = retainedAudio.hasAny
@@ -89,6 +97,7 @@ public nonisolated enum SessionClassifier {
         if hasTranscript, !transcriptEvicted {
             do {
                 let text = try String(contentsOf: transcriptURL, encoding: .utf8)
+                transcriptText = text
                 let parsed = SessionDocument.parseFrontmatter(in: text)
                 transcriptBodyEmpty = parsed.body
                     .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -109,14 +118,14 @@ public nonisolated enum SessionClassifier {
         if hasAudio, !hasFinishedTranscript, !isImported,
            !transcriptEvicted, !transcriptUnreadable, !audioEvicted,
            hasMarker || largestAudioBytes(retainedAudio.all) >= minRecoverableAudioBytes {
-            return .interrupted
+            return (.interrupted, transcriptText)
         }
-        return .valid
+        return (.valid, transcriptText)
     }
 
     /// Verdict plus the row data. nil for an unreadable folder.
     public static func summarize(directory: URL) -> SessionSummary? {
-        let state = classify(directory: directory)
+        let (state, transcriptText) = inspect(directory: directory)
         guard state != .unreadable else { return nil }
         let fm = FileManager.default
         let id = directory.lastPathComponent
@@ -136,8 +145,7 @@ public nonisolated enum SessionClassifier {
         var folder = "inbox"
         let isImported = ImportMarker.exists(in: directory)
         let hasTranscript = fm.fileExists(atPath: transcriptURL.path)
-        if hasTranscript, !isCloudEvicted(transcriptURL),
-           let text = try? String(contentsOf: transcriptURL, encoding: .utf8) {
+        if hasTranscript, let text = transcriptText {
             let parsed = SessionDocument.parseFrontmatter(in: text)
             title = parsed.title ?? title
             if let s = parsed.started, let d = SessionFrontmatter.parse(text)?.started ?? ISO8601DateFormatter().date(from: s) {

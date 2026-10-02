@@ -95,7 +95,9 @@ public final class SessionSyncEngine {
         if !state.pendingDeletes.isEmpty {
             let ids = state.pendingDeletes
             try await transport.delete(ids)
-            state.pendingDeletes.removeAll()
+            // Only what was sent: a delete made while the request was in
+            // flight stays for the next pass.
+            state.pendingDeletes.removeAll { ids.contains($0) }
             for id in ids { state.sessions[id] = nil }
             log.notice("Told the server about \(ids.count, privacy: .public) deletion(s) made here")
         }
@@ -240,6 +242,13 @@ public final class SessionSyncEngine {
         memory.frontmatter = record.frontmatter
         memory.bodyHash = FrontmatterMerge.hash(record.body)
         memory.fileStamps = record.files.mapValues(\.stamp)
+        // A file that did not travel — a frame past the screenshot budget,
+        // one that could not be read — is still remembered as seen, at the
+        // stamp it has. Otherwise the folder never matches its memory and
+        // the whole session is sent again on every pass.
+        for path in Self.syncablePaths(in: dir) where memory.fileStamps[path] == nil {
+            memory.fileStamps[path] = Self.mtime(of: dir.appendingPathComponent(path))
+        }
         let transcriptURL = dir.appendingPathComponent(SyncPolicy.transcriptName)
         memory.transcriptMtime = Self.mtime(of: transcriptURL)
         memory.transcriptSize = Self.size(of: transcriptURL)
@@ -315,7 +324,12 @@ public final class SessionSyncEngine {
             if let value = fmResult.values[key] { text = SessionDocument.upsertFrontmatter(in: text, key: key, value: value) }
         }
         var newBodyHash = FrontmatterMerge.hash(localBody)
-        if bodyResult.winner == .remote {
+        // An empty body against a transcript that has one is a record whose
+        // body did not arrive (an asset that could not be read), never an
+        // edit: the local text stays, and the next push puts it back.
+        let remoteBodyLost = remote.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !localBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if bodyResult.winner == .remote, !remoteBodyLost {
             if bodyResult.conflict {
                 try Data(localText.utf8).write(to: Self.conflictURL(in: dir, editor: state.deviceID), options: .atomic)
                 outcome.conflict = true

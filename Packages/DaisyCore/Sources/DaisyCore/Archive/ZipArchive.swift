@@ -109,6 +109,12 @@ public nonisolated enum ZipArchive {
             return Data(raw)
         case 8:
             guard entry.uncompressedSize > 0 else { return Data() }
+            // The size comes from the archive itself. Deflate cannot grow
+            // data more than ~1032 times, so a larger claim is a lie made
+            // to have us allocate gigabytes.
+            guard !raw.isEmpty, entry.uncompressedSize / 1100 <= raw.count else {
+                throw ZipError.badEntry(entry.path)
+            }
             var out = Data(count: entry.uncompressedSize)
             let written = out.withUnsafeMutableBytes { dst -> Int in
                 raw.withUnsafeBytes { src -> Int in

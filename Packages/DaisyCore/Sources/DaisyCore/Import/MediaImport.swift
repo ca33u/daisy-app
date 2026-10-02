@@ -176,14 +176,14 @@ public nonisolated enum MediaImport {
             guard duration.isNumeric, duration.seconds.isFinite, duration.seconds > 0 else {
                 throw MediaImportError.unreadable(name)
             }
-            durationSec = Int(duration.seconds.rounded())
+            durationSec = Int(duration.seconds)
         } else {
             // `AVAudioFile` is what the transcription will use — if it
             // cannot open the file now, the session would be a dead end.
             guard let file = try? AVAudioFile(forReading: url), file.processingFormat.sampleRate > 0 else {
                 throw MediaImportError.unreadable(name)
             }
-            durationSec = Int((Double(file.length) / file.processingFormat.sampleRate).rounded())
+            durationSec = Int(Double(file.length) / file.processingFormat.sampleRate)
             guard durationSec > 0 else { throw MediaImportError.unreadable(name) }
         }
         return Probe(durationSec: durationSec, startedAt: fileDate(of: url))

@@ -101,7 +101,10 @@ public nonisolated enum SessionEditing {
     /// `title:` only — one line replaced by prefix (§7.2).
     public static func saveTitle(_ title: String, to transcriptURL: URL) throws {
         let markdown = try String(contentsOf: transcriptURL, encoding: .utf8)
-        let updated = SessionDocument.upsertFrontmatter(in: markdown, key: "title", value: SessionDocument.yamlQuote(title))
+        // One line, always: a pasted line break would end the `title:`
+        // line early and spill into the frontmatter.
+        let oneLine = title.components(separatedBy: .newlines).joined(separator: " ")
+        let updated = SessionDocument.upsertFrontmatter(in: markdown, key: "title", value: SessionDocument.yamlQuote(oneLine))
         try Data(updated.utf8).write(to: transcriptURL, options: .atomic)
     }
 }

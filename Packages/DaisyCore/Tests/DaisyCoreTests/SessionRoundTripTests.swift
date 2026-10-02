@@ -53,8 +53,9 @@ struct SessionRoundTripTests {
         let text = TranscriptDocument.render(frontmatter: fm, segments: sampleSegments, userDisplayName: "Egor")
 
         let parsed = SessionDocument.parseFrontmatter(in: text)
-        #expect(parsed.title == "Meeting with \\\"Acme\\\", Inc.")   // Mac parser only strips the outer quotes
-        #expect(SessionDocument.yamlUnquote("\"" + parsed.title! + "\"") == "Meeting with \"Acme\", Inc.")
+        // §3.1: a second implementation undoes the two escapes (audit 02.10);
+        // the Mac's own reader still only strips the outer quotes.
+        #expect(parsed.title == "Meeting with \"Acme\", Inc.")
         #expect(parsed["type"] == "meeting-transcript")
         #expect(parsed["source"] == "Daisy")
         #expect(parsed.locale == "auto")
