@@ -38,15 +38,26 @@ public nonisolated struct ProjectContext: Codable, Sendable, Equatable {
     public var jiraProjectID: String?
     /// Jira issue type id; the site's default when empty.
     public var jiraIssueType: String?
+    /// 03.10.2026: what the owner wants every summary of this project to
+    /// know — who is who, terms, what the work is about (`ProjectMemory`).
+    public var notes: String?
+    /// False when summaries of this project must NOT be told about its
+    /// earlier meetings; nil and true mean they are.
+    public var memory: Bool?
 
     public init(repo: String? = nil, linearTeam: String? = nil, jiraBase: String? = nil,
-                jiraProjectID: String? = nil, jiraIssueType: String? = nil) {
+                jiraProjectID: String? = nil, jiraIssueType: String? = nil,
+                notes: String? = nil, memory: Bool? = nil) {
         self.repo = repo; self.linearTeam = linearTeam; self.jiraBase = jiraBase
         self.jiraProjectID = jiraProjectID; self.jiraIssueType = jiraIssueType
+        self.notes = notes; self.memory = memory
     }
 
+    public var usesMemory: Bool { memory != false }
+
     public var isEmpty: Bool {
-        [repo, linearTeam, jiraBase, jiraProjectID].allSatisfy { ($0 ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
+        [repo, linearTeam, jiraBase, jiraProjectID, notes].allSatisfy { ($0 ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            && memory != false
     }
 }
 

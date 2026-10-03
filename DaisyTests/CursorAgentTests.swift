@@ -69,7 +69,7 @@ struct CursorAgentSummarizerTests {
         #expect(request.model == "cursor-model")
         #expect(request.apiKey == "cursor-key")
         #expect(request.prompt.contains(MeetingSummaryJSONSchema.identifier) == false)
-        #expect(request.prompt.contains(#""required": ["summary", "sections", "actionItems", "clientFollowUp"]"#))
+        #expect(request.prompt.contains(#""required": ["title", "summary", "sections", "actionItems", "clientFollowUp"]"#))
         #expect(request.prompt.contains("<untrusted_meeting_data>"))
         #expect(request.prompt.contains(attack))
         #expect(request.prompt.range(of: attack)!.lowerBound > request.prompt.range(of: "<untrusted_meeting_data>")!.lowerBound)

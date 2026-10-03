@@ -3413,6 +3413,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            .disclosureGroupStyle(.row)
         }
     }
 
@@ -3491,6 +3492,7 @@ struct SettingsView: View {
                         Text(String(localized: "Test transcript (\(Self.fixtureTitle))"))
                             .font(.caption.weight(.medium))
                     }
+                    .disclosureGroupStyle(.row)
 
                     Divider()
 

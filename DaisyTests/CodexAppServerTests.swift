@@ -177,7 +177,7 @@ struct CodexAppServerSummarizerTests {
         #expect(request.model == "account-model")
         #expect(request.prompt.contains("<<<TRANSCRIPT>>>"))
         #expect(request.developerInstructions.contains("Do not call tools"))
-        #expect(request.outputSchema["required"]?.arrayValue?.count == 4)
+        #expect(request.outputSchema["required"]?.arrayValue?.count == 5)
     }
 
     @Test("Prompt injection remains transcript data, never developer instructions")

@@ -190,6 +190,11 @@ final class ImportTranscriptionQueue {
             let position = (jobs.firstIndex(where: { $0.id == activeJobID }) ?? 0) + 1
             let inner = SessionAudioProcessing.shared.statusText
             let head = String(localized: "Transcribing \(position) of \(jobs.count) · \(job.title)")
+            // The percent first: the line is cut in the middle when the
+            // column is narrow, and the number is what the person looks for.
+            if let progress = SessionAudioProcessing.shared.progress {
+                return "\(Int(progress * 100))% · \(head)"
+            }
             return inner.isEmpty ? head : "\(head) — \(inner)"
         }
         if SessionAudioProcessing.shared.recordingOrFinalizeIsActive {
@@ -209,7 +214,12 @@ final class ImportTranscriptionQueue {
     /// Row-level label for one session, or nil when it isn't queued.
     func rowLabel(forSession sessionID: String) -> String? {
         guard let job = job(forSession: sessionID) else { return nil }
-        if job.id == activeJobID { return String(localized: "Transcribing…") }
+        if job.id == activeJobID {
+            if let progress = SessionAudioProcessing.shared.progress {
+                return String(localized: "Transcribing… \(Int(progress * 100))%")
+            }
+            return String(localized: "Transcribing…")
+        }
         if let notBefore = job.notBefore, notBefore > Date() {
             return String(localized: "Transcribes at \(Self.timeFormatter.string(from: notBefore))")
         }
@@ -353,7 +363,8 @@ final class ImportTranscriptionQueue {
             summaryLanguageOverride: AppSettings.currentSummaryLanguage
         )
         guard let summary = await Summarizer.shared.summarize(
-            transcript: session.transcriptText, title: session.title, localeHint: localeHint
+            transcript: session.transcriptText, title: session.title, localeHint: localeHint,
+            projectContext: ProjectMemoryBridge.block(forSessionAt: session.directoryURL)
         ) else {
             log.warning("Finished recording \(sessionID, privacy: .public): summary failed — \(Summarizer.shared.lastError ?? "no summary", privacy: .public)")
             return

@@ -81,6 +81,12 @@ final class SessionAudioProcessing {
 
     private(set) var isRunning = false
     private(set) var statusText = ""
+    /// How far the running transcription is, 0…1; nil when nothing is
+    /// being transcribed or the length is unknown.
+    private(set) var progress: Double?
+    /// Which stretch of the whole job the channel being decoded covers:
+    /// the microphone first, then the system audio.
+    @ObservationIgnored private var progressSpan: (from: Double, to: Double) = (0, 1)
 
     @ObservationIgnored
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "AudioProcessing")
@@ -121,6 +127,7 @@ final class SessionAudioProcessing {
             WhisperEngine.shared.releaseAlternateModel(options.modelID)
             isRunning = false
             statusText = ""
+            progress = nil
         }
 
         // The source may live in a previous custom root rather than the
@@ -186,6 +193,8 @@ final class SessionAudioProcessing {
         } ?? ""
         let isPhoneSession = SessionOrigin.isRoomMicrophone(Self.frontmatterValue("daisy_origin", in: originalMarkdown))
 
+        let bothChannels = !processingFiles.microphone.isEmpty && !processingFiles.system.isEmpty
+        progressSpan = (0, bothChannels ? 0.5 : 1)
         statusText = String(localized: "Transcribing microphone audio")
         var microphoneOutput = try await transcribeChannel(
             processingFiles.microphone,
@@ -198,6 +207,7 @@ final class SessionAudioProcessing {
             biasTerms: biasTerms
         )
 
+        progressSpan = (bothChannels ? 0.5 : 0, 1)
         statusText = String(localized: "Transcribing system audio")
         let systemOutput = try await transcribeChannel(
             processingFiles.system,
@@ -344,6 +354,7 @@ final class SessionAudioProcessing {
         defer {
             isRunning = false
             statusText = ""
+            progress = nil
         }
         let ticket = SessionsFolder.acquireBase()
         defer { ticket?.release() }
@@ -424,7 +435,16 @@ final class SessionAudioProcessing {
                 language: language,
                 modelID: modelID,
                 profile: .full,
-                biasTerms: biasTerms
+                biasTerms: biasTerms,
+                onProgress: { [weak self] inBlock in
+                    guard let self, let totalSec, totalSec > 0 else { return }
+                    let blockSec = Double(block.samples.count) / Double(ArchiveBlockReader.sampleRate)
+                    let inChannel = min(1, (block.startSec + inBlock * blockSec) / totalSec)
+                    let overall = self.progressSpan.from + (self.progressSpan.to - self.progressSpan.from) * inChannel
+                    // Never backwards: a rounding step at a block seam
+                    // must not make the bar flicker.
+                    self.progress = max(self.progress ?? 0, overall)
+                }
             )
             await diarization
             for item in whisper {

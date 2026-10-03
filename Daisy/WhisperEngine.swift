@@ -1058,7 +1058,8 @@ final class WhisperEngine {
         language: String?,
         modelID requestedModelID: String,
         profile: DecodeProfile = .full,
-        biasTerms: [String] = []
+        biasTerms: [String] = [],
+        onProgress: ((Double) -> Void)? = nil
     ) async throws -> [WhisperSegment] {
         // Same as the pass above: spans need the detector loaded.
         if profile == .full { _ = await prepareSpeechDetection() }
@@ -1080,7 +1081,8 @@ final class WhisperEngine {
             language: language,
             profile: profile,
             biasTerms: biasTerms,
-            box: box
+            box: box,
+            onProgress: onProgress
         )
     }
 
@@ -1171,7 +1173,12 @@ final class WhisperEngine {
         language: String?,
         profile: DecodeProfile,
         biasTerms: [String],
-        box: WhisperKitBox
+        box: WhisperKitBox,
+        /// The share of `samples` decoded so far, 0…1, after each speech
+        /// span — for a progress bar that moves inside a block
+        /// (03.10.2026: a 3-minute import said «3 of 3 min» from its
+        /// first second to its last).
+        onProgress: ((Double) -> Void)? = nil
     ) async throws -> [WhisperSegment] {
 
         // Vocabulary biasing (dictation only — every other caller passes
@@ -1357,6 +1364,10 @@ final class WhisperEngine {
             for result in results {
                 allRaw.append((offsetSec, result.segments))
                 if !result.language.isEmpty { heardLanguages.append(result.language) }
+            }
+            if !samples.isEmpty {
+                let reached = offsetSec * Self.audioSampleRate + Double(chunk.count)
+                onProgress?(min(1, reached / Double(samples.count)))
             }
         }
         let decodeMs = Int(Date().timeIntervalSince(decodeStart) * 1000)

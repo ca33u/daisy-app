@@ -164,7 +164,7 @@ struct FolderManagementSection: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.borderless)
-            .help(String(localized: "Trackers — where a step from this project's meetings becomes an issue"))
+            .help(String(localized: "Project notes and trackers — what its summaries know, and where a step becomes an issue"))
 
             Button {
                 requestDelete(folder)
@@ -456,10 +456,33 @@ private struct FolderTrackersSheet: View {
     @State private var jiraBase = ""
     @State private var jiraProjectID = ""
     @State private var jiraIssueType = ""
+    /// 03.10.2026: what every summary of this project is told.
+    @State private var notes = ""
+    @State private var usesMemory = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Trackers for “\(folder.name)”").font(.headline)
+            Text("Project “\(folder.name)”").font(.headline)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Notes for summaries").font(.subheadline.weight(.medium))
+                TextEditor(text: $notes)
+                    .font(.callout)
+                    .frame(minHeight: 90)
+                    .scrollContentBackground(.hidden)
+                    .padding(6)
+                    .background(Color.daisyBgElevated, in: RoundedRectangle(cornerRadius: 8))
+                Text("Who is who, terms, what this work is about. Every summary of a meeting in this project reads it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Toggle("Tell summaries about this project's earlier meetings", isOn: $usesMemory)
+                Text("The summaries of the last few meetings here go to your summary provider with each new transcript, so a meeting is read as part of the project. Meetings with the same tag are added too.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Divider()
+            Text("Trackers").font(.subheadline.weight(.medium))
             Form {
                 TextField("GitHub repository", text: $repo, prompt: Text(verbatim: "owner/name"))
                 TextField("Linear team", text: $linearTeam, prompt: Text(verbatim: "ENG"))
@@ -482,7 +505,8 @@ private struct FolderTrackersSheet: View {
                     }
                     FolderRegistryBridge.shared.setProject(
                         ProjectContext(repo: clean(repo), linearTeam: clean(linearTeam)?.uppercased(), jiraBase: clean(jiraBase),
-                                       jiraProjectID: clean(jiraProjectID), jiraIssueType: clean(jiraIssueType)),
+                                       jiraProjectID: clean(jiraProjectID), jiraIssueType: clean(jiraIssueType),
+                                       notes: clean(notes), memory: usesMemory ? nil : false),
                         for: folder.slug)
                     dismiss()
                 }
@@ -490,7 +514,7 @@ private struct FolderTrackersSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 420)
+        .frame(width: 460)
         .onAppear {
             let project = FolderRegistryBridge.shared.project(for: folder.slug)
             repo = project?.repo ?? ""
@@ -498,6 +522,8 @@ private struct FolderTrackersSheet: View {
             jiraBase = project?.jiraBase ?? ""
             jiraProjectID = project?.jiraProjectID ?? ""
             jiraIssueType = project?.jiraIssueType ?? ""
+            notes = project?.notes ?? ""
+            usesMemory = project?.usesMemory ?? true
         }
     }
 }

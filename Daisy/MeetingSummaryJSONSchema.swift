@@ -22,6 +22,7 @@ nonisolated enum MeetingSummaryJSONSchema {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "title": { "type": "string" },
         "summary": { "type": "string" },
         "sections": {
           "type": "array",
@@ -33,7 +34,7 @@ nonisolated enum MeetingSummaryJSONSchema {
         },
         "clientFollowUp": { "type": "string" }
       },
-      "required": ["summary", "sections", "actionItems", "clientFollowUp"],
+      "required": ["title", "summary", "sections", "actionItems", "clientFollowUp"],
       "$defs": {
         "section": {
           "type": "object",

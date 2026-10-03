@@ -877,6 +877,24 @@ struct SessionDetailView: View {
                    let queued = ImportTranscriptionQueue.shared.rowLabel(forSession: session.id) {
                     Text(queued)
                         .font(.callout.weight(.medium))
+                    if ImportTranscriptionQueue.shared.job(forSession: session.id)?.id == ImportTranscriptionQueue.shared.activeJobID {
+                        // A bar that moves, and under it what the pipeline
+                        // is doing (loading the model, which channel).
+                        if let progress = SessionAudioProcessing.shared.progress {
+                            ProgressView(value: progress)
+                                .frame(maxWidth: 320)
+                        } else {
+                            ProgressView()
+                                .progressViewStyle(.linear)
+                                .frame(maxWidth: 320)
+                        }
+                        let step = SessionAudioProcessing.shared.statusText
+                        if !step.isEmpty {
+                            Text(step)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 HStack(spacing: 8) {
                     if state == .audioOnly {
@@ -2294,7 +2312,8 @@ struct SessionDetailView: View {
         let result = await Summarizer.shared.summarize(
             transcript: session.transcriptText,
             title: session.title,
-            localeHint: localeHint
+            localeHint: localeHint,
+            projectContext: ProjectMemoryBridge.block(forSessionAt: session.directoryURL)
         )
 
         if let summary = result {
@@ -2372,7 +2391,8 @@ struct SessionDetailView: View {
             transcript: session.transcriptText,
             title: session.title,
             localeHint: localeHint,
-            task: .meeting(forceFollowUp: true)
+            task: .meeting(forceFollowUp: true),
+            projectContext: ProjectMemoryBridge.block(forSessionAt: session.directoryURL)
         )
 
         if let fresh = result {

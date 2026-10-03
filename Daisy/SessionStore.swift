@@ -16,6 +16,7 @@
 //  time, and duration. UI reads `SessionStore.shared.sessions`.
 //
 
+import DaisyCore
 import Foundation
 import Observation
 import os
@@ -802,6 +803,27 @@ final class SessionStore {
         return copy.joined(separator: "\n")
     }
 
+    /// The meeting takes the name its summary gave it — only while its
+    /// title is still the placeholder the app made at the start
+    /// (`MeetingTitle`). One frontmatter line, written atomically; the
+    /// rest of transcript.md is untouched (§7.2).
+    func adoptSummaryTitle(_ summary: MeetingSummary, in directory: URL) async {
+        let url = directory.appendingPathComponent("transcript.md")
+        // «No speech was captured…» is a notice, not a subject.
+        guard summary != .noSpeechCaptured,
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        let current = SessionDocument.parseFrontmatter(in: text).title ?? ""
+        guard let title = MeetingTitle.replacement(for: current, modelTitle: summary.title, summary: summary.summary) else { return }
+        let updated = Self.upsertFrontmatter(in: text, key: "title", value: SessionDocument.yamlQuote(title))
+        do {
+            try updated.write(to: url, atomically: true, encoding: .utf8)
+            log.info("Session \(directory.lastPathComponent, privacy: .public) named after its summary")
+            await refresh()
+        } catch {
+            log.error("Naming after the summary failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     /// Replace a session's `summary.json` and reload metadata.
     @discardableResult
     func updateSummary(_ summary: MeetingSummary, for session: StoredSession) async -> Bool {
@@ -809,6 +831,7 @@ final class SessionStore {
         do {
             try SummaryFileWriter.write(summary, to: url)
             await refresh()
+            await adoptSummaryTitle(summary, in: session.directoryURL)
             return true
         } catch {
             log.error("Save summary failed: \(error.localizedDescription, privacy: .public)")

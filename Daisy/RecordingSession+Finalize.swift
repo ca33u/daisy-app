@@ -490,7 +490,8 @@ extension RecordingSession {
             summary = await summarizer.summarize(
                 transcript: transcriptText,
                 title: title,
-                localeHint: localeHint
+                localeHint: localeHint,
+                projectContext: ProjectMemoryBridge.block(forSessionAt: directory)
             )
             signposter.endInterval("summarize", summarizeState)
             log.info("post-stop summarize: \(ms(t_summarize), privacy: .public)ms, transcript=\(transcriptText.count, privacy: .public) bytes, summary=\(summary != nil ? "ok" : "nil", privacy: .public)")
@@ -518,6 +519,7 @@ extension RecordingSession {
                     // looks like generation failed (audit 2026-09-01).
                     try SummaryFileWriter.write(summary, to: url)
                     summaryPersisted = true
+                    await SessionStore.shared.adoptSummaryTitle(summary, in: directory)
                 } catch {
                     log.error("Failed to write summary.json: \(error.localizedDescription, privacy: .public)")
                     ToastCenter.shared.show(

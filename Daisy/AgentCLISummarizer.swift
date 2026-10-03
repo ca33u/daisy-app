@@ -112,6 +112,13 @@ nonisolated enum AgentCLIKind: String, Codable, CaseIterable, Sendable {
         switch self {
         case .codex:
             return [
+                // The ChatGPT app moved its helper into `codex-cli/CodexCLI.app`
+                // (seen 03.10.2026): Daisy said «Codex не найден» on a Mac
+                // that had it. Newest layout first, the old one kept; the real binary, not the `bin/codex` shell wrapper beside it — the runner starts no shell.
+                "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+                "/Applications/Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+                "\(home)/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+                "\(home)/Applications/Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
                 "/Applications/ChatGPT.app/Contents/Resources/codex",
                 "/Applications/Codex.app/Contents/Resources/codex",
                 "\(home)/Applications/ChatGPT.app/Contents/Resources/codex",

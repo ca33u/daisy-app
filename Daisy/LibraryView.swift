@@ -84,6 +84,9 @@ final class LibraryModel {
     /// Pending delete confirmation. Carries the sessions about to
     /// be removed (1 for context-menu, N for multi-select).
     var pendingDelete: [StoredSession] = []
+    /// The row whose title is being edited in place (context menu →
+    /// Rename). One at a time; nil when none.
+    var renamingID: StoredSession.ID?
     /// IDs the list is actually showing right now, published by the list
     /// column on every filter change.
     ///
@@ -186,6 +189,11 @@ struct LibraryListColumn: View {
         if scope == .notes { selectKind(.all) }
         // Folders are expanded by the dialog (AudioImporter.expand):
         // each becomes a project of its own name.
+        // A drop from Finder leaves Finder in front: the dialog then opens
+        // in a window that is not key, and macOS draws its pop-ups, its
+        // switch and Cancel dimmed — the model and language read as
+        // empty (03.10.2026). The person is talking to Daisy now.
+        NSApp.activate(ignoringOtherApps: true)
         pendingImport = AudioImportBatch(urls: urls, folderSlug: destination)
         return true
     }
@@ -396,6 +404,16 @@ struct LibraryListColumn: View {
             Label("Move to folder…", systemImage: "folder")
         }
         Divider()
+        // Rename in place — one row at a time, so not offered for a
+        // right-click inside a multi-selection.
+        if sessionsForRowAction(session).count == 1 {
+            Button {
+                model.selectedIDs = [session.id]
+                model.renamingID = session.id
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+        }
         Button {
             copyTranscript(of: session)
         } label: {
@@ -521,7 +539,15 @@ struct LibraryListColumn: View {
             // row that was selected by a bare click.
             List {
                 ForEach(filteredSessions) { session in
-                    SessionRow(session: session)
+                    SessionRow(
+                        session: session,
+                        isRenaming: model.renamingID == session.id,
+                        onRename: { title in
+                            model.renamingID = nil
+                            guard let title, title != session.title else { return }
+                            Task { await store.setTitle(title, for: session) }
+                        }
+                    )
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                         .padding(.horizontal, 6)
@@ -530,7 +556,9 @@ struct LibraryListColumn: View {
                         // hover = the subtle Home-style highlight.
                         .modifier(LibraryRowHighlight(isSelected: model.selectedIDs.contains(session.id)))
                         .contentShape(Rectangle())
-                        .gesture(rowTapGesture(for: session))
+                        // While the title is a text field, clicks belong to it.
+                        .gesture(rowTapGesture(for: session),
+                                 including: model.renamingID == session.id ? .subviews : .all)
                         .contextMenu {
                             sessionContextMenu(for: session)
                         }
@@ -1085,13 +1113,45 @@ struct LibraryView: View {
 
 private struct SessionRow: View {
     let session: StoredSession
+    /// The title is a text field right now (context menu → Rename).
+    var isRenaming = false
+    /// Called once when the edit ends: the new title, or nil when it was
+    /// cancelled or left empty (an empty title would make the row
+    /// unreadable — same rule as the detail view's title field).
+    var onRename: (String?) -> Void = { _ in }
+
+    @State private var titleDraft = ""
+    @FocusState private var titleFocused: Bool
+
+    private func finishRename(commit: Bool) {
+        guard isRenaming else { return }
+        let trimmed = titleDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        onRename(commit && !trimmed.isEmpty ? trimmed : nil)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(session.title)
-                    .font(.callout.weight(.medium))
-                    .lineLimit(1)
+                if isRenaming {
+                    TextField("Untitled", text: $titleDraft)
+                        .textFieldStyle(.plain)
+                        .font(.callout.weight(.medium))
+                        .focused($titleFocused)
+                        .onSubmit { finishRename(commit: true) }
+                        .onExitCommand { finishRename(commit: false) }
+                        // Clicking elsewhere keeps what was typed, as in Finder.
+                        .onChange(of: titleFocused) { _, focused in
+                            if !focused { finishRename(commit: true) }
+                        }
+                        .onAppear {
+                            titleDraft = session.title
+                            titleFocused = true
+                        }
+                } else {
+                    Text(session.title)
+                        .font(.callout.weight(.medium))
+                        .lineLimit(1)
+                }
                 Spacer()
                 badges
             }

@@ -43,14 +43,18 @@ enum CodexMCPConfig {
     private static var executableURL: URL? {
         let fm = FileManager.default
         var candidates: [URL] = []
-        if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex") {
-            candidates.append(app.appendingPathComponent("Contents/Resources/codex"))
-        }
-        candidates += [
-            URL(fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex"),
-            FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Applications/ChatGPT.app/Contents/Resources/codex")
+        // Two layouts: the helper in `codex-cli/CodexCLI.app` (ChatGPT app, seen
+        // 03.10.2026) and, before that, straight in Resources.
+        let inside = ["Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex", "Contents/Resources/codex"]
+        var apps: [URL] = []
+        if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex") { apps.append(app) }
+        apps += [
+            URL(fileURLWithPath: "/Applications/ChatGPT.app"),
+            URL(fileURLWithPath: "/Applications/Codex.app"),
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/ChatGPT.app"),
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Codex.app"),
         ]
+        candidates = apps.flatMap { app in inside.map { app.appendingPathComponent($0) } }
         return candidates.first { fm.isExecutableFile(atPath: $0.path) }
     }
 

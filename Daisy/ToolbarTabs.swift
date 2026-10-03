@@ -59,6 +59,15 @@ final class ToolbarTabs: NSObject {
             select(selected)
             return true
         }
+        // The toolbar may already hold an item with our identifier that is
+        // not this object's — another instance's (the page was rebuilt), or
+        // one put back while a re-install was waiting. AppKit asserts on a
+        // duplicate identifier and the assertion ends the app (crash
+        // 03.10.2026, 1.0.8.18: NSToolbar _insertNewItemWithItemIdentifier).
+        // The old one goes first; its owner sees ours and stands down.
+        while let index = toolbar.items.firstIndex(where: { $0.itemIdentifier == identifier }) {
+            toolbar.removeItem(at: index)
+        }
         self.titles = titles
         self.window = window
         let group = NSToolbarItemGroup(
@@ -111,6 +120,13 @@ final class ToolbarTabs: NSObject {
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                // Somebody else's tabs are there now (see `install`): this
+                // object is no longer the one on screen, and putting its
+                // own back would only start a tug of war.
+                if let toolbar = self.window?.toolbar, self.group == nil,
+                   toolbar.items.contains(where: { $0.itemIdentifier == self.identifier }) {
+                    return
+                }
                 guard let window = self.window, self.install(in: window, titles: self.titles, selected: selected) else {
                     self.onLost?()
                     return

@@ -160,7 +160,7 @@ struct MeetingSummarySchemaTests {
 
         #expect(schema["type"] as? String == "object")
         #expect(schema["additionalProperties"] as? Bool == false)
-        #expect(Set(required) == ["summary", "sections", "actionItems", "clientFollowUp"])
+        #expect(Set(required) == ["title", "summary", "sections", "actionItems", "clientFollowUp"])
     }
 
     @Test("Malformed JSON is rejected by the shared parser")

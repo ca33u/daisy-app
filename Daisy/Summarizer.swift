@@ -60,18 +60,26 @@ nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
     /// summary to a counterpart right after the call.
     let clientFollowUp: String
 
+    /// A short name for the meeting, written by the model with the
+    /// summary (03.10.2026). Replaces the session's title only while that
+    /// title is still the app's own placeholder — see `MeetingTitle`.
+    /// nil in files written before, and from providers that do not send it.
+    var title: String? = nil
+
     // MARK: - Init
 
     init(
         summary: String,
         sections: [SummarySection] = [],
         actionItems: [String],
-        clientFollowUp: String
+        clientFollowUp: String,
+        title: String? = nil
     ) {
         self.summary = summary
         self.sections = sections
         self.actionItems = actionItems
         self.clientFollowUp = clientFollowUp
+        self.title = title
     }
 
     /// Sentinel for a recording that captured no intelligible speech.
@@ -100,6 +108,7 @@ nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
         self.sections = try c.decodeIfPresent([SummarySection].self, forKey: .sections) ?? []
         self.actionItems = try c.decodeIfPresent([String].self, forKey: .actionItems) ?? []
         self.clientFollowUp = try c.decodeIfPresent(String.self, forKey: .clientFollowUp) ?? ""
+        self.title = try c.decodeIfPresent(String.self, forKey: .title)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -108,10 +117,11 @@ nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
         try c.encode(sections, forKey: .sections)
         try c.encode(actionItems, forKey: .actionItems)
         try c.encode(clientFollowUp, forKey: .clientFollowUp)
+        try c.encodeIfPresent(title, forKey: .title)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case summary, sections, actionItems, clientFollowUp
+        case summary, sections, actionItems, clientFollowUp, title
     }
 }
 
@@ -486,7 +496,12 @@ final class Summarizer {
         transcript: String,
         title: String,
         localeHint: String?,
-        task: SummaryTask = .standard
+        task: SummaryTask = .standard,
+        /// `ProjectMemory`'s block for this meeting — the project's notes
+        /// and what its earlier meetings came to. Goes in front of the
+        /// transcript; the silence check below still judges the
+        /// transcript alone.
+        projectContext: String? = nil
     ) async -> MeetingSummary? {
         guard !transcript.isEmpty else { return nil }
         // No intelligible speech → don't hand a near-empty transcript to
@@ -507,7 +522,7 @@ final class Summarizer {
         do {
             let summary = try await summarizeWithPrivacy(
                 provider: provider,
-                transcript: transcript,
+                transcript: ProjectMemory.prepending(projectContext, to: transcript),
                 title: title,
                 localeHint: localeHint,
                 task: task

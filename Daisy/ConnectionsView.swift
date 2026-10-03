@@ -562,6 +562,7 @@ struct ConnectionsView: View {
                 claudeCodeRow
                     .padding(.top, 6)
             }
+            .disclosureGroupStyle(.row)
 
             rawSnippetDisclosure
 
@@ -569,6 +570,7 @@ struct ConnectionsView: View {
                 mcpPrivacySettings
                     .padding(.top, 6)
             }
+            .disclosureGroupStyle(.row)
 
             DisclosureGroup("Advanced") {
                 VStack(alignment: .leading, spacing: 8) {
@@ -586,6 +588,7 @@ struct ConnectionsView: View {
                 }
                 .padding(.top, 6)
             }
+            .disclosureGroupStyle(.row)
         } header: {
             Text("MCP server")
         } footer: {
@@ -806,6 +809,7 @@ struct ConnectionsView: View {
             }
             .padding(.top, 6)
         }
+        .disclosureGroupStyle(.row)
         .font(.callout)
     }
 
