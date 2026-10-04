@@ -1139,6 +1139,13 @@ private struct SessionRow: View {
                         .focused($titleFocused)
                         .onSubmit { finishRename(commit: true) }
                         .onExitCommand { finishRename(commit: false) }
+                        // `onExitCommand` alone did not fire here (checked
+                        // in 1.0.8.19, 04.10: Esc left the field open) —
+                        // the key is taken at the field itself.
+                        .onKeyPress(.escape) {
+                            finishRename(commit: false)
+                            return .handled
+                        }
                         // Clicking elsewhere keeps what was typed, as in Finder.
                         .onChange(of: titleFocused) { _, focused in
                             if !focused { finishRename(commit: true) }

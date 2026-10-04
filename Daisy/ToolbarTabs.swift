@@ -55,6 +55,7 @@ final class ToolbarTabs: NSObject {
     @discardableResult
     func install(in window: NSWindow, titles: [String], selected: Int) -> Bool {
         guard let toolbar = window.toolbar else { return false }
+        wanted = true
         if self.toolbar === toolbar, toolbar.items.contains(where: { $0.itemIdentifier == identifier }) {
             select(selected)
             return true
@@ -119,7 +120,7 @@ final class ToolbarTabs: NSObject {
         self.toolbar = nil
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
-                guard let self else { return }
+                guard let self, self.wanted else { return }
                 // Somebody else's tabs are there now (see `install`): this
                 // object is no longer the one on screen, and putting its
                 // own back would only start a tug of war.
@@ -142,15 +143,27 @@ final class ToolbarTabs: NSObject {
 
     func uninstall() {
         stopObserving()
-        guard let toolbar else { return }
-        if let index = toolbar.items.firstIndex(where: { $0.itemIdentifier == identifier }) {
-            toolbar.removeItem(at: index)
-        }
-        toolbar.centeredItemIdentifiers.remove(identifier)
+        // The page is gone, whatever state the tabs were in. When SwiftUI
+        // rebuilt the toolbar first, `dropped()` had already cleared
+        // `toolbar` and queued a re-install — and this used to return
+        // before forgetting the window, so the re-install put Settings'
+        // tabs into the Library's toolbar (seen 04.10.2026 in 1.0.8.19,
+        // and «Словарь / История» there the day before).
+        wanted = false
+        let toolbar = self.toolbar ?? window?.toolbar
         self.toolbar = nil
         window = nil
         group = nil
+        guard let toolbar else { return }
+        while let index = toolbar.items.firstIndex(where: { $0.itemIdentifier == identifier }) {
+            toolbar.removeItem(at: index)
+        }
+        toolbar.centeredItemIdentifiers.remove(identifier)
     }
+
+    /// True between `install` and `uninstall`: the page that owns these
+    /// tabs is on screen. A re-install after a drop happens only then.
+    private var wanted = false
 
     func select(_ index: Int) {
         guard let group, group.selectedIndex != index else { return }

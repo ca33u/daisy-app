@@ -5,7 +5,7 @@
 //  A disclosure group that opens by its whole row, not only by the small
 //  chevron (Egor, 03.10.2026: «сделай аккордеоны разворачиваемыми по
 //  строке»). Same look as the system one — chevron, then the label — with
-//  the row's full width as the target.
+//  the row's full width as the target, and the app's row hover on it.
 //
 
 import SwiftUI
@@ -26,6 +26,10 @@ struct RowDisclosureStyle: DisclosureGroupStyle {
                 }
                 .padding(.vertical, 4)
                 .contentShape(Rectangle())
+                // The same hover as a recording's own sections (Screenshots,
+                // Audio): the row lights up, so it reads as one thing to
+                // click (Egor, 03.10.2026).
+                .daisyHoverRow()
             }
             .buttonStyle(.plain)
             .accessibilityValue(configuration.isExpanded ? Text("Expanded") : Text("Collapsed"))
