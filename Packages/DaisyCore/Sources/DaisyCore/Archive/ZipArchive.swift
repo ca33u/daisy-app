@@ -132,6 +132,84 @@ public nonisolated enum ZipArchive {
         }
     }
 
+    /// One entry straight to a file, a megabyte at a time: the archive is
+    /// memory-mapped and the inflated bytes never sit in memory whole
+    /// (audit 02.10 — an hour of audio used to be inflated into one
+    /// buffer). The size written must be the size the directory states.
+    static func write(_ entry: Entry, from data: Data, to target: URL) throws {
+        let h = entry.localHeaderOffset
+        guard h + 30 <= data.count, u32(data, h) == 0x0403_4B50 else { throw ZipError.badEntry(entry.path) }
+        let start = h + 30 + u16(data, h + 26) + u16(data, h + 28)
+        guard start + entry.compressedSize <= data.count else { throw ZipError.badEntry(entry.path) }
+        let fm = FileManager.default
+        let partial = target.deletingLastPathComponent().appendingPathComponent(".zip-\(UUID().uuidString)")
+        guard fm.createFile(atPath: partial.path, contents: nil) else { throw ZipError.badEntry(entry.path) }
+        var finished = false
+        defer { if !finished { try? fm.removeItem(at: partial) } }
+        let out = try FileHandle(forWritingTo: partial)
+        defer { try? out.close() }
+        let chunk = 1 << 20
+        var written = 0
+        switch entry.method {
+        case 0:
+            var offset = start
+            let end = start + entry.compressedSize
+            while offset < end {
+                let next = min(end, offset + chunk)
+                try out.write(contentsOf: data.subdata(in: (data.startIndex + offset)..<(data.startIndex + next)))
+                written += next - offset
+                offset = next
+            }
+        case 8:
+            guard entry.compressedSize > 0 || entry.uncompressedSize == 0 else { throw ZipError.badEntry(entry.path) }
+            guard entry.uncompressedSize / 1100 <= max(entry.compressedSize, 1) else { throw ZipError.badEntry(entry.path) }
+            let stream = UnsafeMutablePointer<compression_stream>.allocate(capacity: 1)
+            defer { stream.deallocate() }
+            guard compression_stream_init(stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB) == COMPRESSION_STATUS_OK else {
+                throw ZipError.inflateFailed(entry.path)
+            }
+            defer { compression_stream_destroy(stream) }
+            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: chunk)
+            defer { buffer.deallocate() }
+            var offset = start
+            let end = start + entry.compressedSize
+            var status = COMPRESSION_STATUS_OK
+            while status == COMPRESSION_STATUS_OK {
+                let next = min(end, offset + chunk)
+                let input = data.subdata(in: (data.startIndex + offset)..<(data.startIndex + next))
+                offset = next
+                let flags: Int32 = offset >= end ? Int32(COMPRESSION_STREAM_FINALIZE.rawValue) : 0
+                try input.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                    stream.pointee.src_ptr = raw.bindMemory(to: UInt8.self).baseAddress ?? UnsafePointer(buffer)
+                    stream.pointee.src_size = input.count
+                    repeat {
+                        stream.pointee.dst_ptr = buffer
+                        stream.pointee.dst_size = chunk
+                        status = compression_stream_process(stream, flags)
+                        guard status != COMPRESSION_STATUS_ERROR else { throw ZipError.inflateFailed(entry.path) }
+                        let produced = chunk - stream.pointee.dst_size
+                        if produced > 0 {
+                            written += produced
+                            // More than the directory promised: a bomb or a lie.
+                            guard written <= entry.uncompressedSize else { throw ZipError.inflateFailed(entry.path) }
+                            try out.write(contentsOf: Data(bytes: buffer, count: produced))
+                        }
+                    // With the last input in, keep going until the stream
+                    // says END: it hands the output over in bursts.
+                    } while status == COMPRESSION_STATUS_OK
+                        && (stream.pointee.src_size > 0 || stream.pointee.dst_size == 0 || flags != 0)
+                }
+            }
+        default:
+            throw ZipError.unsupported("compression method \(entry.method)")
+        }
+        guard written == entry.uncompressedSize else { throw ZipError.inflateFailed(entry.path) }
+        try out.close()
+        if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
+        try fm.moveItem(at: partial, to: target)
+        finished = true
+    }
+
     /// Unpack the whole archive under `destination` (created if needed).
     /// Returns the top-level names written.
     @discardableResult
@@ -153,7 +231,7 @@ public nonisolated enum ZipArchive {
                 try fm.createDirectory(at: target, withIntermediateDirectories: true)
             } else {
                 try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try contents(of: entry, in: data).write(to: target, options: .atomic)
+                try write(entry, from: data, to: target)
             }
         }
         return topLevel

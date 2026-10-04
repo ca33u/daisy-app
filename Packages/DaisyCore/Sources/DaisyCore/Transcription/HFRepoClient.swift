@@ -35,10 +35,14 @@ public nonisolated struct ModelManifestEntry: Codable, Sendable, Equatable {
     /// HuggingFace repo tree exactly, file for file.
     public let path: String
     public let size: Int64
+    /// SHA-256 of the file's bytes, when the hub keeps it as an LFS object
+    /// (every model weight does); nil for small files kept in git itself.
+    public var sha256: String?
 
-    public init(path: String, size: Int64) {
+    public init(path: String, size: Int64, sha256: String? = nil) {
         self.path = path
         self.size = size
+        self.sha256 = sha256
     }
 }
 
@@ -116,7 +120,11 @@ public nonisolated enum HFRepoClient {
                     )
                 } else {
                     let size = (item["size"] as? NSNumber)?.int64Value ?? 0
-                    files.append(ModelManifestEntry(path: itemPath, size: size))
+                    // `lfs.oid` is the SHA-256 of the content — what the
+                    // download is checked against (audit 02.10: size alone
+                    // accepts a same-size substitution).
+                    let oid = (item["lfs"] as? [String: Any])?["oid"] as? String
+                    files.append(ModelManifestEntry(path: itemPath, size: size, sha256: oid))
                 }
             }
             guard let next = nextPageURL(from: response) else { break }

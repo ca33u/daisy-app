@@ -44,6 +44,35 @@ struct ZipArchiveTests {
         #expect(try String(contentsOf: out.appendingPathComponent("\(id)/screenshots/index.json"), encoding: .utf8) == "{\"001.jpg\":12.0}")
     }
 
+    /// Entries larger than the megabyte the extractor works in — one that
+    /// barely compresses and one that compresses hard — come back whole.
+    @Test func entriesLargerThanAChunkRoundTrip() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("zipbig-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("src/big", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var noisy = Data(count: 3_500_000)
+        var state: UInt64 = 0x9E3779B97F4A7C15
+        for i in 0..<noisy.count { state = state &* 6364136223846793005 &+ 1442695040888963407; noisy[i] = UInt8(truncatingIfNeeded: state >> 33) }
+        try noisy.write(to: folder.appendingPathComponent("noisy.bin"))
+        let flat = Data(repeating: 7, count: 5_000_000)
+        try flat.write(to: folder.appendingPathComponent("flat.bin"))
+        try Data().write(to: folder.appendingPathComponent("empty.bin"))
+        let archive = root.appendingPathComponent("big.zip")
+        var coordinatorError: NSError?
+        NSFileCoordinator().coordinate(readingItemAt: folder, options: [.forUploading], error: &coordinatorError) { zip in
+            try? FileManager.default.moveItem(at: zip, to: archive)
+        }
+        #expect(coordinatorError == nil)
+        let out = root.appendingPathComponent("out", isDirectory: true)
+        try ZipArchive.extract(archive, into: out)
+        #expect(try Data(contentsOf: out.appendingPathComponent("big/noisy.bin")) == noisy)
+        #expect(try Data(contentsOf: out.appendingPathComponent("big/flat.bin")) == flat)
+        #expect(try Data(contentsOf: out.appendingPathComponent("big/empty.bin")).isEmpty)
+        // Nothing half-written is left beside the files.
+        #expect(try FileManager.default.contentsOfDirectory(atPath: out.appendingPathComponent("big").path).sorted() == ["empty.bin", "flat.bin", "noisy.bin"])
+    }
+
     @Test func junkIsRefused() {
         #expect(throws: ZipArchive.ZipError.self) { try ZipArchive.entries(in: Data("not a zip at all, honestly".utf8)) }
     }
