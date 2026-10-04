@@ -28,6 +28,7 @@ public nonisolated enum MeetingSummaryJSONSchema {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "title": { "type": "string" },
         "summary": { "type": "string" },
         "sections": {
           "type": "array",
