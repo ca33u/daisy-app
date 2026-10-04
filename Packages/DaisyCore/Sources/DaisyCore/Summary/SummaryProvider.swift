@@ -76,7 +76,7 @@ public nonisolated enum SummaryProviderError: LocalizedError, Sendable {
         case .invalidResponse(let p): "\(p): unexpected response from the API."
         case .httpError(let p, let status, _): "\(p): HTTP \(status)."
         case .parseFailed(let p, let message): "\(p): \(message)"
-        case .transcriptTooShort: "The transcript is too short to summarize."
+        case .transcriptTooShort: String(localized: "The transcript is too short to summarize.")
         }
     }
 }

@@ -49,12 +49,12 @@ public nonisolated struct SummaryProxyClient: Sendable {
 
         public var errorDescription: String? {
             switch self {
-            case .subscription: "The summary subscription isn't active. The transcript is safe; renew to get the summary."
-            case .trialUsed: "Your free summaries and questions are used. The transcript is safe; subscribe to get the summary."
-            case .limit: "Today's summary allowance is used up. The transcript is safe; the summary will be made later."
-            case .provider: "The summary service couldn't make this summary. The transcript is safe; Daisy will try again."
-            case .server: "Daisy's summary server can't be reached. The transcript is safe; Daisy will try again."
-            case .tooShort: "The transcript is too short to summarize."
+            case .subscription: String(localized: "The summary subscription isn't active. The transcript is safe; renew to get the summary.")
+            case .trialUsed: String(localized: "Your free summaries and questions are used. The transcript is safe; subscribe to get the summary.")
+            case .limit: String(localized: "Today's summary allowance is used up. The transcript is safe; the summary will be made later.")
+            case .provider: String(localized: "The summary service couldn't make this summary. The transcript is safe; Daisy will try again.")
+            case .server: String(localized: "Daisy's summary server can't be reached. The transcript is safe; Daisy will try again.")
+            case .tooShort: String(localized: "The transcript is too short to summarize.")
             }
         }
     }

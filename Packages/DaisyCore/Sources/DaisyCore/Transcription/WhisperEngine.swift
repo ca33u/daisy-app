@@ -171,7 +171,7 @@ public final class WhisperEngine: Transcribing {
         stageIndex = -1
         stageStartedAt = startedAt
         let lastTotal = UserDefaults.standard.double(forKey: Self.totalDefaultsKey)
-        loadProgress = LoadProgress(fraction: 0, stage: "Preparing…", elapsedSeconds: 0,
+        loadProgress = LoadProgress(fraction: 0, stage: String(localized: "Preparing…"), elapsedSeconds: 0,
                                     lastTotalSeconds: lastTotal > 0 ? Int(lastTotal.rounded()) : nil)
         // WhisperKit's log is the only place the stage boundaries show.
         Logging.shared.loggingCallback = { [weak self] message in
@@ -220,7 +220,7 @@ public final class WhisperEngine: Transcribing {
             }
             UserDefaults.standard.set(Date().timeIntervalSince(startedAt), forKey: Self.totalDefaultsKey)
             loadProgress.fraction = 1
-            loadProgress.stage = "Ready"
+            loadProgress.stage = String(localized: "Ready")
         }
         loadProgress.elapsedSeconds = Int(Date().timeIntervalSince(startedAt))
     }
