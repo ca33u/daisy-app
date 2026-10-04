@@ -18,6 +18,9 @@ nonisolated struct CloudSummaryDTO: Codable {
     /// Backlog 22 Д-0; absent from older prompts and from the proxy until
     /// it carries them — then the strings stand alone.
     let actions: [DTOAction]?
+    /// The meeting's short name (03.10.2026); absent from the proxy until
+    /// it carries the field.
+    var title: String? = nil
 
     func toMeetingSummary() -> MeetingSummary {
         let lede: String = {
@@ -31,7 +34,8 @@ nonisolated struct CloudSummaryDTO: Codable {
             sections: (sections ?? []).map { $0.toSummarySection() },
             actionItems: actionItems ?? [],
             clientFollowUp: clientFollowUp ?? "",
-            actions: typedActions
+            actions: typedActions,
+            title: title
         )
     }
 

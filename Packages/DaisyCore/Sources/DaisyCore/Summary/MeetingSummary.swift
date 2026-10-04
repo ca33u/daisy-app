@@ -24,9 +24,13 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
     /// beside `actionItems`, never instead of it; derived from the strings
     /// when a file does not carry it.
     public private(set) var actions: [ActionItem]
+    /// A short name for the meeting, written by the model with the summary
+    /// (03.10.2026) — see `MeetingTitle`. nil in older files.
+    public var title: String?
 
     public init(summary: String, sections: [SummarySection] = [], actionItems: [String], clientFollowUp: String,
-                actions: [ActionItem]? = nil) {
+                actions: [ActionItem]? = nil, title: String? = nil) {
+        self.title = title
         self.summary = summary
         self.sections = sections
         self.actionItems = actionItems
@@ -42,6 +46,7 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
         clientFollowUp = try c.decodeIfPresent(String.self, forKey: .clientFollowUp) ?? ""
         let typed = (try? c.decodeIfPresent([ActionItem].self, forKey: .actions)) ?? nil
         actions = typed ?? actionItems.enumerated().map { ActionItem.legacy($1, index: $0) }
+        title = try c.decodeIfPresent(String.self, forKey: .title)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -51,6 +56,7 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
         try c.encode(actionItems, forKey: .actionItems)
         try c.encode(clientFollowUp, forKey: .clientFollowUp)
         try c.encode(actions, forKey: .actions)
+        try c.encodeIfPresent(title, forKey: .title)
     }
 
     /// The same summary with one action's status changed.
@@ -95,7 +101,7 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case summary, sections, actionItems, clientFollowUp, actions
+        case summary, sections, actionItems, clientFollowUp, actions, title
     }
 }
 
