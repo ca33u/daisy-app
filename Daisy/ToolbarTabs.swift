@@ -92,21 +92,7 @@ final class ToolbarTabs: NSObject {
         self.group = group
         self.toolbar = toolbar
 
-        let original = toolbar.delegate
-        let proxy = DelegateProxy(original: original, item: group)
-        toolbar.delegate = proxy
-        // Right after the LAST flexible space — just before the page's own
-        // buttons — not at the end. AppKit centres an item between what
-        // comes before it and what comes after: appended after Dictation's
-        // three buttons, the tabs sat at the right edge (Egor, 06.10.2026);
-        // after the FIRST flexible space (1.0.8.21) they landed beside the
-        // sidebar toggle, because that space belongs to the sidebar's
-        // part of the toolbar. With the buttons after them and the content
-        // area's space before, the tabs are centred and the buttons keep
-        // the right.
-        let flexible = toolbar.items.lastIndex { $0.itemIdentifier == .flexibleSpace }
-        toolbar.insertItem(withItemIdentifier: identifier, at: flexible.map { $0 + 1 } ?? toolbar.items.count)
-        toolbar.delegate = original
+        insertGroup(into: toolbar)
         guard toolbar.items.contains(where: { $0.itemIdentifier == identifier }) else { return false }
         toolbar.centeredItemIdentifiers = [identifier]
         stopObserving()
@@ -144,6 +130,37 @@ final class ToolbarTabs: NSObject {
                 }
             }
         }
+    }
+
+    /// Where the tabs go: after the sidebar's tracking separator and the
+    /// first item of the content area — the «Daisy» pill every page has —
+    /// so the page's own buttons come after them. AppKit centres an item
+    /// (`centeredItemIdentifiers`) between what is before it and what is
+    /// after: appended at the end, after Dictation's three buttons, the
+    /// tabs sat at the right edge (Egor, 06.10.2026); after the leading
+    /// flexible space (1.0.8.21, 1.0.8.22) they went into the sidebar's
+    /// part. Read from the items themselves in a debug build: SwiftUI's
+    /// separator is an `NSTrackingSeparatorToolbarItem` with its own
+    /// identifier, not `.sidebarTrackingSeparator`.
+    private func insertGroup(into toolbar: NSToolbar) {
+        guard let group else { return }
+        let original = toolbar.delegate
+        // Held here: the toolbar's delegate is weak, and a proxy nobody
+        // holds is gone before the insert asks it for the item.
+        let proxy = DelegateProxy(original: original, item: group)
+        toolbar.delegate = proxy
+        toolbar.insertItem(withItemIdentifier: identifier, at: Self.contentStart(in: toolbar))
+        toolbar.delegate = original
+        withExtendedLifetime(proxy) {}
+    }
+
+    private static func contentStart(in toolbar: NSToolbar) -> Int {
+        let items = toolbar.items
+        guard let separator = items.firstIndex(where: {
+            $0 is NSTrackingSeparatorToolbarItem || $0.itemIdentifier == .sidebarTrackingSeparator
+        }) else { return items.count }
+        // Past the pill, when there is one.
+        return min(items.count, separator + 2)
     }
 
     private func stopObserving() {
