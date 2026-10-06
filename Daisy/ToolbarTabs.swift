@@ -95,13 +95,16 @@ final class ToolbarTabs: NSObject {
         let original = toolbar.delegate
         let proxy = DelegateProxy(original: original, item: group)
         toolbar.delegate = proxy
-        // Right after the leading flexible space, not at the end. AppKit
-        // centres an item between what comes before it and what comes
-        // after; appended after a page's own buttons (Dictation's three),
-        // the tabs sat at the right edge with the buttons to their left
-        // (Egor, 06.10.2026). With the buttons after them, the tabs are
-        // centred and the buttons keep the right.
-        let flexible = toolbar.items.firstIndex { $0.itemIdentifier == .flexibleSpace }
+        // Right after the LAST flexible space — just before the page's own
+        // buttons — not at the end. AppKit centres an item between what
+        // comes before it and what comes after: appended after Dictation's
+        // three buttons, the tabs sat at the right edge (Egor, 06.10.2026);
+        // after the FIRST flexible space (1.0.8.21) they landed beside the
+        // sidebar toggle, because that space belongs to the sidebar's
+        // part of the toolbar. With the buttons after them and the content
+        // area's space before, the tabs are centred and the buttons keep
+        // the right.
+        let flexible = toolbar.items.lastIndex { $0.itemIdentifier == .flexibleSpace }
         toolbar.insertItem(withItemIdentifier: identifier, at: flexible.map { $0 + 1 } ?? toolbar.items.count)
         toolbar.delegate = original
         guard toolbar.items.contains(where: { $0.itemIdentifier == identifier }) else { return false }

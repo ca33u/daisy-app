@@ -45,13 +45,19 @@ final class FolderRegistryBridge {
         // First run: whatever this Mac has and the registry lacks goes up;
         // whatever the registry has and this Mac lacks comes down.
         apply(store.registry)
-        localChanged()
+        localChanged(folders: FolderStore.shared.customFolders)
     }
 
-    /// Called by `FolderStore` after every persist.
-    func localChanged() {
+    /// Called by `FolderStore` after every persist, with the list it just
+    /// wrote. The list is handed over, never read back from
+    /// `FolderStore.shared`: on a fresh install the first persist happens
+    /// INSIDE `FolderStore`'s own initializer (the seeded Private / Work
+    /// / Calls), and reading `shared` from there is a recursive
+    /// dispatch_once — a crash on the very first launch (crash report
+    /// 06.10.2026, 09:37, in the test host; every new user since 1.0.8.18
+    /// would have hit it).
+    func localChanged(folders: [SessionFolder]) {
         guard !applying else { return }
-        let folders = FolderStore.shared.customFolders
         let local = Dictionary(uniqueKeysWithValues: folders.map { ($0.slug, $0) })
         store.update { registry in
             for folder in folders {
