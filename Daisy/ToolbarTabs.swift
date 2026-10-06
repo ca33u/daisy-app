@@ -95,7 +95,14 @@ final class ToolbarTabs: NSObject {
         let original = toolbar.delegate
         let proxy = DelegateProxy(original: original, item: group)
         toolbar.delegate = proxy
-        toolbar.insertItem(withItemIdentifier: identifier, at: toolbar.items.count)
+        // Right after the leading flexible space, not at the end. AppKit
+        // centres an item between what comes before it and what comes
+        // after; appended after a page's own buttons (Dictation's three),
+        // the tabs sat at the right edge with the buttons to their left
+        // (Egor, 06.10.2026). With the buttons after them, the tabs are
+        // centred and the buttons keep the right.
+        let flexible = toolbar.items.firstIndex { $0.itemIdentifier == .flexibleSpace }
+        toolbar.insertItem(withItemIdentifier: identifier, at: flexible.map { $0 + 1 } ?? toolbar.items.count)
         toolbar.delegate = original
         guard toolbar.items.contains(where: { $0.itemIdentifier == identifier }) else { return false }
         toolbar.centeredItemIdentifiers = [identifier]
