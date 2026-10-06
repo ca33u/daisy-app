@@ -157,4 +157,90 @@ struct AuditSmallThingsTests {
         let left = Set(try FileManager.default.contentsOfDirectory(atPath: sessions.path))
         #expect(left == [".daisy-recording-2026-10-02T10-00-00Z", ".daisy-trash", "2026-10-02T09-00-00Z"])
     }
+
+    @Test func aKeyRemovedOnOneSideIsRemovedOnTheOther() async throws {
+        let cloud = InMemorySyncTransport()
+        func device(_ name: String) throws -> (base: SessionsBase, engine: SessionSyncEngine) {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("audit-rm-\(name)-\(UUID().uuidString)", isDirectory: true)
+            let base = SessionsBase(base: root)
+            try FileManager.default.createDirectory(at: base.sessionsDirectory, withIntermediateDirectories: true)
+            return (base, SessionSyncEngine(base: base, stateURL: root.appendingPathComponent("sync-state.json"), transport: cloud))
+        }
+        let phone = try device("phone"), mac = try device("mac")
+        let id = "2026-10-06T10-00-00Z"
+        let dir = phone.base.sessionsDirectory.appendingPathComponent(id, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("transcript.md")
+        try "---\ntitle: \"Take\"\ndaisy_kind: rehearsal\ndaisy_best_take: true\ndaisy_speaker_map: {}\n---\n\n# T\n\n## Transcript\n\n**[0:00 · Me]** hello\n"
+            .write(to: url, atomically: true, encoding: .utf8)
+        _ = try await phone.engine.syncOnce()
+        _ = try await mac.engine.syncOnce()
+        let macURL = mac.base.sessionsDirectory.appendingPathComponent("\(id)/transcript.md")
+        #expect(try String(contentsOf: macURL, encoding: .utf8).contains("daisy_best_take: true"))
+        // The phone takes «best» off; file mtimes are the stamps.
+        try await Task.sleep(for: .milliseconds(1100))
+        let without = SessionDocument.removingFrontmatter(in: try String(contentsOf: url, encoding: .utf8), key: "daisy_best_take")
+        try without.write(to: url, atomically: true, encoding: .utf8)
+        _ = try await phone.engine.syncOnce()
+        _ = try await mac.engine.syncOnce()
+        #expect(!(try String(contentsOf: macURL, encoding: .utf8)).contains("daisy_best_take"))
+        // And it does not come back to the phone on the next round.
+        _ = try await mac.engine.syncOnce()
+        _ = try await phone.engine.syncOnce()
+        #expect(!(try String(contentsOf: url, encoding: .utf8)).contains("daisy_best_take"))
+    }
+}
+
+@Suite("A meeting longer than the model's window")
+struct LongTranscriptTests {
+    @Test func partsCutBetweenSegmentsAndLoseNothing() {
+        let segments = (0..<400).map { "**[\($0):00 · Me]** " + String(repeating: "слово ", count: 60) }
+        let transcript = segments.joined(separator: "\n\n")
+        #expect(LongTranscript.needsParts(transcript) == (transcript.count > LongTranscript.threshold))
+        let parts = LongTranscript.parts(of: transcript, limit: 20_000)
+        #expect(parts.count > 1)
+        #expect(parts.allSatisfy { $0.count <= 20_000 })
+        #expect(parts.joined(separator: "\n\n") == transcript)
+        #expect(parts.allSatisfy { $0.hasPrefix("**[") })
+    }
+
+    @Test func aSingleHugeParagraphIsStillCut() {
+        let huge = String(repeating: "x", count: 50_000)
+        let parts = LongTranscript.parts(of: huge, limit: 20_000)
+        #expect(parts.count == 3)
+        #expect(parts.joined() == huge)
+    }
+
+    @Test func theDigestKeepsTheOrderAndTheSteps() {
+        let a = MeetingSummary(summary: "First hour.", sections: [SummarySection(title: "Pricing", bullets: [SummaryBullet(text: "Agreed 10%", children: [])])], actionItems: ["Anna: send the draft"], clientFollowUp: "")
+        let b = MeetingSummary(summary: "Second hour.", actionItems: [], clientFollowUp: "")
+        let digest = LongTranscript.digest(of: [a, b])
+        #expect(digest.range(of: "Part 1 of 2")!.lowerBound < digest.range(of: "Part 2 of 2")!.lowerBound)
+        #expect(digest.contains("- Agreed 10%"))
+        #expect(digest.contains("- Anna: send the draft"))
+        #expect(digest.contains("Second hour."))
+    }
+}
+
+@Suite("The scan's cache")
+struct SessionScanCacheTests {
+    @Test func anUnchangedFolderIsNotReadAgainAndAChangedOneIs() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("scan-\(UUID().uuidString)", isDirectory: true)
+        let base = SessionsBase(base: root)
+        let sessions = try base.ensureSessionsDirectory()
+        let dir = sessions.appendingPathComponent("2026-10-06T09-00-00Z", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("transcript.md")
+        try "---\ntitle: \"One\"\ndaisy_kind: recording\n---\n\n## Transcript\n\n**[0:00 · Me]** a\n".write(to: url, atomically: true, encoding: .utf8)
+        let cache = SessionScanCache()
+        #expect(SessionClassifier.scan(base: base, cache: cache).first?.title == "One")
+        // Rewritten behind the cache's back within the same second: the
+        // stale title is what the cache is allowed to answer.
+        try await Task.sleep(for: .milliseconds(1100))
+        try "---\ntitle: \"Two\"\ndaisy_kind: recording\n---\n\n## Transcript\n\n**[0:00 · Me]** a\n".write(to: url, atomically: true, encoding: .utf8)
+        #expect(SessionClassifier.scan(base: base, cache: cache).first?.title == "Two")
+        try FileManager.default.removeItem(at: dir)
+        #expect(SessionClassifier.scan(base: base, cache: cache).isEmpty)
+        #expect(cache.entries.isEmpty)
+    }
 }

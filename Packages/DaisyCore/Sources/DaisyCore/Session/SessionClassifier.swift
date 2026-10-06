@@ -192,17 +192,37 @@ public nonisolated enum SessionClassifier {
 
     /// §1 scan: non-recursive, hidden entries skipped, directories only.
     /// Newest first. Unreadable folders are left out (and never touched).
-    public static func scan(base: SessionsBase) -> [SessionSummary] {
+    ///
+    /// With a `cache`, a folder whose directory and `transcript.md` have
+    /// not changed since the last scan keeps its summary without being
+    /// read again (audit 02.10, Н-6: the Library is rescanned on every
+    /// refresh, and every refresh read every transcript in full). A
+    /// folder's listing changes its directory's modification date, an
+    /// edit changes the transcript's; audio in a published folder only
+    /// comes and goes, never grows.
+    public static func scan(base: SessionsBase, cache: SessionScanCache? = nil) -> [SessionSummary] {
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(
             at: base.sessionsDirectory,
-            includingPropertiesForKeys: [.isDirectoryKey],
+            includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
             options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
         ) else { return [] }
-        return entries
-            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false }
-            .compactMap { summarize(directory: $0) }
-            .sorted { $0.startedAt > $1.startedAt }
+        let known = cache?.entries ?? [:]
+        var fresh: [String: (stamp: SessionScanCache.Stamp, summary: SessionSummary)] = [:]
+        let summaries: [SessionSummary] = entries.compactMap { url in
+            guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false else { return nil }
+            let id = url.lastPathComponent
+            let stamp = SessionScanCache.stamp(of: url)
+            if let hit = known[id], hit.stamp == stamp {
+                fresh[id] = hit
+                return hit.summary
+            }
+            guard let summary = summarize(directory: url) else { return nil }
+            fresh[id] = (stamp, summary)
+            return summary
+        }
+        cache?.entries = fresh
+        return summaries.sorted { $0.startedAt > $1.startedAt }
     }
 
     /// §6.2 — evicted to cloud storage: present but unreadable, never
@@ -222,5 +242,34 @@ public nonisolated enum SessionClassifier {
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
             return Int64(size)
         }.max() ?? 0
+    }
+}
+
+/// What a scan remembers between runs — one entry per folder, keyed by
+/// the folder's and its transcript's modification dates.
+public nonisolated final class SessionScanCache: @unchecked Sendable {
+    public struct Stamp: Equatable, Sendable {
+        public var directory: Date?
+        public var transcript: Date?
+    }
+    private let lock = NSLock()
+    private var storage: [String: (stamp: Stamp, summary: SessionSummary)] = [:]
+    var entries: [String: (stamp: Stamp, summary: SessionSummary)] {
+        get { lock.withLock { storage } }
+        set { lock.withLock { storage = newValue } }
+    }
+
+    public init() {}
+
+    /// Forget one folder (its files changed in a way the dates may not
+    /// show — a file rewritten in place within the same second).
+    public func invalidate(_ id: String) { lock.withLock { storage[id] = nil } }
+    public func invalidateAll() { lock.withLock { storage.removeAll() } }
+
+    static func stamp(of directory: URL) -> Stamp {
+        let dir = (try? directory.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        let transcript = (try? directory.appendingPathComponent("transcript.md")
+            .resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        return Stamp(directory: dir, transcript: transcript)
     }
 }

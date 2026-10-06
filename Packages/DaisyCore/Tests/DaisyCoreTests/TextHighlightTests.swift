@@ -134,4 +134,23 @@ struct HighlightSelectionStateTests {
         let (afterSecond, _) = TextHighlight.toggle(in: afterFirst, range: (afterFirst as NSString).range(of: "second"))
         #expect(afterSecond == "first middle second")
     }
+
+    @Test func aSelectionAcrossLinesIsCutAtTheFirstLine() {
+        let text = "**[0:00 · Me]** first line here\n\n**[0:05 · Me]** second"
+        let ns = text as NSString
+        let start = ns.range(of: "line here").location
+        let across = NSRange(location: start, length: ns.length - start)
+        let (out, range) = TextHighlight.toggle(in: text, range: across)
+        #expect(out == "**[0:00 · Me]** first ==line here==\n\n**[0:05 · Me]** second")
+        #expect((out as NSString).substring(with: range) == "line here")
+    }
+
+    @Test func aSelectionStartingInTheStampSkipsIt() {
+        let text = "**[0:00 · Me]** hello there"
+        let (out, _) = TextHighlight.toggle(in: text, range: NSRange(location: 3, length: 18))
+        #expect(out == "**[0:00 · Me]** ==hello== there")
+        // Only the stamp selected: nothing to mark.
+        let (same, _) = TextHighlight.toggle(in: text, range: NSRange(location: 0, length: 14))
+        #expect(same == text)
+    }
 }

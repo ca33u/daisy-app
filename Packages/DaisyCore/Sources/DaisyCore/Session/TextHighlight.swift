@@ -121,9 +121,39 @@ public nonisolated enum TextHighlight {
             return (updated as String, NSRange(location: existing.location - marker.count, length: existing.length))
         }
 
+        // §3.3: a highlight lives inside one segment line and never in
+        // its stamp. A selection dragged across lines is cut at the end
+        // of its first line; one that starts in `**[m:ss · Name]** ` is
+        // moved past the stamp — the alternative was `==` straddling a
+        // line break, after which the line stopped parsing as a segment.
+        selection = withinOneLine(selection, in: ns)
+        guard selection.length > 0 else { return (text, range) }
+
         let marked = marker + ns.substring(with: selection) + marker
         let updated = ns.replacingCharacters(in: selection, with: marked)
         return (updated, NSRange(location: selection.location + marker.count, length: selection.length))
+    }
+
+    static func withinOneLine(_ range: NSRange, in ns: NSString) -> NSRange {
+        var out = range
+        // Cut at the first line break inside the selection.
+        let newline = ns.rangeOfCharacter(from: .newlines, options: [], range: out)
+        if newline.location != NSNotFound { out.length = newline.location - out.location }
+        // Past the stamp, when the selection starts inside it.
+        let lineStart = ns.lineRange(for: NSRange(location: out.location, length: 0)).location
+        let line = ns.substring(with: NSRange(location: lineStart, length: ns.length - lineStart))
+        let close = (line as NSString).range(of: "]** ")
+        if line.hasPrefix("**["), close.location != NSNotFound {
+            let textStart = lineStart + close.location + close.length
+            if out.location < textStart {
+                let end = out.location + out.length
+                out = NSRange(location: textStart, length: max(0, end - textStart))
+            }
+        }
+        // Trim again: the cut may have left a space at the edge.
+        while out.length > 0, isSpace(ns.character(at: out.location)) { out.location += 1; out.length -= 1 }
+        while out.length > 0, isSpace(ns.character(at: out.location + out.length - 1)) { out.length -= 1 }
+        return out
     }
 
     /// The highlight this selection would remove, if any.

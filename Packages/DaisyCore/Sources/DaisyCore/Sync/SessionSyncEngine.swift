@@ -321,7 +321,11 @@ public final class SessionSyncEngine {
 
         var text = localText
         for key in fmResult.changedLocally {
-            if let value = fmResult.values[key] { text = SessionDocument.upsertFrontmatter(in: text, key: key, value: value) }
+            if let value = fmResult.values[key] {
+                text = SessionDocument.upsertFrontmatter(in: text, key: key, value: value)
+            } else {
+                text = SessionDocument.removingFrontmatter(in: text, key: key)
+            }
         }
         var newBodyHash = FrontmatterMerge.hash(localBody)
         // An empty body against a transcript that has one is a record whose

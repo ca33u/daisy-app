@@ -78,8 +78,15 @@ public nonisolated enum FrontmatterMerge {
             }
             // A key absent on the winning side stays absent — but a key
             // one side never had and the other added is an addition.
-            if pick.value == nil { pick.value = l ?? r }
-            guard let value = pick.value else { continue }
+            // (A key the base HAD and one side removed is a removal: it
+            // used to come back from the other side on the next pass,
+            // and a take could end up «best» twice — audit 02.10.)
+            if pick.value == nil, b == nil { pick.value = l ?? r }
+            guard let value = pick.value else {
+                if l != nil { changedLocally.insert(key) }
+                if r != nil { changedRemotely.insert(key) }
+                continue
+            }
             values[key] = value
             stamps[key] = pick.stamp
             if value != l { changedLocally.insert(key) }

@@ -140,6 +140,17 @@ public nonisolated enum SessionDocument {
     /// frontmatter at the top of `text` (§3.1 "to change one field").
     /// If there's no frontmatter at all, a fresh `---` block is prepended.
     /// Verbatim `SessionStore.upsertFrontmatter`.
+    /// Drop one `key:` line from the frontmatter; the text is returned as
+    /// it was when the key is not there.
+    public static func removingFrontmatter(in text: String, key: String) -> String {
+        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard lines.first?.trimmingCharacters(in: .whitespaces) == "---",
+              let close = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" }),
+              let index = (1..<close).first(where: { lines[$0].hasPrefix("\(key):") }) else { return text }
+        lines.remove(at: index)
+        return lines.joined(separator: "\n")
+    }
+
     public static func upsertFrontmatter(in text: String, key: String, value: String) -> String {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         if lines.first?.trimmingCharacters(in: .whitespaces) != "---" {
