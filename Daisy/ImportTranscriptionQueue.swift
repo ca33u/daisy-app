@@ -56,6 +56,10 @@ nonisolated struct ImportTranscriptionJob: Codable, Identifiable, Sendable, Equa
     /// the final pass keeps all of those). A different body at run time
     /// means the person edited the draft — their text wins.
     var draftBodyHash: String?
+    /// The final pass committed but a recording pre-empted what follows
+    /// (names, summary, auto-send): the kind of session it was, so the
+    /// next run does only the rest. Optional so older queue files decode.
+    var finalPassDoneKind: String?
 
     nonisolated static let maxAttempts = 3
 
@@ -341,17 +345,22 @@ final class ImportTranscriptionQueue {
         // since the day the queue took them (Egor's 13:36 recording kept
         // its live text, no summary, and a stale .recording marker).
         let finishing = job.finishesLiveTranscript == true
+        // Read before the final pass: its render writes the kind as
+        // `recording` whatever it was.
+        let isMeeting = session.kind == .recording
+        if finishing, let kind = job.finalPassDoneKind {
+            await finishRest(job, isMeeting: kind == SessionKind.recording.rawValue)
+            return
+        }
         // A draft the person edited while the job waited (on a charger,
         // possibly for hours) is theirs: finishing replaces the transcript
         // in place, so the edit wins and only the rest of the finish runs.
         if finishing, let queued = job.draftBodyHash,
            let now = Self.transcriptBodyHash(in: session.directoryURL), now != queued {
             log.info("Finishing job: transcript was edited while queued — keeping the edit, skipping the final pass")
-            jobs.removeAll { $0.id == job.id }
-            persist()
             try? FileManager.default.removeItem(
                 at: session.directoryURL.appendingPathComponent(SessionStore.recordingMarkerName))
-            await completeFinish(sessionID: job.sessionID)
+            await finishRest(job, isMeeting: isMeeting)
             return
         }
         guard finishing || (session.transcriptURL == nil && !transcriptOnDisk) else {
@@ -362,11 +371,15 @@ final class ImportTranscriptionQueue {
         }
         do {
             _ = try await SessionAudioProcessing.shared.retranscribe(
-                session, options: job.options, replaceLiveTranscript: finishing)
-            jobs.removeAll { $0.id == job.id }
-            persist()
+                session, options: job.options, replaceLiveTranscript: finishing,
+                finishing: finishing ? Self.finishingPasses(for: session, isMeeting: isMeeting) : nil)
             log.info("Import job done: \(job.title, privacy: .private)\(finishing ? " — final pass over a live transcript (see the processing log for whether it replaced it)" : "", privacy: .public)")
-            if finishing { await completeFinish(sessionID: job.sessionID) }
+            if finishing {
+                await finishRest(job, isMeeting: isMeeting)
+            } else {
+                jobs.removeAll { $0.id == job.id }
+                persist()
+            }
         } catch is CancellationError {
             // Pre-empted by a recording → job stays for the next tick.
             // Removed by the user → cancel(sessionID:) already took it out.
@@ -410,16 +423,46 @@ final class ImportTranscriptionQueue {
     /// summary — only when summaries run after each meeting, as finalize
     /// decides — then auto-send, then the delete-after-transcription purge
     /// under finalize Stage 6's rules (review finds, 07.10.2026).
-    private func completeFinish(sessionID: String) async {
+    /// The rest of a finish once the transcript is final, with the job
+    /// kept until it's done: a recording that pre-empts it (the name pass,
+    /// the summary's minutes on a cloud provider) leaves it for the next
+    /// run instead of a meeting with no summary and nothing saying why.
+    /// Removed by the user meanwhile → not in `jobs`, nothing more runs.
+    private func finishRest(_ job: ImportTranscriptionJob, isMeeting: Bool) async {
+        var done = false
+        if !Task.isCancelled, jobs.contains(where: { $0.id == job.id }) {
+            done = await completeFinish(sessionID: job.sessionID, isMeeting: isMeeting)
+        }
+        if done {
+            jobs.removeAll { $0.id == job.id }
+        } else if let index = jobs.firstIndex(where: { $0.id == job.id }) {
+            jobs[index].finalPassDoneKind = (isMeeting ? SessionKind.recording : SessionKind.note).rawValue
+            preempted = false
+            log.info("Finishing job: transcript is final, the rest waits for the recording to end")
+        }
+        persist()
+    }
+
+    /// False when cancelled before auto-send: the caller runs it again.
+    private func completeFinish(sessionID: String, isMeeting: Bool) async -> Bool {
         let settings = RecordingSession.current?.settings
-        let summarize = settings?.autoSummarize ?? false
-        if summarize { await summarizeFinished(sessionID: sessionID) }
+        // finalize summarizes meetings only; a voice note never goes to
+        // the provider from here either.
+        let summarize = isMeeting && (settings?.autoSummarize ?? false)
+        if let directory = SessionStore.shared.sessions.first(where: { $0.id == sessionID })?.directoryURL {
+            let screenText = await readScreens(in: directory)
+            if summarize {
+                await summarizeFinished(sessionID: sessionID, screenText: screenText,
+                                        includeScreenText: settings?.screenTextInSummary ?? true)
+            }
+        }
+        guard !Task.isCancelled else { return false }
         await SessionStore.shared.refresh()
-        guard let session = SessionStore.shared.sessions.first(where: { $0.id == sessionID }) else { return }
+        guard let session = SessionStore.shared.sessions.first(where: { $0.id == sessionID }) else { return true }
         if let settings { await autoSendFinished(session, settings: settings) }
 
         let directory = session.directoryURL
-        guard AppSettings.currentAudioRetentionDays == AppSettings.audioRetentionDeleteAfterTranscription else { return }
+        guard AppSettings.currentAudioRetentionDays == AppSettings.audioRetentionDeleteAfterTranscription else { return true }
         let transcriptLanded = await Task.detached { RecordingSession.transcriptHasContent(in: directory) }.value
         let summaryLanded = FileManager.default.fileExists(atPath: directory.appendingPathComponent("summary.json").path)
         // A summary that should have come and didn't keeps the audio, so
@@ -428,6 +471,77 @@ final class ImportTranscriptionQueue {
         if transcriptLanded, !summarize || summaryLanded {
             AudioRetentionSweep.purgeOneSession(at: directory)
         }
+        return true
+    }
+
+    /// finalize's provider passes for a queued finish, behind finalize's
+    /// gates: the second-pass setting, and a transcript that is going to
+    /// this provider anyway — a local one, or summaries on (the queue
+    /// summarizes a finished meeting exactly when finalize would). Names
+    /// also need cross-meeting recognition on and an invite to check
+    /// against.
+    private static func finishingPasses(for session: StoredSession, isMeeting: Bool) -> SessionFinishingPasses? {
+        guard let settings = RecordingSession.current?.settings, settings.transcriptSecondPass else { return nil }
+        let willSummarize = isMeeting && settings.autoSummarize && Summarizer.shared.availability == .available
+        guard Summarizer.shared.providerIsEffectivelyLocal || willSummarize else { return nil }
+        return SessionFinishingPasses(
+            title: session.title,
+            localeHint: RecordingSession.resolveSummaryLocaleHint(
+                transcript: session.transcriptText,
+                transcriptLocale: session.locale,
+                summaryLanguageOverride: AppSettings.currentSummaryLanguage
+            ),
+            polish: true,
+            suggestNames: settings.speakerMatchMode != .off,
+            attendees: session.meetingAttendees
+        )
+    }
+
+    /// finalize Stage 3b for a queued finish: OCR the meeting's
+    /// screenshots on-device, note which frames were a new screen, and
+    /// append the "Shared on screen" section to transcript.md (the final
+    /// pass just rewrote it without one). Returns the OCR markdown for the
+    /// summary, empty when there was nothing to read.
+    private func readScreens(in directory: URL) async -> String {
+        let screenshotsDir = directory.appendingPathComponent("screenshots", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: screenshotsDir.path) else { return "" }
+        let ocr = await Task.detached(priority: .utility) {
+            ScreenTextExtractor.extract(from: screenshotsDir)
+        }.value
+        ScreenshotIndex.writeHighlights(ocr.distinctFrames, to: screenshotsDir)
+        guard !ocr.markdown.isEmpty else { return "" }
+        let mdURL = directory.appendingPathComponent("transcript.md")
+        if let existing = try? String(contentsOf: mdURL, encoding: .utf8),
+           !existing.contains(Self.screenSectionHeading) {
+            try? (existing + "\n\n\(Self.screenSectionHeading)\n\n\(ocr.markdown)\n")
+                .write(to: mdURL, atomically: true, encoding: .utf8)
+        }
+        return ocr.markdown
+    }
+
+    nonisolated private static let screenSectionHeading = "## Shared on screen"
+
+    /// What finalize Stage 4 hands the summarizer: the spoken transcript,
+    /// then — fenced as shown-not-spoken — the screen text when the
+    /// setting allows it, then the moments the person marked.
+    nonisolated static func summaryTranscript(
+        _ transcriptText: String,
+        screenText: String,
+        includeScreenText: Bool,
+        markers: [MomentMarker]
+    ) -> String {
+        var text = transcriptText
+        if let section = text.range(of: "\n\(screenSectionHeading)\n") {
+            text = String(text[..<section.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if !screenText.isEmpty, includeScreenText {
+            text += "\n\n[Content shared on screen during the meeting — text extracted from slides/documents shown, not spoken:]\n\(screenText)"
+        }
+        if !markers.isEmpty {
+            let stamps = markers.map(\.timecode).joined(separator: ", ")
+            text += "\n\n[The participant flagged these timecodes as worth remembering while the meeting was happening: \(stamps)]"
+        }
+        return text
     }
 
     /// Finalize Stage 5 for a stored session: Notion and the auto-on-save
@@ -450,11 +564,19 @@ final class ImportTranscriptionQueue {
             } catch {
                 log.error("Auto-send to Notion failed: \(error.localizedDescription, privacy: .private)")
                 ToastCenter.shared.show(String(localized: "Auto-send to Notion failed — retry from Library"), style: .warning)
+                RecordingSession.recordSendFailure(
+                    in: session.directoryURL, integration: "Notion", kind: "notion",
+                    destination: "user's Notion workspace", error: error.localizedDescription)
             }
         }
         for integration in MCPIntegrationStore.shared.autoOnSaveIntegrations
         where RecordingSession.folderAllowed(session.folderSlug, allowed: integration.allowedFolders) {
-            _ = await MCPDispatcher.send(integration, for: session)
+            if !(await MCPDispatcher.send(integration, for: session)) {
+                RecordingSession.recordSendFailure(
+                    in: session.directoryURL, integration: integration.name,
+                    kind: integration.kind == .mcp ? "mcp" : "webhook",
+                    destination: integration.baseURL, error: nil)
+            }
         }
     }
 
@@ -473,7 +595,7 @@ final class ImportTranscriptionQueue {
 
     /// The interrupted recording never got its summary; give it one now,
     /// the way Re-summarize does, unless one is already there.
-    private func summarizeFinished(sessionID: String) async {
+    private func summarizeFinished(sessionID: String, screenText: String, includeScreenText: Bool) async {
         await SessionStore.shared.refresh()
         guard let session = SessionStore.shared.sessions.first(where: { $0.id == sessionID }),
               !session.transcriptText.isEmpty,
@@ -484,11 +606,22 @@ final class ImportTranscriptionQueue {
             transcriptLocale: session.locale,
             summaryLanguageOverride: AppSettings.currentSummaryLanguage
         )
+        let transcript = Self.summaryTranscript(
+            session.transcriptText,
+            screenText: screenText,
+            includeScreenText: includeScreenText,
+            markers: MomentMarkerStore.load(from: session.directoryURL)
+        )
         guard let summary = await Summarizer.shared.summarize(
-            transcript: session.transcriptText, title: session.title, localeHint: localeHint,
+            transcript: transcript, title: session.title, localeHint: localeHint,
             projectContext: ProjectMemoryBridge.block(forSessionAt: session.directoryURL)
         ) else {
+            // Pre-empted, not failed: nothing to tell anyone.
+            guard !Task.isCancelled else { return }
             log.warning("Finished recording \(sessionID, privacy: .public): summary failed — \(Summarizer.shared.lastError ?? "no summary", privacy: .public)")
+            let reason = Summarizer.shared.lastError ?? String(localized: "The provider returned no summary.")
+            SummaryFailureNote.write(message: reason, provider: Summarizer.shared.providerKind.shortName, in: session.directoryURL)
+            SummaryFailureNote.announce(reason)
             return
         }
         await SessionStore.shared.updateSummary(summary, for: session)

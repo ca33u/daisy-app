@@ -74,6 +74,21 @@ nonisolated struct SessionRetranscriptionOptions: Sendable, Equatable {
     var diarize: Bool
 }
 
+/// The provider passes finalize runs after its final Whisper pass — the
+/// polish of names and terms (Stage 2b) and names from the conversation
+/// (Stage 2c) — for a meeting the queue finishes instead (07.10.2026).
+/// The caller has already applied finalize's privacy gate: a pass that's
+/// off here is off because the transcript isn't going to this provider.
+nonisolated struct SessionFinishingPasses: Sendable {
+    var title: String
+    var localeHint: String?
+    var polish: Bool
+    var suggestNames: Bool
+    /// The bound calendar event's attendees: the polish's names and the
+    /// name pass's allow-list.
+    var attendees: [String]
+}
+
 @Observable
 @MainActor
 final class SessionAudioProcessing {
@@ -108,10 +123,13 @@ final class SessionAudioProcessing {
     /// of a recording whose final pass never ran (the next recording
     /// started). Write the final transcript INTO this session, replacing
     /// it, and clear the `.recording` marker — not a derived copy.
+    /// `finishing`: also run finalize's provider passes (the queue's
+    /// finish of such a recording).
     func retranscribe(
         _ session: StoredSession,
         options: SessionRetranscriptionOptions,
-        replaceLiveTranscript: Bool = false
+        replaceLiveTranscript: Bool = false,
+        finishing: SessionFinishingPasses? = nil
     ) async throws -> StoredSession.ID {
         guard !isRunning else { throw ProcessingError.busy }
         guard !recordingOrFinalizeIsActive else { throw ProcessingError.recordingActive }
@@ -193,6 +211,7 @@ final class SessionAudioProcessing {
         } ?? ""
         let isPhoneSession = SessionOrigin.isRoomMicrophone(Self.frontmatterValue("daisy_origin", in: originalMarkdown))
 
+        let transcribeStarted = Date()
         let bothChannels = !processingFiles.microphone.isEmpty && !processingFiles.system.isEmpty
         progressSpan = (0, bothChannels ? 0.5 : 1)
         statusText = String(localized: "Transcribing microphone audio")
@@ -290,6 +309,32 @@ final class SessionAudioProcessing {
             }
         }
 
+        var rawMarkdown: String?
+        if let finishing, finishing.polish {
+            let before = segments
+            segments = await polishSegments(
+                segments, finishing: finishing,
+                finalPassSeconds: Date().timeIntervalSince(transcribeStarted)
+            )
+            // Pre-empted by a recording mid-pass: nothing is committed
+            // yet, so the job simply runs again later.
+            try Task.checkCancellation()
+            if segments.map(\.text) != before.map(\.text) {
+                // finalize keeps what the recognizer heard next to the
+                // corrected text; same file, same header, no frontmatter.
+                let original = Self.renderDerivedTranscript(
+                    originalMarkdown: originalMarkdown,
+                    session: session,
+                    options: options,
+                    segments: before,
+                    audioFiles: processingFiles.all.map(\.lastPathComponent),
+                    isFirstTranscript: isFirstTranscript,
+                    speakerMap: carriedNames
+                )
+                rawMarkdown = RecordingSession.rawTranscriptHeader + Self.bodyWithoutFrontmatter(original)
+            }
+        }
+
         statusText = String(localized: "Writing the new transcript")
         let markdown = Self.renderDerivedTranscript(
             originalMarkdown: originalMarkdown,
@@ -305,6 +350,13 @@ final class SessionAudioProcessing {
             atomically: true,
             encoding: .utf8
         )
+        if let rawMarkdown {
+            try rawMarkdown.write(
+                to: stagingDirectory.appendingPathComponent("transcript.raw.md"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
 
         let centroids = systemOutput.centroids.isEmpty
             ? microphoneOutput.centroids
@@ -340,7 +392,107 @@ final class SessionAudioProcessing {
             log.info("Created derived session \(finalID, privacy: .private) from \(session.id, privacy: .private)")
         }
         await SessionStore.shared.refresh()
+        if let finishing, finishing.suggestNames, isFirstTranscript {
+            await suggestSpeakerNames(
+                segments: segments, in: session.directoryURL,
+                named: Set(carriedNames.keys), finishing: finishing
+            )
+        }
         return finalID
+    }
+
+    /// finalize Stage 2b over the queue's segments: the polish's
+    /// corrections applied by segment id, or the segments unchanged.
+    /// Best-effort, like finalize's — every failure keeps the recognizer's
+    /// text.
+    private func polishSegments(
+        _ segments: [TranscriptSegment],
+        finishing: SessionFinishingPasses,
+        finalPassSeconds: Double
+    ) async -> [TranscriptSegment] {
+        let bodyLength = segments.reduce(0) { $0 + $1.text.count }
+        guard segments.count >= 2, bodyLength >= 200,
+              !Summarizer.isEffectivelySilent(segments.map(\.text).joined(separator: "\n")) else { return segments }
+        statusText = String(localized: "Correcting names and terms")
+        progress = nil
+        let title = finishing.title
+        let localeHint = finishing.localeHint
+        let outcome = await TranscriptPolisher.polish(
+            segments: segments,
+            context: TranscriptPolisher.PromptContext(
+                attendees: finishing.attendees,
+                vocabulary: Array(DictationDictionary.shared.biasTerms().prefix(RecordingSession.polishVocabularyLimit)),
+                meetingApp: nil
+            ),
+            localeHint: localeHint,
+            // finalize's budget: a fifth of what the final pass took.
+            deadlineSeconds: finalPassSeconds * 0.2,
+            summarize: { payload, task in
+                try await Summarizer.shared.runProbe(
+                    transcript: payload, title: title, localeHint: localeHint, task: task)
+            }
+        )
+        log.info("Queued finish: transcript polish \(outcome.chunksApplied, privacy: .public)/\(outcome.chunksTotal, privacy: .public) chunks, \(outcome.replacements.count, privacy: .public) segment(s) changed\(outcome.timedOut ? " (deadline cut the pass short)" : "", privacy: .public)")
+        guard !outcome.replacements.isEmpty else { return segments }
+        return segments.map { segment in
+            guard let corrected = outcome.replacements[segment.id] else { return segment }
+            var copy = segment
+            copy.text = corrected
+            return copy
+        }
+    }
+
+    /// finalize Stage 2c for a committed session: a name for each
+    /// unnamed remote speaker from how the attendees are addressed,
+    /// merged into `speaker_suggestions.json` without displacing stronger
+    /// evidence. Never names anyone by itself.
+    private func suggestSpeakerNames(
+        segments: [TranscriptSegment],
+        in directory: URL,
+        named: Set<String>,
+        finishing: SessionFinishingPasses
+    ) async {
+        let attendees = finishing.attendees
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard !attendees.isEmpty, !Task.isCancelled else { return }
+        let persisted = RecordingSession.persistedSpeakerMap(at: directory.appendingPathComponent("transcript.md"))
+        let existing = RecordingSession.loadSuggestions(in: directory)
+        let labels = Set(segments.compactMap { $0.source == .systemAudio ? $0.speakerId : nil })
+            .filter { !named.contains($0) && persisted[$0] == nil && existing?.byLabel[$0] == nil }
+            .sorted()
+        guard !labels.isEmpty else { return }
+        let turns = SpeakerNameSuggester.turns(segments)
+        let transcript = SpeakerNameSuggester.sampleTranscript(turns: turns)
+        guard !transcript.isEmpty else { return }
+
+        statusText = String(localized: "Looking for speaker names")
+        let title = finishing.title
+        let localeHint = finishing.localeHint
+        let proposed = await SpeakerNameSuggester.suggest(
+            transcript: transcript,
+            context: .init(attendees: attendees, labels: labels),
+            turns: turns,
+            summarize: { payload, task in
+                try await Summarizer.shared.runProbe(
+                    transcript: payload, title: title, localeHint: localeHint, task: task)
+            }
+        )
+        log.info("Queued finish: \(proposed.count, privacy: .public) name suggestion(s) for \(labels.count, privacy: .public) unnamed label(s)")
+        guard !proposed.isEmpty, !Task.isCancelled else { return }
+        let added = RecordingSession.mergeSuggestions(proposed, source: "mentioned", into: directory, alsoNamed: named)
+        guard added > 0 else { return }
+        ToastCenter.shared.show(
+            String(localized: "Daisy has a name for \(added) speakers · review in Library"),
+            style: .info
+        )
+    }
+
+    /// A transcript without its YAML frontmatter.
+    nonisolated static func bodyWithoutFrontmatter(_ markdown: String) -> String {
+        guard markdown.hasPrefix("---\n"),
+              let end = markdown.dropFirst(4).range(of: "\n---\n") else { return markdown }
+        return String(markdown[end.upperBound...])
     }
 
     func exportAudio(_ session: StoredSession, to destination: URL) async throws {
@@ -700,6 +852,16 @@ final class SessionAudioProcessing {
                 _ = try? fm.replaceItemAt(speakers, withItemAt: stagedSpeakers)
             } else {
                 try? fm.moveItem(at: stagedSpeakers, to: speakers)
+            }
+        }
+
+        let stagedRaw = stagingDirectory.appendingPathComponent("transcript.raw.md")
+        if fm.fileExists(atPath: stagedRaw.path) {
+            let raw = sessionDirectory.appendingPathComponent("transcript.raw.md")
+            if fm.fileExists(atPath: raw.path) {
+                _ = try? fm.replaceItemAt(raw, withItemAt: stagedRaw)
+            } else {
+                try? fm.moveItem(at: stagedRaw, to: raw)
             }
         }
         try? fm.removeItem(at: stagingDirectory)

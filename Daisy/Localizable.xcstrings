@@ -95,6 +95,16 @@
         }
       }
     },
+    "Apple Intelligence is still downloading. Try again in a few minutes." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Intelligence ещё загружается. Попробуй через несколько минут."
+          }
+        }
+      }
+    },
     "As set in Recording" : {
       "localizations" : {
         "ru" : {
@@ -375,6 +385,46 @@
         }
       }
     },
+    "No summary" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Саммари нет"
+          }
+        }
+      }
+    },
+    "No summary — %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Саммари нет — %@"
+          }
+        }
+      }
+    },
+    "Not available (%@)." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Недоступно (%@)."
+          }
+        }
+      }
+    },
+    "Not available." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Недоступно."
+          }
+        }
+      }
+    },
     "On battery or in Low Power Mode, a meeting keeps its live transcript; the final transcript, speakers and summary come once the Mac is plugged in. “Process now” on the meeting does it at once." : {
       "localizations" : {
         "ru" : {
@@ -515,6 +565,16 @@
         }
       }
     },
+    "Summary settings" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Настройки саммари"
+          }
+        }
+      }
+    },
     "The email is open in %@. Drag the report from Finder into it — it's already selected — and press Send." : {
       "localizations" : {
         "ru" : {
@@ -535,12 +595,32 @@
         }
       }
     },
+    "The provider returned no summary." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Провайдер не вернул саммари."
+          }
+        }
+      }
+    },
     "The transcript below is the draft from the meeting; the final one, speakers and summary come next." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ниже — черновой транскрипт со встречи; итоговый, спикеры и саммари будут следом."
+          }
+        }
+      }
+    },
+    "This Mac doesn't support Apple Intelligence." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Этот Mac не поддерживает Apple Intelligence."
           }
         }
       }
@@ -561,6 +641,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Транскрипты отправляются в Google по HTTPS с использованием твоего собственного API-ключа. Создай его на aistudio.google.com/apikey — он хранится в Keychain macOS. С платным ключом Google не обучает модели на твоих данных, с бесплатным — может. Примерно $0.01–0.03 за саммари на 3.8 Flash."
+          }
+        }
+      }
+    },
+    "Turn on Apple Intelligence in System Settings → Apple Intelligence & Siri — and make sure your Mac and Siri are set to the same supported language (a US vs. UK English mismatch is a common blocker)." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включи Apple Intelligence в «Системных настройках → Apple Intelligence и Siri» и проверь, что у Mac и Siri один и тот же поддерживаемый язык (частая помеха — разные варианты английского, US и UK)."
           }
         }
       }
@@ -607,6 +697,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Подключён"
+          }
+        }
+      }
+    },
+    "it doesn't write in %@ yet. Pick a cloud provider or Ollama in Settings → Summary." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "пока не пишет на языке «%@». Выбери облачного провайдера или Ollama в «Настройки → Саммари»."
           }
         }
       }
@@ -20372,6 +20472,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Записывает запись в конфигурацию Claude. После этого перезапустите Claude Desktop, чтобы загрузить инструменты Daisy."
+          }
+        }
+      }
+    },
+    "Correcting names and terms" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Исправление имён и терминов"
+          }
+        }
+      }
+    },
+    "Looking for speaker names" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поиск имён говорящих"
           }
         }
       }

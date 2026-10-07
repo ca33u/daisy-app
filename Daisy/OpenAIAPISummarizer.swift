@@ -76,6 +76,10 @@ nonisolated struct OpenAIAPISummarizer: SummaryProvider {
             // comes back with empty content. Raised from 16 384 for
             // two-hour meetings — only generated tokens are billed.
             body["max_completion_tokens"] = 32_000
+            // Chat completions streams nothing while the model reasons, so
+            // a deep think is a long silent stretch on a long meeting (and
+            // billed as output). A summary doesn't need more than low.
+            if Self.takesLowReasoningEffort(model) { body["reasoning_effort"] = "low" }
         } else {
             // 16 384 (was 4096): a long meeting's summary in Russian or
             // German ran into the old ceiling. gpt-4o's own output limit.
@@ -94,39 +98,11 @@ nonisolated struct OpenAIAPISummarizer: SummaryProvider {
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
         // Retries only before the answer starts — see CloudStreaming.
-        let bytes = try await CloudStreaming.open(request, session: urlSession, provider: "OpenAI", log: log)
-        var stream = OpenAIStreamAccumulator()
-        do {
-            try await CloudStreaming.forEachData(in: bytes) { stream.consume($0) }
-        } catch {
-            TokenLedgerSink.record(provider: .openai, model: model, spend: .openAICompatible(from: stream.completionJSON))
-            log.error("OpenAI stream broke off: \(error.localizedDescription, privacy: .public)")
-            throw SummaryProviderError.streamInterrupted(provider: "OpenAI", message: error.localizedDescription)
-        }
-
-        // Usage is billable even if the response later proves unusable,
-        // so record it before the checks.
-        TokenLedgerSink.record(provider: .openai, model: model, spend: .openAICompatible(from: stream.completionJSON))
-
-        if let message = stream.streamError {
-            log.error("OpenAI stream error: \(message, privacy: .public)")
-            throw SummaryProviderError.streamInterrupted(provider: "OpenAI", message: message)
-        }
-        switch stream.finishReason {
-        case "length":
-            throw SummaryProviderError.outputTruncated(provider: "OpenAI")
-        case "content_filter":
-            throw SummaryProviderError.refused(provider: "OpenAI")
-        default:
-            break
-        }
-        guard !stream.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            log.error("OpenAI reply had no content (finish: \(stream.finishReason ?? "none", privacy: .public))")
-            throw SummaryProviderError.invalidResponse(provider: "OpenAI")
-        }
+        let text = try await CloudStreaming.openAICompatibleText(
+            request, session: urlSession, provider: "OpenAI", kind: .openai, model: model, log: log)
 
         do {
-            let dto = try CloudSummaryDTO.decode(from: stream.text)
+            let dto = try CloudSummaryDTO.decode(from: text)
             return dto.toMeetingSummary()
         } catch {
             throw SummaryProviderError.parseFailed(
@@ -168,6 +144,17 @@ nonisolated struct OpenAIAPISummarizer: SummaryProvider {
     /// model released after this build still gets the right dialect —
     /// and so a user who types their own id into Settings isn't handed
     /// a 400 we could have avoided.
+    /// Models that accept `reasoning_effort: "low"`. Not every reasoning
+    /// id does: o1-mini and o1-preview take no effort at all, the -pro
+    /// models only "high", and the -chat aliases don't reason — and a
+    /// stale id kept from an older picker still reaches here.
+    static func takesLowReasoningEffort(_ model: String) -> Bool {
+        let id = model.lowercased()
+        if id.contains("-pro") || id.contains("-chat") { return false }
+        if id.hasPrefix("o1-mini") || id.hasPrefix("o1-preview") { return false }
+        return id.hasPrefix("gpt-5") || id.hasPrefix("o1") || id.hasPrefix("o3") || id.hasPrefix("o4")
+    }
+
     static func usesGPT5ParameterSet(_ model: String) -> Bool {
         let id = model.lowercased()
         return id.hasPrefix("gpt-5")

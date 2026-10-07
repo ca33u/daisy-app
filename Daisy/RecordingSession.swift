@@ -3044,6 +3044,14 @@ final class RecordingSession {
             return
         }
         let sessionID = dir.lastPathComponent
+        // Summaries are on but the provider isn't usable (Apple
+        // Intelligence switched off, a missing key): finalize won't even
+        // try, and that used to be silent. Keep and say why (07.10.2026).
+        if settings.autoSummarize, currentMode == .meeting, !segments.isEmpty, !captureLikelyFailed,
+           case .unavailable(let reason) = summarizer.availability {
+            SummaryFailureNote.write(message: reason, provider: summarizer.providerKind.shortName, in: dir)
+            SummaryFailureNote.announce(reason)
+        }
 
         // Mark the session as "summary in flight" BEFORE flipping
         // status — SessionDetailView observers may snap into the

@@ -530,6 +530,20 @@ extension RecordingSession {
             }
         }
 
+        // Why there is no summary, kept with the session and said now —
+        // the log was the only place it went (07.10.2026).
+        if willSummarize {
+            if summaryPersisted {
+                SummaryFailureNote.clear(in: directory)
+            } else if summary == nil, !Task.isCancelled {
+                // A summary that came but couldn't be saved has its own
+                // toast; this one is for the provider's answer.
+                let reason = summarizer.lastError ?? String(localized: "The provider returned no summary.")
+                SummaryFailureNote.write(message: reason, provider: summarizer.providerKind.shortName, in: directory)
+                SummaryFailureNote.announce(reason)
+            }
+        }
+
         // ── Stage 4b: the polish a long meeting put off ──────────────
         if polishAfterSummary {
             // The summary is on disk: show it now rather than after the
@@ -1046,6 +1060,10 @@ extension RecordingSession {
 
     /// Read `speaker_suggestions.json`, or nil when there isn't one.
     private func loadSuggestionsSidecar(in directory: URL) -> SpeakerSuggestionsFile? {
+        Self.loadSuggestions(in: directory)
+    }
+
+    static func loadSuggestions(in directory: URL) -> SpeakerSuggestionsFile? {
         let url = directory.appendingPathComponent("speaker_suggestions.json")
         guard let data = try? Data(contentsOf: url) else { return nil }
         return try? JSONDecoder().decode(SpeakerSuggestionsFile.self, from: data)
@@ -1075,21 +1093,34 @@ extension RecordingSession {
         source label: String,
         into directory: URL
     ) -> Int {
+        Self.mergeSuggestions(candidates, source: label, into: directory, alsoNamed: Set(initialSpeakerMap.keys))
+    }
+
+    /// `mergeSuggestions` for any session folder: `alsoNamed` are labels
+    /// named somewhere the file doesn't show yet (the live session's
+    /// in-memory map); the queue passes none.
+    @discardableResult
+    static func mergeSuggestions(
+        _ candidates: [String: String],
+        source label: String,
+        into directory: URL,
+        alsoNamed: Set<String>
+    ) -> Int {
         guard !candidates.isEmpty else { return 0 }
-        let named = Self.persistedSpeakerMap(at: directory.appendingPathComponent("transcript.md"))
-        var file = loadSuggestionsSidecar(in: directory)
+        let named = persistedSpeakerMap(at: directory.appendingPathComponent("transcript.md"))
+        var file = loadSuggestions(in: directory)
             ?? SpeakerSuggestionsFile(byLabel: [:], source: [:])
         var added = 0
         for (speaker, name) in candidates
         where file.byLabel[speaker] == nil
-            && initialSpeakerMap[speaker] == nil
+            && !alsoNamed.contains(speaker)
             && named[speaker] == nil {
             file.byLabel[speaker] = name
             file.source[speaker] = label
             added += 1
         }
         guard added > 0 else { return 0 }
-        writeSuggestionsSidecar(file, to: directory)
+        writeSuggestions(file, to: directory)
         return added
     }
 
@@ -1167,6 +1198,11 @@ extension RecordingSession {
     /// calendar path and the Stage 2c conversation path so the two
     /// can't disagree about the file's encoding.
     private func writeSuggestionsSidecar(_ file: SpeakerSuggestionsFile, to directory: URL) {
+        Self.writeSuggestions(file, to: directory)
+    }
+
+    static func writeSuggestions(_ file: SpeakerSuggestionsFile, to directory: URL) {
+        let log = Logger(subsystem: "app.essazanov.Daisy", category: "Session")
         let url = directory.appendingPathComponent("speaker_suggestions.json")
         do {
             let encoder = JSONEncoder()
@@ -1561,6 +1597,19 @@ extension RecordingSession {
         error: String?
     ) {
         guard let directory = sessionDirectory else { return }
+        Self.recordSendFailure(in: directory, integration: integration, kind: kind, destination: destination, error: error)
+    }
+
+    /// The same record for a session that isn't the live one — a meeting
+    /// finished from the queue (07.10.2026).
+    static func recordSendFailure(
+        in directory: URL,
+        integration: String,
+        kind: String,
+        destination: String,
+        error: String?
+    ) {
+        let log = Logger(subsystem: "app.essazanov.Daisy", category: "Session")
         let sidecarURL = directory.appendingPathComponent(".send_failures.json")
         var records: [SendFailureRecord] = []
         if let existing = try? Data(contentsOf: sidecarURL),

@@ -22,6 +22,8 @@
 //     outermost object, so the request leans on nothing Gemini-specific.
 //   • Spend uses `geminiCompatible`: thinking tokens may sit outside
 //     `completion_tokens`.
+//   • Streamed with `stream_options.include_usage` (07.10.2026), so the
+//     idle timeout no longer races the whole generation.
 //
 //  Privacy: a paid-tier key's data is not used to train Google's models;
 //  a free-tier key's may be. That is Google's term, stated in the
@@ -42,9 +44,13 @@ nonisolated struct GeminiAPISummarizer: SummaryProvider {
 
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "GeminiSummarizer")
 
-    init(model: String = defaultModelID, urlSession: URLSession = .shared) {
+    /// Tests only: a key that bypasses the Keychain.
+    let apiKeyOverride: String?
+
+    init(model: String = defaultModelID, urlSession: URLSession = .shared, apiKeyOverride: String? = nil) {
         self.model = model
         self.urlSession = urlSession
+        self.apiKeyOverride = apiKeyOverride
     }
 
     func isReady() async -> Bool {
@@ -64,7 +70,7 @@ nonisolated struct GeminiAPISummarizer: SummaryProvider {
         guard trimmed.count > 40 else {
             throw SummaryProviderError.transcriptTooShort
         }
-        guard let apiKey = KeychainStore.get(account: SecretKey.geminiAPIKey),
+        guard let apiKey = apiKeyOverride ?? KeychainStore.get(account: SecretKey.geminiAPIKey),
               !apiKey.isEmpty else {
             throw SummaryProviderError.missingAPIKey(provider: "Gemini")
         }
@@ -79,62 +85,26 @@ nonisolated struct GeminiAPISummarizer: SummaryProvider {
                 ["role": "user",   "content": userPrompt]
             ],
             "reasoning_effort": "low",
-            "max_tokens": 16_384
+            "max_tokens": 16_384,
+            // Streamed: see CloudStreaming.
+            "stream": true,
+            "stream_options": ["include_usage": true]
         ]
 
         var request = URLRequest(url: Self.endpoint)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // A thinking model on a long meeting, like Kimi K3.
-        request.timeoutInterval = 120
+        // Idle, not total: Gemini thinks before it writes and says
+        // nothing while it does.
+        request.timeoutInterval = 300
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
-        let (data, response) = try await CloudHTTPRetry.fetch(
-            request: request,
-            session: urlSession,
-            log: log
-        )
-        guard let http = response as? HTTPURLResponse else {
-            throw SummaryProviderError.invalidResponse(provider: "Gemini")
-        }
-        if !(200..<300).contains(http.statusCode) {
-            let bodyString = String(data: data, encoding: .utf8) ?? "<empty>"
-            // .private: a 4xx body can quote the prompt, which is someone's meeting.
-            log.error("Gemini HTTP \(http.statusCode): \(bodyString, privacy: .private)")
-            throw SummaryProviderError.httpError(
-                provider: "Gemini",
-                status: http.statusCode,
-                body: bodyString
-            )
-        }
-
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw SummaryProviderError.invalidResponse(provider: "Gemini")
-        }
-
-        // Billable even when the content later proves unusable.
-        TokenLedgerSink.record(
-            provider: .gemini,
-            model: model,
-            spend: .geminiCompatible(from: json)
-        )
-
-        // Ran into the token limit: the JSON is cut off, so say that
-        // rather than "couldn't parse".
-        if let choices = json["choices"] as? [[String: Any]],
-           choices.first?["finish_reason"] as? String == "length" {
-            throw SummaryProviderError.outputTruncated(provider: "Gemini")
-        }
-        guard let choices = json["choices"] as? [[String: Any]],
-              let message = choices.first?["message"] as? [String: Any],
-              let content = message["content"] as? String,
-              !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw SummaryProviderError.invalidResponse(provider: "Gemini")
-        }
+        let text = try await CloudStreaming.openAICompatibleText(
+            request, session: urlSession, provider: "Gemini", kind: .gemini, model: model, log: log, spend: TokenSpend.geminiCompatible(from:))
 
         do {
-            let dto = try CloudSummaryDTO.decode(from: content)
+            let dto = try CloudSummaryDTO.decode(from: text)
             return dto.toMeetingSummary()
         } catch {
             throw SummaryProviderError.parseFailed(

@@ -45,6 +45,9 @@ struct SessionDetailView: View {
     }
 
     @State private var isRunningAction = false
+    /// `.summary_failure.json`, re-read when the session or its summary
+    /// state changes — not in `body`, which renders far more often.
+    @State private var summaryFailure: SummaryFailureNote?
     /// Set only while `draftFollowUp()` runs, so the Follow-up section can
     /// show a "Drafting follow-up…" spinner without firing the summary-
     /// level re-summarize banner.
@@ -153,6 +156,7 @@ struct SessionDetailView: View {
                 // recording cut its processing short): say so, with the
                 // way to do it now.
                 deferredProcessingBanner
+                summaryFailureBanner
                 // 2026-05-25 — two-block collapsible layout per Egor's
                 // UX pass on 1.0.7. Pre-fix every mdSection card sat
                 // independently in the scroll view, which (a) made the
@@ -761,6 +765,14 @@ struct SessionDetailView: View {
             tagDraft = session.tag
             titleDraft = session.title
         }
+        // The no-summary reason (see `summaryFailureBanner`): re-read when
+        // the session, its summary or a run in flight changes.
+        .task(id: "\(session.id)|\(session.summary == nil)|\(isSummaryGenerating)|\(isRunningAction)|\(SessionStore.shared.summaryFailureRevision)") {
+            let directory = session.directoryURL
+            summaryFailure = await Task.detached(priority: .utility) {
+                SummaryFailureNote.read(in: directory)
+            }.value
+        }
         .onChange(of: session.id) { _, _ in
             tagDraft = session.tag
             titleDraft = session.title
@@ -1137,6 +1149,52 @@ struct SessionDetailView: View {
             ? Bundle.main.preferredLocalizations.first
             : setting
         return SummaryLabels.for(language: language)
+    }
+
+    /// Why this meeting has no summary, from `.summary_failure.json`, with
+    /// the two ways out: try again, or change the provider (07.10.2026 —
+    /// a user's summaries failed for hours with only the log saying so).
+    @ViewBuilder
+    private var summaryFailureBanner: some View {
+        if session.summary == nil, !isResummarizing, let note = summaryFailure {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(Color.daisyWarning)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("No summary")
+                        .font(.callout.weight(.medium))
+                    Text(note.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+                Spacer(minLength: 8)
+                Button("Summary settings") {
+                    AppNavigation.shared.pendingSettingsTab = .summary
+                    AppNavigation.shared.section = .settings
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                Button("Try again") {
+                    Task { await reSummarize() }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(session.transcriptText.isEmpty)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.daisyBgElevated)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.daisyDivider, lineWidth: 0.5)
+            )
+        }
     }
 
     /// Shown while this meeting's final pass waits in the queue — on a
@@ -2441,6 +2499,10 @@ struct SessionDetailView: View {
             }
         } else if let err = Summarizer.shared.lastError {
             ToastCenter.shared.show(err, style: .error)
+            // The banner shows the latest reason, not the first one.
+            if session.summary == nil {
+                SummaryFailureNote.write(message: err, provider: Summarizer.shared.providerKind.shortName, in: session.directoryURL)
+            }
         } else {
             ToastCenter.shared.show(String(localized: "No summary returned"), style: .error)
         }

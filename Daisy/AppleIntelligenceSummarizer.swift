@@ -161,7 +161,20 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
         @unknown default:
             throw SummaryProviderError.modelUnavailable(
                 provider: "Apple Intelligence",
-                reason: "Not available"
+                reason: String(localized: "Not available.")
+            )
+        }
+
+        // The meeting's language, checked before the request rather than
+        // learned from a refusal: Apple's model doesn't write every
+        // language (Russian among them), and a user's summaries failed
+        // that way for hours with only the log saying so (07.10.2026).
+        if let hint = localeHint?.trimmingCharacters(in: .whitespaces), !hint.isEmpty, hint.lowercased() != "auto",
+           !SystemLanguageModel.default.supportsLocale(Locale(identifier: hint)) {
+            let language = Locale.current.localizedString(forIdentifier: hint) ?? hint
+            throw SummaryProviderError.modelUnavailable(
+                provider: "Apple Intelligence",
+                reason: String(localized: "it doesn't write in \(language) yet. Pick a cloud provider or Ollama in Settings → Summary.")
             )
         }
 
@@ -480,7 +493,7 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
         switch SystemLanguageModel.default.availability {
         case .available: return nil
         case .unavailable(let reason): return describeReason(reason)
-        @unknown default: return "Not available."
+        @unknown default: return String(localized: "Not available.")
         }
     }
 
@@ -488,13 +501,13 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
         let mirror = String(describing: reason)
         switch mirror {
         case "deviceNotEligible":
-            return "This Mac doesn't support Apple Intelligence."
+            return String(localized: "This Mac doesn't support Apple Intelligence.")
         case "appleIntelligenceNotEnabled":
-            return "Turn on Apple Intelligence in System Settings → Apple Intelligence & Siri — and make sure your Mac and Siri are set to the same supported language (a US vs. UK English mismatch is a common blocker)."
+            return String(localized: "Turn on Apple Intelligence in System Settings → Apple Intelligence & Siri — and make sure your Mac and Siri are set to the same supported language (a US vs. UK English mismatch is a common blocker).")
         case "modelNotReady":
-            return "Apple Intelligence is still downloading. Try again in a few minutes."
+            return String(localized: "Apple Intelligence is still downloading. Try again in a few minutes.")
         default:
-            return "Not available (\(mirror))."
+            return String(localized: "Not available (\(mirror)).")
         }
     }
 }

@@ -39,9 +39,13 @@ nonisolated struct KimiAPISummarizer: SummaryProvider {
 
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "KimiSummarizer")
 
-    init(model: String = defaultModelID, urlSession: URLSession = .shared) {
+    /// Tests only: a key that bypasses the Keychain.
+    let apiKeyOverride: String?
+
+    init(model: String = defaultModelID, urlSession: URLSession = .shared, apiKeyOverride: String? = nil) {
         self.model = model
         self.urlSession = urlSession
+        self.apiKeyOverride = apiKeyOverride
     }
 
     func isReady() async -> Bool {
@@ -61,7 +65,7 @@ nonisolated struct KimiAPISummarizer: SummaryProvider {
         guard trimmed.count > 40 else {
             throw SummaryProviderError.transcriptTooShort
         }
-        guard let apiKey = KeychainStore.get(account: SecretKey.kimiAPIKey),
+        guard let apiKey = apiKeyOverride ?? KeychainStore.get(account: SecretKey.kimiAPIKey),
               !apiKey.isEmpty else {
             throw SummaryProviderError.missingAPIKey(provider: "Kimi")
         }
@@ -78,7 +82,11 @@ nonisolated struct KimiAPISummarizer: SummaryProvider {
             // Documented as supported on this endpoint. Unlike LM Studio,
             // where the same key had to be REMOVED because the server
             // answered with an empty completion (GitHub #5).
-            "response_format": ["type": "json_object"]
+            "response_format": ["type": "json_object"],
+            // Streamed (07.10.2026): no idle timeout racing a long answer,
+            // and the last chunk carries usage.
+            "stream": true,
+            "stream_options": ["include_usage": true]
         ]
 
         if Self.isThinkingModel(model) {
@@ -93,7 +101,10 @@ nonisolated struct KimiAPISummarizer: SummaryProvider {
             // spend a user's whole per-minute allowance on one meeting.
             body["max_completion_tokens"] = 16_384
         } else {
-            body["max_tokens"] = 4096
+            // 8192 (was 4096): a long meeting's summary hit the old cap.
+            // Kept modest — Moonshot counts max tokens against the rate
+            // limit whether or not they're generated (see above).
+            body["max_tokens"] = 8192
             body["temperature"] = 0.4
         }
 
@@ -101,60 +112,16 @@ nonisolated struct KimiAPISummarizer: SummaryProvider {
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // Higher than the 60 s the other cloud adapters use: K3 thinks
-        // before it writes, and a long meeting on a reasoning model
-        // routinely takes longer than a minute.
-        request.timeoutInterval = 120
+        // Idle, not total (streamed — see CloudStreaming): K3 thinks
+        // before it writes and says nothing while it does.
+        request.timeoutInterval = 300
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
-        let (data, response) = try await CloudHTTPRetry.fetch(
-            request: request,
-            session: urlSession,
-            log: log
-        )
-        guard let http = response as? HTTPURLResponse else {
-            throw SummaryProviderError.invalidResponse(provider: "Kimi")
-        }
-        if !(200..<300).contains(http.statusCode) {
-            let bodyString = String(data: data, encoding: .utf8) ?? "<empty>"
-            // .private for the same reason as the other adapters: a 4xx
-            // body can quote the prompt back, and the prompt is someone's
-            // meeting.
-            log.error("Kimi HTTP \(http.statusCode): \(bodyString, privacy: .private)")
-            throw SummaryProviderError.httpError(
-                provider: "Kimi",
-                status: http.statusCode,
-                body: bodyString
-            )
-        }
-
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw SummaryProviderError.invalidResponse(provider: "Kimi")
-        }
-
-        // Billable even when the content later proves unusable, so record
-        // before the shape checks. The usage object is OpenAI-shaped.
-        TokenLedgerSink.record(
-            provider: .kimi,
-            model: model,
-            spend: .openAICompatible(from: json)
-        )
-
-        // Ran into the token limit: the JSON is cut off, so say that
-        // rather than "couldn't parse".
-        if let choices = json["choices"] as? [[String: Any]],
-           choices.first?["finish_reason"] as? String == "length" {
-            throw SummaryProviderError.outputTruncated(provider: "Kimi")
-        }
-        guard let choices = json["choices"] as? [[String: Any]],
-              let message = choices.first?["message"] as? [String: Any],
-              let content = message["content"] as? String,
-              !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw SummaryProviderError.invalidResponse(provider: "Kimi")
-        }
+        let text = try await CloudStreaming.openAICompatibleText(
+            request, session: urlSession, provider: "Kimi", kind: .kimi, model: model, log: log)
 
         do {
-            let dto = try CloudSummaryDTO.decode(from: content)
+            let dto = try CloudSummaryDTO.decode(from: text)
             return dto.toMeetingSummary()
         } catch {
             throw SummaryProviderError.parseFailed(

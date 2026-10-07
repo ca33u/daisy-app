@@ -213,4 +213,75 @@ struct CloudStreamingTests {
         #expect(body["max_tokens"] as? Int == 4096)
         #expect(body["output_config"] == nil)
     }
+
+    /// OpenAI-shaped SSE: content deltas, a finish chunk, then usage —
+    /// top-level (`usageInChoice: false`) or inside the choice (Moonshot).
+    private func openAISSE(_ content: String, finish: String, usageInChoice: Bool = false) -> String {
+        var out = ""
+        var rest = Substring(content)
+        while !rest.isEmpty {
+            let piece = rest.prefix(20); rest = rest.dropFirst(20)
+            let chunk = ["choices": [["index": 0, "delta": ["content": String(piece)]]]]
+            out += "data: " + String(decoding: try! JSONSerialization.data(withJSONObject: chunk), as: UTF8.self) + "\n\n"
+        }
+        if usageInChoice {
+            out += "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"\(finish)\",\"usage\":{\"prompt_tokens\":30000,\"completion_tokens\":900}}]}\n\n"
+        } else {
+            out += "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"\(finish)\"}]}\n\n"
+            out += "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":30000,\"completion_tokens\":900}}\n\n"
+        }
+        return out + "data: [DONE]\n\n"
+    }
+
+    @Test("Gemini streams, and a length stop is reported as cut off")
+    func gemini() async throws {
+        let s = session([(200, openAISSE(summaryJSON, finish: "stop"))])
+        let summary = try await GeminiAPISummarizer(urlSession: s, apiKeyOverride: "test")
+            .summarize(transcript: twoHourTranscript, title: "Launch", localeHint: "en", task: .meeting(forceFollowUp: false))
+        #expect(summary.summary == "Launch plan agreed.")
+        let body = try requestJSON()
+        #expect(body["stream"] as? Bool == true)
+        #expect(StubProtocol.requests.first?.timeoutInterval == 300)
+        do {
+            _ = try await GeminiAPISummarizer(urlSession: session([(200, openAISSE("{\"summary\":\"cut", finish: "length"))]), apiKeyOverride: "test")
+                .summarize(transcript: twoHourTranscript, title: "Launch", localeHint: "en", task: .meeting(forceFollowUp: false))
+            Issue.record("expected outputTruncated")
+        } catch SummaryProviderError.outputTruncated {
+        }
+    }
+
+    @Test("Kimi streams, with usage inside the final choice")
+    func kimi() async throws {
+        let s = session([(200, openAISSE(summaryJSON, finish: "stop", usageInChoice: true))])
+        let summary = try await KimiAPISummarizer(urlSession: s, apiKeyOverride: "test")
+            .summarize(transcript: twoHourTranscript, title: "Launch", localeHint: "en", task: .meeting(forceFollowUp: false))
+        #expect(summary.summary == "Launch plan agreed.")
+        #expect(try requestJSON()["stream"] as? Bool == true)
+        var acc = OpenAIStreamAccumulator()
+        for line in openAISSE("x", finish: "stop", usageInChoice: true).split(separator: "\n") where line.hasPrefix("data:") {
+            acc.consume(line.dropFirst(5).trimmingCharacters(in: .whitespaces))
+        }
+        #expect(acc.usage?["prompt_tokens"] as? Int == 30000)
+    }
+
+    @Test("OpenAI reasoning models are asked for low reasoning effort")
+    func openAIReasoningEffort() async throws {
+        let s = session([(200, openAISSE(summaryJSON, finish: "stop"))])
+        _ = try await OpenAIAPISummarizer(model: "gpt-5.6-terra", urlSession: s, apiKeyOverride: "test")
+            .summarize(transcript: twoHourTranscript, title: "Launch", localeHint: "en", task: .meeting(forceFollowUp: false))
+        #expect(try requestJSON()["reasoning_effort"] as? String == "low")
+    }
+}
+
+/// `reasoning_effort: "low"` only where the model takes it — a 400 would
+/// cost the summary (review find, 08.10.2026).
+struct ReasoningEffortModelTests {
+    @Test func lowEffortOnlyWhereAccepted() {
+        for id in ["gpt-5.6-terra", "gpt-5-mini", "o3", "o4-mini", "o1"] {
+            #expect(OpenAIAPISummarizer.takesLowReasoningEffort(id), "\(id)")
+        }
+        for id in ["gpt-5-pro", "gpt-5-chat-latest", "o1-mini", "o1-preview", "gpt-4o"] {
+            #expect(!OpenAIAPISummarizer.takesLowReasoningEffort(id), "\(id)")
+        }
+    }
 }

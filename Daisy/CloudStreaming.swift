@@ -99,6 +99,53 @@ nonisolated enum CloudStreaming {
     }
 }
 
+// MARK: - OpenAI-compatible summary (OpenAI, Kimi, Gemini)
+
+extension CloudStreaming {
+    /// Stream an OpenAI-compatible chat completion and return its text,
+    /// after recording the spend and turning a cut-off, refused or empty
+    /// answer into its own error. The request must already carry
+    /// `stream: true` and `stream_options.include_usage`.
+    static func openAICompatibleText(
+        _ request: URLRequest,
+        session: URLSession,
+        provider: String,
+        kind: SummaryProviderKind,
+        model: String,
+        log: Logger,
+        spend: ([String: Any]) -> TokenSpend = TokenSpend.openAICompatible(from:)
+    ) async throws -> String {
+        let bytes = try await open(request, session: session, provider: provider, log: log)
+        var stream = OpenAIStreamAccumulator()
+        do {
+            try await forEachData(in: bytes) { stream.consume($0) }
+        } catch {
+            TokenLedgerSink.record(provider: kind, model: model, spend: spend(stream.completionJSON))
+            log.error("\(provider, privacy: .public) stream broke off: \(error.localizedDescription, privacy: .public)")
+            throw SummaryProviderError.streamInterrupted(provider: provider, message: error.localizedDescription)
+        }
+        // Billable even when the answer proves unusable: record first.
+        TokenLedgerSink.record(provider: kind, model: model, spend: spend(stream.completionJSON))
+        if let message = stream.streamError {
+            log.error("\(provider, privacy: .public) stream error: \(message, privacy: .public)")
+            throw SummaryProviderError.streamInterrupted(provider: provider, message: message)
+        }
+        switch stream.finishReason {
+        case "length":
+            throw SummaryProviderError.outputTruncated(provider: provider)
+        case "content_filter":
+            throw SummaryProviderError.refused(provider: provider)
+        default:
+            break
+        }
+        guard !stream.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            log.error("\(provider, privacy: .public) reply had no content (finish: \(stream.finishReason ?? "none", privacy: .public))")
+            throw SummaryProviderError.invalidResponse(provider: provider)
+        }
+        return stream.text
+    }
+}
+
 // MARK: - Anthropic Messages stream
 
 /// Accumulates an Anthropic Messages SSE stream: the text of every text
@@ -187,6 +234,8 @@ nonisolated struct OpenAIStreamAccumulator {
         }
         if let used = chunk["usage"] as? [String: Any] { usage = used }
         guard let choice = (chunk["choices"] as? [[String: Any]])?.first else { return }
+        // Moonshot has also sent usage inside the final choice.
+        if usage == nil, let used = choice["usage"] as? [String: Any] { usage = used }
         if let delta = choice["delta"] as? [String: Any], let piece = delta["content"] as? String {
             text += piece
         }
