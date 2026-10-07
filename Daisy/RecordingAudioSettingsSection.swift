@@ -218,7 +218,9 @@ struct RecordingAudioSettingsSection: View {
     private var outputPicker: some View {
         LabeledContent("Mac output") {
             HStack(spacing: 8) {
-                if AudioInputDevices.systemDefaultOutputIsBluetooth() {
+                // ScreenCaptureKit's caveat only, like the hint above: the
+                // process tap hears the other side through Bluetooth too.
+                if !SystemAudioCapture.usesProcessTapBackend, AudioInputDevices.systemDefaultOutputIsBluetooth() {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                         .help("Bluetooth output can prevent macOS from exposing the other side to ScreenCaptureKit.")

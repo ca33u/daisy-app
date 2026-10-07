@@ -58,7 +58,10 @@ enum AudioInputDevices {
         guard !ids.isEmpty else { return [] }
         let defaultID = systemDefaultInputID()
         return ids.compactMap { id -> AudioInputDevice? in
-            guard hasInputStreams(id) else { return nil }
+            // Not the tap's private aggregate: it's visible to us as its
+            // creator, and showed in the Settings pickers as
+            // «Daisy Meeting Capture» (2026-10-07).
+            guard hasInputStreams(id), !isOwnDevice(id) else { return nil }
             guard let uid = deviceUID(id), !uid.isEmpty else { return nil }
             let name = deviceName(id) ?? "Unknown input"
             return AudioInputDevice(
@@ -91,7 +94,10 @@ enum AudioInputDevices {
     /// pinned to a specific device we avoid that mic and prefer the
     /// built-in. Prefers the built-in mic; else the first wired/USB input.
     static func firstNonBluetoothInputID() -> AudioDeviceID? {
-        let ids = allDeviceIDs().filter { hasInputStreams($0) && !isBluetooth($0) }
+        // Never our own tap aggregate: it has an input stream and isn't
+        // Bluetooth, so on a Mac with no built-in mic it would have been
+        // picked as "the microphone" — the other side's audio, or silence.
+        let ids = allDeviceIDs().filter { hasInputStreams($0) && !isBluetooth($0) && !isOwnDevice($0) }
         guard !ids.isEmpty else { return nil }
         if let builtIn = ids.first(where: {
             (deviceUID($0) ?? "").contains("BuiltInMicrophone")
@@ -752,7 +758,7 @@ enum AudioInputDevices {
         guard !ids.isEmpty else { return [] }
         let defaultID = systemDefaultOutputID()
         return ids.compactMap { id -> AudioInputDevice? in
-            guard hasOutputStreams(id) else { return nil }
+            guard hasOutputStreams(id), !isOwnDevice(id) else { return nil }
             guard let uid = deviceUID(id), !uid.isEmpty else { return nil }
             let name = deviceName(id) ?? "Unknown output"
             return AudioInputDevice(
