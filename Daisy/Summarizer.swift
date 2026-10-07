@@ -280,6 +280,18 @@ final class Summarizer {
     private(set) var availability: AvailabilityState = .unknown
     private(set) var isSummarizing = false
     private(set) var lastSummary: MeetingSummary?
+
+    /// Run a render with `lastSummary` hidden. The transcript files never
+    /// carry the summary — it has its own file, and Re-summarize never
+    /// rewrites them — but `MarkdownExporter` prints `lastSummary` when it
+    /// is set, and after Stage 4 it is (a long meeting re-renders then,
+    /// 07.10.2026). Synchronous on purpose: no observer can see the gap.
+    func withLastSummaryHidden<T>(_ body: () -> T) -> T {
+        let saved = lastSummary
+        lastSummary = nil
+        defer { lastSummary = saved }
+        return body()
+    }
     private(set) var lastError: String?
 
     /// Which provider is currently selected. Persisted to UserDefaults.

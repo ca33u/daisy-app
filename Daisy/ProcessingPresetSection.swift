@@ -22,6 +22,15 @@ struct ProcessingPresetSection: View {
             }
             .padding(.vertical, 4)
 
+            // Separate from the plans: Economy turns it on, nothing turns
+            // it off but this switch.
+            Toggle(isOn: $settings.deferProcessingOnBattery) {
+                Text("Process meetings later, on a charger")
+                Text("On battery or in Low Power Mode, a meeting keeps its live transcript; the final transcript, speakers and summary come once the Mac is plugged in. “Process now” on the meeting does it at once.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Text(selected == nil
                  ? String(localized: "Your own settings — they live under Transcription and Summary. Pick a plan to reset them.")
                  : String(localized: "The final transcript is the same full quality in every plan."))
@@ -113,6 +122,11 @@ struct ProcessingPresetSection: View {
                 isOn: v.diarizeMicrophone),
             // The Summary tab's "Second pass" toggle: names and terms
             // fixed, and a guess at who each speaker is.
+            Row(label: String(localized: "Screenshots"),
+                value: preset == .economy ? String(localized: "preset.screens.off", defaultValue: "Off")
+                    : preset == .balanced ? String(localized: "Every 2 min at most")
+                    : String(localized: "As set in Recording"),
+                isOn: preset != .economy),
             Row(label: String(localized: "Transcript refinement"),
                 value: v.transcriptSecondPass ? String(localized: "Names, terms, who spoke") : String(localized: "preset.refine.off", defaultValue: "Off"),
                 isOn: v.transcriptSecondPass),

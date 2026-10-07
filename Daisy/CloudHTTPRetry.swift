@@ -71,7 +71,7 @@ nonisolated enum CloudHTTPRetry {
         throw lastError ?? URLError(.unknown)
     }
 
-    nonisolated private static func isTransientStatus(_ code: Int) -> Bool {
+    nonisolated static func isTransientStatus(_ code: Int) -> Bool {
         return code == 429 || (500...599).contains(code)
     }
 
@@ -90,6 +90,10 @@ nonisolated enum CloudHTTPRetry {
             return false
         }
     }
+
+    /// For `CloudStreaming.open`, which retries only before a stream starts.
+    nonisolated static func isTransient(_ error: any Error) -> Bool { isTransientURLError(error) }
+    nonisolated static func backoff(_ attempt: Int) -> TimeInterval { backoffDelay(forAttempt: attempt) }
 
     nonisolated private static func backoffDelay(forAttempt attempt: Int) -> TimeInterval {
         // 1s, 2s, 4s — geometric backoff. Plenty for transient

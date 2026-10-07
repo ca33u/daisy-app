@@ -266,6 +266,15 @@ enum SummaryProviderError: LocalizedError {
     /// lives, so the model answers a bare transcript with no
     /// instructions and we blamed the JSON. See `LocalContextGuard`.
     case contextOverflow(provider: String, approxPromptTokens: Int, reportedPromptTokens: Int?)
+    /// The answer hit its token limit and ended mid-JSON. Its own case so
+    /// the person reads "didn't fit" instead of "couldn't parse JSON" —
+    /// on a two-hour meeting, thinking used the whole 4096-token
+    /// allowance and the reply had no text at all (log report 07.10.2026).
+    case outputTruncated(provider: String)
+    /// The model declined (Anthropic `stop_reason: refusal`).
+    case refused(provider: String)
+    /// A streamed answer broke off after it had started.
+    case streamInterrupted(provider: String, message: String)
 
     var errorDescription: String? {
         switch self {
@@ -283,6 +292,12 @@ enum SummaryProviderError: LocalizedError {
             return "\(p): \(reason)"
         case .transcriptTooShort:
             return String(localized: "Not enough was said yet — try a recording over a minute long.")
+        case .outputTruncated(let p):
+            return String(localized: "\(p): the summary didn't fit the answer limit and came back cut off. Try again, or pick a model with more room.")
+        case .refused(let p):
+            return String(localized: "\(p) declined to summarize this transcript.")
+        case .streamInterrupted(let p, let message):
+            return String(localized: "\(p): the answer stopped halfway — \(message). Try again.")
         case .contextOverflow(let p, let approx, let reported):
             if let reported {
                 // The server told us what it actually read. No hedging.

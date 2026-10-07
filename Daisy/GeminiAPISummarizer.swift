@@ -120,6 +120,12 @@ nonisolated struct GeminiAPISummarizer: SummaryProvider {
             spend: .geminiCompatible(from: json)
         )
 
+        // Ran into the token limit: the JSON is cut off, so say that
+        // rather than "couldn't parse".
+        if let choices = json["choices"] as? [[String: Any]],
+           choices.first?["finish_reason"] as? String == "length" {
+            throw SummaryProviderError.outputTruncated(provider: "Gemini")
+        }
         guard let choices = json["choices"] as? [[String: Any]],
               let message = choices.first?["message"] as? [String: Any],
               let content = message["content"] as? String,

@@ -436,6 +436,13 @@ struct SettingsView: View {
         Binding(
             get: { binding.wrappedValue },
             set: { newValue in
+                if slot == .layoutFix, !HotkeyChoice.allowedForLayoutFix(newValue) {
+                    ToastCenter.shared.show(
+                        String(localized: "Fn (🌐) switches the keyboard layout in macOS — pick another key for fixing it."),
+                        style: .warning
+                    )
+                    return
+                }
                 if let keyCode = newValue.keyCode {
                     let owner = HotkeySlot.allCases.first { other in
                         guard other != slot else { return false }
@@ -1313,7 +1320,8 @@ struct SettingsView: View {
                     title: "Fix the keyboard layout",
                     caption: "«ghbdtn» becomes «привет» — the selection, or the word you're typing",
                     binding: $settings.layoutFixHotkey,
-                    slot: .layoutFix
+                    slot: .layoutFix,
+                    presets: HotkeyChoice.layoutFixPresets
                 )
                 // Inert while the layout fixer is off (Transcription →
                 // Keyboard layout), and shown so.
@@ -1790,7 +1798,8 @@ struct SettingsView: View {
                     title: "Fix the keyboard layout",
                     caption: "«ghbdtn» becomes «привет» — the selection, or the word you're typing",
                     binding: $settings.layoutFixHotkey,
-                    slot: .layoutFix
+                    slot: .layoutFix,
+                    presets: HotkeyChoice.layoutFixPresets
                 )
 
                 // Undo (one press of the fix shortcut, right after a fix)

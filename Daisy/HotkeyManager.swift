@@ -113,9 +113,17 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
     /// by the NSEvent global-monitor path, not Carbon. Read by
     /// `HotkeyManager.register` to pick the right registration
     /// strategy.
-    var isFnOnly: Bool {
+    nonisolated var isFnOnly: Bool {
         keyCode == UInt32(kVK_Function) && (modifiers ?? 0) == 0
     }
+
+    /// Fn alone may not fix the layout: in macOS the 🌐/Fn key itself
+    /// switches the keyboard layout, so every switch re-typed whatever
+    /// was selected. A user got it by pressing 🌐 while onboarding's key
+    /// recorder was listening (log report 07.10.2026).
+    nonisolated static func allowedForLayoutFix(_ choice: HotkeyChoice) -> Bool { !choice.isFnOnly }
+
+    static var layoutFixPresets: [HotkeyChoice] { allPresets.filter(allowedForLayoutFix) }
 
     /// Whether this choice is one of the canonical presets above.
     /// UI uses this to mark presets in the menu (vs custom recordings).

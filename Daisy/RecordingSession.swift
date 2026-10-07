@@ -3125,6 +3125,27 @@ final class RecordingSession {
             log.warning("Final pass skipped — session rotation (back-to-back meeting) is taking over")
             return
         }
+        // «Process later, on a charger» (Settings → General): on battery
+        // or in Low Power Mode a meeting keeps its live transcript now and
+        // gets its final pass, speakers and summary from the queue once
+        // the Mac is on power — or at once from «Process now». The
+        // `.recording` marker stays, which keeps the audio safe from the
+        // retention sweep until the queued job replaces the transcript.
+        if currentMode == .meeting, settings.deferProcessingOnBattery, PowerState.shared.isConstrained,
+           queueDeferredUntilPower(sessionID: sessionID, directory: dir, title: titleSnapshot) {
+            // The transcribers keep their segments: the finished panel,
+            // Send to Notion/Claude and «Summarize now» read them. Their
+            // buffers go at the next start()'s reset, as after a rotation.
+            ticketSnapshot?.release()
+            if SessionStore.shared.activeRecordingDirName == sessionID {
+                SessionStore.shared.activeRecordingDirName = nil
+            }
+            if willSummarize {
+                summaryGenerationState = .idle
+                await SessionStore.shared.finishGenerating(sessionID)
+            }
+            return
+        }
         summaryTask = Task { [weak self] in
             // Release the live-folder marker when the pipeline is done —
             // not before (the finalize task still rewrites transcript.md

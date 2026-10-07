@@ -475,6 +475,14 @@ final class AppSettings {
         }
     }
 
+    /// «Process later, on a charger» (Egor, 07.10.2026): on battery or in
+    /// Low Power Mode, a meeting keeps its live transcript at Stop and its
+    /// final pass, speakers and summary wait for power. Off by default;
+    /// the Economy plan turns it on.
+    var deferProcessingOnBattery: Bool {
+        didSet { defaults.set(deferProcessingOnBattery, forKey: Self.k_deferProcessingOnBattery) }
+    }
+
     /// The one switch for the whole layout fixer (Egor, 07.10.2026). Off,
     /// nothing touches typed text: the automatic watcher doesn't run and
     /// the shortcut isn't registered. Before it, «Fix the layout as I
@@ -775,6 +783,12 @@ final class AppSettings {
     /// so callers (RecordingSession, SettingsView, AudioRetentionSweep)
     /// don't magic-number the -1.
     static let audioRetentionDeleteAfterTranscription: Int = -1
+
+    /// The retention setting without an instance, for the transcription
+    /// queue. An absent key reads as "keep" (0): never purge on a guess.
+    nonisolated static var currentAudioRetentionDays: Int {
+        UserDefaults.standard.object(forKey: k_audioRetentionDays) as? Int ?? 0
+    }
 
     /// Sentinel value for `audioRetentionDays` meaning "don't write
     /// audio to disk at all" (build 44). The strongest privacy
@@ -1413,10 +1427,14 @@ final class AppSettings {
         // Layout fixer — same opt-in default as the other hotkeys, and
         // the automatic mode is opt-in on top of that.
         if let data = defaults.data(forKey: Self.k_layoutFixHotkey),
-           let decoded = try? JSONDecoder().decode(HotkeyChoice.self, from: data) {
+           let decoded = try? JSONDecoder().decode(HotkeyChoice.self, from: data),
+           HotkeyChoice.allowedForLayoutFix(decoded) {
             self.layoutFixHotkey = decoded
         } else {
+            // Including a stored Fn: cleared for good, see
+            // `HotkeyChoice.allowedForLayoutFix`.
             self.layoutFixHotkey = .none
+            defaults.removeObject(forKey: Self.k_layoutFixHotkey)
         }
         self.screenshotNotesEnabled = defaults.bool(forKey: Self.k_screenshotNotesEnabled)
         // Re-paste last dictation — opt-in like every other hotkey.
@@ -1435,12 +1453,14 @@ final class AppSettings {
             self.markMomentHotkey = .none
         }
         self.layoutFixAuto = defaults.bool(forKey: Self.k_layoutFixAuto)
+        self.deferProcessingOnBattery = defaults.bool(forKey: Self.k_deferProcessingOnBattery)
         if let stored = defaults.object(forKey: Self.k_layoutFixEnabled) as? Bool {
             self.layoutFixEnabled = stored
         } else {
             // First launch with the switch: on only for someone already
             // using the automatic fix or a shortcut.
             // Read from defaults: `self` isn't fully initialised yet.
+            // (An Fn binding was cleared above, so it doesn't count.)
             let storedHotkey = defaults.data(forKey: Self.k_layoutFixHotkey)
                 .flatMap { try? JSONDecoder().decode(HotkeyChoice.self, from: $0) } ?? .none
             let wasUsing = defaults.bool(forKey: Self.k_layoutFixAuto) || storedHotkey != .none
@@ -1807,6 +1827,7 @@ final class AppSettings {
     private static let k_screenshotNotesEnabled = "daisy.screenshotNotesEnabled"
     private static let k_layoutFixAuto = "daisy.layoutFixAuto"
     private static let k_layoutFixEnabled = "daisy.layoutFixEnabled"
+    private static let k_deferProcessingOnBattery = "daisy.deferProcessingOnBattery"
     private static let k_layoutFixSwitchesSource = "daisy.layoutFixSwitchesSource"
     private static let k_autoStartOnMeeting = "daisy.autoStartOnMeeting"
     private static let k_autoStartPolicy = "daisy.autoStartPolicy"
@@ -1823,7 +1844,7 @@ final class AppSettings {
     private static let k_globalReclusterAfterStop = "daisy.globalReclusterAfterStop"
     private static let k_userDisplayName = "daisy.userDisplayName"
     private static let k_speakerMatchMode = "daisy.speakerMatchMode"
-    private static let k_audioRetentionDays = "daisy.audioRetentionDays"
+    nonisolated private static let k_audioRetentionDays = "daisy.audioRetentionDays"
     private static let k_recordingSoundsEnabled = "daisy.recordingSoundsEnabled"
     private static let k_menuBarShowsNextMeeting = "daisy.menuBarShowsNextMeeting"
     private static let k_compactMenuBarOnly = "daisy.compactMenuBarOnly"

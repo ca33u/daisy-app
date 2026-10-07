@@ -18,9 +18,13 @@ nonisolated struct OpenAIAPISummarizer: SummaryProvider {
 
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "OpenAISummarizer")
 
-    init(model: String = defaultModelID, urlSession: URLSession = .shared) {
+    /// Tests only: a key that bypasses the Keychain.
+    let apiKeyOverride: String?
+
+    init(model: String = defaultModelID, urlSession: URLSession = .shared, apiKeyOverride: String? = nil) {
         self.model = model
         self.urlSession = urlSession
+        self.apiKeyOverride = apiKeyOverride
     }
 
     func isReady() async -> Bool {
@@ -40,7 +44,7 @@ nonisolated struct OpenAIAPISummarizer: SummaryProvider {
         guard trimmed.count > 40 else {
             throw SummaryProviderError.transcriptTooShort
         }
-        guard let apiKey = KeychainStore.get(account: SecretKey.openaiAPIKey),
+        guard let apiKey = apiKeyOverride ?? KeychainStore.get(account: SecretKey.openaiAPIKey),
               !apiKey.isEmpty else {
             throw SummaryProviderError.missingAPIKey(provider: "OpenAI")
         }
@@ -62,16 +66,20 @@ nonisolated struct OpenAIAPISummarizer: SummaryProvider {
         // `max_completion_tokens`, and `temperature` only accepts its
         // default. Sending the old shape returns HTTP 400 "Unsupported
         // parameter", so branch instead of assuming.
+        // Streamed (see CloudStreaming): the idle timeout no longer
+        // races the whole generation, and the final chunk carries usage.
+        body["stream"] = true
+        body["stream_options"] = ["include_usage": true]
         if Self.usesGPT5ParameterSet(model) {
-            // Higher than the 4096 below on purpose: this budget covers
-            // REASONING tokens as well as the visible answer, and a
-            // summary that spends its whole allowance thinking comes
-            // back with empty content.
-            body["max_completion_tokens"] = 16_384
+            // This budget covers REASONING tokens as well as the visible
+            // answer; a summary that spends its whole allowance thinking
+            // comes back with empty content. Raised from 16 384 for
+            // two-hour meetings — only generated tokens are billed.
+            body["max_completion_tokens"] = 32_000
         } else {
-            // 4096 (was 2048 pre-1.0.3) — see AnthropicAPISummarizer
-            // for the long-meeting truncation rationale.
-            body["max_tokens"] = 4096
+            // 16 384 (was 4096): a long meeting's summary in Russian or
+            // German ran into the old ceiling. gpt-4o's own output limit.
+            body["max_tokens"] = 16_384
             body["temperature"] = 0.4
         }
 
@@ -79,56 +87,46 @@ nonisolated struct OpenAIAPISummarizer: SummaryProvider {
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 60
+        // Idle, not total: see CloudStreaming. Longer than Anthropic's:
+        // it isn't documented whether chat completions sends keepalives
+        // while a reasoning model thinks.
+        request.timeoutInterval = 300
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
-        // Retry on transient 429 / 5xx / network errors — shared
-        // helper in CloudHTTPRetry (pre-1.0.7.3 this lived on
-        // AnthropicAPISummarizer, cross-provider naming was awkward).
-        let (data, response) = try await CloudHTTPRetry.fetch(
-            request: request,
-            session: urlSession,
-            log: log
-        )
-        guard let http = response as? HTTPURLResponse else {
-            throw SummaryProviderError.invalidResponse(provider: "OpenAI")
-        }
-        if !(200..<300).contains(http.statusCode) {
-            let bodyString = String(data: data, encoding: .utf8) ?? "<empty>"
-            // bodyString stays .private — same reasoning as in
-            // AnthropicAPISummarizer: 4xx bodies can quote the prompt
-            // back, which would put transcript fragments in the
-            // unified log.
-            log.error("OpenAI HTTP \(http.statusCode): \(bodyString, privacy: .private)")
-            throw SummaryProviderError.httpError(
-                provider: "OpenAI",
-                status: http.statusCode,
-                body: bodyString
-            )
+        // Retries only before the answer starts — see CloudStreaming.
+        let bytes = try await CloudStreaming.open(request, session: urlSession, provider: "OpenAI", log: log)
+        var stream = OpenAIStreamAccumulator()
+        do {
+            try await CloudStreaming.forEachData(in: bytes) { stream.consume($0) }
+        } catch {
+            TokenLedgerSink.record(provider: .openai, model: model, spend: .openAICompatible(from: stream.completionJSON))
+            log.error("OpenAI stream broke off: \(error.localizedDescription, privacy: .public)")
+            throw SummaryProviderError.streamInterrupted(provider: "OpenAI", message: error.localizedDescription)
         }
 
-        // Response shape (chat completions):
-        // { "choices": [{ "message": { "content": "<JSON>" }, ... }], ... }
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw SummaryProviderError.invalidResponse(provider: "OpenAI")
+        // Usage is billable even if the response later proves unusable,
+        // so record it before the checks.
+        TokenLedgerSink.record(provider: .openai, model: model, spend: .openAICompatible(from: stream.completionJSON))
+
+        if let message = stream.streamError {
+            log.error("OpenAI stream error: \(message, privacy: .public)")
+            throw SummaryProviderError.streamInterrupted(provider: "OpenAI", message: message)
         }
-
-        // Usage is billable even if a successful response later proves
-        // unusable as a Daisy summary, so record it before shape checks.
-        TokenLedgerSink.record(
-            provider: .openai,
-            model: model,
-            spend: .openAICompatible(from: json)
-        )
-
-        guard let choices = json["choices"] as? [[String: Any]],
-              let message = choices.first?["message"] as? [String: Any],
-              let content = message["content"] as? String else {
+        switch stream.finishReason {
+        case "length":
+            throw SummaryProviderError.outputTruncated(provider: "OpenAI")
+        case "content_filter":
+            throw SummaryProviderError.refused(provider: "OpenAI")
+        default:
+            break
+        }
+        guard !stream.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            log.error("OpenAI reply had no content (finish: \(stream.finishReason ?? "none", privacy: .public))")
             throw SummaryProviderError.invalidResponse(provider: "OpenAI")
         }
 
         do {
-            let dto = try CloudSummaryDTO.decode(from: content)
+            let dto = try CloudSummaryDTO.decode(from: stream.text)
             return dto.toMeetingSummary()
         } catch {
             throw SummaryProviderError.parseFailed(

@@ -22,6 +22,7 @@
 //      a Timer neither fires through sleep nor exists after a quit.
 //
 
+import CryptoKit
 import Foundation
 import Observation
 import os
@@ -46,6 +47,15 @@ nonisolated struct ImportTranscriptionJob: Codable, Identifiable, Sendable, Equa
     /// (incident 23.09): it already has the live transcript, which this
     /// job REPLACES in place. Optional so older queue files still decode.
     var finishesLiveTranscript: Bool?
+    /// «Process later, on a charger» (07.10.2026): the job waits while
+    /// the Mac is on battery or in Low Power Mode. Cleared by «Process
+    /// now». Optional so older queue files still decode.
+    var waitsForPower: Bool?
+    /// Hash of the draft transcript's BODY at enqueue (frontmatter left
+    /// out: renaming, tagging, moving or naming speakers rewrites it, and
+    /// the final pass keeps all of those). A different body at run time
+    /// means the person edited the draft — their text wins.
+    var draftBodyHash: String?
 
     nonisolated static let maxAttempts = 3
 
@@ -98,6 +108,10 @@ final class ImportTranscriptionQueue {
     /// queue restored at launch doesn't wait a minute.
     func start() {
         guard timer == nil else { return }
+        // A charger plugged in (or Low Power Mode off) is the moment the
+        // waiting jobs may go — don't make them wait for the next poll.
+        PowerState.shared.onChange = { [weak self] in self?.tick() }
+        PowerState.shared.start()
         // One minute: a queue item is minutes-to-hours of work, and the
         // "tonight" trigger is an HH:MM boundary — finer polling buys
         // nothing.
@@ -145,7 +159,8 @@ final class ImportTranscriptionQueue {
         title: String,
         options: SessionRetranscriptionOptions,
         notBefore: Date?,
-        finishesLiveTranscript: Bool = false
+        finishesLiveTranscript: Bool = false,
+        waitsForPower: Bool = false
     ) {
         // One job per session: a second drop of the same session (or a
         // re-run of "Transcribe now") replaces the old schedule.
@@ -162,7 +177,9 @@ final class ImportTranscriptionQueue {
             createdAt: Date(),
             attempts: 0,
             lastError: nil,
-            finishesLiveTranscript: finishesLiveTranscript ? true : nil
+            finishesLiveTranscript: finishesLiveTranscript ? true : nil,
+            waitsForPower: waitsForPower ? true : nil,
+            draftBodyHash: finishesLiveTranscript ? Self.transcriptBodyHash(in: directoryURL) : nil
         ))
         persist()
         tick()
@@ -179,6 +196,26 @@ final class ImportTranscriptionQueue {
         }
         jobs.removeAll { $0.sessionID == sessionID }
         persist()
+    }
+
+    /// «Process now»: drop the power wait and any schedule, move the job
+    /// to the front, and start it if the pipeline is free.
+    func runNow(sessionID: String) {
+        guard let index = jobs.firstIndex(where: { $0.sessionID == sessionID }),
+              jobs[index].id != activeJobID else { return }
+        var job = jobs.remove(at: index)
+        job.waitsForPower = nil
+        job.notBefore = nil
+        jobs.insert(job, at: 0)
+        persist()
+        tick()
+    }
+
+    /// Whether a job may start now: its time has come and, if it waits
+    /// for power, the Mac is on a charger without Low Power Mode.
+    private func isReady(_ job: ImportTranscriptionJob, now: Date) -> Bool {
+        guard (job.notBefore ?? .distantPast) <= now else { return false }
+        return job.waitsForPower != true || !PowerState.shared.isConstrained
     }
 
     var pendingCount: Int { jobs.count }
@@ -201,7 +238,10 @@ final class ImportTranscriptionQueue {
             return String(localized: "\(jobs.count) waiting for the recording to finish")
         }
         let now = Date()
-        let ready = jobs.filter { ($0.notBefore ?? .distantPast) <= now }
+        let ready = jobs.filter { isReady($0, now: now) }
+        if ready.isEmpty, PowerState.shared.isConstrained, jobs.allSatisfy({ $0.waitsForPower == true }) {
+            return String(localized: "\(jobs.count) waiting for a charger")
+        }
         if ready.isEmpty, let next = jobs.compactMap(\.notBefore).min() {
             return String(localized: "\(jobs.count) scheduled for \(Self.timeFormatter.string(from: next))")
         }
@@ -222,6 +262,9 @@ final class ImportTranscriptionQueue {
         }
         if let notBefore = job.notBefore, notBefore > Date() {
             return String(localized: "Transcribes at \(Self.timeFormatter.string(from: notBefore))")
+        }
+        if job.waitsForPower == true, PowerState.shared.isConstrained {
+            return String(localized: "Processes when the Mac is on a charger")
         }
         return String(localized: "Queued for transcription")
     }
@@ -259,7 +302,7 @@ final class ImportTranscriptionQueue {
         guard !processor.recordingOrFinalizeIsActive, !processor.isRunning,
               !AudioImportRunner.shared.isRunning else { return }
         let now = Date()
-        guard let job = jobs.first(where: { ($0.notBefore ?? .distantPast) <= now }) else { return }
+        guard let job = jobs.first(where: { isReady($0, now: now) }) else { return }
 
         activeJobID = job.id
         runTask = Task { [weak self] in
@@ -298,6 +341,19 @@ final class ImportTranscriptionQueue {
         // since the day the queue took them (Egor's 13:36 recording kept
         // its live text, no summary, and a stale .recording marker).
         let finishing = job.finishesLiveTranscript == true
+        // A draft the person edited while the job waited (on a charger,
+        // possibly for hours) is theirs: finishing replaces the transcript
+        // in place, so the edit wins and only the rest of the finish runs.
+        if finishing, let queued = job.draftBodyHash,
+           let now = Self.transcriptBodyHash(in: session.directoryURL), now != queued {
+            log.info("Finishing job: transcript was edited while queued — keeping the edit, skipping the final pass")
+            jobs.removeAll { $0.id == job.id }
+            persist()
+            try? FileManager.default.removeItem(
+                at: session.directoryURL.appendingPathComponent(SessionStore.recordingMarkerName))
+            await completeFinish(sessionID: job.sessionID)
+            return
+        }
         guard finishing || (session.transcriptURL == nil && !transcriptOnDisk) else {
             log.info("Import job dropped: session already has a transcript")
             jobs.removeAll { $0.id == job.id }
@@ -310,7 +366,7 @@ final class ImportTranscriptionQueue {
             jobs.removeAll { $0.id == job.id }
             persist()
             log.info("Import job done: \(job.title, privacy: .private)\(finishing ? " — final pass over a live transcript (see the processing log for whether it replaced it)" : "", privacy: .public)")
-            if finishing { await summarizeFinished(sessionID: job.sessionID) }
+            if finishing { await completeFinish(sessionID: job.sessionID) }
         } catch is CancellationError {
             // Pre-empted by a recording → job stays for the next tick.
             // Removed by the user → cancel(sessionID:) already took it out.
@@ -347,6 +403,72 @@ final class ImportTranscriptionQueue {
             }
             persist()
         }
+    }
+
+    /// What finalize would have done after its final pass, for a meeting
+    /// finished from the queue (a charger wait, or a rotation): the
+    /// summary — only when summaries run after each meeting, as finalize
+    /// decides — then auto-send, then the delete-after-transcription purge
+    /// under finalize Stage 6's rules (review finds, 07.10.2026).
+    private func completeFinish(sessionID: String) async {
+        let settings = RecordingSession.current?.settings
+        let summarize = settings?.autoSummarize ?? false
+        if summarize { await summarizeFinished(sessionID: sessionID) }
+        await SessionStore.shared.refresh()
+        guard let session = SessionStore.shared.sessions.first(where: { $0.id == sessionID }) else { return }
+        if let settings { await autoSendFinished(session, settings: settings) }
+
+        let directory = session.directoryURL
+        guard AppSettings.currentAudioRetentionDays == AppSettings.audioRetentionDeleteAfterTranscription else { return }
+        let transcriptLanded = await Task.detached { RecordingSession.transcriptHasContent(in: directory) }.value
+        let summaryLanded = FileManager.default.fileExists(atPath: directory.appendingPathComponent("summary.json").path)
+        // A summary that should have come and didn't keeps the audio, so
+        // Re-summarize still has something to work from; no transcript
+        // keeps it always — it may be the only copy left.
+        if transcriptLanded, !summarize || summaryLanded {
+            AudioRetentionSweep.purgeOneSession(at: directory)
+        }
+    }
+
+    /// Finalize Stage 5 for a stored session: Notion and the auto-on-save
+    /// integrations, filtered by project exactly as finalize filters them.
+    private func autoSendFinished(_ session: StoredSession, settings: AppSettings) async {
+        guard !session.transcriptText.isEmpty else { return }
+        if settings.autoSendNotion, settings.hasNotionCredentials,
+           RecordingSession.folderAllowed(session.folderSlug, allowed: settings.autoSendNotionFolders) {
+            let export = MeetingExportData(
+                title: session.title,
+                summary: session.summary,
+                transcriptChunks: SessionDetailView.chunkTranscript(session.transcriptText),
+                durationSeconds: session.durationSec,
+                locale: session.locale,
+                startedAt: session.startedAt
+            )
+            do {
+                _ = try await NotionExporter.shared.createMeetingPage(export)
+                ToastCenter.shared.show(String(localized: "Sent to Notion · \(session.title)"), style: .success)
+            } catch {
+                log.error("Auto-send to Notion failed: \(error.localizedDescription, privacy: .private)")
+                ToastCenter.shared.show(String(localized: "Auto-send to Notion failed — retry from Library"), style: .warning)
+            }
+        }
+        for integration in MCPIntegrationStore.shared.autoOnSaveIntegrations
+        where RecordingSession.folderAllowed(session.folderSlug, allowed: integration.allowedFolders) {
+            _ = await MCPDispatcher.send(integration, for: session)
+        }
+    }
+
+    /// SHA-256 of transcript.md without its frontmatter, or nil when there
+    /// is no readable transcript.
+    nonisolated static func transcriptBodyHash(in directory: URL) -> String? {
+        guard let text = try? String(contentsOf: directory.appendingPathComponent("transcript.md"), encoding: .utf8) else {
+            return nil
+        }
+        var body = Substring(text)
+        if body.hasPrefix("---\n"), let end = body.dropFirst(4).range(of: "\n---\n") {
+            body = body[end.upperBound...]
+        }
+        return SHA256.hash(data: Data(body.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     /// The interrupted recording never got its summary; give it one now,

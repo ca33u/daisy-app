@@ -149,6 +149,10 @@ struct SessionDetailView: View {
                 // the place someone actually looks for it. A banner up
                 // here as well would say the same thing twice.
 
+                // A meeting finished on a charger later (or after the next
+                // recording cut its processing short): say so, with the
+                // way to do it now.
+                deferredProcessingBanner
                 // 2026-05-25 — two-block collapsible layout per Egor's
                 // UX pass on 1.0.7. Pre-fix every mdSection card sat
                 // independently in the scroll view, which (a) made the
@@ -1133,6 +1137,49 @@ struct SessionDetailView: View {
             ? Bundle.main.preferredLocalizations.first
             : setting
         return SummaryLabels.for(language: language)
+    }
+
+    /// Shown while this meeting's final pass waits in the queue — on a
+    /// charger, behind another job, or running.
+    @ViewBuilder
+    private var deferredProcessingBanner: some View {
+        let queue = ImportTranscriptionQueue.shared
+        if let job = queue.job(forSession: initialSession.id), job.finishesLiveTranscript == true,
+           let label = queue.rowLabel(forSession: initialSession.id) {
+            let isActive = job.id == queue.activeJobID
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: isActive ? "waveform" : "bolt")
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(.callout.weight(.medium))
+                        .monospacedDigit()
+                    Text("The transcript below is the draft from the meeting; the final one, speakers and summary come next.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                if !isActive {
+                    Button("Process now") {
+                        queue.runNow(sessionID: initialSession.id)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.daisyBgElevated)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.daisyDivider, lineWidth: 0.5)
+            )
+        }
     }
 
     @ViewBuilder
@@ -2652,7 +2699,9 @@ struct SessionDetailView: View {
         )
     }
 
-    private static func chunkTranscript(_ text: String) -> [String] {
+    /// Internal, not private: the queue's deferred auto-send builds the
+    /// same Notion export from a stored session.
+    static func chunkTranscript(_ text: String) -> [String] {
         let limit = 1500
         var chunks: [String] = []
         var current = ""

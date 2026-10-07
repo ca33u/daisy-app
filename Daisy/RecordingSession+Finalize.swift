@@ -283,6 +283,19 @@ extension RecordingSession {
         // transcript.md (Stage 3), the OCR-augmented summary (Stage 4),
         // and whatever auto-send ships (Stage 5). Running it later would
         // mean re-rendering and re-summarizing over the top.
+        // On a meeting over an hour, the polish and the speaker names run
+        // AFTER the summary instead of before it: on a cloud provider each
+        // is another minute or two on top of a long final pass, spent
+        // while the person waits for the summary they came for (Egor,
+        // 07.10.2026). The summary reads the unpolished text; the
+        // transcript, the names and auto-send still get the polish.
+        let meetingSeconds = await Task.detached(priority: .utility) {
+            ArchiveBlockReader.durationSeconds(of: micArchiveURLs + systemArchiveURLs)
+        }.value / Double(max(1, [micArchiveURLs, systemArchiveURLs].filter { !$0.isEmpty }.count))
+        let polishAfterSummary = willSummarize && meetingSeconds >= Self.polishAfterSummaryThreshold
+        if polishAfterSummary {
+            log.info("post-stop: \(Int(meetingSeconds / 60), privacy: .public)-minute meeting — polish and speaker names after the summary")
+        } else {
         SessionStore.shared.setFinalizeStage(.polishing, for: sessionID)
         await runTranscriptPolish(
             directory: directory,
@@ -322,87 +335,15 @@ extension RecordingSession {
             await bailRotated(stage: "after speaker_names")
             return
         }
+        }
 
         // (see `transcriptHasContent` below — Stage 6 asks it before
         // deleting anyone's audio)
 
         // ── Stage 3: Re-render transcript.md with final-quality data ─
-        //
-        // The inline path in stop() wrote a transcript.md from
-        // live-accumulated segments so the user has SOMETHING the
-        // moment they hit Stop. Now we overwrite it with the polished
-        // version. Render + write run as a tight synchronous pair
-        // (no await in between) so MainActor scheduling guarantees no
-        // other task can mutate `segments` while we're snapshotting.
-        let mdURL = directory.appendingPathComponent("transcript.md")
-
-        // Stages 2b/2c can spend a minute or more inside a provider, and
-        // the Stage 2 toast ("Daisy recognized N speakers · review in
-        // History") explicitly invites the user to go name speakers
-        // during exactly that window. A rename made there is written to
-        // transcript.md's frontmatter by SessionStore, NOT to this
-        // session's in-memory `initialSpeakerMap` — so the render below
-        // would put our own map (empty, in Suggest mode) straight over
-        // their work, and the sidecar entry is already pruned, so it
-        // couldn't even be offered again. Fold theirs in first; an
-        // explicit choice by the user wins any collision with ours.
-        // Speaker names were the first field to need this, and the
-        // reasoning generalises to every field the person can edit: the
-        // re-render below writes the WHOLE file from this session's
-        // in-memory state, so anything they changed on disk while the
-        // pipeline was running gets overwritten. Retitling, tagging and
-        // filing a session are exactly what someone does in the minutes
-        // after a meeting — and the Stage 2 toast invites them into that
-        // window on purpose. Read those fields back and adopt them
-        // before rendering; the person's explicit choice wins any
-        // collision with ours (audit 2026-09-01).
-        let persisted = Self.persistedUserFields(at: mdURL)
-        if !persisted.speakerMap.isEmpty {
-            initialSpeakerMap = initialSpeakerMap.merging(persisted.speakerMap) { _, theirs in theirs }
-        }
-        // `self.` throughout: `title` here is the function's parameter
-        // (the snapshot taken at Stop), not the session's property, and
-        // the render below reads the property.
-        if let theirTitle = persisted.title,
-           !theirTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           theirTitle != self.title {
-            log.info("post-stop: adopting the title written while finalizing")
-            self.title = theirTitle
-        }
-        if let slug = persisted.folderSlug, slug != self.folder.slug {
-            log.info("post-stop: adopting the project written while finalizing")
-            self.folder = SessionFolder(name: slug)
-        }
-        if let theirTag = persisted.tag, theirTag != self.tag {
-            log.info("post-stop: adopting the tag written while finalizing")
-            self.tag = theirTag
-        }
-        if let rawKind = persisted.kind,
-           let theirKind = SessionKind(rawValue: rawKind),
-           theirKind != sessionKind {
-            log.info("post-stop: adopting the kind written while finalizing")
-            persistedKindOverride = theirKind
-        }
-
-        let reRenderState = signposter.beginInterval("re_render_md", id: signposter.makeSignpostID())
-        let t_reRender = Date()
-        let md = MarkdownExporter.renderMarkdown(session: self)
-        signposter.endInterval("re_render_md", reRenderState)
-        log.info("post-stop re_render_md: \(ms(t_reRender), privacy: .public)ms, \(md.count, privacy: .public) bytes")
-
-        let reWriteState = signposter.beginInterval("re_write_md", id: signposter.makeSignpostID())
-        let t_reWrite = Date()
-        do {
-            try md.write(to: mdURL, atomically: true, encoding: .utf8)
-        } catch {
-            // Don't toast on re-write failure — the user already has
-            // the live-quality transcript.md from stop(), so this is
-            // a quality regression rather than data loss. Logged so
-            // the next `log show` pass catches it.
-            log.error("Failed to re-write transcript.md: \(error.localizedDescription, privacy: .public)")
-        }
-        signposter.endInterval("re_write_md", reWriteState)
-        log.info("post-stop re_write_md: \(ms(t_reWrite), privacy: .public)ms")
+        // (see `rerenderTranscript`; a long meeting runs it again after
+        // its deferred polish)
+        rerenderTranscript(directory: directory, signposter: signposter)
 
         // ── Stage 3b: Screen-content OCR ─────────────────────────────
         //
@@ -415,6 +356,9 @@ extension RecordingSession {
         // Fully local; skipped entirely when the feature is off or
         // nothing was captured.
         var screenSharedText = ""
+        /// What Stage 3b appended to transcript.md, for a later re-render
+        /// to put back (`screenSharedText` may be dropped for the summary).
+        var appendedScreenSection = ""
         if settings.screenshotsEnabled {
             SessionStore.shared.setFinalizeStage(.readingScreens, for: sessionID)
             let screenshotsDir = directory.appendingPathComponent("screenshots", isDirectory: true)
@@ -440,6 +384,7 @@ extension RecordingSession {
                 if let existing = try? String(contentsOf: mdURL, encoding: .utf8) {
                     let section = "\n\n## Shared on screen\n\n\(ocr.markdown)\n"
                     try? (existing + section).write(to: mdURL, atomically: true, encoding: .utf8)
+                    appendedScreenSection = section
                 }
             }
             log.info("post-stop screen_ocr: \(ms(t_ocr), privacy: .public)ms, \(ocr.distinctScreens, privacy: .public) screens")
@@ -585,6 +530,57 @@ extension RecordingSession {
             }
         }
 
+        // ── Stage 4b: the polish a long meeting put off ──────────────
+        if polishAfterSummary {
+            // The summary is on disk: show it now rather than after the
+            // passes below. The final finishGenerating reloads again.
+            if summaryPersisted {
+                // Done as far as the person can tell: the widget stops
+                // saying "summarizing", the detail view shows the summary.
+                if generation == summaryTaskGeneration { summaryGenerationState = .ready }
+                await SessionStore.shared.finishGenerating(sessionID)
+            }
+            await runTranscriptPolish(
+                directory: directory,
+                title: title,
+                localeHint: localeHint,
+                signposter: signposter,
+                willSummarize: willSummarize,
+                finalPassSeconds: finalPassSeconds
+            )
+            await runSpeakerNameSuggestions(
+                directory: directory,
+                title: title,
+                localeHint: localeHint,
+                signposter: signposter,
+                willSummarize: willSummarize
+            )
+            if Task.isCancelled || sessionDirectory?.lastPathComponent != sessionID {
+                // The next meeting took over during the polish. This one
+                // is done — final pass, transcript, summary — so it is not
+                // queued for a whole new pass the way `bailRotated` would;
+                // it just keeps its unpolished transcript.
+                log.info("Finalize: rotated during the deferred polish — keeping the summary and the final transcript as they are")
+                if generation == summaryTaskGeneration {
+                    // A summary that failed reads as failed, not as still
+                    // cooking; Re-summarize is the way back.
+                    if willSummarize, summary == nil { summaryGenerationState = .failed("cancelled") }
+                    summaryTask = nil
+                }
+                if willSummarize { await SessionStore.shared.finishGenerating(sessionID) }
+                return
+            }
+            // The re-render writes the transcript from segments; the
+            // screen text Stage 3b appended to the file goes back on —
+            // only after a write that succeeded, or it would be doubled.
+            if rerenderTranscript(directory: directory, signposter: signposter), !appendedScreenSection.isEmpty {
+                let mdURL = directory.appendingPathComponent("transcript.md")
+                if let existing = try? String(contentsOf: mdURL, encoding: .utf8) {
+                    try? (existing + appendedScreenSection).write(to: mdURL, atomically: true, encoding: .utf8)
+                }
+            }
+        }
+
         // ── Stage 5: Auto-send to downstream destinations ────────────
         //
         // If a fresh recording has begun in the meantime (reset()
@@ -711,6 +707,99 @@ extension RecordingSession {
 
         """
 
+    /// Meetings at least this long polish after the summary (seconds).
+    static var polishAfterSummaryThreshold: TimeInterval { 3600 }
+
+    /// Stage 3: overwrite the live transcript.md with the final-quality
+    /// segments, after adopting what the person edited on disk while the
+    /// pipeline ran. A synchronous render + write pair, so nothing can
+    /// change `segments` in between. False when the write failed.
+    @discardableResult
+    private func rerenderTranscript(directory: URL, signposter: OSSignposter) -> Bool {
+        func ms(_ start: Date) -> Int { Int(Date().timeIntervalSince(start) * 1000) }
+        // ── Stage 3: Re-render transcript.md with final-quality data ─
+        //
+        // The inline path in stop() wrote a transcript.md from
+        // live-accumulated segments so the user has SOMETHING the
+        // moment they hit Stop. Now we overwrite it with the polished
+        // version. Render + write run as a tight synchronous pair
+        // (no await in between) so MainActor scheduling guarantees no
+        // other task can mutate `segments` while we're snapshotting.
+        let mdURL = directory.appendingPathComponent("transcript.md")
+
+        // Stages 2b/2c can spend a minute or more inside a provider, and
+        // the Stage 2 toast ("Daisy recognized N speakers · review in
+        // History") explicitly invites the user to go name speakers
+        // during exactly that window. A rename made there is written to
+        // transcript.md's frontmatter by SessionStore, NOT to this
+        // session's in-memory `initialSpeakerMap` — so the render below
+        // would put our own map (empty, in Suggest mode) straight over
+        // their work, and the sidecar entry is already pruned, so it
+        // couldn't even be offered again. Fold theirs in first; an
+        // explicit choice by the user wins any collision with ours.
+        // Speaker names were the first field to need this, and the
+        // reasoning generalises to every field the person can edit: the
+        // re-render below writes the WHOLE file from this session's
+        // in-memory state, so anything they changed on disk while the
+        // pipeline was running gets overwritten. Retitling, tagging and
+        // filing a session are exactly what someone does in the minutes
+        // after a meeting — and the Stage 2 toast invites them into that
+        // window on purpose. Read those fields back and adopt them
+        // before rendering; the person's explicit choice wins any
+        // collision with ours (audit 2026-09-01).
+        let persisted = Self.persistedUserFields(at: mdURL)
+        if !persisted.speakerMap.isEmpty {
+            initialSpeakerMap = initialSpeakerMap.merging(persisted.speakerMap) { _, theirs in theirs }
+        }
+        // `self.` throughout: `title` here is the function's parameter
+        // (the snapshot taken at Stop), not the session's property, and
+        // the render below reads the property.
+        if let theirTitle = persisted.title,
+           !theirTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           theirTitle != self.title {
+            log.info("post-stop: adopting the title written while finalizing")
+            self.title = theirTitle
+        }
+        if let slug = persisted.folderSlug, slug != self.folder.slug {
+            log.info("post-stop: adopting the project written while finalizing")
+            self.folder = SessionFolder(name: slug)
+        }
+        if let theirTag = persisted.tag, theirTag != self.tag {
+            log.info("post-stop: adopting the tag written while finalizing")
+            self.tag = theirTag
+        }
+        if let rawKind = persisted.kind,
+           let theirKind = SessionKind(rawValue: rawKind),
+           theirKind != sessionKind {
+            log.info("post-stop: adopting the kind written while finalizing")
+            persistedKindOverride = theirKind
+        }
+
+        let reRenderState = signposter.beginInterval("re_render_md", id: signposter.makeSignpostID())
+        let t_reRender = Date()
+        // Without the summary: the transcript file never carries it.
+        let md = summarizer.withLastSummaryHidden { MarkdownExporter.renderMarkdown(session: self) }
+        signposter.endInterval("re_render_md", reRenderState)
+        log.info("post-stop re_render_md: \(ms(t_reRender), privacy: .public)ms, \(md.count, privacy: .public) bytes")
+
+        let reWriteState = signposter.beginInterval("re_write_md", id: signposter.makeSignpostID())
+        let t_reWrite = Date()
+        var wrote = true
+        do {
+            try md.write(to: mdURL, atomically: true, encoding: .utf8)
+        } catch {
+            // Don't toast on re-write failure — the user already has
+            // the live-quality transcript.md from stop(), so this is
+            // a quality regression rather than data loss. Logged so
+            // the next `log show` pass catches it.
+            log.error("Failed to re-write transcript.md: \(error.localizedDescription, privacy: .public)")
+            wrote = false
+        }
+        signposter.endInterval("re_write_md", reWriteState)
+        log.info("post-stop re_write_md: \(ms(t_reWrite), privacy: .public)ms")
+        return wrote
+    }
+
     /// Stage 2b body, lifted out of `finalizePostStop` because the gate
     /// is the interesting part and deserves to be readable.
     ///
@@ -790,7 +879,7 @@ extension RecordingSession {
         // header would double-count this session in an Obsidian vault
         // whose queries walk the sessions folder.
         let rawMarkdown = Self.rawTranscriptHeader
-            + MarkdownExporter.renderMarkdown(session: self, includeFrontmatter: false)
+            + summarizer.withLastSummaryHidden { MarkdownExporter.renderMarkdown(session: self, includeFrontmatter: false) }
 
         let polishState = signposter.beginInterval("transcript_polish", id: signposter.makeSignpostID())
         let t_polish = Date()
@@ -1885,6 +1974,32 @@ extension RecordingSession {
             locale: localeIdentifier,
             startedAt: startedAt
         )
+    }
+
+    /// Queue a just-stopped meeting to be finished on a charger. False
+    /// when there's no audio to finish from — the caller then runs the
+    /// normal finalize instead of leaving a meeting with nothing queued.
+    func queueDeferredUntilPower(sessionID: String, directory: URL, title: String) -> Bool {
+        guard SessionAudioFiles.discover(in: directory).hasAny else { return false }
+        ImportTranscriptionQueue.shared.enqueue(
+            sessionID: sessionID,
+            directoryURL: directory,
+            title: title,
+            options: SessionRetranscriptionOptions(
+                modelID: WhisperEngine.defaultModelID,
+                language: "auto",
+                diarize: settings.diarizeRemoteSpeakers
+            ),
+            notBefore: nil,
+            finishesLiveTranscript: true,
+            waitsForPower: true
+        )
+        log.notice("Meeting \(sessionID, privacy: .public) queued until the Mac is on power")
+        ToastCenter.shared.show(
+            String(localized: "Saved. Daisy will finish this meeting when the Mac is on a charger."),
+            style: .info
+        )
+        return true
     }
 
     /// Put a final pass that was cut short back in the queue.

@@ -57,6 +57,11 @@ final class QuitFinalizeRecovery {
         for folder in folders {
             let key = folder.path
             guard !seen.contains(key) else { continue }
+            // Already queued to be finished (on a charger, or after a
+            // rotation): the queue will do it — a second offer would run
+            // the same pass twice. Checked before `seen`, so a job that is
+            // later cancelled still gets its offer on a later refresh.
+            if ImportTranscriptionQueue.shared.job(forSession: folder.lastPathComponent) != nil { continue }
             seen.insert(key)
 
             guard Self.transcriptUntouched(in: folder) else {

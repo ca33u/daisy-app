@@ -64,12 +64,29 @@ enum LogReporter {
     /// cleverer guess.
     static func sendReport(settings: AppSettings) {
         Task {
-            guard let text = await collectReport(settings: settings),
-                  let fileURL = writeTempReport(text) else { return }
+            guard let text = await collectReport(settings: settings) else { return }
             let body = reportBody()
             let service = NSSharingService(named: .composeEmail)
             service?.recipients = [recipient]
             service?.subject = subject()
+            // Attachments through the share service are reliable with
+            // Apple Mail only: Outlook, Spark and Airmail drop them or
+            // refuse, and web mail (a browser holding mailto: — Gmail or
+            // Yandex in Chrome, often set by one "allow" click long ago)
+            // has none. A user's Chrome opened and nothing was sent while
+            // the toast said "just press Send" (07.10.2026). Anywhere but
+            // Mail: open a compose in THEIR mail app with the address,
+            // subject and questions filled in, and the file selected in
+            // Finder to drag in.
+            if let handler = mailHandler, handler.bundleID != "com.apple.mail" {
+                await composeElsewhere(text: text, body: body, appName: handler.name)
+                return
+            }
+            // Apple Mail takes the file as an attachment.
+            guard let fileURL = writeTempReport(text) else {
+                await handOverFile(text: text, body: body, reason: .noMailApp)
+                return
+            }
             let items: [Any] = [body, fileURL]
             if let service, service.canPerform(withItems: items) {
                 service.perform(withItems: items)
@@ -78,18 +95,71 @@ enum LogReporter {
                     style: .info
                 )
             } else {
-                // No mail client at all. This is the ONE place the
-                // clipboard earns its keep: there is no compose window to
-                // put the questions in, so without it the reporter is left
-                // with a log file and no idea what to write around it.
-                copyQuestionsToClipboard(body)
-                NSWorkspace.shared.activateFileViewerSelecting([fileURL])
-                ToastCenter.shared.show(
-                    String(localized: "No mail app set up — the report is in Finder and the questions are on your clipboard. Send both to \(recipient)."),
-                    style: .warning,
-                    duration: .seconds(10)
-                )
+                await handOverFile(text: text, body: body, reason: .noMailApp)
             }
+        }
+    }
+
+    private enum HandOverReason { case noMailApp }
+
+    /// No compose window that can carry the file. This is the ONE place
+    /// the clipboard earns its keep: there is nowhere to put the
+    /// questions, so without it the reporter has a log file and no idea
+    /// what to write around it. The file goes to Downloads (not a temp
+    /// folder that empties itself) and is shown in Finder.
+    private static func handOverFile(text: String, body: String, reason: HandOverReason) async {
+        let saved = await Task.detached(priority: .userInitiated) {
+            writeToDownloads(text, baseName: reportBasename())
+        }.value
+        guard let fileURL = saved ?? writeTempReport(text) else { return }
+        copyQuestionsToClipboard(body)
+        NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+        let message: String
+        switch reason {
+        case .noMailApp:
+            message = String(localized: "No mail app set up — the report is in Finder and the questions are on your clipboard. Send both to \(recipient).")
+        }
+        ToastCenter.shared.show(message, style: .warning, duration: .seconds(12))
+    }
+
+    /// The app macOS opens `mailto:` links with, or nil when none is set.
+    private static var mailHandler: (bundleID: String, name: String)? {
+        guard let mailto = URL(string: "mailto:\(recipient)"),
+              let app = NSWorkspace.shared.urlForApplication(toOpen: mailto) else { return nil }
+        let id = Bundle(url: app)?.bundleIdentifier ?? ""
+        let name = (FileManager.default.displayName(atPath: app.path) as NSString).deletingPathExtension
+        return (id, name)
+    }
+
+    /// Not Apple Mail: save the report, select it in Finder, and open a
+    /// filled-in compose in the person's own mail app (a browser's web
+    /// mail included) — the one thing left is dragging the file in.
+    private static func composeElsewhere(text: String, body: String, appName: String) async {
+        let saved = await Task.detached(priority: .userInitiated) {
+            writeToDownloads(text, baseName: reportBasename())
+        }.value
+        guard let fileURL = saved ?? writeTempReport(text) else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+        // Also on the clipboard: if the app opens but composes nothing
+        // (a browser with no web-mail handler set), the questions aren't
+        // lost with it.
+        copyQuestionsToClipboard(body)
+        let attachLine = String(localized: "Attach the file \(fileURL.lastPathComponent) — it's selected in Finder.")
+        var components = URLComponents()
+        components.scheme = "mailto"
+        components.path = recipient
+        components.queryItems = [
+            URLQueryItem(name: "subject", value: subject()),
+            URLQueryItem(name: "body", value: attachLine + "\n\n" + body),
+        ]
+        if let url = components.url, NSWorkspace.shared.open(url) {
+            ToastCenter.shared.show(
+                String(localized: "The email is open in \(appName). Drag the report from Finder into it — it's already selected — and press Send."),
+                style: .info,
+                duration: .seconds(12)
+            )
+        } else {
+            await handOverFile(text: text, body: body, reason: .noMailApp)
         }
     }
 

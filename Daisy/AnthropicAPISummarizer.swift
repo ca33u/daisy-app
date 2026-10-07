@@ -20,9 +20,13 @@ nonisolated struct AnthropicAPISummarizer: SummaryProvider {
 
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "AnthropicSummarizer")
 
-    init(model: String = defaultModelID, urlSession: URLSession = .shared) {
+    /// Tests only: a key that bypasses the Keychain.
+    let apiKeyOverride: String?
+
+    init(model: String = defaultModelID, urlSession: URLSession = .shared, apiKeyOverride: String? = nil) {
         self.model = model
         self.urlSession = urlSession
+        self.apiKeyOverride = apiKeyOverride
     }
 
     func isReady() async -> Bool {
@@ -42,7 +46,7 @@ nonisolated struct AnthropicAPISummarizer: SummaryProvider {
         guard trimmed.count > 40 else {
             throw SummaryProviderError.transcriptTooShort
         }
-        guard let apiKey = KeychainStore.get(account: SecretKey.anthropicAPIKey),
+        guard let apiKey = apiKeyOverride ?? KeychainStore.get(account: SecretKey.anthropicAPIKey),
               !apiKey.isEmpty else {
             throw SummaryProviderError.missingAPIKey(provider: "Anthropic")
         }
@@ -50,99 +54,81 @@ nonisolated struct AnthropicAPISummarizer: SummaryProvider {
         let systemPrompt = SummaryPrompt.systemInstructions(localeHint: localeHint, task: task)
         let userPrompt = SummaryPrompt.userPrompt(title: title, transcript: trimmed, task: task)
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": model,
-            // 4096 (was 2048 pre-1.0.3) — long Russian / German / Polish
-            // summaries hit the 2048 ceiling on hour-long meetings,
-            // truncating the clientFollowUp draft mid-sentence. 4096
-            // covers the worst realistic case at ~1.5 hour meetings;
-            // cost delta is ~0.5¢ per call at Sonnet list pricing.
-            "max_tokens": 4096,
+            // Room for thinking AND the answer. Claude 5 models think by
+            // default (no `thinking` param needed), and on a two-hour
+            // meeting thinking used the whole old 4096 allowance — the
+            // reply came back with a thinking block and no text (log
+            // report 07.10.2026). Only generated tokens are billed, so a
+            // high ceiling costs nothing on a short meeting; streaming is
+            // what makes a ceiling this high safe from HTTP timeouts.
+            "max_tokens": Self.maxOutputTokens(for: model),
+            "stream": true,
             "system": systemPrompt,
             "messages": [
                 ["role": "user", "content": userPrompt]
             ]
         ]
+        // A summary is mid-difficulty work over many tokens: medium effort
+        // keeps the thinking proportionate. Haiku 4.5 rejects `effort`.
+        if Self.acceptsEffort(model) {
+            body["output_config"] = ["effort": "medium"]
+        }
 
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.timeoutInterval = 60
+        // Idle, not total: see CloudStreaming.
+        request.timeoutInterval = CloudStreaming.idleTimeout
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
-        // Retry up to 3 attempts on transient failures (429 rate
-        // limit, 5xx server errors, network timeouts). Each retry
-        // waits 1s → 2s → 4s. Pre-1.0.3 a single network blip
-        // killed a 90-second summary call and surfaced as "Anthropic:
-        // HTTP 503" with no recovery — user had to manually
-        // re-summarize from History.
-        let (data, response) = try await CloudHTTPRetry.fetch(
-            request: request,
-            session: urlSession,
-            log: log
-        )
-        guard let http = response as? HTTPURLResponse else {
-            throw SummaryProviderError.invalidResponse(provider: "Anthropic")
-        }
-        if !(200..<300).contains(http.statusCode) {
-            let bodyString = String(data: data, encoding: .utf8) ?? "<empty>"
-            // bodyString stays .private — Anthropic 4xx responses can
-            // echo prompt fragments back, which would leak transcript
-            // snippets into the unified system log. Status code is
-            // safe to expose; the body itself is not.
-            log.error("Anthropic HTTP \(http.statusCode): \(bodyString, privacy: .private)")
-            throw SummaryProviderError.httpError(
-                provider: "Anthropic",
-                status: http.statusCode,
-                body: bodyString
-            )
+        // Retries (429 / 5xx / a connection that never opened) happen only
+        // before the answer starts — see CloudStreaming.
+        let bytes = try await CloudStreaming.open(request, session: urlSession, provider: "Anthropic", log: log)
+        var stream = AnthropicStreamAccumulator()
+        do {
+            try await CloudStreaming.forEachData(in: bytes) { stream.consume($0) }
+        } catch {
+            // Bill what was generated before the break, then report it.
+            TokenLedgerSink.recordAnthropic(model: model, json: stream.messageJSON)
+            log.error("Anthropic stream broke off: \(error.localizedDescription, privacy: .public)")
+            throw SummaryProviderError.streamInterrupted(provider: "Anthropic", message: error.localizedDescription)
         }
 
-        // Response shape:
-        // { "id": "...", "type": "message",
-        //   "content": [{ "type": "text", "text": "<JSON we want>" }],
-        //   ... }
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw SummaryProviderError.invalidResponse(provider: "Anthropic")
+        // Usage is billed even when the content proves unusable, so record
+        // it before the checks below.
+        TokenLedgerSink.recordAnthropic(model: model, json: stream.messageJSON)
+
+        if let message = stream.streamError {
+            log.error("Anthropic stream error event: \(message, privacy: .public)")
+            throw SummaryProviderError.streamInterrupted(provider: "Anthropic", message: message)
+        }
+        switch stream.stopReason {
+        case "max_tokens":
+            log.error("Anthropic reply hit max_tokens (blocks: \(stream.blockTypes.joined(separator: ","), privacy: .public))")
+            throw SummaryProviderError.outputTruncated(provider: "Anthropic")
+        case "refusal":
+            throw SummaryProviderError.refused(provider: "Anthropic")
+        default:
+            break
         }
 
-        // A 2xx response can still contain malformed content. Usage was
-        // nevertheless reported by Anthropic, so account for that charge
-        // before validating the content Daisy needs to parse.
-        TokenLedgerSink.recordAnthropic(model: model, json: json)
-
-        // Every TEXT block, joined — not `content.first`.
-        //
-        // A message's content array is a list of typed blocks, and text is
-        // not guaranteed to be the first of them: a `thinking` block, a
-        // `server_tool_use`, a `web_search_tool_result` all legitimately
-        // come before it. Reading `content.first?["text"]` then finds nil
-        // on a perfectly good 2xx response and reports "unexpected
-        // response from the API" — which is exactly what a tester hit on
-        // a voice profile that succeeded on the very next attempt
-        // (1.0.7.51, 2026-07-30). The attendee-research path next door
-        // already walks the blocks, because a web-search response forced
-        // it to; this one only ever saw single-block replies and got away
-        // with the shortcut.
-        guard let content = json["content"] as? [[String: Any]] else {
-            throw SummaryProviderError.invalidResponse(provider: "Anthropic")
-        }
-        let firstText = content
-            .filter { ($0["type"] as? String) == "text" }
-            .compactMap { $0["text"] as? String }
-            .joined()
-        guard !firstText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        // Every TEXT block, joined — thinking blocks come first and carry
+        // no answer (1.0.7.51: reading only the first block reported a
+        // perfectly good reply as "unexpected response").
+        let text = stream.text
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             // No text at all: log why, since the block types are the whole
             // diagnosis and they carry no user content.
-            let types = content.compactMap { $0["type"] as? String }.joined(separator: ",")
-            log.error("Anthropic reply had no text block (types: \(types, privacy: .public))")
+            log.error("Anthropic reply had no text block (types: \(stream.blockTypes.joined(separator: ","), privacy: .public), stop: \(stream.stopReason ?? "none", privacy: .public))")
             throw SummaryProviderError.invalidResponse(provider: "Anthropic")
         }
 
         do {
-            let dto = try CloudSummaryDTO.decode(from: firstText)
+            let dto = try CloudSummaryDTO.decode(from: text)
             return dto.toMeetingSummary()
         } catch {
             throw SummaryProviderError.parseFailed(
@@ -151,6 +137,32 @@ nonisolated struct AnthropicAPISummarizer: SummaryProvider {
             )
         }
     }
+
+    /// The generations known to take a 64K ceiling and `effort`: the
+    /// Claude 5 family and 4.6–4.8. An allow-list, because Settings keeps
+    /// a typed-in id as "Custom" — an older model would 400 on `effort`
+    /// and on a ceiling above its own (review find, 07.10.2026).
+    private static let modernPrefixes = [
+        "claude-sonnet-5", "claude-opus-5", "claude-fable-5", "claude-mythos-5",
+        "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-4-6",
+    ]
+
+    private static func isModern(_ model: String) -> Bool {
+        let id = model.lowercased()
+        return modernPrefixes.contains { id.hasPrefix($0) }
+    }
+
+    /// Output ceiling: 64K on the modern models (they allow 128K), 32K on
+    /// Haiku 4.5, and the old 4096 on anything else.
+    static func maxOutputTokens(for model: String) -> Int {
+        if isModern(model) { return 64_000 }
+        if model.lowercased().hasPrefix("claude-haiku-4-5") { return 32_000 }
+        return 4096
+    }
+
+    /// `output_config.effort`: the modern models only — Haiku 4.5 and
+    /// older reject it.
+    static func acceptsEffort(_ model: String) -> Bool { isModern(model) }
 
     // MARK: - Catalog of model IDs offered in Settings
 

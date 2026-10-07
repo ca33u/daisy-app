@@ -830,7 +830,22 @@ struct FirstRunView: View {
                     title: String(localized: "Fix the keyboard layout"),
                     description: String(localized: "«ghbdtn» becomes «привет» — the selection, or the word you're typing"),
                     color: .daisyAccent,
-                    binding: $settings.layoutFixHotkey
+                    // Fn refused here too: pressing 🌐 to switch the
+                    // language while this recorder listened is how a user
+                    // bound the fixer to the layout key itself.
+                    binding: Binding(
+                        get: { settings.layoutFixHotkey },
+                        set: { newValue in
+                            guard HotkeyChoice.allowedForLayoutFix(newValue) else {
+                                ToastCenter.shared.show(
+                                    String(localized: "Fn (🌐) switches the keyboard layout in macOS — pick another key for fixing it."),
+                                    style: .warning
+                                )
+                                return
+                            }
+                            settings.layoutFixHotkey = newValue
+                        }
+                    )
                 )
                 .onChange(of: settings.layoutFixHotkey) { _, _ in syncLayoutFixEnabled() }
             }

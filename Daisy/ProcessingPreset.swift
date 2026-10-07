@@ -13,7 +13,9 @@
 //    • the final Whisper pass — it is the same full-quality pass in every
 //      plan; a faster, worse one was rejected (quality first);
 //    • the Whisper model — switching it means a 1.5 GB download;
-//    • screenshots — a privacy choice, not a load one.
+//    • screenshots as a matched value — whether to capture the screen is
+//      a privacy choice; a plan only switches them off (Economy) or
+//      slows them down (Balanced) when it is picked, see `apply`.
 //
 
 import Foundation
@@ -72,7 +74,26 @@ enum ProcessingPreset: String, CaseIterable, Identifiable {
         settings.diarizeRemoteSpeakers = v.diarizeRemoteSpeakers
         settings.diarizeMicrophone = v.diarizeMicrophone
         settings.transcriptSecondPass = v.transcriptSecondPass
+        // Side effects, not part of the plan's match (Egor, 07.10.2026):
+        // Economy also defers processing to a charger and turns screen
+        // captures off; Balanced keeps screenshots if they're on but no
+        // more often than every 2 minutes; Maximum leaves both alone.
+        switch self {
+        case .economy:
+            settings.deferProcessingOnBattery = true
+            settings.screenshotsEnabled = false
+        case .balanced:
+            if settings.screenshotsEnabled, settings.screenshotIntervalSec < Self.balancedScreenshotIntervalSec {
+                settings.screenshotIntervalSec = Self.balancedScreenshotIntervalSec
+            }
+        case .maximum:
+            break
+        }
     }
+
+    /// Balanced's floor for the screenshot interval — one of the
+    /// Recording tab's own options (15 s, 30 s, 1 min, 2 min).
+    static let balancedScreenshotIntervalSec = 120
 
     var title: String {
         switch self {
