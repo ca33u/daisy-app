@@ -349,6 +349,14 @@ if [[ -f "${APPCAST_FILE}" ]]; then
     fi
 fi
 
+# Release notes are read in [6/6]; missing ones used to stop the release
+# there, after the archive and two notary rounds (2026-10-08).
+if [[ ! -f "${DAISY_REPO}/scripts/release-notes/${VERSION}.md" ]]; then
+    echo "  ✗ Release notes missing: scripts/release-notes/${VERSION}.md" >&2
+    echo "    Create it (one '- text' bullet per line; ${VERSION}.ru.md optional), then re-run." >&2
+    exit 1
+fi
+
 # -----------------------------------------------------------------------------
 # 0. Quality gates — run BEFORE the ~15-minute archive + notarize so a failing
 #    test or a surprising branch is caught in seconds, not after a wasted
@@ -423,7 +431,7 @@ cat > "${EXPORT_OPTIONS}" <<EOF
   <!-- 1.0.8: the app now carries restricted entitlements (shared
        keychain group, iCloud/CloudKit, ubiquity-kvstore). Developer ID
        signing with those requires a Developer ID PROVISIONING PROFILE,
-       and `automatic` cannot fetch one from the command line without a
+       and "automatic" cannot fetch one from the command line without a
        signed-in Xcode account — it fails with "No profiles for
        'app.essazanov.Daisy' were found". The profile is made once in
        the portal (Profiles → Developer ID → app.essazanov.Daisy) and
