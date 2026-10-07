@@ -59,6 +59,12 @@ struct FolderManagementSection: View {
                     Text(f.name).tag(f.slug)
                 }
             }
+            // Voice notes, screenshot notes and side notes from a meeting.
+            Picker("Default project for notes", selection: $settings.defaultNoteFolderSlug) {
+                ForEach(folders.allFolders) { f in
+                    Text(f.name).tag(f.slug)
+                }
+            }
 
             // System (Inbox / Notes) — plain, no controls.
             ForEach(SessionFolder.system) { folder in
@@ -174,7 +180,7 @@ struct FolderManagementSection: View {
             }
             .buttonStyle(.borderless)
             .disabled(isDefault)
-            .help(isDefault ? String(localized: "Can’t delete the default meeting project") : String(localized: "Delete project"))
+            .help(isDefault ? String(localized: "Can’t delete a default project") : String(localized: "Delete project"))
         }
         .padding(.vertical, 2)
     }
@@ -264,8 +270,9 @@ struct FolderManagementSection: View {
         store.sessions.filter { $0.folderSlug == folder.slug }.count
     }
 
+    /// The default for meetings OR notes — either one blocks deletion.
     private func isDefaultMeetingFolder(_ folder: SessionFolder) -> Bool {
-        folder.slug == settings.defaultMeetingFolderSlug
+        folder.slug == settings.defaultMeetingFolderSlug || folder.slug == settings.defaultNoteFolderSlug
     }
 
     // MARK: - Mutations
@@ -312,6 +319,9 @@ struct FolderManagementSection: View {
         if settings.defaultMeetingFolderSlug == old.slug {
             settings.defaultMeetingFolderSlug = new.slug
         }
+        if settings.defaultNoteFolderSlug == old.slug {
+            settings.defaultNoteFolderSlug = new.slug
+        }
         Task {
             for s in store.sessions where s.folderSlug == old.slug {
                 await store.moveSession(s, to: new)
@@ -349,6 +359,9 @@ struct FolderManagementSection: View {
         folders.removeFolder(folder)
         if settings.defaultMeetingFolderSlug == folder.slug {
             settings.defaultMeetingFolderSlug = SessionFolder.inbox.slug
+        }
+        if settings.defaultNoteFolderSlug == folder.slug {
+            settings.defaultNoteFolderSlug = SessionFolder.inbox.slug
         }
     }
 }

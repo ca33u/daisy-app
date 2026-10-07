@@ -408,8 +408,11 @@ final class Transcriber {
 
     /// Whether this Transcriber runs Pyannote diarization passes
     /// (live + final). True by default for system-audio source,
-    /// false for microphone unless explicitly enabled.
-    private let diarizationEnabled: Bool
+    /// false for microphone unless explicitly enabled. Re-set from the
+    /// settings at every recording start: it used to be fixed at
+    /// launch, so the Speakers toggles did nothing until Daisy
+    /// restarted (review find, 2026-10-07).
+    var diarizationEnabled: Bool
 
     // MARK: - Lifecycle
 
@@ -876,9 +879,18 @@ final class Transcriber {
     /// `biasTerms` — dictation vocabulary fed to Whisper's `promptTokens`.
     /// Default `[]` (meeting/voice-note final passes don't bias); the
     /// dictation stop passes `DictationDictionary.shared.biasTerms()`.
-    func runFinalPass(archiveURLs: [URL] = [], profile: WhisperEngine.DecodeProfile = .full, biasTerms: [String] = []) async {
+    /// `onProgress` — this track's share decoded so far, 0…1, on the main
+    /// actor. Reported by the block-wise archive pass only; the legacy
+    /// buffer path stays silent.
+    func runFinalPass(archiveURLs: [URL] = [], profile: WhisperEngine.DecodeProfile = .full, biasTerms: [String] = [], onProgress: (@MainActor (Double) -> Void)? = nil) async {
         let myGeneration = runGeneration
-        await runFinalTranscribe(archiveURLs: archiveURLs, profile: profile, biasTerms: biasTerms)
+        // Read once: the next recording's start() re-sets the flag on
+        // this shared instance, possibly while this pass is still running.
+        let diarize = diarizationEnabled
+        await runFinalTranscribe(archiveURLs: archiveURLs, profile: profile, biasTerms: biasTerms, diarize: diarize, onProgress: onProgress)
+        // Done, whichever path ran: the legacy buffer pass and a track
+        // ending in silence never report their last stretch.
+        onProgress?(1)
         // Only clear `isRunning` when no NEW session has re-started
         // this shared transcriber while the pass was running. A stale
         // pass (session rotated / user quick-restarted) writing
@@ -1253,7 +1265,7 @@ final class Transcriber {
 
     // MARK: - Final transcribe on stop
 
-    private func runFinalTranscribe(archiveURLs: [URL] = [], profile: WhisperEngine.DecodeProfile = .full, biasTerms: [String] = []) async {
+    private func runFinalTranscribe(archiveURLs: [URL] = [], profile: WhisperEngine.DecodeProfile = .full, biasTerms: [String] = [], diarize: Bool, onProgress: (@MainActor (Double) -> Void)? = nil) async {
         guard let started = sessionStartedAt else { return }
         // 2026-05-27 — cooperative cancellation. With the 1.0.7.3 two-
         // stage Stop, this method runs inside the detached finalize
@@ -1291,7 +1303,9 @@ final class Transcriber {
                 archiveURLs: archiveURLs,
                 profile: profile,
                 biasTerms: biasTerms,
-                started: started
+                started: started,
+                diarize: diarize,
+                onProgress: onProgress
             ) {
             case .done, .cancelled, .failed:
                 return
@@ -1384,7 +1398,7 @@ final class Transcriber {
         // (spans + centroids) so RecordingSession can fingerprint-
         // match this session's speakers against the SpeakerProfileStore.
         async let diarizationOutput: DiarizationOutput =
-            diarizationEnabled
+            diarize
                 ? DiarizationEngine.shared.diarizeFull(samples: samples, numSpeakers: speakerCountHint)
                 : DiarizationOutput(spans: [], centroids: [:])
 
@@ -1550,9 +1564,15 @@ final class Transcriber {
         archiveURLs: [URL],
         profile: WhisperEngine.DecodeProfile,
         biasTerms: [String],
-        started: Date
+        started: Date,
+        diarize: Bool,
+        onProgress: (@MainActor (Double) -> Void)? = nil
     ) async -> StreamingFinalOutcome {
         let reader = ArchiveBlockReader(urls: archiveURLs)
+        // Header reads only; 0 (unreadable) just means no progress.
+        let totalSec = onProgress == nil
+            ? 0
+            : await Task.detached(priority: .userInitiated) { ArchiveBlockReader.durationSeconds(of: archiveURLs) }.value
         guard let firstBlock = await Task.detached(priority: .userInitiated, operation: { reader.nextBlock() }).value else {
             return .archiveUnusable
         }
@@ -1565,10 +1585,10 @@ final class Transcriber {
         }
 
         let lang = languageHint
-        let blockPass: DiarizationBlockPass? = diarizationEnabled
+        let blockPass: DiarizationBlockPass? = diarize
             ? await DiarizationEngine.shared.makeBlockPass(numSpeakers: speakerCountHint)
             : nil
-        if diarizationEnabled && blockPass == nil {
+        if diarize && blockPass == nil {
             log.warning("Final pass (streaming): diarizer unavailable — proceeding without speaker labels")
         }
         var fresh: [TranscriptSegment] = []
@@ -1608,11 +1628,20 @@ final class Transcriber {
                         blockPass.process(samples: samples, atSec: startSec)
                     }.value
                 }()
+                let blockSec = Double(current.samples.count) / Self.targetSampleRate
+                let blockStart = current.startSec
+                var blockProgress: (@MainActor (Double) -> Void)?
+                if let onProgress, totalSec > 0 {
+                    blockProgress = { inBlock in
+                        onProgress(min(1, (blockStart + inBlock * blockSec) / totalSec))
+                    }
+                }
                 let result = try await WhisperEngine.shared.transcribe(
                     samples: current.samples,
                     language: lang,
                     profile: profile,
-                    biasTerms: biasTerms
+                    biasTerms: biasTerms,
+                    onProgress: blockProgress
                 )
                 await diarized
                 for ws in result {
@@ -1633,6 +1662,10 @@ final class Transcriber {
                 }
                 coveredSec = current.startSec + Double(current.samples.count) / Self.targetSampleRate
                 decodedRanges.append((start: current.startSec, end: coveredSec))
+                // Whisper reports per speech span only, so a block with
+                // no speech (a quiet system track) would otherwise hold
+                // the shared percentage at half for the whole pass.
+                if let onProgress, totalSec > 0 { onProgress(min(1, coveredSec / totalSec)) }
                 log.info("Final pass (streaming): block \(blockCount, privacy: .public) [\(Int(current.startSec), privacy: .public)s–\(Int(coveredSec), privacy: .public)s] → \(result.count, privacy: .public) segments (\(fresh.count, privacy: .public) total)")
             } catch is CancellationError {
                 log.info("Final pass (streaming): cancelled mid-block — keeping live segments, no error surfaced")

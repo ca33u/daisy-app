@@ -332,7 +332,7 @@ final class LayoutAutoFix {
     }
 
     func apply(settings: AppSettings) {
-        if settings.layoutFixAuto {
+        if settings.layoutFixAutoActive {
             beginRivalWatch()
             start(settings: settings)
         } else {
@@ -409,7 +409,7 @@ final class LayoutAutoFix {
     /// and it is cheap. The still-suspended case logs — a gate that
     /// closes silently is how this feature earned its first bug report.
     private func resumeIfRivalsGone() {
-        guard suspendedForConflict, let settings, settings.layoutFixAuto else { return }
+        guard suspendedForConflict, let settings, settings.layoutFixAutoActive else { return }
         if let remaining = LayoutFixConflicts.runningSwitcherName() {
             log.info("An app quit but \(remaining, privacy: .public) is still running — layout auto-fix stays suspended")
             return

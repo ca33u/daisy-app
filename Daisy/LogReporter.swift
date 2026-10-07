@@ -414,7 +414,7 @@ enum LogReporter {
         \(AudioInputDevices.deviceInventory())
         Bundle:     \(Bundle.main.bundleURL.path)
         Auto-stop:  fromCalendar=\(settings.autoStopFromCalendar) graceSec=\(settings.autoStopGraceSec) promptMode=\(settings.autoStopPromptMode) notifyOnStop=\(settings.notifyOnAutoStop)
-        Layout fix: auto=\(settings.layoutFixAuto) hotkey=\(settings.layoutFixHotkey.label) switchSource=\(settings.layoutFixSwitchesSource) running=\(LayoutAutoFix.shared.isRunning) suspendedFor=\(LayoutAutoFix.shared.conflictingSwitcherName ?? "—") \(LayoutFix.diagnostics())
+        Layout fix: enabled=\(settings.layoutFixEnabled) auto=\(settings.layoutFixAuto) hotkey=\(settings.layoutFixHotkey.label) switchSource=\(settings.layoutFixSwitchesSource) running=\(LayoutAutoFix.shared.isRunning) suspendedFor=\(LayoutAutoFix.shared.conflictingSwitcherName ?? "—") \(LayoutFix.diagnostics())
         Versions:   \(VersionInfo.versionTrailLine())
         Updates:    \(updaterLine())
         ─────────────────────────────────────────────────

@@ -278,6 +278,16 @@ nonisolated final class ArchiveBlockReader: @unchecked Sendable {
         )
     }
 
+    /// Total length of the parts in seconds, read from their headers —
+    /// no decoding. For progress only: an unreadable part counts as 0.
+    static func durationSeconds(of urls: [URL]) -> Double {
+        urls.reduce(0) { total, url in
+            guard let file = try? AVAudioFile(forReading: url),
+                  file.fileFormat.sampleRate > 0 else { return total }
+            return total + Double(file.length) / file.fileFormat.sampleRate
+        }
+    }
+
     /// Next block of decoded audio, or `nil` when the archive is fully
     /// consumed. `startSec` is the block's offset from the start of the
     /// archive (== session-absolute time for a from-0:00 archive).

@@ -301,6 +301,9 @@ final class Summarizer {
     var kimiModel: String {
         didSet { UserDefaults.standard.set(kimiModel, forKey: Self.kKimiModel) }
     }
+    var geminiModel: String {
+        didSet { UserDefaults.standard.set(geminiModel, forKey: Self.kGeminiModel) }
+    }
     var openaiModel: String {
         didSet { UserDefaults.standard.set(openaiModel, forKey: Self.kOpenAIModel) }
     }
@@ -378,6 +381,7 @@ final class Summarizer {
     private static let kAnthropicModel = "daisy.anthropicModel"
     private static let kOpenAIModel = "daisy.openaiModel"
     private static let kKimiModel = "daisy.kimiModel"
+    private static let kGeminiModel = "daisy.geminiModel"
     private static let kOllamaModel = "daisy.ollamaModel"
     private static let kOllamaBaseURL = "daisy.ollamaBaseURL"
     private static let kAgentCLIKind = "daisy.agentCLIKind"
@@ -412,6 +416,8 @@ final class Summarizer {
         self.cursorAgentPath = UserDefaults.standard.string(forKey: Self.kCursorAgentPath) ?? ""
         self.kimiModel = UserDefaults.standard.string(forKey: Self.kKimiModel)
             ?? KimiAPISummarizer.defaultModelID
+        self.geminiModel = UserDefaults.standard.string(forKey: Self.kGeminiModel)
+            ?? GeminiAPISummarizer.defaultModelID
         self.ollamaModel = UserDefaults.standard.string(forKey: Self.kOllamaModel)
             ?? OllamaAPISummarizer.defaultModelID
         self.ollamaBaseURL = UserDefaults.standard.string(forKey: Self.kOllamaBaseURL)
@@ -464,6 +470,8 @@ final class Summarizer {
             return String(localized: "Cursor API key is missing. Add it in Settings → Summary Provider.")
         case .kimi:
             return "Kimi API key is missing. Add it in Settings → Summary Provider."
+        case .gemini:
+            return String(localized: "Gemini API key is missing. Add it in Settings → Summary Provider.")
         case .ollama:
             return "Couldn't reach Ollama at \(ollamaBaseURL). Open Terminal and run `ollama serve`, then pull a model with `ollama pull \(OllamaAPISummarizer.defaultModelID)`."
         case .lmStudio:
@@ -653,7 +661,7 @@ final class Summarizer {
     var providerIsEffectivelyLocal: Bool {
         switch providerKind {
         case .appleIntelligence: return true
-        case .anthropic, .openai, .cursor, .kimi: return false
+        case .anthropic, .openai, .cursor, .kimi, .gemini: return false
         case .ollama:
             return Self.isLoopbackURL(URL(string: ollamaBaseURL))
                 && !OllamaAPISummarizer.isCloudModel(ollamaModel)
@@ -708,6 +716,8 @@ final class Summarizer {
             )
         case .kimi:
             return KimiAPISummarizer(model: kimiModel)
+        case .gemini:
+            return GeminiAPISummarizer(model: geminiModel)
         case .ollama:
             // Parse base URL with fallback to default if user typed
             // something malformed. Both adapters tolerate a missing

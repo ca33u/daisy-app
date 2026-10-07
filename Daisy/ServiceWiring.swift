@@ -93,7 +93,8 @@ enum ServiceWiring {
         // flight) in the layout it should have been typed with.
         HotkeyManager.shared.register(
             slot: .fixLayout,
-            choice: settings.layoutFixHotkey,
+            // Nothing while the layout fixer is switched off as a whole.
+            choice: settings.layoutFixHotkeyActive,
             action: .toggle {
                 Task { await LayoutFixService.shared.trigger(settings: settings) }
             }

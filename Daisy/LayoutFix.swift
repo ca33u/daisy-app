@@ -62,6 +62,12 @@ enum LayoutFix {
 
         var fallback: Fix?
         var best: (fix: Fix, score: Double)?
+        /// How real the text already is, judged ONLY in the language of a
+        /// layout it converts out of — i.e. one it was typed on. Judged in
+        /// any language it would be wrong: the English checker passes
+        /// every Cyrillic word as correct, so «руддщ» would never become
+        /// «hello» again.
+        var original = 0.0
         // Source order matters: the active layout first, because it is
         // what produced the text — unless the user already switched
         // layouts before pressing the key, which is why the others are
@@ -69,6 +75,12 @@ enum LayoutFix {
         for source in orderedSources(layouts) {
             for target in layouts where target.id != source.id {
                 guard let converted = source.converting(text, to: target) else { continue }
+                // Only a layout the LETTERS were typed on: the English
+                // checker passes Cyrillic, and punctuation alone makes
+                // Russian text "convert" out of US (review find).
+                if source.typesAllLetters(of: text) {
+                    original = max(original, realWordRatio(in: text, language: source.language))
+                }
                 let candidate = Fix(text: converted, target: target)
                 // Score, don't first-hit: with three layouts installed a
                 // single incidental real word ("a") in the wrong
@@ -78,6 +90,11 @@ enum LayoutFix {
                 if fallback == nil { fallback = candidate }
             }
         }
+        // Already right: the text reads as real words in the layout it is
+        // in, and no conversion reads better. A user's
+        // «daisy-provider-api-key» became «фдштф-зкфыщдщмф-фзш-лун» on a
+        // stray press (07.10.2026); now the key says so and leaves it.
+        if original > 0.5, original >= (best?.score ?? 0) { return nil }
         if let best, best.score > 0.5 { return best.fix }
         // Nothing the dictionaries recognise. The user still asked, so
         // convert out of the ACTIVE layout — the most likely intent — and
@@ -211,10 +228,12 @@ enum LayoutFix {
     /// "judged badly" read the same to callers.
     private static func realWordRatio(in text: String, language: String?) -> Double {
         guard let language, let checker = resolvedLanguage(language) else { return 0 }
+        // Runs of letters, not whitespace-separated tokens: a hyphenated
+        // name or an identifier is several words, and checked whole it is
+        // one "misspelling" in every language.
         let words = text
-            .split(whereSeparator: { $0.isWhitespace })
+            .split(whereSeparator: { !$0.isLetter })
             .map(String.init)
-            .filter { $0.contains(where: { $0.isLetter }) }
         guard !words.isEmpty else { return 0 }
         let known = words.filter { isSpelled($0, language: checker) }.count
         return Double(known) / Double(words.count)

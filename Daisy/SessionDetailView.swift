@@ -1097,19 +1097,68 @@ struct SessionDetailView: View {
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
+    /// What the post-Stop pipeline is doing for THIS session, if it
+    /// reports stages (see `SessionStore.FinalizeStage`).
+    private var finalizeStage: SessionStore.FinalizeStage? {
+        SessionStore.shared.finalizeStages[initialSession.id]
+    }
+
+    /// The skeleton's status line. Says which step is running, since the
+    /// summary is the last of them; the transcript below is the live
+    /// draft until the final pass replaces it (2026-10-07: the old line,
+    /// «Generating summary… transcript is ready below», sat over ten
+    /// minutes of Whisper on a 30-minute meeting).
+    private var finalizeStatusText: String {
+        switch finalizeStage {
+        case .transcribing(let percent?):
+            return String(localized: "Refining the transcript — \(percent)%. Below is the draft from the meeting.")
+        case .transcribing(nil):
+            return String(localized: "Refining the transcript… Below is the draft from the meeting.")
+        case .polishing:
+            return String(localized: "Fixing names and terms in the transcript…")
+        case .readingScreens:
+            return String(localized: "Reading text from the screenshots…")
+        case .summarizing, nil:
+            return String(localized: "Generating summary… transcript is ready below.")
+        }
+    }
+
+    /// Headings for the skeleton, matching what the finished summary
+    /// will show: its language is the summary-language setting, or with
+    /// "auto" most likely the UI's. They were the English literals
+    /// "Meeting" / "Next actions" over a Russian UI before (2026-10-07).
+    private var skeletonLabels: SummaryLabels {
+        let setting = AppSettings.currentSummaryLanguage
+        let language = setting == "auto" || setting.isEmpty
+            ? Bundle.main.preferredLocalizations.first
+            : setting
+        return SummaryLabels.for(language: language)
+    }
+
     @ViewBuilder
     private var summarySkeletonSection: some View {
-        mdSection(title: "Meeting") {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Generating summary… transcript is ready below.")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+        mdSection(title: skeletonLabels.meeting) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(finalizeStatusText)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                // Low Power Mode throttles the Neural Engine work several
+                // times over; the 2026-10-07 meeting took its whole
+                // final pass under it without a word on screen.
+                if case .transcribing = finalizeStage, ProcessInfo.processInfo.isLowPowerModeEnabled {
+                    Label("Low Power Mode is on — processing takes longer.", systemImage: "bolt.slash")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        mdSection(title: "Next actions") {
+        mdSection(title: skeletonLabels.nextActions) {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(0..<2, id: \.self) { _ in
                     HStack(alignment: .firstTextBaseline, spacing: 10) {

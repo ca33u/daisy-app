@@ -289,10 +289,23 @@ final class AppSettings {
     /// override per-session in the UI). Stored as a slug; resolved via
     /// `FolderStore.existingFolder(slug:)`, falling back to Inbox if the
     /// folder was deleted. Default "work" preserves the long-standing
-    /// hardcoded behaviour. Voice notes keep their own fixed target
-    /// (Notes) — this knob is meetings only. (Egor 2026-06-20)
+    /// hardcoded behaviour. Meetings only; notes have
+    /// `defaultNoteFolderSlug`. (Egor 2026-06-20)
     var defaultMeetingFolderSlug: String {
         didSet { defaults.set(defaultMeetingFolderSlug, forKey: Self.k_defaultMeetingFolderSlug) }
+    }
+
+    /// Where new notes file: voice notes, screenshot notes and side notes
+    /// cut from a meeting (Egor, 07.10.2026 — until then always Inbox).
+    /// Inbox by default, so nothing moves for anyone who never sets it.
+    var defaultNoteFolderSlug: String {
+        didSet { defaults.set(defaultNoteFolderSlug, forKey: Self.k_defaultNoteFolderSlug) }
+    }
+
+    /// The setting read without an instance, for `FolderStore`, which
+    /// checks the folder still exists before a note uses it.
+    nonisolated static var currentDefaultNoteFolderSlug: String {
+        UserDefaults.standard.string(forKey: k_defaultNoteFolderSlug) ?? SessionFolder.inbox.slug
     }
 
     /// Dictation mode override for transcription locale. Same
@@ -461,6 +474,23 @@ final class AppSettings {
             }
         }
     }
+
+    /// The one switch for the whole layout fixer (Egor, 07.10.2026). Off,
+    /// nothing touches typed text: the automatic watcher doesn't run and
+    /// the shortcut isn't registered. Before it, «Fix the layout as I
+    /// type» was off for a user whose shortcut, set in onboarding, kept
+    /// re-typing her selections — two features that looked like one.
+    /// Off by default; an upgrader who already used either half starts
+    /// with it on (see init), so nothing goes quiet without a word.
+    var layoutFixEnabled: Bool {
+        didSet { defaults.set(layoutFixEnabled, forKey: Self.k_layoutFixEnabled) }
+    }
+
+    /// The automatic watcher should run: the switch AND its own toggle.
+    var layoutFixAutoActive: Bool { layoutFixEnabled && layoutFixAuto }
+
+    /// The shortcut to register: none while the switch is off.
+    var layoutFixHotkeyActive: HotkeyChoice { layoutFixEnabled ? layoutFixHotkey : .none }
 
     /// Fix the layout automatically, word by word, without a keypress.
     /// OFF by default and deliberately hard to turn on by accident: it
@@ -1117,6 +1147,12 @@ final class AppSettings {
             Task { @MainActor in await Summarizer.shared.refreshAvailability() }
         }
     }
+    var geminiAPIKey: String {
+        didSet {
+            Self.persist(geminiAPIKey, account: SecretKey.geminiAPIKey, label: String(localized: "Gemini API key"))
+            Task { @MainActor in await Summarizer.shared.refreshAvailability() }
+        }
+    }
 
     /// The secrets `init` deliberately did not look for in the old
     /// keychain. Runs after launch, off the main thread; a value found
@@ -1131,6 +1167,7 @@ final class AppSettings {
             (SecretKey.openaiAPIKey, \.openaiAPIKey),
             (SecretKey.cursorAPIKey, \.cursorAPIKey),
             (SecretKey.kimiAPIKey, \.kimiAPIKey),
+            (SecretKey.geminiAPIKey, \.geminiAPIKey),
         ].filter { self[keyPath: $0.1].isEmpty }
         guard !wanted.isEmpty else { return }
         Task.detached(priority: .utility) { [weak self] in
@@ -1302,6 +1339,7 @@ final class AppSettings {
         // pinned dictation/voice-note explicitly.
         self.voiceNoteLocale = defaults.string(forKey: Self.k_voiceNoteLocale) ?? ""
         self.defaultMeetingFolderSlug = defaults.string(forKey: Self.k_defaultMeetingFolderSlug) ?? SessionFolder.work.slug
+        self.defaultNoteFolderSlug = defaults.string(forKey: Self.k_defaultNoteFolderSlug) ?? SessionFolder.inbox.slug
         self.dictationLocale = defaults.string(forKey: Self.k_dictationLocale) ?? ""
         // Dictation engine: read the new enum key; if absent, migrate
         // once from the legacy `dictationUseParakeet` bool (true→Parakeet,
@@ -1397,6 +1435,18 @@ final class AppSettings {
             self.markMomentHotkey = .none
         }
         self.layoutFixAuto = defaults.bool(forKey: Self.k_layoutFixAuto)
+        if let stored = defaults.object(forKey: Self.k_layoutFixEnabled) as? Bool {
+            self.layoutFixEnabled = stored
+        } else {
+            // First launch with the switch: on only for someone already
+            // using the automatic fix or a shortcut.
+            // Read from defaults: `self` isn't fully initialised yet.
+            let storedHotkey = defaults.data(forKey: Self.k_layoutFixHotkey)
+                .flatMap { try? JSONDecoder().decode(HotkeyChoice.self, from: $0) } ?? .none
+            let wasUsing = defaults.bool(forKey: Self.k_layoutFixAuto) || storedHotkey != .none
+            self.layoutFixEnabled = wasUsing
+            defaults.set(wasUsing, forKey: Self.k_layoutFixEnabled)
+        }
         self.layoutFixSwitchesSource = defaults.object(forKey: Self.k_layoutFixSwitchesSource) as? Bool ?? true
         // Default OFF — auto-starting a recording the moment Zoom
         // / Teams / Telegram opens is surprising on first install
@@ -1618,6 +1668,7 @@ final class AppSettings {
         self.anthropicAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.anthropicAPIKey) ?? ""
         self.openaiAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.openaiAPIKey) ?? ""
         self.cursorAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.cursorAPIKey) ?? ""
+        self.geminiAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.geminiAPIKey) ?? ""
         self.kimiAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.kimiAPIKey) ?? ""
 
         // Reconcile substrate to the policy ONCE at launch — but ONLY
@@ -1737,6 +1788,7 @@ final class AppSettings {
     nonisolated private static let k_defaultTranscriptionLocale = "daisy.defaultTranscriptionLocale"
     private static let k_voiceNoteLocale = "daisy.voiceNoteLocale"
     private static let k_defaultMeetingFolderSlug = "daisy.defaultMeetingFolderSlug"
+    nonisolated private static let k_defaultNoteFolderSlug = "daisy.defaultNoteFolderSlug"
     nonisolated private static let k_dictationLocale = "daisy.dictationLocale"
     private static let k_dictationUseParakeet = "daisy.dictationUseParakeet"  // legacy — read once for migration into k_dictationEngine
     private static let k_dictationEngine = "daisy.dictationEngine"
@@ -1754,6 +1806,7 @@ final class AppSettings {
     static let k_dictationPastesViaClipboard = "daisy.dictationPastesViaClipboard"
     private static let k_screenshotNotesEnabled = "daisy.screenshotNotesEnabled"
     private static let k_layoutFixAuto = "daisy.layoutFixAuto"
+    private static let k_layoutFixEnabled = "daisy.layoutFixEnabled"
     private static let k_layoutFixSwitchesSource = "daisy.layoutFixSwitchesSource"
     private static let k_autoStartOnMeeting = "daisy.autoStartOnMeeting"
     private static let k_autoStartPolicy = "daisy.autoStartPolicy"

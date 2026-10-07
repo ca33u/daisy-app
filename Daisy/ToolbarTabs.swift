@@ -39,8 +39,8 @@ final class ToolbarTabs: NSObject {
     /// Called with the index the person picked.
     var onSelect: ((Int) -> Void)?
     /// Called when the tabs left the toolbar without `uninstall()` and
-    /// could not be put back — the caller shows its own tabs then, so no
-    /// one is left without them. SwiftUI rebuilds a toolbar whose items
+    /// could not be put back after several tries — the caller shows its
+    /// own tabs then, so no one is left without them. SwiftUI rebuilds a toolbar whose items
     /// change (Dictation's buttons follow its tab) and drops an item it
     /// does not know; that is answered by adding the tabs again first.
     var onLost: (() -> Void)?
@@ -49,6 +49,56 @@ final class ToolbarTabs: NSObject {
 
     private(set) var group: NSToolbarItemGroup?
     private weak var toolbar: NSToolbar?
+
+    /// Delays between attempts, in seconds. Right after a page appears
+    /// SwiftUI may not have built the window's toolbar yet, and right
+    /// after it rebuilds one it may still be busy; one try at either
+    /// moment used to leave the page on its old-style fallback tabs until
+    /// you left it (Egor, 07.10.2026: «табы иногда в старом стиле»).
+    private static let retryDelays: [Double] = [0.05, 0.15, 0.4, 1.0, 2.0]
+
+    /// `install`, retried over a couple of seconds before giving up.
+    /// `done(true)` once the tabs are in the toolbar; `done(false)` only
+    /// after the last try failed. Stops quietly if `uninstall()` ran.
+    func installRetrying(in window: NSWindow, titles: [String], selected: @escaping () -> Int,
+                         done: @escaping (Bool) -> Void) {
+        wanted = true
+        // Kept for the re-adds after a drop: they report through the same
+        // `done`, so a success there clears the page's fallback strip, and
+        // they read the page's CURRENT tab, not the one at the drop.
+        currentSelected = selected
+        currentDone = done
+        generation &+= 1
+        attempt(window: window, titles: titles, selected: selected, delays: Self.retryDelays,
+                generation: generation, done: done)
+    }
+
+    /// Bumped by every new chain of attempts; an older chain still
+    /// waiting on a delay (the page left and came back) stops instead of
+    /// reporting a stale failure over the new one.
+    private var generation = 0
+    private var currentSelected: (() -> Int)?
+    private var currentDone: ((Bool) -> Void)?
+
+    private func attempt(window: NSWindow, titles: [String], selected: @escaping () -> Int,
+                         delays: [Double], generation: Int, done: @escaping (Bool) -> Void) {
+        guard wanted, generation == self.generation else { return }
+        if install(in: window, titles: titles, selected: selected()) {
+            done(true)
+            return
+        }
+        guard let delay = delays.first else {
+            done(false)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self, weak window] in
+            MainActor.assumeIsolated {
+                guard let self, let window else { return }
+                self.attempt(window: window, titles: titles, selected: selected,
+                             delays: Array(delays.dropFirst()), generation: generation, done: done)
+            }
+        }
+    }
 
     /// Adds the tabs to `window`'s toolbar, centred. False when there is
     /// no toolbar to add to — the caller shows its own tabs instead.
@@ -124,9 +174,18 @@ final class ToolbarTabs: NSObject {
                    toolbar.items.contains(where: { $0.itemIdentifier == self.identifier }) {
                     return
                 }
-                guard let window = self.window, self.install(in: window, titles: self.titles, selected: selected) else {
+                guard let window = self.window else {
                     self.onLost?()
                     return
+                }
+                // A rebuild can still be settling: try again for a moment
+                // before showing the fallback.
+                self.generation &+= 1
+                let done = self.currentDone
+                self.attempt(window: window, titles: self.titles,
+                             selected: self.currentSelected ?? { selected },
+                             delays: Self.retryDelays, generation: self.generation) { [weak self] ok in
+                    if let done { done(ok) } else if !ok { self?.onLost?() }
                 }
             }
         }
@@ -177,6 +236,9 @@ final class ToolbarTabs: NSObject {
         // tabs into the Library's toolbar (seen 04.10.2026 in 1.0.8.19,
         // and «Словарь / История» there the day before).
         wanted = false
+        generation &+= 1
+        currentSelected = nil
+        currentDone = nil
         let toolbar = self.toolbar ?? window?.toolbar
         self.toolbar = nil
         window = nil

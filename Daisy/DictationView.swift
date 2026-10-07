@@ -32,7 +32,9 @@ struct DictationView: View {
     /// a custom glass strip in the toolbar vanishes into «>>» in a narrow
     /// window, the system's folds into a pop-up (26.09, as Settings).
     @State private var toolbarTabs = ToolbarTabs(identifier: "app.essazanov.Daisy.dictationTabs")
+    /// See SettingsView: installing vs. refused after every retry.
     @State private var toolbarTabsInstalled = false
+    @State private var toolbarTabsFailed = false
     private static let tabOrder: [Tab] = [.vocabulary, .history]
     @State private var showingAddWord = false
     @State private var showingBulkImport = false
@@ -65,7 +67,7 @@ struct DictationView: View {
         // The tabs are the toolbar's own tab control (toolbarTabs); only
         // if the toolbar will not keep it do they show above the page.
         VStack(spacing: 12) {
-            if !toolbarTabsInstalled {
+            if toolbarTabsFailed {
                 Picker("Dictation", selection: $tab) {
                     Text("Vocabulary").tag(Tab.vocabulary)
                     Text("History").tag(Tab.history)
@@ -99,6 +101,7 @@ struct DictationView: View {
                         exportVocabulary()
                     } label: {
                         Text("Export vocabulary")
+                            .fontWeight(.regular)
                             .padding(.horizontal, 10)
                     }
                     .disabled(DictationDictionary.shared.replacements.isEmpty)
@@ -109,6 +112,7 @@ struct DictationView: View {
                         showingBulkImport = true
                     } label: {
                         Text("Bulk import")
+                            .fontWeight(.regular)
                             .padding(.horizontal, 10)
                     }
                     .help("Paste a list or import a file of words / corrections")
@@ -122,6 +126,9 @@ struct DictationView: View {
                     showingAddWord = true
                 } label: {
                     Text("Add word")
+                        // Regular, like the tab titles beside them —
+                        // a toolbar text button is semibold by default.
+                        .fontWeight(.regular)
                         .padding(.horizontal, 10)
                 }
                 .help("Add a word to your dictation vocabulary")
@@ -132,17 +139,19 @@ struct DictationView: View {
             toolbarTabs.onSelect = { index in
                 if Self.tabOrder.indices.contains(index) { tab = Self.tabOrder[index] }
             }
-            toolbarTabs.onLost = { toolbarTabsInstalled = false }
-            toolbarTabsInstalled = toolbarTabs.install(
+            toolbarTabs.onLost = { toolbarTabsFailed = true }
+            toolbarTabsInstalled = true
+            toolbarTabs.installRetrying(
                 in: window,
                 titles: [String(localized: "Vocabulary"), String(localized: "History")],
-                selected: Self.tabOrder.firstIndex(of: tab) ?? 0
-            )
+                selected: { Self.tabOrder.firstIndex(of: tab) ?? 0 }
+            ) { ok in toolbarTabsFailed = !ok }
         })
         .onChange(of: tab) { _, new in toolbarTabs.select(Self.tabOrder.firstIndex(of: new) ?? 0) }
         .onDisappear {
             toolbarTabs.uninstall()
             toolbarTabsInstalled = false
+            toolbarTabsFailed = false
         }
     }
 

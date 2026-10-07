@@ -271,7 +271,6 @@ enum AudioImporter {
             var out: [Candidate] = []
             for item in expand(urls) {
                 let url = item.url
-                let name = url.lastPathComponent
                 guard canImport(url) else {
                     out.append(Candidate(url: url, folderName: item.folderName, durationSec: nil, startedAt: nil,
                                          problem: rejection(for: url).errorDescription))

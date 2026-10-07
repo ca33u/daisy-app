@@ -79,16 +79,16 @@ extension DaisyAppDelegate {
                 var lines: [String] = []
                 if let toolbarView = window.contentView?.superview { describe(toolbarView, 0, into: &lines) }
                 // Every platter in full: what is actually drawn there.
-                func platters(_ v: NSView) -> [NSView] {
+                @MainActor func platters(_ v: NSView) -> [NSView] {
                     String(describing: type(of: v)) == "NSToolbarPlatterView" ? [v] : v.subviews.flatMap(platters)
                 }
-                func full(_ v: NSView, _ depth: Int, into lines: inout [String]) {
+                @MainActor func full(_ v: NSView, _ depth: Int, into lines: inout [String]) {
                     let role = v.accessibilityRole()?.rawValue ?? ""
                     let label = [v.accessibilityTitle(), v.accessibilityLabel(), (v.accessibilityValue() as? String)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "|")
                     lines.append(String(repeating: " ", count: depth) + "\(type(of: v)) x=\(Int(v.frame.minX)) w=\(Int(v.frame.width)) hidden=\(v.isHidden) alpha=\(v.alphaValue) \(role) \(label)")
                     for sub in v.subviews { full(sub, depth + 1, into: &lines) }
                 }
-                func tabControls(_ v: NSView) -> [String] {
+                @MainActor func tabControls(_ v: NSView) -> [String] {
                     var found: [String] = []
                     let name = String(describing: type(of: v))
                     if name.contains("Popup") || name.contains("PopUp") || name.contains("Segmented") {
@@ -101,7 +101,7 @@ extension DaisyAppDelegate {
                 }
                 if let content = window.contentView { lines += tabControls(content) }
                 // What sits in the top band of the page, below the toolbar.
-                func band(_ v: NSView) -> [String] {
+                @MainActor func band(_ v: NSView) -> [String] {
                     var found: [String] = []
                     let r = v.convert(v.bounds, to: nil)
                     let fromTop = window.contentLayoutRect.maxY - r.maxY
@@ -128,16 +128,16 @@ extension DaisyAppDelegate {
             }
             // Picking a tab in the toolbar control turns the page, both
             // in the segments (wide) and in the pop-up (narrow).
-            func pageHasConnections() -> Bool {
-                func find(_ v: NSView) -> Bool {
+            @MainActor func pageHasConnections() -> Bool {
+                @MainActor func find(_ v: NSView) -> Bool {
                     if let c = v as? NSSegmentedControl, c.segmentCount == 2, (0..<2).contains(where: { c.label(forSegment: $0) == String(localized: "MCP server") || c.label(forSegment: $0)?.contains("MCP") == true }) { return true }
                     return v.subviews.contains(where: find)
                 }
                 return window.contentView.map(find) ?? false
             }
-            func shownTabControl() -> NSControl? {
+            @MainActor func shownTabControl() -> NSControl? {
                 var found: NSControl?
-                func walk(_ v: NSView) {
+                @MainActor func walk(_ v: NSView) {
                     if found == nil, !v.isHiddenOrHasHiddenAncestor {
                         if let c = v as? NSSegmentedControl, c.segmentCount == 6 { found = c }
                         if let p = v as? NSPopUpButton, p.numberOfItems >= 6 { found = p }
@@ -185,7 +185,7 @@ extension DaisyAppDelegate {
                 try? await Task.sleep(for: .seconds(1.5))
                 let visible = window.toolbar?.visibleItems?.contains { $0.itemIdentifier.rawValue == "app.essazanov.Daisy.dictationTabs" } ?? false
                 var kinds: [String] = []
-                func walk(_ v: NSView, inToolbar: Bool) {
+                @MainActor func walk(_ v: NSView, inToolbar: Bool) {
                     let here = inToolbar || String(describing: type(of: v)) == "NSToolbarView"
                     if here, !v.isHiddenOrHasHiddenAncestor {
                         let name = String(describing: type(of: v))
@@ -202,10 +202,10 @@ extension DaisyAppDelegate {
             dictationWide.size.width = 1300
             window.setFrame(dictationWide, display: true)
             try? await Task.sleep(for: .seconds(1.5))
-            func dictationTabs() -> NSToolbarItemGroup? {
+            @MainActor func dictationTabs() -> NSToolbarItemGroup? {
                 window.toolbar?.items.first { $0.itemIdentifier.rawValue == "app.essazanov.Daisy.dictationTabs" } as? NSToolbarItemGroup
             }
-            func others() -> [String] {
+            @MainActor func others() -> [String] {
                 (window.toolbar?.items ?? []).compactMap { item in
                     guard !item.itemIdentifier.rawValue.hasPrefix("NSToolbar"), !item.itemIdentifier.rawValue.hasPrefix("com.apple"),
                           !item.itemIdentifier.rawValue.hasPrefix("app.essazanov") else { return nil }
@@ -216,7 +216,7 @@ extension DaisyAppDelegate {
             for index in [1, 0, 1, 0] {
                 // The two-tab control, looked for in the toolbar only.
                 var control: NSControl?
-                func walk(_ v: NSView, inToolbar: Bool) {
+                @MainActor func walk(_ v: NSView, inToolbar: Bool) {
                     let here = inToolbar || String(describing: type(of: v)) == "NSToolbarView"
                     if here, control == nil, !v.isHiddenOrHasHiddenAncestor {
                         if let c = v as? NSSegmentedControl, c.segmentCount == 2 { control = c }
@@ -244,7 +244,7 @@ extension DaisyAppDelegate {
                let index = toolbar.items.firstIndex(where: { $0.itemIdentifier == NSToolbarItem.Identifier("app.essazanov.Daisy.settingsTabs") }) {
                 toolbar.removeItem(at: index)
                 try? await Task.sleep(for: .seconds(1.5))
-                func pageTabs(_ v: NSView) -> Int {
+                @MainActor func pageTabs(_ v: NSView) -> Int {
                     ((v as? NSSegmentedControl)?.segmentCount == 6 && !v.isHiddenOrHasHiddenAncestor ? 1 : 0) + v.subviews.map(pageTabs).reduce(0, +)
                 }
                 let inPage = window.contentView.map(pageTabs) ?? 0

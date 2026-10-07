@@ -211,6 +211,14 @@ final class FolderStore {
         customFolders[idx].parentSlug = newParentSlug
     }
 
+    /// The folder a new note files into — `AppSettings.defaultNoteFolderSlug`,
+    /// or Inbox if that folder no longer exists. Resolved here, on the
+    /// main actor, because an unknown slug written into a note would
+    /// make the Library invent a stray folder for it.
+    var defaultNoteFolderSlug: String {
+        existingFolder(slug: AppSettings.currentDefaultNoteFolderSlug)?.slug ?? SessionFolder.inbox.slug
+    }
+
     /// Resolve a stored slug to a LIVE folder without auto-creating one
     /// (unlike `folder(slug:)`). Returns nil when no such folder exists —
     /// e.g. the configured default-meeting folder was since deleted — so

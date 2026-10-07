@@ -246,7 +246,7 @@ final class SessionAudioProcessing {
             let displayName = RecordingSession.current?.settings.userDisplayName ?? ""
             Task.detached(priority: .utility) {
                 if let embedding = await OwnerVoice.embedding(fromMicrophoneArchives: micFiles) {
-                    await MainActor.run { SpeakerProfileStore.shared.enrolOwner(embedding: embedding, displayName: displayName) }
+                    await MainActor.run { _ = SpeakerProfileStore.shared.enrolOwner(embedding: embedding, displayName: displayName) }
                 }
             }
         }

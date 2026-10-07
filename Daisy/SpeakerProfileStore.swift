@@ -37,7 +37,9 @@ final class SpeakerProfileStore {
     /// pairs <0.5; 0.65 leaves a 0.05 safety margin against false
     /// positives. Tunable per-user in a future Settings row if we
     /// see real-world drift.
-    static let matchThreshold: Float = 0.65
+    /// `nonisolated`: a constant, and `PhoneSpeakerAssignment` (off the
+    /// main actor) uses it as a default argument.
+    nonisolated static let matchThreshold: Float = 0.65
 
     /// All known profiles, keyed by UUID. Observable so any UI that
     /// renders the profile list (Settings, SessionDetailView's

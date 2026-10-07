@@ -161,7 +161,9 @@ final class SparkleUpdater {
         let offer = StagedUpdateOffer()
         offer.present = { version in
             let text = String(localized: "Daisy \(version) is ready to install")
-            WidgetBubbleCenter.shared.show(WidgetBubbleContent(
+            // No fallback needed when there's no widget: the toast below
+            // carries the same offer either way.
+            _ = WidgetBubbleCenter.shared.show(WidgetBubbleContent(
                 text: text,
                 actionTitle: String(localized: "Install and Restart"),
                 actionSymbol: "arrow.down.circle",

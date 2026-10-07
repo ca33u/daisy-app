@@ -182,11 +182,21 @@ extension RecordingSession {
         let biasTerms = currentMode == .meeting
             ? DictationDictionary.shared.biasTerms()
             : []
+        // The skeleton's percentage: both tracks are the same length, so
+        // the mean of their shares is the share of the whole job.
+        let finalProgress = FinalPassProgress(
+            sessionID: sessionID,
+            hasMic: !micArchiveURLs.isEmpty,
+            hasSystem: !systemArchiveURLs.isEmpty
+        )
+        finalProgress.report()
         async let micFinal: Void = micTranscriber.runFinalPass(
-            archiveURLs: micArchiveURLs, biasTerms: biasTerms
+            archiveURLs: micArchiveURLs, biasTerms: biasTerms,
+            onProgress: { finalProgress.mic = $0; finalProgress.report() }
         )
         async let sysFinal: Void = systemTranscriber.runFinalPass(
-            archiveURLs: systemArchiveURLs, biasTerms: biasTerms
+            archiveURLs: systemArchiveURLs, biasTerms: biasTerms,
+            onProgress: { finalProgress.system = $0; finalProgress.report() }
         )
         _ = await (micFinal, sysFinal)
         signposter.endInterval("final_pass", finalPassState)
@@ -254,7 +264,7 @@ extension RecordingSession {
             let displayName = settings.userDisplayName
             Task.detached(priority: .utility) {
                 if let embedding = await OwnerVoice.embedding(fromMicrophoneArchives: micFiles) {
-                    await MainActor.run { SpeakerProfileStore.shared.enrolOwner(embedding: embedding, displayName: displayName) }
+                    await MainActor.run { _ = SpeakerProfileStore.shared.enrolOwner(embedding: embedding, displayName: displayName) }
                 }
             }
         }
@@ -273,6 +283,7 @@ extension RecordingSession {
         // transcript.md (Stage 3), the OCR-augmented summary (Stage 4),
         // and whatever auto-send ships (Stage 5). Running it later would
         // mean re-rendering and re-summarizing over the top.
+        SessionStore.shared.setFinalizeStage(.polishing, for: sessionID)
         await runTranscriptPolish(
             directory: directory,
             title: title,
@@ -405,6 +416,7 @@ extension RecordingSession {
         // nothing was captured.
         var screenSharedText = ""
         if settings.screenshotsEnabled {
+            SessionStore.shared.setFinalizeStage(.readingScreens, for: sessionID)
             let screenshotsDir = directory.appendingPathComponent("screenshots", isDirectory: true)
             let ocrState = signposter.beginInterval("screen_ocr", id: signposter.makeSignpostID())
             let t_ocr = Date()
@@ -487,6 +499,7 @@ extension RecordingSession {
             }
             let summarizeState = signposter.beginInterval("summarize", id: signposter.makeSignpostID())
             let t_summarize = Date()
+            SessionStore.shared.setFinalizeStage(.summarizing, for: sessionID)
             summary = await summarizer.summarize(
                 transcript: transcriptText,
                 title: title,
@@ -1658,7 +1671,8 @@ extension RecordingSession {
 
             let md = Self.renderSideNoteMarkdown(
                 body: body, start: noteStart, end: noteEnd,
-                meetingID: meetingID, hasAudio: hasAudio
+                meetingID: meetingID, hasAudio: hasAudio,
+                folderSlug: FolderStore.shared.defaultNoteFolderSlug
             )
             do {
                 try Data(md.utf8).write(
@@ -1723,7 +1737,8 @@ extension RecordingSession {
         start: Date,
         end: Date,
         meetingID: String,
-        hasAudio: Bool
+        hasAudio: Bool,
+        folderSlug: String = SessionFolder.inbox.slug
     ) -> String {
         let iso = ISO8601DateFormatter()
         let df = DateFormatter()
@@ -1738,7 +1753,7 @@ extension RecordingSession {
         lines.append("started: \(iso.string(from: start))")
         lines.append("duration_sec: \(durSec)")
         lines.append("daisy_kind: \(SessionKind.note.rawValue)")
-        lines.append("daisy_folder: \(SessionFolder.inbox.slug)")
+        lines.append("daisy_folder: \(folderSlug)")
         lines.append("daisy_source_meeting: \(meetingID)")
         lines.append("---")
         lines.append("")
@@ -1914,4 +1929,28 @@ extension RecordingSession {
         log.notice("Rotated session \(sessionID, privacy: .public) queued for its final pass (\(stage, privacy: .public))")
     }
 
+}
+
+/// Both tracks' final-pass shares → one number on the summary skeleton.
+/// A box rather than two captured `var`s: the callbacks are handed into
+/// `async let`s, which may not mutate captured locals.
+@MainActor
+private final class FinalPassProgress {
+    let sessionID: String
+    var mic: Double?
+    var system: Double?
+
+    init(sessionID: String, hasMic: Bool, hasSystem: Bool) {
+        self.sessionID = sessionID
+        mic = hasMic ? 0 : nil
+        system = hasSystem ? 0 : nil
+    }
+
+    func report() {
+        let shares = [mic, system].compactMap { $0 }
+        let share = shares.isEmpty ? nil : shares.reduce(0, +) / Double(shares.count)
+        // Whole percents: a finer value would re-render the view on
+        // every span for a change nobody can see.
+        SessionStore.shared.setFinalizeStage(.transcribing(share.map { min(100, Int(($0 * 100).rounded(.down))) }), for: sessionID)
+    }
 }

@@ -48,6 +48,16 @@ nonisolated struct KeyboardLayout: Identifiable, Sendable {
     let charByPress: [KeyPress: Character]
     let pressByChar: [Character: KeyPress]
 
+    /// Every letter of `text` sits on this layout's keys — the text could
+    /// have been typed on it. Punctuation doesn't count: on US the keys
+    /// of «, . ; '» are «б ю ж э» on Russian, so Cyrillic with a comma
+    /// still "converts" out of US, and only letters say where it was
+    /// typed.
+    func typesAllLetters(of text: String) -> Bool {
+        let letters = text.filter(\.isLetter)
+        return !letters.isEmpty && letters.allSatisfy { pressByChar[$0] != nil }
+    }
+
     /// This text as it WOULD have come out had `other` been active.
     ///
     /// Returns nil when nothing would change — same layout, or every

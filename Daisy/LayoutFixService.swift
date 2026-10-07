@@ -37,7 +37,9 @@ final class LayoutFixService {
     private init() {}
 
     func trigger(settings: AppSettings) async {
-        guard !isRunning else { return }
+        // Belt and braces: the shortcut isn't registered while the fixer
+        // is off, but nothing re-types text past this line either.
+        guard settings.layoutFixEnabled, !isRunning else { return }
 
         guard KeyboardLayouts.shared.installed.count > 1 else {
             ToastCenter.shared.show(

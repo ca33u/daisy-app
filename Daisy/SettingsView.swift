@@ -214,7 +214,12 @@ struct SettingsView: View {
     @State private var settingsTab: SettingsTab = .general
     /// The tabs as the toolbar's own tab control (see ToolbarTabs).
     @State private var toolbarTabs = ToolbarTabs(identifier: "app.essazanov.Daisy.settingsTabs")
+    /// True from the first install attempt on — guards against starting
+    /// a second one.
     @State private var toolbarTabsInstalled = false
+    /// The fallback strip above the page shows only once the toolbar
+    /// refused the tabs after every retry, not while they are on the way.
+    @State private var toolbarTabsFailed = false
     /// Live `/api/tags` model list for the Ollama picker (empty until
     /// fetched / when the server is unreachable → static catalog).
     @State private var ollamaInstalledModels: [String] = []
@@ -279,7 +284,7 @@ struct SettingsView: View {
         // model / recording start-stop cycles rather than the segmented
         // control itself.
         VStack(spacing: 12) {
-            if !toolbarTabsInstalled { settingsTabsHeader }
+            if toolbarTabsFailed { settingsTabsHeader }
             Group {
                 switch settingsTab {
                 case .general:       generalTab
@@ -297,11 +302,12 @@ struct SettingsView: View {
             toolbarTabs.onSelect = { index in
                 if Self.tabOrder.indices.contains(index) { settingsTab = Self.tabOrder[index] }
             }
-            toolbarTabs.onLost = { toolbarTabsInstalled = false }
-            toolbarTabsInstalled = toolbarTabs.install(
+            toolbarTabs.onLost = { toolbarTabsFailed = true }
+            toolbarTabsInstalled = true
+            toolbarTabs.installRetrying(
                 in: window, titles: tabTitles,
-                selected: Self.tabOrder.firstIndex(of: settingsTab) ?? 0
-            )
+                selected: { Self.tabOrder.firstIndex(of: settingsTab) ?? 0 }
+            ) { ok in toolbarTabsFailed = !ok }
         })
         .onChange(of: settingsTab) { _, tab in
             toolbarTabs.select(Self.tabOrder.firstIndex(of: tab) ?? 0)
@@ -309,6 +315,7 @@ struct SettingsView: View {
         .onDisappear {
             toolbarTabs.uninstall()
             toolbarTabsInstalled = false
+            toolbarTabsFailed = false
         }
         // Consume any one-shot deep-link from AppNavigation. Set on
         // appear (initial entry into Settings) AND on change (user
@@ -437,10 +444,12 @@ struct SettingsView: View {
                             && (existing.modifiers ?? 0) == (newValue.modifiers ?? 0)
                     }
                     if let owner {
-                        ToastCenter.shared.show(
-                            String(localized: "\(newValue.label) is already assigned to “\(owner.displayName)”. Free it up there first."),
-                            style: .warning
-                        )
+                        // The layout fixer's row is disabled while the fixer
+                        // is off, so "free it up there" would point nowhere.
+                        let message = owner == .layoutFix && !settings.layoutFixEnabled
+                            ? String(localized: "\(newValue.label) is kept for the layout fixer, which is off. Turn it on in Transcription → Keyboard layout to change or clear that shortcut.")
+                            : String(localized: "\(newValue.label) is already assigned to “\(owner.displayName)”. Free it up there first.")
+                        ToastCenter.shared.show(message, style: .warning)
                         return
                     }
                 }
@@ -1081,6 +1090,10 @@ struct SettingsView: View {
                 Text("Profile")
             }
 
+            // How hard Daisy works during and after a meeting — three
+            // plans compared side by side (Egor, 07.10.2026).
+            ProcessingPresetSection(settings: settings)
+
             // ── Appearance ────────────────────────────────────
             // Single home for every on-screen display setting Daisy
             // exposes (1.0.7.19). Consolidated from three scattered
@@ -1177,7 +1190,9 @@ struct SettingsView: View {
                 // purge fires from RecordingSession.finalizePostStop; the
                 // time options are swept by AudioRetentionSweep.
                 HStack(alignment: .center, spacing: 10) {
-                    Text("Delete audio after")
+                    // "Delete audio after" read wrong next to "Don't record
+                    // audio" and "Keep forever", in both languages.
+                    Text("Audio storage")
                         .font(.callout.weight(.medium))
                     Spacer()
                     Picker("", selection: $settings.audioRetentionDays) {
@@ -1300,6 +1315,10 @@ struct SettingsView: View {
                     binding: $settings.layoutFixHotkey,
                     slot: .layoutFix
                 )
+                // Inert while the layout fixer is off (Transcription →
+                // Keyboard layout), and shown so.
+                .disabled(!settings.layoutFixEnabled)
+                .help(settings.layoutFixEnabled ? "" : String(localized: "Turn on the layout fixer in Transcription → Keyboard layout."))
                 shortcutRow(
                     title: "Mark this moment",
                     caption: "While recording, flag the minute you’re in — it lands in the transcript and leads the summary",
@@ -1531,7 +1550,9 @@ struct SettingsView: View {
                             ? String(format: String(localized: "%.1f GB"), Double(model.sizeMB) / 1000.0)
                             : String(localized: "\(model.sizeMB) MB")
                         let name = model.id == WhisperEngine.defaultModelID
-                            ? "Standard" : String(localized: "Most accurate")
+                            // Keyed: «Модель» is feminine, while the shared
+                            // "Standard" key is «Стандартный» for the engine.
+                            ? String(localized: "model.standard", defaultValue: "Standard") : String(localized: "Most accurate")
                         Text("\(name) · \(size)").tag(model.id)
                     }
                 } label: {
@@ -1681,9 +1702,11 @@ struct SettingsView: View {
                 // sensible default; Full is heavier; Off transcribes once on
                 // Stop. The final saved transcript is always full quality,
                 // and dictation always runs live regardless of this.
+                // Same words as the plans in General (Egor, 07.10.2026),
+                // and feminine to agree with «Живая транскрипция».
                 Picker("Live transcript", selection: $settings.liveTranscriptionTier) {
-                    Text("Off").tag(LiveTranscriptionTier.off)
-                    Text("Standard").tag(LiveTranscriptionTier.lite)
+                    Text("After the meeting").tag(LiveTranscriptionTier.off)
+                    Text("Optimal").tag(LiveTranscriptionTier.lite)
                     Text("Full · uses more memory").tag(LiveTranscriptionTier.full)
                 }
                 .pickerStyle(.menu)
@@ -1697,6 +1720,15 @@ struct SettingsView: View {
             // input. The shortcut itself is bound in Recording →
             // Shortcuts with the others.
             Section {
+                // The one switch: off, nothing below runs — not the
+                // watcher, not the shortcut (Egor, 07.10.2026).
+                Toggle(isOn: $settings.layoutFixEnabled) {
+                    Text("Layout fixer")
+                    Text("Re-types text typed in the wrong keyboard layout: «ghbdtn» → «привет».")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if settings.layoutFixEnabled {
                 Toggle(isOn: $settings.layoutFixAuto) {
                     Text("Fix the layout as I type")
                     // The toggle's stated intent and what is actually
@@ -1734,12 +1766,32 @@ struct SettingsView: View {
                 .onChange(of: systemPermissions.accessibility) { _, _ in
                     layoutFixRecheck &+= 1
                 }
+                // Turning the master switch on starts a watcher that was
+                // already wanted; recheck after it starts, as above.
+                .onChange(of: settings.layoutFixEnabled) { _, _ in
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(400))
+                        layoutFixRecheck &+= 1
+                    }
+                }
                 .help("Corrects words that are gibberish in one layout and a real word in another, as you finish them — including the word you press Return on. Needs Accessibility access.")
 
                 Toggle(isOn: $settings.layoutFixSwitchesSource) {
                     Text("Switch the input source after a fix")
                 }
                 .help("Otherwise the fix lands on one word and the next one goes wrong the same way.")
+
+                // The shortcut lives in Recording → Shortcuts with the
+                // others AND here: with both toggles above off, a user
+                // still had her selection re-typed in Cyrillic by the
+                // shortcut she had set in onboarding, and this section —
+                // the one she checked — never mentioned it (07.10.2026).
+                shortcutRow(
+                    title: "Fix the keyboard layout",
+                    caption: "«ghbdtn» becomes «привет» — the selection, or the word you're typing",
+                    binding: $settings.layoutFixHotkey,
+                    slot: .layoutFix
+                )
 
                 // Undo (one press of the fix shortcut, right after a fix)
                 // teaches the exceptions list — this row is where that
@@ -1757,6 +1809,7 @@ struct SettingsView: View {
                     .disabled(layoutFixExceptions.count == 0)
                 }
                 .help("Undoing a fix (press the shortcut right after) adds the word here so Daisy leaves it alone from then on.")
+                }
             } header: {
                 Text("Keyboard layout")
             } footer: {
@@ -2013,7 +2066,7 @@ struct SettingsView: View {
     /// first: a Mac with a single keyboard layout has nothing to switch
     /// between, and `LayoutAutoFix.start` bails silently.
     private var layoutFixCaption: String? {
-        guard settings.layoutFixAuto, !LayoutAutoFix.shared.isRunning else { return nil }
+        guard settings.layoutFixAutoActive, !LayoutAutoFix.shared.isRunning else { return nil }
         // A rival switcher outranks the permission hint: with Caramba or
         // Punto running, Accessibility can be granted and "not running
         // yet" would be true, useless, and the exact shape of caption
@@ -2323,7 +2376,9 @@ struct SettingsView: View {
     /// Row label = title + a status badge (which doubles as the model-
     /// download indicator). Shared by both Transcription rows.
     @ViewBuilder
-    private func transcriptionRowLabel(_ title: String, state: StatusBadge.State, message: String?) -> some View {
+    /// `LocalizedStringKey`, not `String`: a String title was shown
+    /// verbatim, so these three row labels were English in the Russian UI.
+    private func transcriptionRowLabel(_ title: LocalizedStringKey, state: StatusBadge.State, message: String?) -> some View {
         HStack(spacing: 8) {
             Text(title)
             StatusBadge(state: state, message: message)
@@ -2751,6 +2806,23 @@ struct SettingsView: View {
             }
             .pickerStyle(.menu)
 
+        case .gemini:
+            LabeledContent("API key") {
+                SecureField("", text: $settings.geminiAPIKey, prompt: Text("AIza…"))
+                    .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+            }
+            Picker("Model", selection: $summarizer.geminiModel) {
+                ForEach(GeminiAPISummarizer.availableModels, id: \.id) { item in
+                    Text(item.label).tag(item.id)
+                }
+                if !GeminiAPISummarizer.availableModels.contains(where: { $0.id == summarizer.geminiModel }) {
+                    Text(String(localized: "Custom: \(summarizer.geminiModel)")).tag(summarizer.geminiModel)
+                }
+            }
+            .pickerStyle(.menu)
+
         case .kimi:
             LabeledContent("API key") {
                 SecureField("", text: $settings.kimiAPIKey, prompt: Text("sk-…"))
@@ -3131,6 +3203,7 @@ struct SettingsView: View {
                   !summarizer.cursorModel.isEmpty else { return true }
             return settings.cursorAPIKey.isEmpty
         case .kimi: return settings.kimiAPIKey.isEmpty
+        case .gemini: return settings.geminiAPIKey.isEmpty
         case .ollama: return summarizer.ollamaBaseURL.isEmpty || summarizer.ollamaModel.isEmpty
         case .lmStudio: return summarizer.lmStudioBaseURL.isEmpty || summarizer.lmStudioModel.isEmpty
         case .mcp:
@@ -3162,6 +3235,8 @@ struct SettingsView: View {
             return String(localized: "Transcripts are sent to OpenAI over HTTPS using your own API key. Create one at platform.openai.com/api-keys — it's stored in your macOS Keychain. Each summary costs roughly $0.01–0.05.")
         case .cursor:
             return String(localized: "Transcripts are sent to Cursor through its Agent CLI using your API key, stored in macOS Keychain and passed only through `CURSOR_API_KEY`. Every run uses an empty temporary folder, never passes `--force`, and installs deny rules for shell, file reads/writes, and MCP.")
+        case .gemini:
+            return String(localized: "Transcripts are sent to Google over HTTPS using your own API key. Create one at aistudio.google.com/apikey — it's stored in your macOS Keychain. On a paid-tier key Google doesn't use your data to train its models; on a free-tier key it may. Roughly $0.01–0.03 per summary on 3.8 Flash.")
         case .kimi:
             return String(localized: "Transcripts are sent to Moonshot over HTTPS using your own API key — and Moonshot's documentation states that requests to its international endpoint are processed in China. Create a key at platform.kimi.ai — it's stored in your macOS Keychain. Cheapest of the cloud providers here: roughly $0.005–0.02 per summary on K2.6.")
         case .ollama:
@@ -3829,7 +3904,9 @@ private struct SummaryAccountConnectionRows: View {
         LabeledContent(accountLabel) {
             HStack(spacing: 10) {
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(account.email ?? account.displayName ?? String(localized: "Connected"))
+                    // Keyed: under «Аккаунт ChatGPT» it must be «Подключён»;
+                    // the shared "Connected" badge is «Подключено».
+                    Text(account.email ?? account.displayName ?? String(localized: "account.connected", defaultValue: "Connected"))
                     if let plan = account.plan {
                         Text(plan.capitalized)
                             .font(.caption2)

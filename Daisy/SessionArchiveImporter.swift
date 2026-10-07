@@ -76,7 +76,7 @@ nonisolated enum SessionArchiveImporter {
         var failures: [String] = []
         for archive in archives {
             do {
-                let directory = try await importArchive(archive)
+                _ = try await importArchive(archive)
                 imported += 1
             } catch {
                 log.error("Import of \(archive.lastPathComponent, privacy: .private) failed: \(error.localizedDescription, privacy: .public)")

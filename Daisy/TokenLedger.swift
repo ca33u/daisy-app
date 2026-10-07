@@ -96,6 +96,27 @@ nonisolated struct TokenSpend: Sendable {
         return spend
     }
 
+    /// Gemini's OpenAI-compatible endpoint: the same shape, but thinking
+    /// tokens — billed as output — have been seen outside
+    /// `completion_tokens` (only in `total_tokens`, or in
+    /// `completion_tokens_details.reasoning_tokens`). Take the largest
+    /// reading so the ledger never under-reports (2026-10-07).
+    static func geminiCompatible(from json: [String: Any]) -> TokenSpend {
+        var spend = openAICompatible(from: json)
+        guard let usage = json["usage"] as? [String: Any] else { return spend }
+        let prompt = intValue(usage["prompt_tokens"])
+        let completion = intValue(usage["completion_tokens"])
+        let fromTotal = intValue(usage["total_tokens"]) - prompt
+        var withReasoning = completion
+        if let details = usage["completion_tokens_details"] as? [String: Any] {
+            let reasoning = intValue(details["reasoning_tokens"])
+            // Only add when the reasoning isn't already inside completion.
+            if reasoning > 0, fromTotal >= completion + reasoning { withReasoning = completion + reasoning }
+        }
+        spend.outputTokens = max(completion, fromTotal, withReasoning)
+        return spend
+    }
+
     /// Ollama `/api/chat`: `prompt_eval_count` + `eval_count` at the top
     /// level. Known upstream quirk — `prompt_eval_count` can be absent
     /// or reset when the prompt is served from Ollama's own cache
@@ -338,6 +359,8 @@ nonisolated enum TokenCostEstimator {
     /// that is noise next to pricing four weeks of spend at one rate
     /// because of what today happens to be.
     private static let sonnet5StandardPricingStartDay = "2026-09-01"
+    /// Gemini 3.8 Flash leaves its introductory price on this day.
+    private static let gemini38StandardPricingStartDay = "2027-01-01"
 
     private static func price(
         for provider: SummaryProviderKind,
@@ -373,6 +396,23 @@ nonisolated enum TokenCostEstimator {
             }
             if id.hasPrefix("claude-haiku-4-5") {
                 return Price(input: 1, output: 5, cachedInput: 0.10, cacheWrite: 1.25, webSearch: 0.01)
+            }
+        case .gemini:
+            // ai.google.dev/gemini-api/docs/pricing, 2026-10-07. 3.8 Flash
+            // is on an introductory price that doubles on 1 January 2027;
+            // switching by date keeps the ledger from under-reporting
+            // after it, the one direction this table must never err in.
+            if id.hasPrefix("gemini-3.8-flash") {
+                return dayKey < gemini38StandardPricingStartDay
+                    ? Price(input: 0.75, output: 3.75, cachedInput: 0.075, cacheWrite: 0, webSearch: 0)
+                    : Price(input: 1.50, output: 7.50, cachedInput: 0.15, cacheWrite: 0, webSearch: 0)
+            }
+            if id.hasPrefix("gemini-3.5-flash-lite") {
+                return Price(input: 0.30, output: 2.50, cachedInput: 0.03, cacheWrite: 0, webSearch: 0)
+            }
+            if id.hasPrefix("gemini-3.1-pro") {
+                // The ≤200K-token tier; a meeting transcript stays under it.
+                return Price(input: 2, output: 12, cachedInput: 0.20, cacheWrite: 0, webSearch: 0)
             }
         case .kimi:
             // platform.kimi.ai, 2026-07-31. K3's cached input is a tenth
@@ -1018,7 +1058,7 @@ final class TokenLedger {
     /// rather than showing a number we'd be inventing.
     nonisolated static func isBilled(_ kind: SummaryProviderKind) -> Bool {
         switch kind {
-        case .anthropic, .openai, .cursor, .kimi: return true
+        case .anthropic, .openai, .cursor, .kimi, .gemini: return true
         case .appleIntelligence, .ollama, .lmStudio, .mcp, .agentCLI: return false
         }
     }

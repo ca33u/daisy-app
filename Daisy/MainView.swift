@@ -1165,6 +1165,12 @@ private struct HotkeyStopWiring: ViewModifier {
             .onChange(of: settings.layoutFixAuto) { _, _ in
                 ServiceWiring.applyLayoutAutoFix(settings: settings)
             }
+            // The master switch gates both halves: the watcher and the
+            // shortcut.
+            .onChange(of: settings.layoutFixEnabled) { _, _ in
+                ServiceWiring.applyLayoutAutoFix(settings: settings)
+                ServiceWiring.applyAllHotkeys(settings: settings, session: session)
+            }
             .onChange(of: settings.screenshotNotesEnabled) { _, _ in
                 ServiceWiring.applyScreenshotNotes(settings: settings)
             }

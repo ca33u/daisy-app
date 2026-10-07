@@ -1017,7 +1017,7 @@ final class WhisperEngine {
     /// (the dictation vocabulary). Default `[]` → no biasing, so meeting
     /// and voice-note passes are byte-identical to before. Only the
     /// dictation final pass populates it (see `Transcriber.runFinalPass`).
-    func transcribe(samples: [Float], language: String?, profile: DecodeProfile = .full, biasTerms: [String] = []) async throws -> [WhisperSegment] {
+    func transcribe(samples: [Float], language: String?, profile: DecodeProfile = .full, biasTerms: [String] = [], onProgress: (@MainActor (Double) -> Void)? = nil) async throws -> [WhisperSegment] {
         // A full pass decodes by speech spans. Started in the first
         // seconds after launch — a queued job — it used to find the
         // speech detector still loading and decode the whole file as one
@@ -1045,7 +1045,8 @@ final class WhisperEngine {
             language: language,
             profile: profile,
             biasTerms: biasTerms,
-            box: box
+            box: box,
+            onProgress: onProgress
         )
     }
 
@@ -1059,7 +1060,7 @@ final class WhisperEngine {
         modelID requestedModelID: String,
         profile: DecodeProfile = .full,
         biasTerms: [String] = [],
-        onProgress: ((Double) -> Void)? = nil
+        onProgress: (@MainActor (Double) -> Void)? = nil
     ) async throws -> [WhisperSegment] {
         // Same as the pass above: spans need the detector loaded.
         if profile == .full { _ = await prepareSpeechDetection() }
@@ -1178,7 +1179,7 @@ final class WhisperEngine {
         /// span — for a progress bar that moves inside a block
         /// (03.10.2026: a 3-minute import said «3 of 3 min» from its
         /// first second to its last).
-        onProgress: ((Double) -> Void)? = nil
+        onProgress: (@MainActor (Double) -> Void)? = nil
     ) async throws -> [WhisperSegment] {
 
         // Vocabulary biasing (dictation only — every other caller passes

@@ -40,6 +40,29 @@ final class SessionStore {
     /// written and the matching `StoredSession` has been reloaded.
     private(set) var sessionsGenerating: Set<String> = []
 
+    /// Where a generating session's post-Stop pipeline is, for the
+    /// summary skeleton. The summary is the LAST step: on a 30-minute
+    /// meeting the final Whisper pass alone ran 10+ minutes under a
+    /// line that said "Generating summary…" (2026-10-07). Absent for a
+    /// session whose generation doesn't report stages (end-of-day
+    /// summaries) — the skeleton then shows its plain summary line.
+    enum FinalizeStage: Equatable {
+        /// Final Whisper pass over both tracks; whole percent, or nil
+        /// before the archive length is known.
+        case transcribing(Int?)
+        case polishing
+        case readingScreens
+        case summarizing
+    }
+    private(set) var finalizeStages: [String: FinalizeStage] = [:]
+
+    /// Record a stage for a session that is generating. Ignored for any
+    /// other, so a stale finalize can't paint a stage on a done session.
+    func setFinalizeStage(_ stage: FinalizeStage, for sessionID: String) {
+        guard sessionsGenerating.contains(sessionID), finalizeStages[sessionID] != stage else { return }
+        finalizeStages[sessionID] = stage
+    }
+
     /// Folder name of the session CURRENTLY being recorded — set by
     /// `RecordingSession` at start. Used to avoid queueing the live folder
     /// for interrupted-recording recovery while its audio is still open.
@@ -862,6 +885,7 @@ final class SessionStore {
     /// `refresh()` so the new row appears.
     func finishGenerating(_ sessionID: String) async {
         sessionsGenerating.remove(sessionID)
+        finalizeStages.removeValue(forKey: sessionID)
         await reloadSession(id: sessionID)
     }
 

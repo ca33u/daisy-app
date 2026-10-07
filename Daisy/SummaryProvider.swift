@@ -24,6 +24,9 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
     case appleIntelligence
     case anthropic
     case openai
+    /// Google Gemini via its OpenAI-compatible endpoint, on the user's
+    /// AI Studio key. Added 2026-10-07; see GeminiAPISummarizer's header.
+    case gemini
     /// Cursor Agent CLI. API-key and Cursor-account routes share the same
     /// constrained subprocess transport. Account mode remains explicitly
     /// experimental because Cursor exposes an agent, not a tool-free model
@@ -67,6 +70,7 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
         case .appleIntelligence: return String(localized: "Apple Intelligence (on-device)")
         case .anthropic: return String(localized: "Anthropic Claude API")
         case .openai: return String(localized: "OpenAI")
+        case .gemini: return String(localized: "Google Gemini API")
         case .cursor: return String(localized: "Cursor")
         case .kimi: return String(localized: "Kimi API (Moonshot)")
         case .ollama: return String(localized: "Ollama (local)")
@@ -83,6 +87,7 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
         case .openai: return String(localized: "OpenAI")
         case .cursor: return String(localized: "Cursor")
         case .kimi: return String(localized: "Kimi")
+        case .gemini: return "Gemini"
         case .ollama: return String(localized: "Ollama")
         case .lmStudio: return String(localized: "LM Studio")
         case .mcp: return String(localized: "MCP")
@@ -97,7 +102,7 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
     }
 
     var requiresAPIKey: Bool {
-        self == .anthropic || self == .openai || self == .cursor || self == .kimi
+        self == .anthropic || self == .openai || self == .cursor || self == .kimi || self == .gemini
     }
 
     /// Six-words-ish, parallel structure so users can compare
@@ -112,6 +117,8 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
             return String(localized: "Sent to OpenAI over HTTPS, using your API key.")
         case .cursor:
             return String(localized: "Sent to Cursor by the Agent CLI on your Mac, using your API key.")
+        case .gemini:
+            return String(localized: "Sent to Google over HTTPS, using your API key.")
         case .kimi:
             // Says where, because Moonshot's own docs say the
             // international endpoint is served from China and a user

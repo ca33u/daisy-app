@@ -820,6 +820,7 @@ struct FirstRunView: View {
                 // to make the caption re-read the real state.
                 .id(layoutFixRecheck)
                 .onChange(of: settings.layoutFixAuto) { _, _ in
+                    syncLayoutFixEnabled()
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(400))
                         layoutFixRecheck &+= 1
@@ -831,9 +832,16 @@ struct FirstRunView: View {
                     color: .daisyAccent,
                     binding: $settings.layoutFixHotkey
                 )
+                .onChange(of: settings.layoutFixHotkey) { _, _ in syncLayoutFixEnabled() }
             }
             Spacer()
         }
+    }
+
+    /// Onboarding asks about the two halves, not the switch: choosing
+    /// either turns the layout fixer on, choosing neither leaves it off.
+    private func syncLayoutFixEnabled() {
+        settings.layoutFixEnabled = settings.layoutFixAuto || settings.layoutFixHotkey != .none
     }
 
     /// The toggle's stated intent (`settings.layoutFixAuto`) and what's
@@ -845,7 +853,7 @@ struct FirstRunView: View {
     /// what keeps this caption live on the same step-change / focus-
     /// activation refresh the rest of onboarding already relies on.
     private var layoutFixCaption: String? {
-        guard settings.layoutFixAuto, !LayoutAutoFix.shared.isRunning else { return nil }
+        guard settings.layoutFixAutoActive, !LayoutAutoFix.shared.isRunning else { return nil }
         // A rival switcher outranks the permission hint: with Caramba or
         // Punto running, Accessibility can be granted and this would
         // still say "not running yet" — true, useless, and the exact
@@ -1039,6 +1047,11 @@ struct FirstRunView: View {
                                 text: $settings.kimiAPIKey)
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 280)
+                case .gemini:
+                    SecureField(String(localized: "Gemini API key"),
+                                text: $settings.geminiAPIKey)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 280)
                 case .appleIntelligence:
                     Text("Runs on-device — no API key needed.")
                         .font(.caption)
@@ -1101,6 +1114,7 @@ struct FirstRunView: View {
         if appleIntelligenceAvailable { list.append(.appleIntelligence) }
         list.append(.anthropic)
         list.append(.openai)
+        list.append(.gemini)
         list.append(.kimi)
         if !list.contains(summarizer.providerKind) {
             list.append(summarizer.providerKind)

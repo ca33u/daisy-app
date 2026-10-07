@@ -56,6 +56,9 @@ final class ScreenshotNoteCapture {
         let noteDirectory: URL
         let imageName: String
         let createdAt: Date
+        /// Fixed at capture, so attaching the dictated context rewrites
+        /// the note into the same folder.
+        let folderSlug: String
     }
 
     /// How long dictation keeps being redirected. Long enough to notice
@@ -292,7 +295,8 @@ final class ScreenshotNoteCapture {
             return
         }
 
-        let markdown = Self.renderNote(imageName: imageName, created: now, context: nil)
+        let folderSlug = FolderStore.shared.defaultNoteFolderSlug
+        let markdown = Self.renderNote(imageName: imageName, created: now, context: nil, folderSlug: folderSlug)
         do {
             try Data(markdown.utf8).write(
                 to: noteDir.appendingPathComponent("transcript.md"), options: .atomic
@@ -303,7 +307,7 @@ final class ScreenshotNoteCapture {
             return
         }
 
-        pending = Pending(noteDirectory: noteDir, imageName: imageName, createdAt: now)
+        pending = Pending(noteDirectory: noteDir, imageName: imageName, createdAt: now, folderSlug: folderSlug)
         expiry?.cancel()
         expiry = Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.pendingWindow))
@@ -515,7 +519,8 @@ final class ScreenshotNoteCapture {
         let markdown = Self.renderNote(
             imageName: pending.imageName,
             created: pending.createdAt,
-            context: trimmed
+            context: trimmed,
+            folderSlug: pending.folderSlug
         )
         do {
             try Data(markdown.utf8).write(
@@ -593,7 +598,7 @@ final class ScreenshotNoteCapture {
     ///
     /// The image link is RELATIVE: the note lives in the same folder, and
     /// a relative link survives the vault being moved or synced.
-    nonisolated static func renderNote(imageName: String, created: Date, context: String?) -> String {
+    nonisolated static func renderNote(imageName: String, created: Date, context: String?, folderSlug: String = SessionFolder.inbox.slug) -> String {
         let iso = ISO8601DateFormatter()
         let df = DateFormatter()
         df.locale = Locale(identifier: "en_US_POSIX")
@@ -606,7 +611,7 @@ final class ScreenshotNoteCapture {
         lines.append("started: \(iso.string(from: created))")
         lines.append("duration_sec: 0")
         lines.append("daisy_kind: \(SessionKind.note.rawValue)")
-        lines.append("daisy_folder: \(SessionFolder.inbox.slug)")
+        lines.append("daisy_folder: \(folderSlug)")
         lines.append("daisy_screenshot_note: true")
         lines.append("---")
         lines.append("")

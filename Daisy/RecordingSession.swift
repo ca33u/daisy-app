@@ -1751,6 +1751,11 @@ final class RecordingSession {
         } else {
             currentMode = .meeting
         }
+        // A voice note nobody filed goes to the default notes project
+        // (Settings → Projects; Inbox unless set).
+        if currentMode == .voiceNote, folder == .inbox, meetingPreparationSnapshot == nil {
+            folder = FolderStore.shared.existingFolder(slug: FolderStore.shared.defaultNoteFolderSlug) ?? .inbox
+        }
 
         // Voice notes are no longer FORCED into the Notes folder: a note
         // is now identified by `daisy_kind: note` (RecordingSession.
@@ -2021,6 +2026,12 @@ final class RecordingSession {
         // Dictation IS the live transcript, so it always runs live at Full
         // regardless of the meeting tier; otherwise honour the user's tier.
         let tier: LiveTranscriptionTier = currentMode == .dictation ? .full : settings.liveTranscriptionTier
+        // Per recording, like the tier: the transcribers outlive any one
+        // session, and a Speakers toggle must reach the next recording.
+        // Never for dictation: the paste would wait on a diarizer for a
+        // text that has one speaker.
+        micTranscriber.diarizationEnabled = currentMode != .dictation && settings.diarizeMicrophone
+        systemTranscriber.diarizationEnabled = settings.diarizeRemoteSpeakers
         let micAudio = recorder.buffers
         // EXPERIMENTAL (dark): streaming Nemotron live preview for
         // dictation — replaces the Whisper live timer for this session
