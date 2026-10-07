@@ -37,7 +37,7 @@ struct SummaryProxyClientTests {
 
     private let transcript = """
     **[0:29 · Мария]** Привет, Влад! Я решила тебе отдать этих ребят.
-    **[0:57 · Мария]** Кирилл, добрый день! Пишите на kirill@aiby.com, договор пришлю Владу.
+    **[0:57 · Мария]** Кирилл, добрый день! Пишите на kirill@example.com, договор пришлю Владу.
     """
 
     @Test func namesAndContactsNeverLeaveThePhone() async throws {
@@ -48,7 +48,7 @@ struct SummaryProxyClientTests {
             credential: .subscription("jws"), knownPeople: ["Мария", "Влад", "Кирилл"])
 
         let sent = String(describing: ProxyStub.lastBody)
-        for secret in ["Мария", "Влад", "Кирилл", "kirill@aiby.com"] {
+        for secret in ["Мария", "Влад", "Кирилл", "kirill@example.com"] {
             #expect(!sent.contains(secret), "\(secret) left the phone")
         }
         #expect(ProxyStub.lastBody["signedTransaction"] as? String == "jws")
@@ -56,7 +56,7 @@ struct SummaryProxyClientTests {
         #expect(ProxyStub.lastBody["prompt"] == nil && ProxyStub.lastBody["system"] == nil)
 
         #expect(result.summary.summary == "Мария передаёт клиентов Влад")
-        #expect(result.summary.actionItems == ["Написать kirill@aiby.com"])
+        #expect(result.summary.actionItems == ["Написать kirill@example.com"])
         #expect(result.report.replacementsByKind[.email] == 1)
     }
 

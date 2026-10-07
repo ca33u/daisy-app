@@ -1,12 +1,75 @@
 # Daisy
 
-A local-first meeting recorder, push-to-talk dictation tool, and AI-notes app for macOS — with a local MCP server so Claude Desktop and Cursor can query your transcripts without anything leaving the Mac.
+A Mac app that records your meetings and transcribes them on-device, with a local MCP server so Claude can read your calls.
 
-[![Support Daisy on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/G3W723TUZD)
+![Daisy's Library with a meeting summary: decisions, next actions and a draft follow-up (demo data)](./Docs/assets/daisy-meeting.webp)
 
-Daisy captures meeting audio (microphone + system-audio loopback via ScreenCaptureKit), transcribes it on-device with Whisper on the Neural Engine, and produces a structured outline with action items and a draft follow-up. Audio and transcripts never leave the Mac unless you explicitly enable a remote summary provider. Remote summaries can use your own API key or an explicitly connected ChatGPT account; an optional on-device privacy filter pseudonymizes detected sensitive data before supported cloud requests.
+## Download
 
-End-user installation, FAQ, and the privacy story live at **<https://mydaisy.io>**. This README is for people building Daisy from source.
+- **[Latest release on GitHub](https://github.com/ca33u/daisy-app/releases/latest)** or **[mydaisy.io](https://mydaisy.io)** — the same signed, notarized DMG.
+- Apple Silicon (M1 or later), macOS 14 Sonoma or later. Intel Macs are not supported: the DMG is a universal build, but Intel builds are untested. The Apple Intelligence summarizer and the Apple SpeechAnalyzer dictation engine need macOS 26.
+- Updates arrive in the app through Sparkle.
+
+## Privacy, checkable
+
+- **Stays on the Mac:** audio, transcripts, summaries and speaker voice fingerprints, as plain files under `~/Library/Application Support/Daisy` (or a folder you pick). Transcription and speaker separation run on-device. No account, no telemetry, no analytics SDK.
+- **Leaves only after you turn it on:** transcript text, never audio, to the cloud summarizer you set up (Anthropic, OpenAI, Kimi or Cursor on your key, or your ChatGPT account); meeting titles and attendee names to Anthropic web search if you enable attendee research; a session you send to Notion, Linear, Slack, a webhook or another MCP server; session text, summaries, voice fingerprints and screenshots to your own iCloud if you turn on iPhone sync (audio never goes through the cloud); Google sign-in if you connect Google Calendar.
+- **Otherwise the network sees:** the update check and download from `mydaisy.io`, and the one-time download of the speech models you chose from `huggingface.co` (on macOS 26, Apple's speech engine fetches its language files from Apple).
+- **Check it yourself in ten minutes:** block Daisy in a firewall, set the summarizer to Apple Intelligence or a local model, record a meeting, and you still get a transcript and a summary. The steps and the hosts the app can reach are at <https://mydaisy.io/verify-local>.
+
+## MCP in five minutes
+
+Daisy runs an MCP server inside the app, so Claude Desktop, Claude Code, Cursor or Codex can search and read your meetings.
+
+1. In Daisy, open **Settings → Connections → MCP server** and turn on **MCP server**.
+2. Next to **Claude Desktop**, click the connect button. Daisy writes the entry into `claude_desktop_config.json` for you, access token included (Claude Desktop runs it through `npx`, so Node.js must be installed). Restart Claude Desktop.
+3. Ask Claude something like *"What did we decide about the launch date in last week's calls?"*
+
+To add it by hand, put this into `~/Library/Application Support/Claude/claude_desktop_config.json` (the token is on the same screen, under **Privacy → Access token → Copy**):
+
+```json
+{
+  "mcpServers": {
+    "daisy": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote@0.1.38",
+        "http://127.0.0.1:54321/sse",
+        "--transport",
+        "sse-only",
+        "--allow-http",
+        "--header",
+        "Authorization: Bearer <access token from Daisy>"
+      ]
+    }
+  }
+}
+```
+
+`mcp-remote` bridges Claude Desktop's stdio to Daisy's local HTTP endpoint. Clients that speak HTTP themselves can use `http://127.0.0.1:54321/mcp` directly.
+
+Tools:
+
+| | Tools | What they do |
+|---|---|---|
+| **Read** | `list_sessions`, `get_session`, `search_sessions`, `list_folders`, `list_destinations` | Read your sessions, folders and configured destinations. |
+| **Edit, local** | `set_session_title`, `rename_speaker` | Rename a session or name a speaker. Reversible: set the old title again, or pass an empty name to clear a speaker (a voice profile saved by the rename stays until you forget it in Settings). |
+| **Act, off by default** | `resummarize_session`, `route_session_to_destination`, `route_action_to_destination` | Regenerate a summary (replaces the stored one; uses your summarizer, which may be a cloud provider), or send a session or one next step to Notion, Linear, Slack, a webhook or another MCP server. Each send creates a new page, issue or message there. Enabled only after you turn on **Privacy → Allow actions from MCP clients**. |
+
+No tool can delete a session, audio or a transcript, or change Daisy's settings.
+
+How the server is fenced:
+
+- It binds to `127.0.0.1` only, so nothing outside your Mac can reach it, and it rejects requests whose `Host` or `Origin` is not local.
+- New setups require a bearer token kept in the Keychain, so other programs on your Mac can't read your transcripts without it.
+- The default port is `54321`; you can change it under **Advanced** on the same screen.
+
+More: <https://mydaisy.io/docs/mcp>.
+
+## License
+
+Apache License 2.0. You can use, modify and redistribute the code, including commercially, as long as you keep the license and copyright notices. Full text in [`LICENSE`](./LICENSE).
 
 ## What it does
 
@@ -20,18 +83,11 @@ Around the edges: morning and end-of-day summaries on Home, an opt-in keyboard-l
 
 The differentiator: Daisy ships a **local MCP server** bound to `127.0.0.1` that exposes your sessions as a queryable, actionable data source to any MCP client (Claude Desktop, Cursor, Codex). Because the transcript is already local, Daisy can be a local-only MCP source — something cloud meeting tools structurally can't offer.
 
-## Status
-
-- Latest release: see [`scripts/release-notes/`](./scripts/release-notes/) and <https://mydaisy.io/appcast.xml>. Beta ships from `main`; stable is promoted from a soaked beta (see [`RELEASING.md`](./RELEASING.md)).
-- Deployment target: macOS 14 Sonoma. The Apple Intelligence summarizer and the Apple SpeechAnalyzer dictation engine require macOS 26 Tahoe; everything else runs on 14+.
-- Apple Silicon (M1+). Signed with Developer ID, notarized, stapled, Sparkle EdDSA-signed for in-app updates.
-- License: **Apache 2.0** (see [`LICENSE`](./LICENSE)). Full public source — build it and verify there's no telemetry.
-
 ## Build from source
 
 Requirements:
 
-- Xcode 26+ (ships the macOS 26 SDK the project builds against)
+- Xcode 26+ (ships the macOS 26 SDK the project builds against). The app itself runs on macOS 14+.
 - An active Apple Developer account if you want a signed local build (unsigned builds are fine for development inside Xcode)
 
 Clone and open:
@@ -63,7 +119,7 @@ RELEASING.md            → branch/channel model and the release/promote/hotfix 
 Key services that drive the app:
 
 - `CoreAudioMicRecorder` — CoreAudio mic capture with route-change recovery and the archive `.caf` writer (replaced the old AVAudioEngine tap to fix route-change/Bluetooth dropouts)
-- `SystemAudioCapture` — `SCStream` loopback for the remote side of a meeting, Bluetooth-output detection, silent-capture warnings
+- `SystemAudioCapture` / `ProcessTapAudioCapture` — the remote side of a meeting. The main path on macOS 14.4+ is a Core Audio process tap (the smaller "System Audio Recording Only" permission; it keeps working with Bluetooth output). `SCStream` loopback is the fallback: on older macOS, before the tap permission is granted or after it is refused, when the tap fails to start, or when it hears nothing that `SCStream` does. Silent-capture detection and warnings
 - `Transcriber` / `WhisperEngine` — WhisperKit on-device transcription with a Silero VAD pre-pass
 - `ParakeetEngine` / `AppleSpeechEngine` — the two alternative dictation engines: FluidAudio Parakeet-TDT (low latency) and Apple SpeechAnalyzer (macOS 26, no model download); Whisper is the default
 - Diarization + speaker memory — FluidAudio (Pyannote) labels remote voices; named speakers are remembered locally by a short voice fingerprint
@@ -77,18 +133,9 @@ Key services that drive the app:
 - `VoiceProfile` — opt-in personalization learned from your dictations (and, optionally, your mic side of meetings)
 - `LayoutAutoFix` — opt-in keyboard-layout auto-correction via a CGEvent tap, with undo and per-app exceptions
 - `TokenLedger` — local token-usage accounting per cloud provider, shown on Home
-- `MCPServer` — the local MCP server on `127.0.0.1`; exposes nine tools (five read, four act) to Claude Desktop / Cursor / Codex
+- `MCPServer` — the local MCP server on `127.0.0.1`; exposes ten tools (five read, two local edits, three opt-in actions) to Claude Desktop / Cursor / Codex
 - `VoiceMemoScanner` / `VoiceMemoIngestor` — opt-in, on-device import of Apple Voice Memos to Markdown transcripts
 - Sparkle 2 — in-app auto-updates against `https://mydaisy.io/appcast.xml`
-
-## MCP server
-
-Daisy's MCP server turns your recordings into a live data source for AI clients, entirely on-device. Enable it in **Connections → MCP server** and use the one-click setup for Claude Desktop, Cursor, or Codex — the config is written for you. Nine tools, scoped to safe, reversible operations (no deleting, no editing transcript bodies):
-
-- **Read** — `list_sessions`, `get_session`, `search_sessions`, `list_folders`, `list_destinations`
-- **Act** — `resummarize_session`, `set_session_title`, `rename_speaker`, `route_session_to_destination` (Notion / Linear / Slack / webhook)
-
-Docs: <https://mydaisy.io/docs/mcp>.
 
 ## Reproducible benchmarks
 
@@ -114,6 +161,8 @@ Release notes for each version go in `scripts/release-notes/<shortVersion>.md` a
 
 ## Support and contact
 
+[![Support Daisy on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/G3W723TUZD)
+
 - Chat with the community → [Discord](https://discord.gg/JYCZRZXy6j)
 - Questions, ideas, show-and-tell → [GitHub Discussions](https://github.com/ca33u/daisy-app/discussions)
 - Product issues, feature requests → file an issue on this repo or email **support@mydaisy.io**
@@ -127,7 +176,3 @@ Release notes for each version go in `scripts/release-notes/<shortVersion>.md` a
 - [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) by Argmax — Apple Silicon Whisper inference (part of the Argmax OSS SDK)
 - [FluidAudio](https://github.com/FluidInference/FluidAudio) — Parakeet ASR + speaker diarization
 - [FoundationModels](https://developer.apple.com/documentation/foundationmodels) — on-device summarization via Apple Intelligence (macOS 26+)
-
-## License
-
-[Apache 2.0](./LICENSE).
