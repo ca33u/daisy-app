@@ -121,19 +121,6 @@ enum ClaudeDesktopConfig {
         return false
     }
 
-    /// Whether a `daisy` entry currently exists in the config file
-    /// (regardless of which port it targets). Cheap convenience for the
-    /// "Remove" affordance's enabled-state; richer info via
-    /// `entryState(port:)`.
-    static var isInstalled: Bool {
-        switch entryState(port: nil) {
-        case .installed, .installedDifferentPort:
-            return true
-        default:
-            return false
-        }
-    }
-
     /// Inspect the on-disk config and report where the `daisy` entry
     /// stands relative to `port`. Pass `nil` to skip the port match
     /// (treats any existing `daisy` entry as `.installed`). Never
@@ -164,15 +151,16 @@ enum ClaudeDesktopConfig {
 
         guard let port else { return .installed }
 
-        // Compare the embedded SSE URL against the port we'd write.
-        // The URL is the last positional element in `args` that starts
-        // with http; robust to flag re-ordering.
+        // Current means exactly the entry `install` would write now:
+        // the sh bridge, this port, this token, this script version.
+        // Anything else that still says "daisy" — an older script, the
+        // `npx mcp-remote` bridge before October 2026, a hand-written
+        // command — is present but wants rewriting.
         let args = (daisy["args"] as? [String]) ?? []
-        let existingURL = args.first { $0.hasPrefix("http://") || $0.hasPrefix("https://") }
-        let wanted = daisySSEURL(port: port)
-        if let existingURL, existingURL == wanted {
+        if daisy["command"] as? String == MCPStdioBridge.command, args == bridgeArguments(port: port) {
             return .installed
         }
+        let existingURL = args.first { $0.hasPrefix("http://") || $0.hasPrefix("https://") }
         return .installedDifferentPort(existingURL: existingURL ?? "(unknown)")
     }
 
@@ -191,7 +179,7 @@ enum ClaudeDesktopConfig {
                 try fm.createDirectory(at: dir, withIntermediateDirectories: true)
                 log.info("Created Claude support dir at \(dir.path, privacy: .private)")
             }
-            try mergeAndWrite(daisyURL: daisySSEURL(port: port), at: configFileURL)
+            try mergeAndWrite(port: port, at: configFileURL)
             log.info("Wrote Daisy entry into \(self.configFileURL.path, privacy: .private)")
             return .installed(configFileURL)
         } catch {
@@ -200,13 +188,15 @@ enum ClaudeDesktopConfig {
         }
     }
 
-    /// Silent refresh — used when the port changes without the user
-    /// pressing the button. No-op unless a `daisy` entry already
-    /// exists, so we never create a config the user didn't ask for.
-    /// Swallows errors (e.g. the user made the file malformed since
-    /// install) — the next manual press surfaces them properly.
+    /// Silent refresh — used when the server comes up on a new port or
+    /// the token setting changes, without the user pressing the button.
+    /// Rewrites only an existing entry that isn't current, so we never
+    /// create a config the user didn't ask for, and don't touch the
+    /// file when nothing changed. Swallows errors (e.g. the user made
+    /// the file malformed since install) — the next manual press
+    /// surfaces them properly.
     static func refreshIfInstalled(port: Int) {
-        guard isInstalled else { return }
+        guard case .installedDifferentPort = entryState(port: port) else { return }
         _ = install(port: port)
     }
 
@@ -257,7 +247,7 @@ enum ClaudeDesktopConfig {
     /// write back atomically. Refuses to overwrite a file whose
     /// contents aren't a JSON object — that almost certainly means the
     /// user has hand-written something we'd silently destroy.
-    private static func mergeAndWrite(daisyURL: String, at url: URL) throws {
+    private static func mergeAndWrite(port: Int, at url: URL) throws {
         let fm = FileManager.default
 
         var root: [String: Any] = [:]
@@ -283,38 +273,13 @@ enum ClaudeDesktopConfig {
 
         // Preserve every other mcpServers entry — only mutate ours.
         //
-        // Claude Desktop's current MCP config schema requires stdio
-        // transport (`command` + `args`), not the URL-based SSE shape
-        // SDKs accept. Bridge through `mcp-remote` (npm package,
-        // auto-fetched by `npx -y`), which wraps a remote SSE/HTTP MCP
-        // server into a stdio transport Claude accepts.
-        //
-        // Two flag tweaks were needed in 1.0.5.3 after a real-world
-        // pass-through stalled mid-session:
-        //   • `--transport sse-only` — pin the bridge to SSE so it
-        //     doesn't waste cycles trying the newer Streamable HTTP
-        //     endpoint first and falling back. Daisy speaks SSE.
-        //   • `--allow-http` — `mcp-remote` defaults to HTTPS-only;
-        //     loopback HTTP (127.0.0.1) needs explicit permission.
-        //
-        // Requires Node.js on the user's machine — surfaced in the
-        // Connections footer so non-devs know to install it first.
-        // Version-PINNED (supply-chain): an unpinned `npx -y mcp-remote`
-        // executes whatever the registry serves at launch time — a
-        // compromised release would run inside the bridge with access to
-        // every transcript the MCP server exposes. Pin + bump manually
-        // after reviewing the diff. (0.1.38 = current as of 2026-07-20.)
+        // Claude's config takes only stdio servers (`command` + `args`),
+        // no URL — so the entry is Daisy's sh + curl bridge, which needs
+        // nothing installed. See `MCPStdioBridge`.
         var mcpServers = root["mcpServers"] as? [String: Any] ?? [:]
-        var bridgeArgs: [String] = ["-y", "mcp-remote@0.1.38", daisyURL,
-                                    "--transport", "sse-only", "--allow-http"]
-        // When token auth is on, inject the bearer header so Claude
-        // Desktop keeps working without the user copying anything.
-        if MCPAccessToken.isRequired {
-            bridgeArgs += ["--header", "Authorization: Bearer \(MCPAccessToken.ensure())"]
-        }
         mcpServers["daisy"] = [
-            "command": "npx",
-            "args": bridgeArgs
+            "command": MCPStdioBridge.command,
+            "args": bridgeArguments(port: port)
         ]
         root["mcpServers"] = mcpServers
 
@@ -323,9 +288,15 @@ enum ClaudeDesktopConfig {
         // going to open this file at some point.
         let out = try JSONSerialization.data(
             withJSONObject: root,
-            options: [.prettyPrinted, .sortedKeys]
+            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         )
         try out.write(to: url, options: [.atomic])
+    }
+
+    /// The bridge's arguments with the token when one is required, so
+    /// Claude keeps working without the user copying anything.
+    private static func bridgeArguments(port: Int) -> [String] {
+        MCPStdioBridge.arguments(port: port, token: MCPAccessToken.isRequired ? MCPAccessToken.ensure() : nil)
     }
 
     private static func configError(_ message: String) -> NSError {
@@ -336,7 +307,4 @@ enum ClaudeDesktopConfig {
         )
     }
 
-    private static func daisySSEURL(port: Int) -> String {
-        "http://127.0.0.1:\(port)/sse"
-    }
 }

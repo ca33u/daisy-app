@@ -23,6 +23,7 @@ import Foundation
 @MainActor
 enum CursorMCPConfig {
     enum EntryState: Equatable {
+        case cursorNotInstalled
         case notInstalled
         case installed
         case installedDifferentPort
@@ -49,8 +50,18 @@ enum CursorMCPConfig {
         configDirectory.appendingPathComponent("mcp.json", isDirectory: false)
     }
 
+    /// Cursor creates `~/.cursor` on first launch; the bundle covers a
+    /// copy that was installed but never opened.
+    private static var cursorLooksInstalled: Bool {
+        let fm = FileManager.default
+        return fm.fileExists(atPath: configDirectory.path)
+            || fm.fileExists(atPath: "/Applications/Cursor.app")
+            || fm.fileExists(atPath: "\(NSHomeDirectory())/Applications/Cursor.app")
+    }
+
     static func entryState(port: Int) -> EntryState {
         let fm = FileManager.default
+        guard cursorLooksInstalled else { return .cursorNotInstalled }
         guard fm.fileExists(atPath: configURL.path),
               let data = try? Data(contentsOf: configURL),
               !data.isEmpty else {
@@ -67,10 +78,13 @@ enum CursorMCPConfig {
         // Streamable HTTP endpoint. Anything else that still says
         // "daisy" — a wrong port, or a pre-2026-08 mcp-remote bridge —
         // is present but wants rewriting.
-        if let url = daisy["url"] as? String {
-            return url == daisyStreamableURL(port: port) ? .installed : .installedDifferentPort
+        // The token counts too, so turning it on rewrites the entry.
+        let wantedAuth = MCPAccessToken.isRequired ? "Bearer \(MCPAccessToken.ensure())" : nil
+        guard daisy["url"] as? String == daisyStreamableURL(port: port),
+              (daisy["headers"] as? [String: String])?["Authorization"] == wantedAuth else {
+            return .installedDifferentPort
         }
-        return .installedDifferentPort
+        return .installed
     }
 
     @discardableResult
@@ -139,13 +153,10 @@ enum CursorMCPConfig {
         }
     }
 
+    /// Rewrites only an existing entry that isn't current.
     static func refreshIfInstalled(port: Int) {
-        switch entryState(port: port) {
-        case .installed, .installedDifferentPort:
-            _ = install(port: port)
-        case .notInstalled, .malformed:
-            break
-        }
+        guard entryState(port: port) == .installedDifferentPort else { return }
+        _ = install(port: port)
     }
 
     private static func daisyStreamableURL(port: Int) -> String {

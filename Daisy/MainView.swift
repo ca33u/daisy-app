@@ -1241,5 +1241,16 @@ private struct CalendarServerWiring: ViewModifier {
                     ServiceWiring.applyMCPServer(settings: settings)
                 }
             }
+            .onChange(of: MCPServer.shared.state) { _, state in
+                if case .running(let port) = state {
+                    Task { await ServiceWiring.refreshMCPClients(port: port) }
+                }
+            }
+            // The server can be up before this view first appears.
+            .onAppear {
+                if case .running(let port) = MCPServer.shared.state {
+                    Task { await ServiceWiring.refreshMCPClients(port: port) }
+                }
+            }
     }
 }

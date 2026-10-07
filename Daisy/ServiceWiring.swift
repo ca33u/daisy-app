@@ -239,6 +239,22 @@ enum ServiceWiring {
         }
     }
 
+    /// Bring every MCP client entry the user already made up to date
+    /// with the server that just came up: its port, the token setting,
+    /// the current bridge. Called once the listener is RUNNING, not when
+    /// the port setting changes — at that moment the old port is still
+    /// bound, and refreshing then wrote the old port back (2026-10-07).
+    /// Each refresh touches only an entry that exists and isn't current,
+    /// so launches with nothing to change write nothing; it's also what
+    /// moves a pre-October-2026 `npx mcp-remote` entry to the sh bridge
+    /// without the user doing anything.
+    static func refreshMCPClients(port: Int) async {
+        ClaudeDesktopConfig.refreshIfInstalled(port: port)
+        CursorMCPConfig.refreshIfInstalled(port: port)
+        await CodexMCPConfig.refreshIfInstalled(port: port)
+        await ClaudeCodeMCPConfig.refreshIfInstalled(port: port)
+    }
+
     /// Start or stop the end-of-day summary poll. Idempotent; the
     /// scheduler itself no-ops for any timing other than `.endOfDay`.
     static func applyEndOfDaySummaries(settings: AppSettings, session: RecordingSession) {

@@ -22,32 +22,16 @@ A Mac app that records your meetings and transcribes them on-device, with a loca
 Daisy runs an MCP server inside the app, so Claude Desktop, Claude Code, Cursor or Codex can search and read your meetings.
 
 1. In Daisy, open **Settings → Connections → MCP server** and turn on **MCP server**.
-2. Next to **Claude Desktop**, click the connect button. Daisy writes the entry into `claude_desktop_config.json` for you, access token included (Claude Desktop runs it through `npx`, so Node.js must be installed). Restart Claude Desktop.
+2. Next to **Claude**, click **Connect**, then restart Claude. One connection covers its chats, Cowork and the Code tab. Nothing to install: the entry Daisy writes into `claude_desktop_config.json` runs a few lines of `/bin/sh` and `/usr/bin/curl`, both part of macOS (no Node.js, no `npx`). Claude Code in the Terminal, Codex and Cursor have their own **Connect** buttons on the same screen.
 3. Ask Claude something like *"What did we decide about the launch date in last week's calls?"*
 
-To add it by hand, put this into `~/Library/Application Support/Claude/claude_desktop_config.json` (the token is on the same screen, under **Privacy → Access token → Copy**):
+By hand: clients that speak Streamable HTTP use `http://127.0.0.1:54321/mcp` directly, with the header `Authorization: Bearer <access token>` (the token is on the same screen, under **Privacy → Access token → Copy**). For Claude Code:
 
-```json
-{
-  "mcpServers": {
-    "daisy": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "mcp-remote@0.1.38",
-        "http://127.0.0.1:54321/sse",
-        "--transport",
-        "sse-only",
-        "--allow-http",
-        "--header",
-        "Authorization: Bearer <access token from Daisy>"
-      ]
-    }
-  }
-}
+```bash
+claude mcp add --scope user --transport http daisy http://127.0.0.1:54321/mcp --header "Authorization: Bearer <access token>"
 ```
 
-`mcp-remote` bridges Claude Desktop's stdio to Daisy's local HTTP endpoint. Clients that speak HTTP themselves can use `http://127.0.0.1:54321/mcp` directly.
+Claude's own config file takes only a command, not a URL; let Daisy write that entry, or use any stdio-to-HTTP bridge such as `mcp-remote`.
 
 Tools:
 

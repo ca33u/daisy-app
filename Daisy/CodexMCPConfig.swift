@@ -2,9 +2,12 @@
 //  CodexMCPConfig.swift
 //  Daisy
 //
-//  One-click setup for the local Codex app / CLI. Daisy speaks MCP over
-//  HTTP+SSE; Codex currently registers URL servers as Streamable HTTP, so
-//  we use the same pinned stdio bridge that powers the Claude Desktop setup.
+//  One-click setup for the local Codex app / CLI. Codex can register a
+//  Streamable HTTP server (`--url`), but takes its bearer token only from
+//  an environment variable — which the Codex app, started from the Dock,
+//  doesn't have. So Codex gets the same stdio entry as Claude — Daisy's
+//  sh + curl bridge (`MCPStdioBridge`), token as an argument, nothing to
+//  install.
 //  The Codex CLI owns TOML parsing and merging — Daisy never writes
 //  ~/.codex/config.toml itself.
 //
@@ -64,7 +67,19 @@ enum CodexMCPConfig {
               let section = daisySection(in: text) else {
             return .notInstalled
         }
-        return section.contains(daisySSEURL(port: port)) ? .installed : .installedDifferentPort
+        // Current = the bridge at this version, port and token. The
+        // `npx mcp-remote` entry from before October 2026 fails the name
+        // check and gets rewritten by the repair.
+        let token = MCPAccessToken.isRequired ? MCPAccessToken.ensure() : nil
+        guard section.contains("\"\(MCPStdioBridge.command)\""),
+              section.contains("\"\(MCPStdioBridge.name)\""),
+              section.contains("\"\(MCPStdioBridge.url(port: port))\""),
+              // A leftover token with the setting off is harmless: the
+              // server ignores a header it doesn't require.
+              token.map({ section.contains("\"\($0)\"") }) ?? true else {
+            return .installedDifferentPort
+        }
+        return .installed
     }
 
     /// Serializes CLI work. `install` is remove-then-add, and with the
@@ -76,13 +91,16 @@ enum CodexMCPConfig {
     /// Run `body` after any CLI work already queued. Keeps the file
     /// single-writer without making callers think about it.
     private static func serialized<T: Sendable>(_ body: @escaping @MainActor () async -> T) async -> T {
+        // The body runs INSIDE the chained task: chaining only the wait
+        // let a second body start while the first was suspended in its
+        // CLI call (review find, 2026-10-07).
         let previous = cliWork
-        let work = Task { @MainActor in
+        let work = Task { @MainActor () -> T in
             _ = await previous?.value
+            return await body()
         }
-        cliWork = work
-        await work.value
-        return await body()
+        cliWork = Task { _ = await work.value }
+        return await work.value
     }
 
     @discardableResult
@@ -108,13 +126,9 @@ enum CodexMCPConfig {
             return .failed("Codex isn't installed.")
         }
 
-        var bridgeArguments = [
-            "mcp", "add", "daisy", "--", "npx", "-y", "mcp-remote@0.1.38",
-            daisySSEURL(port: port), "--transport", "sse-only", "--allow-http"
-        ]
-        if MCPAccessToken.isRequired {
-            bridgeArguments += ["--header", "Authorization: Bearer \(MCPAccessToken.ensure())"]
-        }
+        let token = MCPAccessToken.isRequired ? MCPAccessToken.ensure() : nil
+        let bridgeArguments = ["mcp", "add", "daisy", "--", MCPStdioBridge.command]
+            + MCPStdioBridge.arguments(port: port, token: token)
         let result = await Task.detached { [bridgeArguments] in run(executable, arguments: bridgeArguments) }.value
         return result.status == 0 ? .installed : .failed(result.message)
     }
@@ -134,15 +148,16 @@ enum CodexMCPConfig {
         return result.status == 0 ? .removed : .failed(result.message)
     }
 
-    /// Keeps an already-approved Codex connection alive after the user
-    /// changes Daisy's port or enables token protection. Never creates a
-    /// new Codex configuration without an explicit button press.
+    /// Keeps an already-approved Codex connection current after the
+    /// server moves to a new port or the token setting changes. Runs the
+    /// CLI only for an entry that isn't current; never creates one
+    /// without an explicit button press.
     static func refreshIfInstalled(port: Int) async {
-        switch entryState(port: port) {
-        case .installed, .installedDifferentPort:
-            _ = await install(port: port)
-        case .notInstalled, .codexNotInstalled:
-            break
+        // The check runs inside the queue: checked outside, a refresh
+        // queued behind a Disconnect would add Daisy straight back.
+        await serialized {
+            guard entryState(port: port) == .installedDifferentPort else { return }
+            _ = await installUnserialized(port: port)
         }
     }
 
@@ -154,55 +169,7 @@ enum CodexMCPConfig {
         return String(afterMarker[..<end])
     }
 
-    private static func daisySSEURL(port: Int) -> String {
-        "http://127.0.0.1:\(port)/sse"
-    }
-
-    /// Run the codex CLI and collect what it said.
-    ///
-    /// `nonisolated` and read-before-wait, both deliberately:
-    ///
-    ///   • the previous version blocked the MAIN thread in
-    ///     `waitUntilExit()`, and `install(port:)` runs the CLI twice,
-    ///     so every edit of the MCP port froze the UI for a second or
-    ///     two of process startup;
-    ///   • it also read the pipes AFTER waiting, which is the classic
-    ///     deadlock — a child that writes more than the 64 KB pipe
-    ///     buffer blocks on the write while we block on the child, and
-    ///     the app hangs until Force Quit. `LogReporter` documents the
-    ///     same trap and avoids it; this one didn't (audit 2026-09-01).
-    ///
-    /// Callers must reach it through `Task.detached` — a nonisolated
-    /// async function would inherit the caller's executor under this
-    /// project's concurrency settings, which is exactly the main actor
-    /// we're trying to leave.
-    nonisolated private static func run(
-        _ executable: URL,
-        arguments: [String]
-    ) -> (status: Int32, message: String) {
-        let process = Process()
-        let output = Pipe()
-        let error = Pipe()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        process.environment = environment
-        process.standardOutput = output
-        process.standardError = error
-
-        do {
-            try process.run()
-            // Drain BEFORE waiting.
-            let stdout = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let stderr = String(data: error.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            process.waitUntilExit()
-            let message = (stderr.isEmpty ? stdout : stderr)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return (process.terminationStatus, message.isEmpty ? "Codex couldn't update its MCP settings." : message)
-        } catch {
-            return (1, error.localizedDescription)
-        }
+    nonisolated private static func run(_ executable: URL, arguments: [String]) -> (status: Int32, message: String) {
+        MCPClientCLI.run(executable, arguments: arguments, fallbackMessage: "Codex couldn't update its MCP settings.")
     }
 }
