@@ -155,7 +155,7 @@ and the [public evidence](./Benchmarks/reports/public/).
 DAISY_AUTO_PUSH=1 ./scripts/release.sh <shortVersion> <buildNumber> [stable|beta]
 ```
 
-Beta is the default channel from `main`; stable is promoted from a soaked beta with `./scripts/release.sh promote <version>` (no rebuild). Six steps: archive → export → notarize → DMG → publish to the [daisy-web](https://github.com/ca33u/daisy-web) repo → inject an `<item>` into `appcast.xml` and commit. Vercel auto-deploys the site within a couple of minutes. Full branch/channel model and the hotfix flow are in [`RELEASING.md`](./RELEASING.md).
+Beta is the default channel from `main`; stable is promoted from a soaked beta with `./scripts/release.sh promote <version>` (no rebuild). Six steps: archive → export → notarize → DMG → publish to the [daisy-web](https://github.com/ca33u/daisy-web) repo → inject an `<item>` into `appcast.xml` and commit. Vercel auto-deploys the site within a couple of minutes. Every stable version also becomes a [GitHub Release](https://github.com/ca33u/daisy-app/releases) with the same DMG (`./scripts/release.sh github-release <version>`). Full branch/channel model and the hotfix flow are in [`RELEASING.md`](./RELEASING.md).
 
 Release notes for each version go in `scripts/release-notes/<shortVersion>.md` as a flat markdown bullet list (`- one line per change`). The script extracts those bullets and embeds them in the appcast `<description>` so Sparkle shows them in its update sheet.
 

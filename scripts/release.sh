@@ -24,6 +24,9 @@
 #                        |     CFBundleVersion (build number, monotonic)
 #                        CFBundleShortVersionString (marketing version)
 #
+#   ./scripts/release.sh promote 1.0.1         (beta → stable, + GitHub Release)
+#   ./scripts/release.sh github-release 1.0.1  (GitHub Release only)
+#
 # The publish step copies the DMG, injects the appcast item, updates the
 # channel pointer, and commits daisy-web. DAISY_AUTO_PUSH=1 also pushes it.
 #
@@ -92,8 +95,108 @@ notarise_with_retry() {
 }
 
 # -----------------------------------------------------------------------------
+# github_release <marketing-version>
+#
+# Every stable release is also a GitHub Release with the SAME DMG the site
+# serves (2026-10-07): mydaisy.io says so, and that has to stay true. Runs
+# after `promote` and after a stable release; `release.sh github-release
+# <version>` runs it alone.
+#
+# The DMG is taken from daisy-web/public/downloads — the published bytes,
+# never a rebuild. The release hangs on the tag v<version>, which must
+# already be on GitHub: this script never pushes the app repository, so
+# for a stable/hotfix release (tagged after the build, see RELEASING.md)
+# it prints the command to run once the tag is pushed. Publishing is
+# gated behind DAISY_AUTO_PUSH=1, like the daisy-web push. Never fails
+# the release — the site is already published by the time this runs.
+# -----------------------------------------------------------------------------
+GITHUB_REPO="${DAISY_GITHUB_REPO:-ca33u/daisy-app}"
+
+github_release() {
+    local version="$1"
+    local tag="v${version}"
+    local dmg="${DAISY_WEB_REPO}/public/downloads/Daisy-${version}.dmg"
+    local notes="${DAISY_REPO}/scripts/release-notes/${version}.md"
+    local retry="./scripts/release.sh github-release ${version}"
+
+    echo "▸ GitHub Release ${tag} on ${GITHUB_REPO}…"
+    if [[ ! -f "${dmg}" ]]; then
+        echo "  ⚠ ${dmg} not found — no GitHub Release. Fix, then: ${retry}" >&2
+        return 0
+    fi
+    if [[ "${DAISY_AUTO_PUSH:-0}" != "1" ]]; then
+        echo "    Not published (DAISY_AUTO_PUSH is off). After pushing: ${retry}"
+        return 0
+    fi
+    if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
+        echo "  ⚠ gh missing or not signed in — no GitHub Release. Then: ${retry}" >&2
+        return 0
+    fi
+    if ! gh api "repos/${GITHUB_REPO}/git/ref/tags/${tag}" >/dev/null 2>&1; then
+        echo "    Tag ${tag} is not on GitHub yet. Push it (RELEASING.md), then: ${retry}"
+        return 0
+    fi
+    if gh release view "${tag}" -R "${GITHUB_REPO}" >/dev/null 2>&1; then
+        echo "  ⊘ GitHub Release ${tag} already exists — left as is"
+        return 0
+    fi
+
+    local sha body latest_flag="--latest=false" site_latest=""
+    if ! sha=$(shasum -a 256 "${dmg}" | awk '{print $1}') || [[ -z "${sha}" ]]; then
+        echo "  ⚠ couldn't hash ${dmg}. Retry: ${retry}" >&2
+        return 0
+    fi
+    if ! body=$(mktemp); then
+        echo "  ⚠ mktemp failed. Retry: ${retry}" >&2
+        return 0
+    fi
+    # "Latest" on GitHub only for the version the site's Download button
+    # serves — README links releases/latest, and a backfilled older
+    # version must not take the badge from it.
+    if [[ -f "${DAISY_WEB_REPO}/lib/latestVersion.ts" ]]; then
+        site_latest=$(sed -n 's/^export const LATEST_VERSION = "\(.*\)";$/\1/p' "${DAISY_WEB_REPO}/lib/latestVersion.ts")
+    fi
+    [[ "${site_latest}" == "${version}" ]] && latest_flag="--latest"
+    {
+        echo "Signed with Developer ID and notarized by Apple. The same DMG as on [mydaisy.io](https://mydaisy.io). Apple Silicon, macOS 14 Sonoma or later."
+        echo
+        echo "**SHA-256** \`${sha}\`"
+        echo
+        echo "Already installed? Daisy updates itself through Sparkle."
+        if [[ -f "${notes}" ]]; then
+            echo
+            echo "## What's new in ${version}"
+            echo
+            grep -E '^[-*] ' "${notes}" || true
+        fi
+    } > "${body}"
+
+    if gh release create "${tag}" "${dmg}" -R "${GITHUB_REPO}" --verify-tag \
+        --title "Daisy ${version}" --notes-file "${body}" "${latest_flag}" >/dev/null; then
+        echo "  ✓ https://github.com/${GITHUB_REPO}/releases/tag/${tag} (sha256 ${sha})"
+    else
+        echo "  ⚠ gh release create failed. Retry: ${retry}" >&2
+    fi
+    rm -f "${body}"
+    return 0
+}
+
+# -----------------------------------------------------------------------------
 # Args.
 # -----------------------------------------------------------------------------
+
+# ── GitHub Release only ──────────────────────────────────────────────
+# `release.sh github-release 1.0.8.23` — attach the published DMG to a
+# GitHub Release for a tag that is already on GitHub. For a stable or
+# hotfix release, run it after pushing the tag.
+if [[ "${1:-}" == "github-release" ]]; then
+    if [[ -z "${2:-}" ]]; then
+        echo "Usage: $0 github-release <marketing-version>" >&2
+        exit 1
+    fi
+    DAISY_AUTO_PUSH=1 github_release "$2"
+    exit 0
+fi
 
 # ── Promote mode ─────────────────────────────────────────────────────
 # `release.sh promote 1.0.8` — flip an already-published BETA release to
@@ -160,6 +263,7 @@ EOF
             fi
         fi
     )
+    github_release "${PROMOTE_VERSION}"
     exit 0
 fi
 
@@ -168,11 +272,20 @@ if [[ $# -lt 2 ]]; then
     echo "  e.g.  $0 1.0.1 3           # stable (default)" >&2
     echo "        $0 1.0.8 62 beta     # beta channel (opt-in clients only)" >&2
     echo "        $0 promote 1.0.8     # beta → stable, no rebuild" >&2
+    echo "        $0 github-release 1.0.8  # GitHub Release with the published DMG" >&2
     exit 1
 fi
 
 VERSION="$1"
 BUILD="$2"
+# A dotted version or a subcommand in the build slot (e.g. an older
+# release.sh that doesn't know `github-release`) must not slide into a
+# full release: the appcast check below would only print a bash
+# arithmetic error and carry on.
+if [[ ! "${VERSION}" =~ ^[0-9]+(\.[0-9]+)+$ || ! "${BUILD}" =~ ^[0-9]+$ ]]; then
+    echo "  ✗ expected <marketing-version> <build-number>, got '${VERSION}' '${BUILD}'" >&2
+    exit 1
+fi
 # Release channel: stable items carry no <sparkle:channel> tag (every
 # client sees them); beta items are tagged and only served to clients
 # that opted in (About → "Get beta updates").
@@ -705,6 +818,16 @@ if [[ -f "${PBXPROJ}" ]]; then
         -e "s/MARKETING_VERSION = [0-9][0-9.]\{3,\};/MARKETING_VERSION = ${VERSION};/g" \
         "${PBXPROJ}"
     echo "  ✓ project.pbxproj bumped to ${VERSION} (${BUILD}) — commit it with your next app-repo push"
+fi
+
+# -----------------------------------------------------------------------------
+# 8. Stable releases also go to GitHub Releases with the same DMG. The
+#    tag usually isn't pushed yet at this point (RELEASING.md §3), so
+#    this most often prints the one command to run after pushing it.
+# -----------------------------------------------------------------------------
+if [[ "${CHANNEL}" == "stable" ]]; then
+    echo
+    github_release "${VERSION}"
 fi
 
 echo

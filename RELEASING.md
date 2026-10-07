@@ -52,8 +52,11 @@ git push
 git switch main
 ```
 
-The command removes the beta channel tag from the existing appcast item and
-updates `lib/latestVersion.ts` to the same artifact.
+The command removes the beta channel tag from the existing appcast item,
+updates `lib/latestVersion.ts` to the same artifact, and (with
+`DAISY_AUTO_PUSH=1`) creates the GitHub Release `v<version>` with the DMG the
+site serves. The beta's tag is already on GitHub, so the GitHub Release needs
+no extra step.
 
 ## 3. Ship a stable hotfix
 
@@ -67,8 +70,21 @@ git merge --ff-only hotfix/<short-description>
 git tag v<version>
 git push origin stable v<version>
 git switch main
+./scripts/release.sh github-release <version>
 git merge stable
 ```
+
+Every stable version must also be a GitHub Release carrying the same DMG as
+mydaisy.io — the site says so. `release.sh` tries it at the end of a stable
+release, but the tag is usually not pushed yet then, so run
+`github-release` once it is — always from `main`. Until `stable` contains
+the 2026-10-07 `release.sh`, its older script reads `github-release <v>` as a
+version and build and starts a full stable release. It uploads `daisy-web/public/downloads/Daisy-<version>.dmg`, never a
+rebuild, marks it Latest only when it is the version the site's Download
+button serves, and leaves an existing release alone. If a version is ever
+republished with a new build under the same name, replace the asset by hand
+(`gh release upload v<version> <dmg> --clobber`) so GitHub and the site still
+match.
 
 Always review both generated commits and verify the deployed download before
 announcing a release. Keep all historical DMGs referenced by the appcast.
