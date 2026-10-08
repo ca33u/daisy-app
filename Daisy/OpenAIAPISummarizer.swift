@@ -114,13 +114,17 @@ nonisolated struct OpenAIAPISummarizer: SummaryProvider {
 
     // MARK: - Catalog of model IDs offered in Settings
 
-    /// Refreshed 2026-07-28. `gpt-4-turbo` is gone from the list because
-    /// it is deprecated with a 2026-10-23 shutdown (`gpt-5` /
-    /// `gpt-5-mini` follow on 2026-12-11).
-    /// Prices per MTok in/out: Sol $5/$30, Terra $2.50/$15, Luna $1/$6.
-    /// Terra leads because a meeting summary is a mid-difficulty job on
-    /// a lot of tokens — Sol's headroom rarely shows up in the output
-    /// and always shows up on the bill.
+    /// Refreshed 2026-10-08 (developers.openai.com/api/docs/pricing).
+    /// GPT-6 added: Astra $10/$50, 6.1 Sol $2/$10, Luna $0.10/$0.50 — all
+    /// on chat completions, all taking `reasoning_effort: low` and
+    /// `max_completion_tokens`. The 5.6 generation now: Sol $4/$20
+    /// (promotional, through at least 2026-11-21), Terra $2/$12, Luna
+    /// $0.20/$1.20; none is deprecated.
+    ///
+    /// Terra stays the default until GPT-6 has run Daisy's summary
+    /// request — json_object over a stream — on a real meeting
+    /// (Benchmarks/stream_gaps.py --model gpt-6.1-sol); 6.1 Sol is the
+    /// likely successor at a lower price.
     ///
     /// GPT-4o and GPT-4o mini stay on the list. They are not being shut
     /// down — they only fell out of the current price sheet — and mini
@@ -130,10 +134,13 @@ nonisolated struct OpenAIAPISummarizer: SummaryProvider {
     /// and there is no field to type the id back in.
     static let availableModels: [(id: String, label: String)] = [
         ("gpt-5.6-terra", "GPT-5.6 Terra (recommended)"),
-        ("gpt-5.6-sol",   "GPT-5.6 Sol (highest quality, slower)"),
-        ("gpt-5.6-luna",  "GPT-5.6 Luna (fastest, cheapest)"),
+        ("gpt-6.1-sol",   "GPT-6.1 Sol (newest)"),
+        ("gpt-6-astra",   "GPT-6 Astra (highest quality, priciest)"),
+        ("gpt-6-luna",    "GPT-6 Luna (fastest, cheapest)"),
+        ("gpt-5.6-sol",   "GPT-5.6 Sol"),
+        ("gpt-5.6-luna",  "GPT-5.6 Luna"),
         ("gpt-4o",        "GPT-4o (previous generation)"),
-        ("gpt-4o-mini",   "GPT-4o mini (previous generation, cheapest)"),
+        ("gpt-4o-mini",   "GPT-4o mini (previous generation)"),
     ]
 
     static let defaultModelID = "gpt-5.6-terra"
@@ -152,12 +159,14 @@ nonisolated struct OpenAIAPISummarizer: SummaryProvider {
         let id = model.lowercased()
         if id.contains("-pro") || id.contains("-chat") { return false }
         if id.hasPrefix("o1-mini") || id.hasPrefix("o1-preview") { return false }
-        return id.hasPrefix("gpt-5") || id.hasPrefix("o1") || id.hasPrefix("o3") || id.hasPrefix("o4")
+        return id.hasPrefix("gpt-5") || id.hasPrefix("gpt-6")
+            || id.hasPrefix("o1") || id.hasPrefix("o3") || id.hasPrefix("o4")
     }
 
     static func usesGPT5ParameterSet(_ model: String) -> Bool {
         let id = model.lowercased()
         return id.hasPrefix("gpt-5")
+            || id.hasPrefix("gpt-6")
             || id.hasPrefix("o1")
             || id.hasPrefix("o3")
             || id.hasPrefix("o4")

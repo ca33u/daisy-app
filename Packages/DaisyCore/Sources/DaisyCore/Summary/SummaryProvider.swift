@@ -69,6 +69,12 @@ public nonisolated enum SummaryProviderError: LocalizedError, Sendable {
     case httpError(provider: String, status: Int, body: String)
     case parseFailed(provider: String, message: String)
     case transcriptTooShort
+    /// The stream broke off after the answer had started (2026-10-08).
+    case streamInterrupted(provider: String, message: String)
+    /// The answer hit its token ceiling and is cut off.
+    case outputTruncated(provider: String)
+    /// The model declined to answer (`stop_reason: refusal`).
+    case refused(provider: String)
 
     public var errorDescription: String? {
         switch self {
@@ -77,6 +83,9 @@ public nonisolated enum SummaryProviderError: LocalizedError, Sendable {
         case .httpError(let p, let status, _): "\(p): HTTP \(status)."
         case .parseFailed(let p, let message): "\(p): \(message)"
         case .transcriptTooShort: String(localized: "The transcript is too short to summarize.")
+        case .streamInterrupted(let p, let message): "\(p): the answer broke off (\(message))."
+        case .outputTruncated(let p): "\(p): the answer was cut off at its length limit."
+        case .refused(let p): "\(p): the model declined to summarize this transcript."
         }
     }
 }
@@ -133,7 +142,7 @@ nonisolated enum CloudSummaryCall {
 
 public nonisolated struct AnthropicSummaryProvider: SummaryProvider {
     public let kind: SummaryProviderKind = .anthropic
-    public static let defaultModelID = "claude-sonnet-5"
+    public static let defaultModelID = "claude-sonnet-5-5"
     let model: String
     private let log = Logger(subsystem: DaisyCore.logSubsystem, category: "AnthropicSummarizer")
 
@@ -141,32 +150,18 @@ public nonisolated struct AnthropicSummaryProvider: SummaryProvider {
 
     public func summarize(transcript: String, title: String, localeHint: String?, singleVoice: Bool = false) async throws -> MeetingSummary {
         let (text, apiKey) = try CloudSummaryCall.prepare(transcript: transcript, keyAccount: SecretKey.anthropicAPIKey, provider: "Anthropic")
-        let body: [String: Any] = [
-            "model": model,
-            "max_tokens": 4096,
-            "system": SummaryPrompt.meetingSystemInstructions(localeHint: localeHint, singleVoice: singleVoice),
-            "messages": [["role": "user", "content": SummaryPrompt.meetingUserPrompt(title: title, transcript: text)]],
-        ]
-        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
-        request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.timeoutInterval = 60
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let json = try await CloudSummaryCall.send(request, provider: "Anthropic", log: log)
-        // Every TEXT block joined — thinking / tool blocks may come first.
-        guard let content = json["content"] as? [[String: Any]] else {
-            throw SummaryProviderError.invalidResponse(provider: "Anthropic")
-        }
-        let reply = content
-            .filter { ($0["type"] as? String) == "text" }
-            .compactMap { $0["text"] as? String }
-            .joined()
-        guard !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw SummaryProviderError.invalidResponse(provider: "Anthropic")
-        }
+        // Streamed, with room for thinking AND the answer — see
+        // AnthropicStreaming. A summary is mid-difficulty work over many
+        // tokens: medium effort keeps the thinking proportionate.
+        let body = AnthropicStreaming.body(
+            model: model,
+            maxTokens: 4096,
+            effort: "medium",
+            system: SummaryPrompt.meetingSystemInstructions(localeHint: localeHint, singleVoice: singleVoice),
+            messages: [["role": "user", "content": SummaryPrompt.meetingUserPrompt(title: title, transcript: text)]]
+        )
+        let request = try AnthropicStreaming.request(apiKey: apiKey, body: body)
+        let reply = try await AnthropicStreaming.text(request, log: log)
         return try CloudSummaryCall.decode(reply, provider: "Anthropic")
     }
 }
@@ -184,7 +179,8 @@ public nonisolated struct OpenAISummaryProvider: SummaryProvider {
     /// GPT-5 / o-series take `max_completion_tokens` and refuse a custom temperature.
     static func usesGPT5ParameterSet(_ model: String) -> Bool {
         let id = model.lowercased()
-        return id.hasPrefix("gpt-5") || id.hasPrefix("o1") || id.hasPrefix("o3") || id.hasPrefix("o4")
+        return id.hasPrefix("gpt-5") || id.hasPrefix("gpt-6")
+            || id.hasPrefix("o1") || id.hasPrefix("o3") || id.hasPrefix("o4")
     }
 
     public func summarize(transcript: String, title: String, localeHint: String?, singleVoice: Bool = false) async throws -> MeetingSummary {
@@ -228,6 +224,26 @@ public nonisolated struct KimiSummaryProvider: SummaryProvider {
 
     static func isThinkingModel(_ model: String) -> Bool { model.lowercased().hasPrefix("kimi-k3") }
 
+    /// K2.6 takes `thinking: disabled`; K2.7 Code rejects it.
+    static func canSkipThinking(_ model: String) -> Bool { model.lowercased().hasPrefix("kimi-k2.6") }
+
+    /// The parameters every current Kimi model accepts (2026-10-08): no
+    /// temperature or top_p — any custom value is an error — and
+    /// `max_completion_tokens`, which replaced the deprecated `max_tokens`.
+    /// K3 always reasons, at "max" unless told otherwise; K2.6 is told not
+    /// to; K2.7 Code always thinks and errors on "disabled".
+    static func applyParameters(to body: inout [String: Any], model: String, answerTokens: Int) {
+        if isThinkingModel(model) {
+            body["max_completion_tokens"] = max(answerTokens, 16_384)
+            body["reasoning_effort"] = "low"
+        } else if canSkipThinking(model) {
+            body["thinking"] = ["type": "disabled"]
+            body["max_completion_tokens"] = answerTokens
+        } else {
+            body["max_completion_tokens"] = max(answerTokens, 16_384)
+        }
+    }
+
     public func summarize(transcript: String, title: String, localeHint: String?, singleVoice: Bool = false) async throws -> MeetingSummary {
         let (text, apiKey) = try CloudSummaryCall.prepare(transcript: transcript, keyAccount: SecretKey.kimiAPIKey, provider: "Kimi")
         var body: [String: Any] = [
@@ -238,12 +254,7 @@ public nonisolated struct KimiSummaryProvider: SummaryProvider {
             ],
             "response_format": ["type": "json_object"],
         ]
-        if Self.isThinkingModel(model) {
-            body["max_completion_tokens"] = 16_384
-        } else {
-            body["max_tokens"] = 4096
-            body["temperature"] = 0.4
-        }
+        Self.applyParameters(to: &body, model: model, answerTokens: 8192)
         var request = URLRequest(url: Self.endpoint)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")

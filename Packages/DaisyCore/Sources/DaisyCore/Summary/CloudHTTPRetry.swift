@@ -38,11 +38,11 @@ nonisolated enum CloudHTTPRetry {
         throw lastError ?? URLError(.unknown)
     }
 
-    private static func isTransientStatus(_ code: Int) -> Bool {
+    static func isTransientStatus(_ code: Int) -> Bool {
         code == 429 || (500...599).contains(code)
     }
 
-    private static func isTransientURLError(_ error: any Error) -> Bool {
+    static func isTransientURLError(_ error: any Error) -> Bool {
         let ns = error as NSError
         guard ns.domain == NSURLErrorDomain else { return false }
         switch ns.code {
@@ -54,7 +54,7 @@ nonisolated enum CloudHTTPRetry {
         }
     }
 
-    private static func backoffDelay(forAttempt attempt: Int) -> TimeInterval {
+    static func backoffDelay(forAttempt attempt: Int) -> TimeInterval {
         pow(2.0, Double(attempt - 1))
     }
 }

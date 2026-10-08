@@ -264,6 +264,26 @@ struct CloudStreamingTests {
         #expect(acc.usage?["prompt_tokens"] as? Int == 30000)
     }
 
+    @Test("Kimi requests carry no temperature — every current model rejects one")
+    func kimiParameters() async throws {
+        func body(_ model: String) async throws -> [String: Any] {
+            let s = session([(200, openAISSE(summaryJSON, finish: "stop"))])
+            _ = try await KimiAPISummarizer(model: model, urlSession: s, apiKeyOverride: "test")
+                .summarize(transcript: twoHourTranscript, title: "Launch", localeHint: "en", task: .meeting(forceFollowUp: false))
+            return try requestJSON()
+        }
+        let k26 = try await body("kimi-k2.6")
+        #expect(k26["temperature"] == nil && k26["max_tokens"] == nil)
+        #expect((k26["thinking"] as? [String: Any])?["type"] as? String == "disabled")
+        #expect(k26["max_completion_tokens"] as? Int == 8192)
+        let k3 = try await body("kimi-k3")
+        #expect(k3["temperature"] == nil && k3["thinking"] == nil)
+        #expect(k3["reasoning_effort"] as? String == "low")
+        let code = try await body("kimi-k2.7-code")
+        #expect(code["temperature"] == nil && code["thinking"] == nil && code["reasoning_effort"] == nil)
+        #expect(code["max_completion_tokens"] as? Int == 16_384)
+    }
+
     @Test("OpenAI reasoning models are asked for low reasoning effort")
     func openAIReasoningEffort() async throws {
         let s = session([(200, openAISSE(summaryJSON, finish: "stop"))])

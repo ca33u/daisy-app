@@ -47,7 +47,7 @@ enum UserDefaultsMigration {
         // would only ever execute on a machine that had never launched
         // Daisy, i.e. one with nothing to migrate: dead code that looks
         // like a feature.
-        migrateSummaryModelsIfNeeded(defaults: defaults)
+        migrateSummaryModels(defaults: defaults)
 
         guard !defaults.bool(forKey: sentinelKey) else { return }
 
@@ -95,15 +95,16 @@ enum UserDefaultsMigration {
     /// shutdown list — they just fell out of the current price sheet —
     /// so anyone on them keeps working, and we leave them alone. That
     /// matters most for `gpt-4o-mini` at $0.15/$0.60: the cheapest thing
-    /// in the 5.6 generation is Luna at $1/$6, so "migrating" someone
+    /// in the 5.6 generation was Luna at $1/$6 (2026-07-28 prices), so "migrating" someone
     /// who deliberately picked the cheap model would multiply their bill
     /// by ~10 without asking. They still see the refreshed list in
     /// Settings; their own pick just isn't overwritten (Egor, 2026-07-28).
     ///
     /// `gpt-4-turbo` IS being shut down (2026-10-23), and the mapping
     /// follows OpenAI's own stated replacement. The Claude ones are
-    /// same-tier successors, and Sonnet 5 is currently CHEAPER than the
-    /// 4.6 it replaces ($2/$10 vs $3/$15 until 1 September).
+    /// same-tier successors, and Sonnet 5 is CHEAPER than the 4.6 it
+    /// replaces ($2/$10 vs $3/$15; the planned September rise to $3/$15
+    /// was cancelled).
     private static let modelMapping: [(key: String, from: String, to: String)] = [
         ("daisy.anthropicModel", "claude-sonnet-4-6", "claude-sonnet-5"),
         ("daisy.anthropicModel", "claude-opus-4-6",   "claude-opus-5"),
@@ -113,14 +114,40 @@ enum UserDefaultsMigration {
     /// Move anyone still pointed at a model we no longer list onto its
     /// successor. Exact-match only: a hand-typed id we don't recognise
     /// is the user's deliberate choice and stays untouched.
-    private static func migrateSummaryModelsIfNeeded(defaults: UserDefaults) {
-        guard !defaults.bool(forKey: modelSentinelKey) else { return }
+    /// Every model mapping, oldest first so they chain (4.6 → 5 → 5.5
+    /// in one launch). Internal for the tests.
+    static func migrateSummaryModels(defaults: UserDefaults) {
+        migrateSummaryModels(modelMapping, sentinel: modelSentinelKey, defaults: defaults)
+        migrateSummaryModels(modelMapping2026_10, sentinel: modelSentinelKey2026_10, defaults: defaults)
+    }
 
-        for (key, from, to) in modelMapping where defaults.string(forKey: key) == from {
+    // MARK: - Cloud summary models (2026-10)
+
+    private static let modelSentinelKey2026_10 = "daisy.migration.summaryModels2026_10"
+
+    /// The Claude 5.5 / 5.1 generation (2026-10-08): each successor costs
+    /// the same (Sonnet 5.5, Fable 5.1) or less (Opus 5.5, $4/$20 against
+    /// $5/$25). Haiku 4.5 is left alone — Haiku 5.5 is far cheaper but a
+    /// different model (it can refuse, with no fallback), and someone on
+    /// it picked it. The older ids stay in the picker either way.
+    private static let modelMapping2026_10: [(key: String, from: String, to: String)] = [
+        ("daisy.anthropicModel", "claude-sonnet-5", "claude-sonnet-5-5"),
+        ("daisy.anthropicModel", "claude-opus-5",   "claude-opus-5-5"),
+        ("daisy.anthropicModel", "claude-fable-5",  "claude-fable-5-1"),
+    ]
+
+    /// One pass over a mapping, once per sentinel. Exact-match only: a
+    /// hand-typed id we don't recognise stays untouched.
+    private static func migrateSummaryModels(
+        _ mapping: [(key: String, from: String, to: String)],
+        sentinel: String,
+        defaults: UserDefaults
+    ) {
+        guard !defaults.bool(forKey: sentinel) else { return }
+        for (key, from, to) in mapping where defaults.string(forKey: key) == from {
             defaults.set(to, forKey: key)
             log.info("Summary model \(from, privacy: .public) → \(to, privacy: .public)")
         }
-
-        defaults.set(true, forKey: modelSentinelKey)
+        defaults.set(true, forKey: sentinel)
     }
 }

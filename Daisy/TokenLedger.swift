@@ -312,10 +312,12 @@ nonisolated struct TokenCostEstimate: Sendable, Equatable {
 /// re-label weeks of real spend as "cost unknown".
 ///
 /// Checked 2026-07-28:
-/// - OpenAI GPT-5.6 Sol / Terra / Luna, plus retired GPT-4o / 4o mini /
+/// - OpenAI GPT-5.6 Sol / Terra / Luna (repriced and GPT-6 added
+///   2026-10-08), plus retired GPT-4o / 4o mini /
 ///   4 Turbo
 /// - Anthropic Claude Sonnet 5 / Opus 5 / Fable 5 / Haiku 4.5, plus the
-///   4.6 generation
+///   4.6 generation; Sonnet 5.5 / Opus 5.5 / Fable 5.1 / Haiku 5.5 added
+///   2026-10-08
 nonisolated enum TokenCostEstimator {
     private struct Price: Sendable {
         var input: Double
@@ -351,16 +353,16 @@ nonisolated enum TokenCostEstimator {
         return TokenCostEstimate(usd: usd, hasPricedUsage: true)
     }
 
-    /// The day Claude Sonnet 5 leaves introductory pricing, as a day
-    /// KEY — compared against `UsageStats.dayKey`, which sorts
+    /// Gemini 3.8 Flash leaves its introductory price on this day, as a
+    /// day KEY — compared against `UsageStats.dayKey`, which sorts
     /// chronologically as a string, so no date parsing per bucket.
     /// The provider's boundary is UTC and the keys are local, so a
     /// single day's spend either side may be priced at the other rate;
     /// that is noise next to pricing four weeks of spend at one rate
     /// because of what today happens to be.
-    private static let sonnet5StandardPricingStartDay = "2026-09-01"
-    /// Gemini 3.8 Flash leaves its introductory price on this day.
     private static let gemini38StandardPricingStartDay = "2027-01-01"
+    /// The first day after GPT-5.6 Sol's promotional price is promised.
+    private static let gpt56SolPromoEndDay = "2026-11-22"
 
     private static func price(
         for provider: SummaryProviderKind,
@@ -370,22 +372,36 @@ nonisolated enum TokenCostEstimator {
         let id = model.lowercased()
         switch provider {
         case .anthropic:
+            // platform.claude.com/docs/en/about-claude/pricing, 2026-10-08.
+            // The 5.5 / 5.1 ids before their prefixes' older siblings:
+            // `claude-opus-5` is also a prefix of `claude-opus-5-5`.
+            if id.hasPrefix("claude-sonnet-5-5") {
+                return Price(input: 2, output: 10, cachedInput: 0.10, cacheWrite: 2.50, webSearch: 0.01)
+            }
             if id.hasPrefix("claude-sonnet-5") {
-                // Introductory $2/$10 through 2026-08-31, $3/$15 after,
-                // applied per RECORDED DAY: the card's window rolls
-                // across the month boundary, so days on either side of
-                // the change sit in the same total and have to be priced
-                // separately.
-                let standard = dayKey >= Self.sonnet5StandardPricingStartDay
-                return standard
-                    ? Price(input: 3, output: 15, cachedInput: 0.30, cacheWrite: 3.75, webSearch: 0.01)
-                    : Price(input: 2, output: 10, cachedInput: 0.20, cacheWrite: 2.50, webSearch: 0.01)
+                // The $2/$10 announced as introductory became the standard
+                // price; the $3/$15 planned from 1 September never came.
+                return Price(input: 2, output: 10, cachedInput: 0.20, cacheWrite: 2.50, webSearch: 0.01)
+            }
+            if id.hasPrefix("claude-opus-5-5") {
+                return Price(input: 4, output: 20, cachedInput: 0.20, cacheWrite: 5, webSearch: 0.01)
             }
             if id.hasPrefix("claude-opus-5") {
                 return Price(input: 5, output: 25, cachedInput: 0.50, cacheWrite: 6.25, webSearch: 0.01)
             }
+            if id.hasPrefix("claude-fable-5-1") {
+                return Price(input: 10, output: 50, cachedInput: 0.25, cacheWrite: 12.50, webSearch: 0.01)
+            }
             if id.hasPrefix("claude-fable-5") {
                 return Price(input: 10, output: 50, cachedInput: 1.00, cacheWrite: 12.50, webSearch: 0.01)
+            }
+            if id.hasPrefix("claude-haiku-5-5") {
+                // Prompts up to 100K tokens; above that $0.50/$2.50. A
+                // summary prompt is a transcript — a two-hour meeting is
+                // well under 100K — and the ledger keeps per-day totals,
+                // not per-request sizes, so the lower tier is the honest
+                // single number.
+                return Price(input: 0.10, output: 0.50, cachedInput: 0.01, cacheWrite: 0.125, webSearch: 0.01)
             }
             if id.hasPrefix("claude-sonnet-4-6") {
                 // $3 / $15, cache write $3.75, cache read $0.30, web $10 / 1K.
@@ -433,17 +449,36 @@ nonisolated enum TokenCostEstimator {
                 return Price(input: 0.60, output: 3, cachedInput: 0, cacheWrite: 0, webSearch: 0)
             }
         case .openai:
-            // Cached input is 10% of input across the 5.6 family, and
             // Chat Completions caching is automatic — there is no
-            // separate cache-WRITE charge to model.
+            // separate cache-WRITE charge to model; cached input is 10%
+            // of input, except 5% on 6.1 Sol.
+            // developers.openai.com/api/docs/pricing, 2026-10-08 (the
+            // 5.6 prices fell since 2026-07-28). 5.6 Sol is promotional
+            // "at least through 2026-11-21" with no stated price after;
+            // from the 22nd it goes back to its launch $5/$30 — over-
+            // stating a promo that ran on beats under-stating its end.
+            if id.hasPrefix("gpt-6-astra") {
+                return Price(input: 10, output: 50, cachedInput: 1, cacheWrite: 0, webSearch: 0)
+            }
+            if id.hasPrefix("gpt-6.1-sol") {
+                return Price(input: 2, output: 10, cachedInput: 0.10, cacheWrite: 0, webSearch: 0)
+            }
+            if id.hasPrefix("gpt-6-sol") {
+                return Price(input: 2, output: 10, cachedInput: 0.20, cacheWrite: 0, webSearch: 0)
+            }
+            if id.hasPrefix("gpt-6-luna") {
+                return Price(input: 0.10, output: 0.50, cachedInput: 0.01, cacheWrite: 0, webSearch: 0)
+            }
             if id.hasPrefix("gpt-5.6-sol") {
-                return Price(input: 5, output: 30, cachedInput: 0.50, cacheWrite: 0, webSearch: 0)
+                return dayKey < Self.gpt56SolPromoEndDay
+                    ? Price(input: 4, output: 20, cachedInput: 0.40, cacheWrite: 0, webSearch: 0)
+                    : Price(input: 5, output: 30, cachedInput: 0.50, cacheWrite: 0, webSearch: 0)
             }
             if id.hasPrefix("gpt-5.6-terra") {
-                return Price(input: 2.50, output: 15, cachedInput: 0.25, cacheWrite: 0, webSearch: 0)
+                return Price(input: 2, output: 12, cachedInput: 0.20, cacheWrite: 0, webSearch: 0)
             }
             if id.hasPrefix("gpt-5.6-luna") {
-                return Price(input: 1, output: 6, cachedInput: 0.10, cacheWrite: 0, webSearch: 0)
+                return Price(input: 0.20, output: 1.20, cachedInput: 0.02, cacheWrite: 0, webSearch: 0)
             }
             if id.hasPrefix("gpt-4o-mini") {
                 return Price(input: 0.15, output: 0.60, cachedInput: 0.075, cacheWrite: 0, webSearch: 0)

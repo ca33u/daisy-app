@@ -230,12 +230,15 @@ nonisolated struct LMStudioAPISummarizer: SummaryProvider {
     /// `fetchLoadedModels` (what the server actually reports) beats it,
     /// and the user's own typing beats everything. Refreshed
     /// 2026-07-28 to the current generation and the publisher/model id
-    /// form LM Studio shows under "API Identifier".
+    /// form LM Studio shows under "API Identifier". Gemma 4 added
+    /// 2026-10-08 (lmstudio.ai/models/gemma-4).
     static let availableModels: [(id: String, label: String)] = [
         ("qwen/qwen3.5-4b",   "Qwen 3.5 4B — multilingual, recommended"),
         ("qwen/qwen3.5-9b",   "Qwen 3.5 9B — multilingual, more capable"),
-        ("google/gemma-3-4b", "Gemma 3 4B — fast"),
-        ("google/gemma-3-12b", "Gemma 3 12B"),
+        ("google/gemma-4-e4b", "Gemma 4 E4B — multilingual"),
+        ("google/gemma-4-12b", "Gemma 4 12B — more capable"),
+        ("google/gemma-3-4b", "Gemma 3 4B — older, fast"),
+        ("google/gemma-3-12b", "Gemma 3 12B — older"),
         ("openai/gpt-oss-20b", "GPT-OSS 20B"),
     ]
 

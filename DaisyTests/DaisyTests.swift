@@ -37,21 +37,21 @@ struct DaisyTests {
         #expect(abs(estimate.usd - 22.07) < 0.000_001)
     }
 
-    @Test("Sonnet 5 is priced by the day it was spent, not by today")
-    func tokenCostEstimate_sonnet5IntroductoryPricingIsPerDay() {
-        // The card's window rolls across the month boundary, so days on
-        // either side of the 2026-09-01 change sit in the same total.
-        // Pricing the whole window at "today's rate" was correct only
-        // while the window was one calendar month.
+    @Test("Sonnet 5 kept $2/$10; the 5.5 generation is priced on its own")
+    func tokenCostEstimate_claude5Generations() {
+        // The increase planned for 2026-09-01 never came, and the 5.5 /
+        // 5.1 ids must not fall through to their older siblings' prefix
+        // (`claude-opus-5` is a prefix of `claude-opus-5-5`).
         let spend = TokenSpend(inputTokens: 1_000_000, outputTokens: 1_000_000)
-        let intro = TokenCostEstimator.estimate(
-            provider: .anthropic, model: "claude-sonnet-5", spend: spend, on: "2026-08-31"
-        )
-        let standard = TokenCostEstimator.estimate(
-            provider: .anthropic, model: "claude-sonnet-5", spend: spend, on: "2026-09-01"
-        )
-        #expect(abs(intro.usd - 12.0) < 0.000_001)      // $2 + $10
-        #expect(abs(standard.usd - 18.0) < 0.000_001)   // $3 + $15
+        func usd(_ model: String) -> Double {
+            TokenCostEstimator.estimate(provider: .anthropic, model: model, spend: spend, on: "2026-10-08").usd
+        }
+        #expect(abs(usd("claude-sonnet-5") - 12.0) < 0.000_001)    // $2 + $10
+        #expect(abs(usd("claude-sonnet-5-5") - 12.0) < 0.000_001)  // $2 + $10
+        #expect(abs(usd("claude-opus-5-5") - 24.0) < 0.000_001)    // $4 + $20
+        #expect(abs(usd("claude-opus-5") - 30.0) < 0.000_001)      // $5 + $25
+        #expect(abs(usd("claude-fable-5-1") - 60.0) < 0.000_001)   // $10 + $50
+        #expect(abs(usd("claude-haiku-5-5") - 0.60) < 0.000_001)   // $0.10 + $0.50
     }
 
     // MARK: - The token card's window
@@ -136,7 +136,7 @@ struct DaisyTests {
         #expect(abs(estimate.usd - 36.77) < 0.000_001)
     }
 
-    @Test("GPT-5.6 Terra is priced at its 2026 list rates")
+    @Test("GPT-5.6 Terra is priced at its October 2026 list rates")
     func tokenCostEstimate_openAITerra() {
         let estimate = TokenCostEstimator.estimate(
             provider: .openai,
@@ -147,10 +147,10 @@ struct DaisyTests {
                 cachedInputTokens: 1_000_000
             )
         )
-        // $2.50 + $15 + $0.25. Chat Completions caching is automatic,
+        // $2 + $12 + $0.20. Chat Completions caching is automatic,
         // so there is no cache-write line to charge for.
         #expect(estimate.hasPricedUsage)
-        #expect(abs(estimate.usd - 17.75) < 0.000_001)
+        #expect(abs(estimate.usd - 14.20) < 0.000_001)
     }
 
     @Test("Every model Settings offers has a price")
@@ -164,6 +164,41 @@ struct DaisyTests {
             let estimate = TokenCostEstimator.estimate(provider: .openai, model: model, spend: spend)
             #expect(estimate.hasPricedUsage, "unpriced OpenAI model: \(model)")
         }
+        for model in KimiAPISummarizer.availableModels.map(\.id) {
+            let estimate = TokenCostEstimator.estimate(provider: .kimi, model: model, spend: spend)
+            #expect(estimate.hasPricedUsage, "unpriced Kimi model: \(model)")
+        }
+        for model in GeminiAPISummarizer.availableModels.map(\.id) {
+            let estimate = TokenCostEstimator.estimate(provider: .gemini, model: model, spend: spend)
+            #expect(estimate.hasPricedUsage, "unpriced Gemini model: \(model)")
+        }
+    }
+
+    @Test("Saved Claude models move to their same-tier successors, once")
+    func summaryModelMigrationChains() throws {
+        let suite = "daisy.tests.modelMigration.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        defaults.set("claude-sonnet-4-6", forKey: "daisy.anthropicModel")
+        UserDefaultsMigration.migrateSummaryModels(defaults: defaults)
+        // 4.6 → 5 (2026-07) → 5.5 (2026-10) in the same launch.
+        #expect(defaults.string(forKey: "daisy.anthropicModel") == "claude-sonnet-5-5")
+
+        // Each mapping runs once: a later pick of an older model stays.
+        defaults.set("claude-opus-5", forKey: "daisy.anthropicModel")
+        UserDefaultsMigration.migrateSummaryModels(defaults: defaults)
+        #expect(defaults.string(forKey: "daisy.anthropicModel") == "claude-opus-5")
+
+        for (from, to) in [("claude-opus-5", "claude-opus-5-5"), ("claude-fable-5", "claude-fable-5-1"),
+                           ("claude-haiku-4-5-20251001", "claude-haiku-4-5-20251001"), ("my-own-id", "my-own-id")] {
+            let fresh = "daisy.tests.modelMigration.\(UUID().uuidString)"
+            let other = try #require(UserDefaults(suiteName: fresh))
+            defer { other.removePersistentDomain(forName: fresh) }
+            other.set(from, forKey: "daisy.anthropicModel")
+            UserDefaultsMigration.migrateSummaryModels(defaults: other)
+            #expect(other.string(forKey: "daisy.anthropicModel") == to, "\(from)")
+        }
     }
 
     @Test("GPT-5 generation gets the newer Chat Completions parameters")
@@ -171,6 +206,8 @@ struct DaisyTests {
         #expect(OpenAIAPISummarizer.usesGPT5ParameterSet("gpt-5.6-terra"))
         #expect(OpenAIAPISummarizer.usesGPT5ParameterSet("gpt-5.6-sol"))
         #expect(OpenAIAPISummarizer.usesGPT5ParameterSet("o3-mini"))
+        #expect(OpenAIAPISummarizer.usesGPT5ParameterSet("gpt-6.1-sol"))
+        #expect(OpenAIAPISummarizer.takesLowReasoningEffort("gpt-6-astra"))
         #expect(!OpenAIAPISummarizer.usesGPT5ParameterSet("gpt-4o"))
         #expect(!OpenAIAPISummarizer.usesGPT5ParameterSet("gpt-4-turbo"))
     }

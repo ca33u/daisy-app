@@ -241,15 +241,20 @@ nonisolated struct OllamaAPISummarizer: SummaryProvider {
     /// `/api/tags` listing, so whatever the user has actually pulled
     /// wins. User-typed model IDs are also accepted (free text field).
     ///
-    /// Refreshed 2026-07-28; sizes are the default-quant download sizes
-    /// from ollama.com. The previous list was the late-2024 generation
-    /// throughout (Llama 3.2, Qwen 2.5, Mistral 7B, Gemma 2).
+    /// Refreshed 2026-10-08; sizes are the default-quant download sizes
+    /// from ollama.com/library. Gemma 4 is new (e2b / e4b / 12b fit a
+    /// 16 GB Mac); Qwen 3.6 and 3.8 come only at 27B and up, so Qwen 3.5
+    /// stays the small default. Gemma 3, GPT-OSS and Llama haven't been
+    /// updated in a year or more — kept for anyone who already has them.
     static let availableModels: [(id: String, label: String)] = [
-        ("qwen3.5:4b",             "Qwen 3.5 4B (~3.4 GB) — recommended"),
+        ("qwen3.5:4b",             "Qwen 3.5 4B (~3.3 GB) — recommended"),
         ("qwen3.5:9b",             "Qwen 3.5 9B (~6.6 GB) — more capable"),
+        ("gemma4:e4b",             "Gemma 4 E4B (~6.6 GB) — multilingual"),
+        ("gemma4:12b",             "Gemma 4 12B (~8 GB) — more capable"),
+        ("gemma4:e2b",             "Gemma 4 E2B (~4.6 GB) — smallest Gemma 4"),
         ("qwen3.5:27b",            "Qwen 3.5 27B (~17 GB) — needs a 32 GB Mac"),
-        ("gemma3:4b",              "Gemma 3 4B (~3.3 GB)"),
-        ("gemma3:12b",             "Gemma 3 12B (~8.1 GB)"),
+        ("gemma3:4b",              "Gemma 3 4B (~3.3 GB) — older"),
+        ("gemma3:12b",             "Gemma 3 12B (~8.1 GB) — older"),
         ("gpt-oss:20b",            "GPT-OSS 20B (~13 GB)"),
         ("llama3.1:8b",            "Llama 3.1 8B (~4.7 GB) — older, widely installed"),
         ("llama3.2:latest",        "Llama 3.2 3B (~2 GB) — older, smallest"),

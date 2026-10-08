@@ -89,23 +89,34 @@ nonisolated struct KimiAPISummarizer: SummaryProvider {
             "stream_options": ["include_usage": true]
         ]
 
+        // platform.kimi.ai/docs/api/models-overview, 2026-10-08: none of
+        // the current models takes a custom temperature or top_p — any
+        // other value is an ERROR (K2.6 fixes 0.6 without thinking, 1.0
+        // with; K2.7 Code and K3 fix 1.0) — so none is sent. `max_tokens`
+        // is deprecated for `max_completion_tokens`.
+        //
+        // Every budget is CAPPED rather than left at the default 131,072,
+        // because Moonshot bills rate-limit consumption as request tokens
+        // PLUS max_completion_tokens, whatever the model actually
+        // generates. Leaving the default would spend a user's whole
+        // per-minute allowance on one meeting.
         if Self.isThinkingModel(model) {
-            // K3 reasons before it answers and cannot be told not to, so
-            // the budget has to cover thinking as well as the summary —
-            // same shape as the GPT-5 branch in the OpenAI adapter.
-            //
-            // And it is CAPPED rather than left at the default 131,072,
-            // because Moonshot bills rate-limit consumption as request
-            // tokens PLUS max_completion_tokens, whatever the model
-            // actually generates. Leaving the default in place would
-            // spend a user's whole per-minute allowance on one meeting.
+            // K3 always reasons; the budget covers thinking AND the
+            // summary. Its effort defaults to "max" — minutes of silence
+            // and thinking billed as output on a long meeting. A summary
+            // doesn't need more than low (as the OpenAI adapter sends).
             body["max_completion_tokens"] = 16_384
+            body["reasoning_effort"] = "low"
+        } else if Self.canSkipThinking(model) {
+            // K2.6 thinks by default and can be told not to: a summary
+            // gains little from it, and the budget below then covers the
+            // answer alone. 8192: a long meeting's summary hit 4096.
+            body["thinking"] = ["type": "disabled"]
+            body["max_completion_tokens"] = 8192
         } else {
-            // 8192 (was 4096): a long meeting's summary hit the old cap.
-            // Kept modest — Moonshot counts max tokens against the rate
-            // limit whether or not they're generated (see above).
-            body["max_tokens"] = 8192
-            body["temperature"] = 0.4
+            // K2.7 Code always thinks and errors on "disabled"; anything
+            // typed by hand gets the same thinking-sized budget.
+            body["max_completion_tokens"] = 16_384
         }
 
         var request = URLRequest(url: Self.endpoint)
@@ -146,9 +157,15 @@ nonisolated struct KimiAPISummarizer: SummaryProvider {
         model.lowercased().hasPrefix("kimi-k3")
     }
 
+    /// K2.6 takes `thinking: disabled`; K2.7 Code rejects it.
+    static func canSkipThinking(_ model: String) -> Bool {
+        model.lowercased().hasPrefix("kimi-k2.6")
+    }
+
     // MARK: - Catalog of model IDs offered in Settings
 
-    /// From platform.kimi.ai/docs/api/chat, 2026-07-31. Prices per MTok
+    /// From platform.kimi.ai/docs/api/chat, 2026-07-31; rechecked
+    /// 2026-10-08 (same three, none deprecated). Prices per MTok
     /// in/out: K3 $3/$15, K2.6 $0.95/$4, K2.7 Code $0.95/$4.
     ///
     /// K2.6 is the default, not K3, and the reason is the job rather

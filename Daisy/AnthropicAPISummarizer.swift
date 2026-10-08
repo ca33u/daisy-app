@@ -144,6 +144,7 @@ nonisolated struct AnthropicAPISummarizer: SummaryProvider {
     /// and on a ceiling above its own (review find, 07.10.2026).
     private static let modernPrefixes = [
         "claude-sonnet-5", "claude-opus-5", "claude-fable-5", "claude-mythos-5",
+        "claude-haiku-5",
         "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-4-6",
     ]
 
@@ -152,7 +153,8 @@ nonisolated struct AnthropicAPISummarizer: SummaryProvider {
         return modernPrefixes.contains { id.hasPrefix($0) }
     }
 
-    /// Output ceiling: 64K on the modern models (they allow 128K), 32K on
+    /// Output ceiling: 64K on the modern models (they allow 128K; Haiku
+    /// 5.5 too), 32K on
     /// Haiku 4.5, and the old 4096 on anything else.
     static func maxOutputTokens(for model: String) -> Int {
         if isModern(model) { return 64_000 }
@@ -166,26 +168,31 @@ nonisolated struct AnthropicAPISummarizer: SummaryProvider {
 
     // MARK: - Catalog of model IDs offered in Settings
 
-    /// Refreshed 2026-07-28. Four rungs, cheapest-capable first:
-    /// Sonnet is the one to use, Opus when the meeting is dense, Fable
-    /// when nothing else will do, Haiku when volume matters more than
-    /// nuance. Prices per MTok in/out at the time of writing: Sonnet 5
-    /// $2/$10 (introductory, $3/$15 from 1 Sep 2026), Opus 5 $5/$25,
-    /// Fable 5 $10/$50, Haiku 4.5 $1/$5.
+    /// Refreshed 2026-10-08 (platform.claude.com/docs/en/about-claude/
+    /// pricing). The current generation first, cheapest-capable order:
+    /// Sonnet 5.5 is the one to use, Opus 5.5 when the meeting is dense,
+    /// Fable 5.1 when nothing else will do, Haiku 5.5 when volume matters
+    /// more than nuance. Prices per MTok in/out: Sonnet 5.5 $2/$10,
+    /// Opus 5.5 $4/$20, Fable 5.1 $10/$50, Haiku 5.5 $0.10/$0.50 (prompts
+    /// over 100K tokens $0.50/$2.50). The previous generation stays —
+    /// still served, and someone may have picked it on purpose.
     ///
     /// From the 4.6 generation on, a DATELESS Anthropic id is a pinned
-    /// snapshot rather than a moving pointer, so `claude-sonnet-5` is
+    /// snapshot rather than a moving pointer, so `claude-sonnet-5-5` is
     /// safe to ship — it won't silently become a different model.
-    /// Haiku keeps its dated id because that generation predates the
+    /// Haiku 4.5 keeps its dated id because that generation predates the
     /// change.
     static let availableModels: [(id: String, label: String)] = [
-        ("claude-sonnet-5", "Claude Sonnet 5 (recommended)"),
-        ("claude-opus-5",   "Claude Opus 5 (highest quality, slower)"),
-        ("claude-fable-5",  "Claude Fable 5 (most capable, priciest)"),
-        ("claude-haiku-4-5-20251001", "Claude Haiku 4.5 (fastest, cheapest)"),
+        ("claude-sonnet-5-5", "Claude Sonnet 5.5 (recommended)"),
+        ("claude-opus-5-5",   "Claude Opus 5.5 (highest quality, slower)"),
+        ("claude-fable-5-1",  "Claude Fable 5.1 (most capable, priciest)"),
+        ("claude-haiku-5-5",  "Claude Haiku 5.5 (fastest, cheapest)"),
+        ("claude-sonnet-5",   "Claude Sonnet 5 (previous generation)"),
+        ("claude-opus-5",     "Claude Opus 5 (previous generation)"),
+        ("claude-haiku-4-5-20251001", "Claude Haiku 4.5 (previous generation)"),
     ]
 
-    static let defaultModelID = "claude-sonnet-5"
+    static let defaultModelID = "claude-sonnet-5-5"
     // 2026-05-27 — retry/backoff helpers lifted out into
     // `CloudHTTPRetry.fetch(request:session:log:)`. Shared between
     // Anthropic + OpenAI providers and any future cloud-LLM path.

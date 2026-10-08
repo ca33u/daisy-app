@@ -79,52 +79,19 @@ public nonisolated enum RehearsalFeedbackPrompt {
 
 /// The provider-key path.
 public nonisolated enum RehearsalCoach {
-    private static let log = Logger(subsystem: DaisyCore.logSubsystem, category: "RehearsalCoach")
 
     public static func feedback(via kind: SummaryProviderKind, script: String, take: String, facts: String,
                                 language: String?) async throws -> String {
-        guard let apiKey = KeychainStore.get(account: kind.keyAccount), !apiKey.isEmpty else {
-            throw SummaryProviderError.missingAPIKey(provider: kind.displayName)
-        }
-        let system = RehearsalFeedbackPrompt.system(language: language)
-        let user = RehearsalFeedbackPrompt.user(script: script, take: take, facts: facts)
-        var request: URLRequest
-        switch kind {
-        case .anthropic:
-            request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
-            request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-            request.httpBody = try JSONSerialization.data(withJSONObject: [
-                "model": AnthropicSummaryProvider.defaultModelID, "max_tokens": 1500, "system": system,
-                "messages": [["role": "user", "content": user]],
-            ])
-        case .openai, .kimi:
-            let url = kind == .openai ? URL(string: "https://api.openai.com/v1/chat/completions")! : KimiSummaryProvider.endpoint
-            let model = kind == .openai ? OpenAISummaryProvider.defaultModelID : KimiSummaryProvider.defaultModelID
-            request = URLRequest(url: url)
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-            var body: [String: Any] = ["model": model, "messages": [["role": "system", "content": system], ["role": "user", "content": user]]]
-            if kind == .openai, OpenAISummaryProvider.usesGPT5ParameterSet(model) {
-                body["max_completion_tokens"] = 4000
-            } else {
-                body["max_tokens"] = 1500
-            }
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        }
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.timeoutInterval = 90
-        let json = try await CloudSummaryCall.send(request, provider: kind.displayName, log: log)
-        let text: String
-        if kind == .anthropic {
-            text = ((json["content"] as? [[String: Any]]) ?? [])
-                .filter { ($0["type"] as? String) == "text" }.compactMap { $0["text"] as? String }.joined()
-        } else {
-            text = try CloudSummaryCall.chatContent(json, provider: kind.displayName)
-        }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { throw SummaryProviderError.invalidResponse(provider: kind.displayName) }
-        return trimmed
+        // The same round trip as every other short reply (2026-10-08):
+        // Anthropic streamed with room for thinking, Kimi without the
+        // temperature it now rejects. Was its own copy, non-streamed with
+        // 1500 tokens — enough for thinking alone on Claude 5.
+        try await CloudText.complete(
+            kind: kind,
+            system: RehearsalFeedbackPrompt.system(language: language),
+            messages: [.init(role: .user, text: RehearsalFeedbackPrompt.user(script: script, take: take, facts: facts))],
+            maxTokens: 1500
+        )
     }
 }
 

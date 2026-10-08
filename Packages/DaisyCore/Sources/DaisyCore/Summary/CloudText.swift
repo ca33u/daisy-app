@@ -41,56 +41,48 @@ public nonisolated enum CloudText {
         guard let apiKey = KeychainStore.get(account: kind.keyAccount), !apiKey.isEmpty else {
             throw SummaryProviderError.missingAPIKey(provider: provider)
         }
-        var request: URLRequest
-        switch kind {
-        case .anthropic:
-            let body: [String: Any] = [
-                "model": AnthropicSummaryProvider.defaultModelID,
-                "max_tokens": maxTokens,
-                "system": system,
-                "messages": messages.map { ["role": $0.role.rawValue, "content": $0.text] },
-            ]
-            request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
-            request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-            request.setValue("application/json", forHTTPHeaderField: "content-type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        case .openai, .kimi:
-            let model = kind == .openai ? OpenAISummaryProvider.defaultModelID : KimiSummaryProvider.defaultModelID
-            var body: [String: Any] = [
-                "model": model,
-                "messages": [["role": "system", "content": system]]
-                    + messages.map { ["role": $0.role.rawValue, "content": $0.text] },
-            ]
-            if json { body["response_format"] = ["type": "json_object"] }
-            let bigTokens = kind == .openai
-                ? OpenAISummaryProvider.usesGPT5ParameterSet(model)
-                : KimiSummaryProvider.isThinkingModel(model)
-            if bigTokens {
-                body["max_completion_tokens"] = max(maxTokens, 8192)
-            } else {
-                body["max_tokens"] = maxTokens
-            }
-            request = URLRequest(url: kind == .openai
+        if kind == .anthropic {
+            // Streamed (2026-10-08): Claude 5 models think by default, and
+            // a short `maxTokens` could be spent on thinking alone — the
+            // ceiling is raised for the modern models; only what's
+            // generated is billed. Low effort: these are short replies.
+            let body = AnthropicStreaming.body(
+                model: AnthropicSummaryProvider.defaultModelID,
+                maxTokens: maxTokens,
+                effort: "low",
+                system: system,
+                messages: messages.map { ["role": $0.role.rawValue, "content": $0.text] }
+            )
+            let text = try await AnthropicStreaming.text(
+                try AnthropicStreaming.request(apiKey: apiKey, body: body), provider: provider, log: log)
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        // OpenAI and Kimi: one chat-completions round trip.
+        let model = kind == .openai ? OpenAISummaryProvider.defaultModelID : KimiSummaryProvider.defaultModelID
+        var body: [String: Any] = [
+            "model": model,
+            "messages": [["role": "system", "content": system]]
+                + messages.map { ["role": $0.role.rawValue, "content": $0.text] },
+        ]
+        if json { body["response_format"] = ["type": "json_object"] }
+        if kind == .kimi {
+            KimiSummaryProvider.applyParameters(to: &body, model: model, answerTokens: maxTokens)
+        } else if OpenAISummaryProvider.usesGPT5ParameterSet(model) {
+            body["max_completion_tokens"] = max(maxTokens, 8192)
+        } else {
+            body["max_tokens"] = maxTokens
+        }
+        var request = URLRequest(url: kind == .openai
                                  ? URL(string: "https://api.openai.com/v1/chat/completions")!
                                  : KimiSummaryProvider.endpoint)
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        }
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.httpMethod = "POST"
         request.timeoutInterval = kind == .kimi ? 120 : 60
 
         let reply = try await CloudSummaryCall.send(request, provider: provider, log: log)
-        let text: String
-        if kind == .anthropic {
-            guard let content = reply["content"] as? [[String: Any]] else {
-                throw SummaryProviderError.invalidResponse(provider: provider)
-            }
-            text = content.filter { ($0["type"] as? String) == "text" }.compactMap { $0["text"] as? String }.joined()
-        } else {
-            text = try CloudSummaryCall.chatContent(reply, provider: provider)
-        }
+        let text = try CloudSummaryCall.chatContent(reply, provider: provider)
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw SummaryProviderError.invalidResponse(provider: provider) }
         return trimmed
