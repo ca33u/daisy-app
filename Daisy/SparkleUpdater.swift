@@ -48,6 +48,41 @@ struct AvailableUpdate: Equatable, Sendable {
     let build: String
 }
 
+/// A downloaded beta opts in only when the person has never chosen a
+/// channel. The feed is authoritative: promotion reuses the same DMG.
+nonisolated enum BetaChannelDefaults {
+    static let key = "daisy.updates.betaChannel"
+    private static let preferenceLock = NSLock()
+
+    static func setChoice(_ choice: Bool, defaults: UserDefaults) {
+        preferenceLock.withLock { defaults.set(choice, forKey: key) }
+    }
+
+    struct Item {
+        let build: String
+        let channel: String?
+        var isMacOS = true
+    }
+
+    @discardableResult
+    static func adoptInstalledBeta(build: String?, items: [Item], defaults: UserDefaults) -> Bool {
+        preferenceLock.withLock {
+            guard defaults.object(forKey: key) == nil,
+                  let build, !build.isEmpty else { return false }
+            let installed = items.filter { $0.isMacOS && $0.build == build }
+            // Stable wins if a promoted build appears twice. Unknown channels
+            // are not evidence of a beta install either.
+            guard !installed.isEmpty, installed.allSatisfy({ $0.channel == "beta" }) else { return false }
+            defaults.set(true, forKey: key)
+            return true
+        }
+    }
+
+    static func allowedChannels(defaults: UserDefaults) -> Set<String> {
+        defaults.bool(forKey: key) ? ["beta"] : []
+    }
+}
+
 #if canImport(Sparkle)
 import Sparkle
 
@@ -68,16 +103,17 @@ final class SparkleUpdater {
     /// Strong reference — `SPUUpdater` holds its delegate weakly.
     private let channelDelegate = DaisyUpdaterDelegate()
 
-    /// Update-channel opt-in. `false` (default) = stable releases only —
-    /// appcast items without a `<sparkle:channel>` tag. `true` = also
+    /// Update-channel opt-in. `false` = stable releases only — appcast
+    /// items without a `<sparkle:channel>` tag. An untouched beta install
+    /// opts in when its build is identified in the feed. `true` = also
     /// receive "beta"-channel builds (newest features, less soak time).
     /// Sparkle asks the delegate for allowed channels on EVERY check, so
     /// flipping this applies to the very next check — no restart needed.
     /// Stored straight in UserDefaults ("daisy.updates.betaChannel") so
     /// the nonisolated delegate can read it off-main without actor hops.
     var receiveBetaUpdates: Bool {
-        get { UserDefaults.standard.bool(forKey: "daisy.updates.betaChannel") }
-        set { UserDefaults.standard.set(newValue, forKey: "daisy.updates.betaChannel") }
+        get { UserDefaults.standard.bool(forKey: BetaChannelDefaults.key) }
+        set { BetaChannelDefaults.setChoice(newValue, defaults: .standard) }
     }
 
     /// The update Sparkle most recently found and hasn't installed yet, or
@@ -378,11 +414,10 @@ final class PostponedRelaunch {
 /// Scopes Daisy's updater to Sparkle channels (2026-06-08). Stable =
 /// appcast items with no `<sparkle:channel>` tag — every client sees
 /// those. Beta = items tagged `<sparkle:channel>beta</sparkle:channel>`,
-/// served only when the user opted in via About → "Get beta updates".
-/// The UserDefaults key string is duplicated from
-/// `SparkleUpdater.receiveBetaUpdates` on purpose: Sparkle may call the
-/// delegate off the main thread, and reading a plain defaults bool from
-/// a `nonisolated` method avoids any actor hop.
+/// served when the user opted in via About or installed an unpromoted beta.
+/// Channel defaults are centralized in `BetaChannelDefaults`. Sparkle
+/// callbacks read/write them synchronously so channel selection cannot
+/// overtake the appcast callback through an actor hop.
 private final class DaisyUpdaterDelegate: NSObject, SPUUpdaterDelegate {
     /// Бэклог 16 Р-1. Two hooks, and they answer two different
     /// questions.
@@ -453,8 +488,25 @@ private final class DaisyUpdaterDelegate: NSObject, SPUUpdaterDelegate {
         Task { @MainActor in SparkleUpdater.shared.downloadingVersion = nil }
     }
 
+    nonisolated func updater(_ updater: SPUUpdater, didFinishLoading appcast: SUAppcast) {
+        // Sparkle calls this synchronously BEFORE allowedChannels and
+        // update selection (SUAppcastDriver). Saving here makes the SAME
+        // check see the next beta; starting another check would race it.
+        let adopted = BetaChannelDefaults.adoptInstalledBeta(
+            build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+            items: appcast.items.map {
+                BetaChannelDefaults.Item(build: $0.versionString, channel: $0.channel, isMacOS: $0.isMacOsUpdate)
+            },
+            defaults: .standard
+        )
+        if adopted {
+            Logger(subsystem: "app.essazanov.Daisy", category: "Updates")
+                .notice("Installed build is beta — beta updates enabled before appcast selection")
+        }
+    }
+
     nonisolated func allowedChannels(for updater: SPUUpdater) -> Set<String> {
-        UserDefaults.standard.bool(forKey: "daisy.updates.betaChannel") ? ["beta"] : []
+        BetaChannelDefaults.allowedChannels(defaults: .standard)
     }
 
     /// Sparkle found a valid update (automatic or manual check). Capture its

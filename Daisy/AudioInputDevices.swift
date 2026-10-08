@@ -324,7 +324,7 @@ enum AudioInputDevices {
     /// driver is precisely what this code exists to diagnose, and each
     /// extra `AudioObjectGetPropertyData` is another chance to hang the
     /// report on it.
-    private static func virtualDriver(name: String, uid: String) -> VirtualAudioDriver? {
+    static func virtualDriver(name: String, uid: String) -> VirtualAudioDriver? {
         let haystack = "\(name) \(uid)".lowercased()
         guard haystack.contains(where: { !$0.isWhitespace }) else { return nil }
         return knownVirtualDrivers.first { driver in

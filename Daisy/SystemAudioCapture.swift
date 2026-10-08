@@ -1100,9 +1100,15 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         var sampleRate: Double
         var outputChannels: Int
         var bluetooth: Bool
+        // A virtual route (Krisp Speaker, etc.) does not expose the
+        // physical device selected inside that app. bluetooth=false
+        // describes the HAL endpoint, not the downstream headphones.
+        var virtualDriver: String? = nil
 
         var description: String {
-            "\(name) [\(deviceID)] \(Int(sampleRate)) Hz × \(outputChannels)\(bluetooth ? " BT" : "")"
+            let endpoint = "\(name) [\(deviceID)] \(Int(sampleRate)) Hz × \(outputChannels)\(bluetooth ? " BT" : "")"
+            if let virtualDriver { return "\(endpoint) virtual=\(virtualDriver) downstream=unknown" }
+            return endpoint
         }
     }
 
@@ -1140,7 +1146,9 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             }
         }
         return OutputRoute(deviceID: deviceID, name: name as String, sampleRate: rate,
-                           outputChannels: channels, bluetooth: isBluetoothTransport(deviceID: deviceID))
+                           outputChannels: channels, bluetooth: isBluetoothTransport(deviceID: deviceID),
+                           virtualDriver: AudioInputDevices.virtualDriver(for: deviceID)?.product
+                            ?? (AudioInputDevices.transportLabel(deviceID) == "virtual" ? "unknown" : nil))
     }
 
     /// Follow the default output device's own format: re-pointed every
