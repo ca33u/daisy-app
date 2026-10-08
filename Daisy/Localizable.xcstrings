@@ -20498,6 +20498,72 @@
         }
       }
     },
+    "Your own settings — none of the plans. Picking one replaces them." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свои настройки — ни один план не выбран. Выбор плана их заменит."
+          }
+        }
+      }
+    },
+    "Switch to “%@”?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переключиться на план «%@»?"
+          }
+        }
+      }
+    },
+    "Screenshots will be turned off." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скриншоты выключатся."
+          }
+        }
+      }
+    },
+    "Meetings will be processed later, on a charger." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встречи будут обрабатываться позже, на зарядке."
+          }
+        }
+      }
+    },
+    "Screenshots: every 2 minutes at most." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скриншоты: не чаще раза в 2 минуты."
+          }
+        }
+      }
+    },
+    "Your own settings are replaced — you can tune them again under Transcription and Summary." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свои настройки заменятся — их можно снова настроить во вкладках «Транскрипция» и «Саммари»."
+          }
+        }
+      }
+    },
     "Writing the new transcript" : {
       "extractionState" : "manual",
       "localizations" : {
