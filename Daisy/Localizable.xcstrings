@@ -20564,6 +20564,39 @@
         }
       }
     },
+    "How should Daisy process meetings?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Как обрабатывать встречи?"
+          }
+        }
+      }
+    },
+    "A plan decides how much Daisy does while the meeting is on — and how much battery it takes. The final transcript is the same full quality in every plan." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "План решает, сколько Daisy делает во время встречи и сколько батареи на это уходит. Итоговый транскрипт одинаково полного качества в любом плане."
+          }
+        }
+      }
+    },
+    "You can change this anytime in Settings → General." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это можно поменять в любой момент в Настройках → Основные."
+          }
+        }
+      }
+    },
     "Writing the new transcript" : {
       "extractionState" : "manual",
       "localizations" : {

@@ -103,6 +103,30 @@ enum ProcessingPreset: String, CaseIterable, Identifiable {
         }
     }
 
+    // The words for each setting's value, shared by the Settings cards
+    // and the onboarding step. Keyed where a plain key is already taken
+    // with another form — "Full" is «Полный» and "Off" is «Выкл» elsewhere.
+
+    static func liveLabel(_ tier: LiveTranscriptionTier) -> String {
+        switch tier {
+        case .off: String(localized: "After the meeting")
+        case .lite: String(localized: "Optimal")
+        case .full: String(localized: "preset.live.full", defaultValue: "Full")
+        }
+    }
+
+    static func participantsLabel(_ on: Bool) -> String {
+        on ? String(localized: "Each separately") : String(localized: "You and the other side")
+    }
+
+    static func roomLabel(_ on: Bool) -> String {
+        on ? String(localized: "Separate participants") : String(localized: "Don't separate participants")
+    }
+
+    static func refineLabel(_ on: Bool) -> String {
+        on ? String(localized: "Names, terms, who spoke") : String(localized: "preset.refine.off", defaultValue: "Off")
+    }
+
     var tagline: String {
         switch self {
         case .economy:

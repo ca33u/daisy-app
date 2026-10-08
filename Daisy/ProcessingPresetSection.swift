@@ -134,13 +134,13 @@ struct ProcessingPresetSection: View {
             if old != new { lines.append("\(label): \(old) → \(new)") }
         }
         line(String(localized: "Live transcript"),
-             liveLabel(settings.liveTranscriptionTier), liveLabel(v.liveTranscript))
+             ProcessingPreset.liveLabel(settings.liveTranscriptionTier), ProcessingPreset.liveLabel(v.liveTranscript))
         line(String(localized: "Identifying participants"),
-             participantsLabel(settings.diarizeRemoteSpeakers), participantsLabel(v.diarizeRemoteSpeakers))
+             ProcessingPreset.participantsLabel(settings.diarizeRemoteSpeakers), ProcessingPreset.participantsLabel(v.diarizeRemoteSpeakers))
         line(String(localized: "Shared mic in the room"),
-             roomLabel(settings.diarizeMicrophone), roomLabel(v.diarizeMicrophone))
+             ProcessingPreset.roomLabel(settings.diarizeMicrophone), ProcessingPreset.roomLabel(v.diarizeMicrophone))
         line(String(localized: "Transcript refinement"),
-             refineLabel(settings.transcriptSecondPass), refineLabel(v.transcriptSecondPass))
+             ProcessingPreset.refineLabel(settings.transcriptSecondPass), ProcessingPreset.refineLabel(v.transcriptSecondPass))
         switch preset {
         case .economy:
             if settings.screenshotsEnabled { lines.append(String(localized: "Screenshots will be turned off.")) }
@@ -161,26 +161,6 @@ struct ProcessingPresetSection: View {
         return lines
     }
 
-    private func liveLabel(_ tier: LiveTranscriptionTier) -> String {
-        switch tier {
-        case .off: String(localized: "After the meeting")
-        case .lite: String(localized: "Optimal")
-        case .full: String(localized: "preset.live.full", defaultValue: "Full")
-        }
-    }
-
-    private func participantsLabel(_ on: Bool) -> String {
-        on ? String(localized: "Each separately") : String(localized: "You and the other side")
-    }
-
-    private func roomLabel(_ on: Bool) -> String {
-        on ? String(localized: "Separate participants") : String(localized: "Don't separate participants")
-    }
-
-    private func refineLabel(_ on: Bool) -> String {
-        on ? String(localized: "Names, terms, who spoke") : String(localized: "preset.refine.off", defaultValue: "Off")
-    }
-
     private struct Row {
         let label: String
         let value: String
@@ -193,12 +173,12 @@ struct ProcessingPresetSection: View {
     private func rows(for preset: ProcessingPreset) -> [Row] {
         let v = preset.values
         return [
-            Row(label: String(localized: "Live transcript"), value: liveLabel(v.liveTranscript), isOn: v.liveTranscript != .off),
+            Row(label: String(localized: "Live transcript"), value: ProcessingPreset.liveLabel(v.liveTranscript), isOn: v.liveTranscript != .off),
             Row(label: String(localized: "Identifying participants"),
-                value: participantsLabel(v.diarizeRemoteSpeakers),
+                value: ProcessingPreset.participantsLabel(v.diarizeRemoteSpeakers),
                 isOn: v.diarizeRemoteSpeakers),
             Row(label: String(localized: "Shared mic in the room"),
-                value: roomLabel(v.diarizeMicrophone),
+                value: ProcessingPreset.roomLabel(v.diarizeMicrophone),
                 isOn: v.diarizeMicrophone),
             // The Summary tab's "Second pass" toggle: names and terms
             // fixed, and a guess at who each speaker is.
@@ -208,7 +188,7 @@ struct ProcessingPresetSection: View {
                     : String(localized: "As set in Recording"),
                 isOn: preset != .economy),
             Row(label: String(localized: "Transcript refinement"),
-                value: refineLabel(v.transcriptSecondPass),
+                value: ProcessingPreset.refineLabel(v.transcriptSecondPass),
                 isOn: v.transcriptSecondPass),
         ]
     }

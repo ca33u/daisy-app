@@ -24,7 +24,7 @@ struct FirstRunStepsTests {
     func fullPathSingleLayout() {
         #expect(FirstRunView.steps(for: .full, installedLayoutCount: 1) == [
             .purpose, .name, .permissions,
-            .hotkeys, .calendar, .model, .preparation,
+            .hotkeys, .calendar, .processing, .model, .preparation,
         ])
     }
 

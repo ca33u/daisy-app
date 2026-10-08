@@ -183,6 +183,9 @@ struct FirstRunView: View {
         // Soft, optional setup steps. Each is skippable via its
         // "Continue" footer — no action is forced.
         case calendar
+        /// The meeting-processing plan (Economy / Balanced / Maximum) —
+        /// full path only, it's about meetings (Egor, 2026-10-08).
+        case processing
         case model
         case preparation
 
@@ -195,6 +198,7 @@ struct FirstRunView: View {
             case .hotkeys:         String(localized: "Hotkeys")
             case .layout:          String(localized: "Keyboard layout")
             case .calendar:        String(localized: "Calendar")
+            case .processing:      String(localized: "Meeting processing")
             case .model:           String(localized: "Summaries")
             case .preparation:     String(localized: "Prepare Daisy")
             }
@@ -229,7 +233,7 @@ struct FirstRunView: View {
         switch path {
         case .full:
             return [.purpose, .name, .permissions,
-                    .hotkeys] + layoutFixer + [.calendar, .model, .preparation]
+                    .hotkeys] + layoutFixer + [.calendar, .processing, .model, .preparation]
         case .dictationOnly:
             return [.purpose, .permissions, .hotkeys]
                     + layoutFixer + [.preparation]
@@ -473,6 +477,7 @@ struct FirstRunView: View {
             case .hotkeys: hotkeysStep
             case .layout: layoutStep
             case .calendar: calendarStep
+            case .processing: processingStep
             case .model: modelStep
             case .preparation:
                 ModelPreparationView(settings: settings, preparation: preparation,
@@ -853,6 +858,93 @@ struct FirstRunView: View {
         }
     }
 
+    /// The plan Settings → General shows as three cards, here as a list:
+    /// the onboarding column is too narrow for the side-by-side table, so
+    /// each plan gets its title, its tagline and the three lines that
+    /// differ most. Picking one applies it straight away — a fresh install
+    /// has nothing hand-tuned to lose, so no confirmation. Balanced is
+    /// what a fresh install already has, so it starts ticked.
+    private var processingStep: some View {
+        let selected = ProcessingPreset.matching(settings)
+        return VStack(alignment: .leading, spacing: 14) {
+            Text("How should Daisy process meetings?")
+                .font(.title2.weight(.semibold))
+            Text("A plan decides how much Daisy does while the meeting is on — and how much battery it takes. The final transcript is the same full quality in every plan.")
+                .font(.callout)
+                .foregroundStyle(Color.daisyTextPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(spacing: 8) {
+                ForEach(ProcessingPreset.allCases) { preset in
+                    processingOption(preset, isSelected: preset == selected)
+                }
+            }
+
+            Toggle(isOn: $settings.deferProcessingOnBattery) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Process meetings later, on a charger")
+                        .font(.callout.weight(.medium))
+                    Text("On battery or in Low Power Mode, a meeting keeps its live transcript; the final transcript, speakers and summary come once the Mac is plugged in. “Process now” on the meeting does it at once.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+
+            Text("You can change this anytime in Settings → General.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+    }
+
+    private func processingOption(_ preset: ProcessingPreset, isSelected: Bool) -> some View {
+        let v = preset.values
+        let lines = [
+            "\(String(localized: "Live transcript")): \(ProcessingPreset.liveLabel(v.liveTranscript))",
+            "\(String(localized: "Identifying participants")): \(ProcessingPreset.participantsLabel(v.diarizeRemoteSpeakers))",
+            "\(String(localized: "Transcript refinement")): \(ProcessingPreset.refineLabel(v.transcriptSecondPass))",
+        ]
+        return Button {
+            preset.apply(to: settings)
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(preset.title)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(Color.daisyTextPrimary)
+                    Text(preset.tagline)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(lines.joined(separator: " · "))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .multilineTextAlignment(.leading)
+                Spacer(minLength: 8)
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? Color.daisyAccent : Color.daisyTextSecondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .background(isSelected ? Color.daisySelectionBackground : Color.daisyBgSidebar,
+                        in: RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(isSelected ? Color.daisySelectionBorder : Color.daisyDivider,
+                                  lineWidth: isSelected ? 1 : 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
     /// Onboarding asks about the two halves, not the switch: choosing
     /// either turns the layout fixer on, choosing neither leaves it off.
     private func syncLayoutFixEnabled() {
@@ -1178,7 +1270,7 @@ struct FirstRunView: View {
             switch step {
             case .purpose:
                 EmptyView()
-            case .name, .permissions, .hotkeys, .layout, .calendar, .model, .preparation:
+            case .name, .permissions, .hotkeys, .layout, .calendar, .processing, .model, .preparation:
                 // Preparation is the one step that can genuinely be
                 // impossible to complete right now — no network, not
                 // enough free disk — and a new user must never be
