@@ -414,6 +414,34 @@ xcodebuild \
 echo
 
 # -----------------------------------------------------------------------------
+# 1b. Debug symbols to Sentry (backlog 27 С-2, 2026-10-09). Crash reports
+#     the person chooses to send arrive with addresses only; Sentry turns
+#     them into function names and lines with this build's dSYMs. Never
+#     fails the release. The Organization Token lives in the Keychain
+#     (service daisy-sentry-auth-token, account sentry) and goes to
+#     sentry-cli through its environment only — never into an argument, a
+#     file or this script's output.
+# -----------------------------------------------------------------------------
+
+echo "▸ [1b/6] uploading debug symbols to Sentry…"
+if ! command -v sentry-cli >/dev/null 2>&1; then
+    echo "  ⚠ sentry-cli not installed (brew install getsentry/tools/sentry-cli) — crash reports from this build won't be symbolicated."
+else
+    SENTRY_TOKEN="$(security find-generic-password -a sentry -s daisy-sentry-auth-token -w 2>/dev/null || true)"
+    if [[ -z "${SENTRY_TOKEN}" ]]; then
+        echo "  ⚠ no Sentry token in the Keychain (service daisy-sentry-auth-token, account sentry) — skipped."
+    elif SENTRY_AUTH_TOKEN="${SENTRY_TOKEN}" sentry-cli --log-level=warn debug-files upload \
+            --org daisy-30 --project daisy-mac "${ARCHIVE_PATH}/dSYMs"; then
+        echo "  ✓ dSYMs uploaded to Sentry (daisy-mac)"
+    else
+        echo "  ⚠ dSYM upload failed — the release goes on. Retry later:"
+        echo "    SENTRY_AUTH_TOKEN=\"\$(security find-generic-password -a sentry -s daisy-sentry-auth-token -w)\" sentry-cli debug-files upload --org daisy-30 --project daisy-mac \"${ARCHIVE_PATH}/dSYMs\""
+    fi
+    unset SENTRY_TOKEN
+fi
+echo
+
+# -----------------------------------------------------------------------------
 # 2. Export — pull Daisy.app out of the archive with Developer ID
 #    signing and post-export notarisation prep.
 # -----------------------------------------------------------------------------

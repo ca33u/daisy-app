@@ -16,9 +16,8 @@
 //
 //  Settings → About: "Crash reports: Ask every time / Never send". "Never"
 //  doesn't start Sentry at all — no crash handler, no connection — from the
-//  next launch. Uncaught NSExceptions are not reported: sentry-cocoa only
-//  hooks them with method swizzling, which stays off; AppKit keeps running
-//  through them as it always has.
+//  next launch. Uncaught NSExceptions are caught too: that needs method
+//  swizzling, which is on for that alone (see `configure`).
 //
 
 import AppKit
@@ -55,41 +54,55 @@ nonisolated enum CrashReports {
     /// Call once at launch, before the first window.
     static func start() {
         guard mode == .ask else { return }
-        SentrySDK.start { options in
-            options.dsn = dsn
-            let info = Bundle.main.infoDictionary
-            let version = info?["CFBundleShortVersionString"] as? String ?? "?"
-            let build = info?["CFBundleVersion"] as? String ?? "?"
-            options.releaseName = "daisy-macos@\(version)+\(build)"
-            options.sendDefaultPii = false
-            options.enableAutoSessionTracking = false
-            options.maxBreadcrumbs = 0
-            options.enableAutoBreadcrumbTracking = false
-            options.enableNetworkBreadcrumbs = false
-            options.enableNetworkTracking = false
-            options.enableCaptureFailedRequests = false
-            options.enableSwizzling = false
-            options.enableAppHangTracking = false
-            options.tracesSampleRate = 0
-            // Discarded-event counts would ride along on the one report
-            // the person approved, unseen in the preview.
-            options.sendClientReports = false
-            #if DEBUG
-            options.environment = "debug"
-            #endif
-            options.beforeSend = { event in
-                let send = hold.lock.withLock { state -> Bool in
-                    if let approved = state.approved, approved == event.eventId {
-                        state.approved = nil
-                        return true
-                    }
-                    state.pending = event
-                    return false
+        SentrySDK.start { options in configure(options) }
+    }
+
+    /// Every option, in one place so a test can start the SDK exactly as
+    /// the app does.
+    static func configure(_ options: Options) {
+        options.dsn = dsn
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        options.releaseName = "daisy-macos@\(version)+\(build)"
+        #if DEBUG
+        options.environment = "debug"
+        #endif
+        options.sendDefaultPii = false
+        options.enableAutoSessionTracking = false
+        options.maxBreadcrumbs = 0
+        // Uncaught NSExceptions (Egor, 2026-10-09: yes). sentry-cocoa hooks
+        // them only through method swizzling, so swizzling is on — for
+        // that alone. Everything else swizzling could feed is off, and no
+        // request is ever traced: `tracePropagationTargets` is empty, so
+        // no `sentry-trace` / `baggage` header reaches Anthropic, OpenAI,
+        // Notion, Google or Sparkle (test). Side effect, accepted: an
+        // exception AppKit used to swallow now ends Daisy — and is caught.
+        options.enableSwizzling = true
+        options.enableUncaughtNSExceptionReporting = true
+        options.enableNetworkTracking = false
+        options.enableNetworkBreadcrumbs = false
+        options.enableAutoBreadcrumbTracking = false
+        options.enableAutoPerformanceTracing = false
+        options.enableCaptureFailedRequests = false
+        options.enableAppHangTracking = false
+        options.tracePropagationTargets = []
+        options.tracesSampleRate = 0
+        // Discarded-event counts would ride along on the one report the
+        // person approved, unseen in the preview.
+        options.sendClientReports = false
+        options.beforeSend = { event in
+            let send = hold.lock.withLock { state -> Bool in
+                if let approved = state.approved, approved == event.eventId {
+                    state.approved = nil
+                    return true
                 }
-                if send { return scrub(event) }
-                DispatchQueue.main.async { askToSend() }
-                return nil
+                state.pending = event
+                return false
             }
+            if send { return scrub(event) }
+            DispatchQueue.main.async { askToSend() }
+            return nil
         }
     }
 

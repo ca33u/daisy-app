@@ -40,6 +40,12 @@ The script runs tests, archives, signs, notarizes, builds the DMG, publishes it
 to daisy-web, injects the beta appcast item, updates `lib/betaVersion.ts`, and
 commits the website. It never pushes the app repository.
 
+After the archive it uploads the build's dSYMs to Sentry (project `daisy-mac`), so
+crash reports people choose to send arrive symbolicated. It needs `sentry-cli`
+(`brew install getsentry/tools/sentry-cli`) and an Organization Token in the
+Keychain: service `daisy-sentry-auth-token`, account `sentry`. Without either it
+prints a warning and the release goes on.
+
 ## 2. Promote a soaked beta to stable
 
 Promotion reuses the already signed beta DMG; it does not rebuild it.
