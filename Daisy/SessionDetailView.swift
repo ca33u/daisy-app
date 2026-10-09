@@ -2404,6 +2404,23 @@ struct SessionDetailView: View {
             return
         }
 
+        // Both voices recorded: ask whether to mix them. One channel only has
+        // nothing to separate, so it goes straight to a single file.
+        var layout = AudioExportLayout.mixed
+        if !retainedAudioFiles.microphone.isEmpty, !retainedAudioFiles.system.isEmpty {
+            let choice = NSAlert()
+            choice.messageText = String(localized: "Export audio")
+            choice.informativeText = String(localized: "One file mixes everyone's voices together. Two tracks keeps yours and the others' in separate files.")
+            choice.addButton(withTitle: String(localized: "One file"))
+            choice.addButton(withTitle: String(localized: "Two tracks"))
+            choice.addButton(withTitle: String(localized: "Cancel"))
+            switch choice.runModal() {
+            case .alertFirstButtonReturn: layout = .mixed
+            case .alertSecondButtonReturn: layout = .separateTracks
+            default: return
+            }
+        }
+
         let panel = NSSavePanel()
         panel.title = String(localized: "Export audio")
         panel.prompt = String(localized: "Export")
@@ -2414,10 +2431,26 @@ struct SessionDetailView: View {
         }
         guard panel.runModal() == .OK, let destination = panel.url else { return }
 
+        // Two tracks write under their own names, so the save panel's
+        // overwrite check never saw them: ask before replacing any.
+        if layout == .separateTracks {
+            let existing = SessionAudioProcessing.separateTrackDestinations(
+                for: destination, files: retainedAudioFiles
+            ).map(\.url).filter { FileManager.default.fileExists(atPath: $0.path) }
+            if !existing.isEmpty {
+                let confirm = NSAlert()
+                confirm.messageText = String(localized: "Replace the existing audio files?")
+                confirm.informativeText = existing.map(\.lastPathComponent).joined(separator: "\n")
+                confirm.addButton(withTitle: String(localized: "Replace"))
+                confirm.addButton(withTitle: String(localized: "Cancel"))
+                guard confirm.runModal() == .alertFirstButtonReturn else { return }
+            }
+        }
+
         ToastCenter.shared.show(String(localized: "Exporting audio"), style: .info)
         Task {
             do {
-                try await SessionAudioProcessing.shared.exportAudio(session, to: destination)
+                try await SessionAudioProcessing.shared.exportAudio(session, to: destination, layout: layout)
                 ToastCenter.shared.show(String(localized: "Audio exported"), style: .success)
             } catch is CancellationError {
                 ToastCenter.shared.show(String(localized: "Audio export was cancelled."), style: .info)

@@ -329,7 +329,10 @@ enum RichClipboard {
     static func copy(markdown: String) {
         let item = NSPasteboardItem()
         // Richest type FIRST — see the type-ordering note above.
-        item.setString(MarkdownHTML.render(markdown), forType: .html)
+        // The charset declaration comes first: without it TextEdit, Word
+        // and Pages read the fragment as Latin-1 and Cyrillic pastes as
+        // mojibake (bug report, 2026-10-09).
+        item.setString("<meta charset=\"utf-8\">" + MarkdownHTML.render(markdown), forType: .html)
         item.setString(markdown, forType: .string)
         item.setString(markdown, forType: markdownType)
         let pb = NSPasteboard.general

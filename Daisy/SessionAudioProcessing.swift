@@ -495,7 +495,11 @@ final class SessionAudioProcessing {
         return String(markdown[end.upperBound...])
     }
 
-    func exportAudio(_ session: StoredSession, to destination: URL) async throws {
+    /// `.mixed`: one file with everyone's voices together. `.separateTracks`:
+    /// the microphone (you) and the system audio (the others) each in their
+    /// own file, beside the chosen one, as «… — я.m4a» and «… — собеседники.m4a»
+    /// (2026-10-09). Each track is exported on its own, so nothing is mixed.
+    func exportAudio(_ session: StoredSession, to destination: URL, layout: AudioExportLayout = .mixed) async throws {
         guard !isRunning else { throw ProcessingError.busy }
         guard !recordingOrFinalizeIsActive else { throw ProcessingError.recordingActive }
         let files = SessionAudioFiles.discover(in: session.directoryURL)
@@ -511,6 +515,56 @@ final class SessionAudioProcessing {
         let ticket = SessionsFolder.acquireBase()
         defer { ticket?.release() }
 
+        switch layout {
+        case .mixed:
+            try await writeExport(files: files, to: destination)
+        case .separateTracks:
+            // Written in order; if a later track fails, the earlier ones
+            // this call wrote are removed — the toast says nothing was saved.
+            var written: [URL] = []
+            do {
+                for track in Self.separateTrackDestinations(for: destination, files: files) {
+                    try await writeExport(
+                        files: track.files,
+                        to: track.url
+                    )
+                    written.append(track.url)
+                }
+            } catch {
+                for url in written { try? FileManager.default.removeItem(at: url) }
+                throw error
+            }
+        }
+    }
+
+    /// The files a two-track export writes, beside `destination`: one for
+    /// the microphone (you), one for the system audio (the others). A track
+    /// with no audio gets no file.
+    static func separateTrackDestinations(
+        for destination: URL,
+        files: SessionAudioFiles
+    ) -> [(url: URL, files: SessionAudioFiles)] {
+        let folder = destination.deletingLastPathComponent()
+        let stem = destination.deletingPathExtension().lastPathComponent
+        var tracks: [(url: URL, files: SessionAudioFiles)] = []
+        if !files.microphone.isEmpty {
+            tracks.append((
+                folder.appendingPathComponent("\(stem) — \(String(localized: "Your voice")).m4a"),
+                SessionAudioFiles(microphone: files.microphone, system: [])
+            ))
+        }
+        if !files.system.isEmpty {
+            tracks.append((
+                folder.appendingPathComponent("\(stem) — \(String(localized: "Others")).m4a"),
+                SessionAudioFiles(microphone: [], system: files.system)
+            ))
+        }
+        return tracks
+    }
+
+    /// One M4A, written beside `destination` and moved into place only when
+    /// complete — a cancelled or failed export never leaves a half file.
+    private func writeExport(files: SessionAudioFiles, to destination: URL) async throws {
         let staging = destination.deletingLastPathComponent().appendingPathComponent(
             ".daisy-audio-\(UUID().uuidString).m4a"
         )
@@ -884,6 +938,12 @@ final class SessionAudioProcessing {
             .replacingOccurrences(of: "\"", with: "\\\"")
         return "\"\(escaped)\""
     }
+}
+
+/// How «Export audio» writes the retained recording.
+nonisolated enum AudioExportLayout: Sendable, Equatable {
+    case mixed
+    case separateTracks
 }
 
 nonisolated enum ProcessingError: LocalizedError {
