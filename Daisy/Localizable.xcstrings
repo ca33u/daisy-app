@@ -20721,6 +20721,17 @@
         }
       }
     },
+    "The transcript appears after the meeting." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Транскрипт появится после встречи."
+          }
+        }
+      }
+    },
     "Writing the new transcript" : {
       "extractionState" : "manual",
       "localizations" : {

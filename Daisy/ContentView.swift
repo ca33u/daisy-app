@@ -988,7 +988,14 @@ struct ContentView: View {
 
     private var emptyStateTitle: String {
         switch session.status {
-        case .recording: return String(localized: "Listening…")
+        case .recording:
+            // «Живая транскрипция: После встречи» builds no transcript while
+            // the meeting runs, so «Слушаем…» would promise one that never
+            // comes. Dictation always runs live, whatever the meeting tier.
+            if session.currentMode != .dictation, settings.liveTranscriptionTier == .off {
+                return String(localized: "The transcript appears after the meeting.")
+            }
+            return String(localized: "Listening…")
         case .finished: return String(localized: "No speech was captured.")
         default:
             // Hotkey is already shown in the Record button's badge — no
