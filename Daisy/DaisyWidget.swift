@@ -44,7 +44,7 @@ struct DaisyWidget: View {
 
     /// Scales the whole daisy briefly when the session lands in
     /// `.finished` — the "celebration" pop that finishes the loader
-    /// arc (flower rotates → bounce → settle into white).
+    /// arc (flower rotates → bounce → settle into the ready sage).
     @State private var celebrationScale: CGFloat = 1.0
     @State private var loaderStartedAt = Date()
     @State private var loaderStartOffset: Double = 0
@@ -166,11 +166,10 @@ struct DaisyWidget: View {
         return TimelineView(.animation(minimumInterval: interval, paused: !animating)) { context in
             let status = session.status
             let mode = session.currentMode
-            let summaryGen = session.summaryGenerationState
             let bands = session.spectrumBands
             // Positive degrees turn clockwise in SwiftUI.
             let rotation = Self.orientationDegrees + rotationOffset(at: context.date, loading: loading)
-            let center = centerColor(for: status, mode: mode, summaryGen: summaryGen)
+            let center = centerColor(for: status, mode: mode)
 
             ZStack {
                 Circle()
@@ -532,20 +531,34 @@ struct DaisyWidget: View {
     }
 
     private func petalColor(status: RecordingSession.Status) -> Color {
-        let cream = Color(red: 245.0 / 255, green: 241.0 / 255, blue: 231.0 / 255)
-        // At rest the petals are the same cream as while recording (Egor,
-        // 2026-10-09: no grey). Pause keeps its dimmer petals — that is
-        // how it reads as held, not idle.
-        switch status {
-        case .paused: return cream.opacity(0.78)
-        default: return cream
+        // Cream in every state but pause, where the petals go grey and the
+        // centre keeps its orange (Egor's state sheet, 2026-10-09).
+        status == .paused ? StateColor.pausedPetal : StateColor.petal
+    }
+
+    /// The widget's own state colours (Egor's sheet, 2026-10-09). Widget only
+    /// for now: the shared DaisyPalette — buttons, status dots, iPhone, the
+    /// watch — keeps its tokens until these are seen live.
+    private enum StateColor {
+        static let ready = hex(0xA7B69A)
+        static let meeting = hex(0xFF9147)
+        static let dictation = hex(0xBDA0FF)
+        static let voiceNote = hex(0x89BCE0)
+        static let paused = hex(0xFF9147)
+        static let error = hex(0xFF4D55)
+        static let petal = hex(0xF5F1E7)
+        static let pausedPetal = hex(0x979591)
+
+        private static func hex(_ rgb: UInt32) -> Color {
+            Color(red: Double((rgb >> 16) & 0xFF) / 255,
+                  green: Double((rgb >> 8) & 0xFF) / 255,
+                  blue: Double(rgb & 0xFF) / 255)
         }
     }
 
     private func centerColor(
         for status: RecordingSession.Status,
-        mode: RecordingSession.RecordingMode,
-        summaryGen: RecordingSession.SummaryGenerationState
+        mode: RecordingSession.RecordingMode
     ) -> Color {
         // System-audio failure during a live meeting → RED core, so the
         // user sees at a glance the other side isn't being captured
@@ -554,67 +567,25 @@ struct DaisyWidget: View {
         if status == .recording || status == .paused {
             switch session.systemAudioStatus {
             case .denied, .failed:
-                return .daisyError
+                return StateColor.error
             default:
                 break
             }
         }
-        // "Summary cooking" indicator — when status is .finished but
-        // the post-Stop detached task is still running summarize +
-        // autoSend, fade the centre to amber and pulse the opacity
-        // so the widget reads as "working in the background" without
-        // taking over the orange recording signal. Deliberately in
-        // the warm-amber family (matches the landing's
-        // `--color-petal-center` and the in-app `daisyHomeAccent`)
-        // so it's a calmer cousin of recording orange — never
-        // confused with "still capturing".
-        // No "summary cooking" colour any more (24.09): after Stop the
-        // widget is simply ready for the next recording.
         switch status {
-        // Recording — center hue encodes the active mode so the
-        // user can tell at a peripheral glance which gesture they
-        // triggered:
-        //   • meetings   → macOS systemOrange (inherits the OS mic-active dot)
-        //   • dictation  → vivid lilac (creative output, ⌘V-bound)
-        //   • voiceNote  → pink-coral (intimate, personal capture)
-        // All three live on the same volume / saturation so no mode
-        // reads as "less important" than another — they're sibling
-        // states of the same recording action.
         case .recording:
             switch mode {
-            case .meeting:   return .daisyRecording
-            case .dictation: return .daisyDictation
-            case .voiceNote: return .daisyVoiceNote
+            case .meeting:   return StateColor.meeting
+            case .dictation: return StateColor.dictation
+            case .voiceNote: return StateColor.voiceNote
             }
-        // Paused = cool neutral gray. Deliberately OUT of the
-        // warm orange/amber family — orange means "live capture",
-        // so paused has to read as "not live" at a glance. Stays
-        // visually distinct from idle (white) and finished (white)
-        // by keeping the centre filled rather than ghostly.
-        case .paused: return Color.daisyPaused
-        // .preparing forks by whether Whisper still needs to download
-        // or load — that path is multi-minute on first run, so we
-        // pulse the centre amber (same hue as "summary cooking") to
-        // tell the user "this is going to take a while, not stuck".
-        // Stream-startup .preparing (model already loaded) stays
-        // plain white — fast, not worth a special signal.
+        // Paused keeps the meeting's orange in the centre; the petals go
+        // grey instead (see `petalColor`).
+        case .paused: return StateColor.paused
         case .preparing:
-            // Static white core during Preparing. The rotating petals (the
-            // "loader") is the only motion; the core stays calm. The old
-            // Whisper-warmup amber pulse was removed here — a small core
-            // fading 0.55↔0.95 (plus its shadow) *under* the spinning petals
-            // read as a glitchy "loader + blinking core" combo, and snapped
-            // to white when warmup finished mid-Preparing. The long first-run
-            // model download is still signalled as text (the status/tooltip
-            // WhisperEngine.state switch below), just not in the core.
             return Color.white.opacity(0.92)
-        // After Stop: the resting centre — the widget is ready for the
-        // next recording; summaries are background work (24.09).
-        case .stopping, .summarizing, .finished: return Color.daisyCenterIdle
-        case .failed: return .daisyError
-        // The shared resting centre (DaisyPalette.centerIdle, white) —
-        // the same on the phone, the watch and Windows (Egor, 23.09).
-        case .idle: return Color.daisyCenterIdle
+        case .idle, .stopping, .summarizing, .finished: return StateColor.ready
+        case .failed: return StateColor.error
         }
     }
 
