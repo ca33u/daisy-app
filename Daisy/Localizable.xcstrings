@@ -20732,6 +20732,105 @@
         }
       }
     },
+    "Daisy closed unexpectedly" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy неожиданно закрылась"
+          }
+        }
+      }
+    },
+    "Send a crash report to the developer? It says where in the code Daisy failed, the app and macOS versions and the Mac model — never your meetings, names, files or devices. The whole report is below." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправить разработчику отчёт о сбое? В нём — где в коде произошёл сбой, версии Daisy и macOS и модель Mac. Никогда — твои встречи, имена, файлы и устройства. Весь отчёт — ниже."
+          }
+        }
+      }
+    },
+    "Send Report" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправить отчёт"
+          }
+        }
+      }
+    },
+    "Don't Send" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не отправлять"
+          }
+        }
+      }
+    },
+    "Don't ask again" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Больше не спрашивать"
+          }
+        }
+      }
+    },
+    "Crash reports" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отчёты о сбоях"
+          }
+        }
+      }
+    },
+    "Ask every time" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Спрашивать каждый раз"
+          }
+        }
+      }
+    },
+    "Never send" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Никогда не отправлять"
+          }
+        }
+      }
+    },
+    "After a crash, Daisy asks before sending anything and shows the whole report: where in the code it failed, the app and macOS versions and the Mac model. Never your meetings, names, files or devices. “Never send” applies from the next launch." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "После сбоя Daisy спросит, прежде чем что-то отправить, и покажет весь отчёт: где в коде произошёл сбой, версии Daisy и macOS и модель Mac. Никогда — твои встречи, имена, файлы и устройства. «Никогда не отправлять» действует со следующего запуска."
+          }
+        }
+      }
+    },
     "Writing the new transcript" : {
       "extractionState" : "manual",
       "localizations" : {

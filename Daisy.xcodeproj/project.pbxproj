@@ -11,6 +11,7 @@
 		B9BBC7332FB863E90016C22C /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = B9BBC7322FB863E90016C22C /* FluidAudio */; };
 		B9D5000000000000000000D3 /* DaisyDesign in Frameworks */ = {isa = PBXBuildFile; productRef = B9D5000000000000000000D2 /* DaisyDesign */; };
 		B9D5000000000000000000D5 /* DaisyCore in Frameworks */ = {isa = PBXBuildFile; productRef = B9D5000000000000000000D4 /* DaisyCore */; };
+		B9E5E2000000000000000003 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = B9E5E2000000000000000002 /* Sentry */; };
 		B9F5F19B2FB75DA300E26A7A /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = B9F5F19A2FB75DA300E26A7A /* WhisperKit */; };
 /* End PBXBuildFile section */
 
@@ -48,6 +49,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B9895A7E2FBC19FC0028BF24 /* Sparkle in Frameworks */,
+				B9E5E2000000000000000003 /* Sentry in Frameworks */,
 				B9BBC7332FB863E90016C22C /* FluidAudio in Frameworks */,
 				B9F5F19B2FB75DA300E26A7A /* WhisperKit in Frameworks */,
 				B9D5000000000000000000D3 /* DaisyDesign in Frameworks */,
@@ -107,6 +109,7 @@
 				B9F5F19A2FB75DA300E26A7A /* WhisperKit */,
 				B9BBC7322FB863E90016C22C /* FluidAudio */,
 				B9895A7D2FBC19FC0028BF24 /* Sparkle */,
+				B9E5E2000000000000000002 /* Sentry */,
 				B9D5000000000000000000D2 /* DaisyDesign */,
 				B9D5000000000000000000D4 /* DaisyCore */,
 			);
@@ -170,6 +173,7 @@
 				B9F5F1992FB75DA300E26A7A /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
 				B9BBC7312FB863E90016C22C /* XCRemoteSwiftPackageReference "FluidAudio" */,
 				B9895A7C2FBC19FC0028BF24 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				B9E5E2000000000000000001 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				B9D5000000000000000000D1 /* XCLocalSwiftPackageReference "Packages/DaisyCore" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -545,6 +549,14 @@
 				revision = 6428e29186573c6d33c598e25d460e6690bc0ee1;
 			};
 		};
+		B9E5E2000000000000000001 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/getsentry/sentry-cocoa";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.30.1;
+			};
+		};
 		B9F5F1992FB75DA300E26A7A /* XCRemoteSwiftPackageReference "argmax-oss-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift";
@@ -573,6 +585,11 @@
 		B9D5000000000000000000D4 /* DaisyCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = DaisyCore;
+		};
+		B9E5E2000000000000000002 /* Sentry */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B9E5E2000000000000000001 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
+			productName = Sentry;
 		};
 		B9F5F19A2FB75DA300E26A7A /* WhisperKit */ = {
 			isa = XCSwiftPackageProductDependency;

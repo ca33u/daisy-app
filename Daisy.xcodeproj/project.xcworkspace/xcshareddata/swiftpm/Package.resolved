@@ -1,5 +1,5 @@
 {
-  "originHash" : "9b9b3e57304815e3b65853c5e77c6e6fe9c181dcf00506355132f8fcbda94a25",
+  "originHash" : "69d4aadbe19481f45ad5e074c362c660ae6ab9d631f7ac61196a3705a0e3c087",
   "pins" : [
     {
       "identity" : "argmax-oss-swift",
@@ -15,6 +15,15 @@
       "location" : "https://github.com/FluidInference/FluidAudio",
       "state" : {
         "revision" : "6428e29186573c6d33c598e25d460e6690bc0ee1"
+      }
+    },
+    {
+      "identity" : "sentry-cocoa",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/getsentry/sentry-cocoa",
+      "state" : {
+        "revision" : "4f135c52afeeb1d6937eb93824c7ec1cddcaa372",
+        "version" : "9.30.1"
       }
     },
     {

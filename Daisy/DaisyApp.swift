@@ -33,6 +33,10 @@ struct DaisyApp: App {
         // migrated values are read in this same launch.
         UserDefaultsMigration.runIfNeeded()
 
+        // Catches a crash so the next launch can ASK whether to send it;
+        // nothing leaves without that answer (CrashReports).
+        CrashReports.start()
+
         // NOT here: the eager keychain migration. It walks all eight
         // secrets, and reading an item of the OLD login keychain can
         // raise the system's "… wants to use your confidential

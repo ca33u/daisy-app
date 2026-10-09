@@ -27,6 +27,8 @@ import SwiftUI
 struct AboutView: View {
     let settings: AppSettings
     @Bindable private var updater = SparkleUpdater.shared
+    /// `CrashReports.mode` (UserDefaults), written back on change.
+    @State private var crashReportsMode = CrashReports.mode
 
     var body: some View {
         Form {
@@ -246,6 +248,27 @@ struct AboutView: View {
                 Text("Feedback")
             } footer: {
                 Text("Both cover the last 24 hours of Daisy's logs — diagnostics only, no transcript text. Nothing is sent automatically; review it first.")
+            }
+
+            // Crash reports only when the person sends one (backlog 27 С-2):
+            // after a crash Daisy asks, showing the whole report. "Never"
+            // doesn't start the crash reporter at all; takes effect on the
+            // next launch.
+            Section {
+                Picker(selection: $crashReportsMode) {
+                    Text("Ask every time").tag(CrashReports.Mode.ask)
+                    Text("Never send").tag(CrashReports.Mode.never)
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.bubble")
+                            .frame(width: 18)
+                            .foregroundStyle(.secondary)
+                        Text("Crash reports")
+                    }
+                }
+                .onChange(of: crashReportsMode) { _, mode in CrashReports.mode = mode }
+            } footer: {
+                Text("After a crash, Daisy asks before sending anything and shows the whole report: where in the code it failed, the app and macOS versions and the Mac model. Never your meetings, names, files or devices. “Never send” applies from the next launch.")
             }
 
             Section {
