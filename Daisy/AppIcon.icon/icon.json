@@ -19,8 +19,8 @@
         {
           "fill" : "automatic",
           "glass" : true,
-          "image-name" : "daisy-b-plus.svg",
-          "name" : "daisy-b-plus",
+          "image-name" : "daisy-static-a-11-25.svg",
+          "name" : "daisy-static-a-11-25",
           "position" : {
             "scale" : 9.66,
             "translation-in-points" : [
