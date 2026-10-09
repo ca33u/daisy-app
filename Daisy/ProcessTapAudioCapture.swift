@@ -500,9 +500,10 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
                     &newProcID,
                     newAggregateID,
                     ioQueue
-                ) { [weak self] _, inInputData, _, _, _ in
+                ) { [weak self] _, inInputData, inInputTime, _, _ in
                     self?.deliver(
                         inInputData,
+                        hostTime: Self.captureHostTime(inInputTime),
                         format: native,
                         converter: capturedConverter,
                         outputFormat: outputFormat
@@ -649,6 +650,7 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
     /// transcriber — happens on `deliveryQueue`, not here.
     private func deliver(
         _ inInputData: UnsafePointer<AudioBufferList>,
+        hostTime: UInt64,
         format: AVAudioFormat,
         converter: AVAudioConverter?,
         outputFormat: AVAudioFormat
@@ -675,12 +677,23 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
             droppedBuffers &+= 1
             return
         }
-        let chunk = AudioChunk(pcm: outgoing, time: AVAudioTime(hostTime: mach_absolute_time()))
+        let chunk = AudioChunk(pcm: outgoing, time: AVAudioTime(hostTime: hostTime))
         counters.deliver()
         deliveryQueue.async { [onBuffer = self.onBuffer, permits = self.deliveryPermits] in
             onBuffer(chunk)
             permits.signal()
         }
+    }
+
+    /// When the HAL captured this cycle's input (2026-10-09). The archive
+    /// aligns its first frame to the recording's origin by this time, and
+    /// the moment the block runs is later by the IO buffer and scheduling
+    /// — measured tens of milliseconds. Falls back to now when the HAL
+    /// gives no valid host time.
+    nonisolated static func captureHostTime(_ time: UnsafePointer<AudioTimeStamp>) -> UInt64 {
+        let stamp = time.pointee
+        guard stamp.mFlags.contains(.hostTimeValid), stamp.mHostTime > 0 else { return mach_absolute_time() }
+        return stamp.mHostTime
     }
 
     /// Copy a HAL `AudioBufferList` into an owned `AVAudioPCMBuffer`.

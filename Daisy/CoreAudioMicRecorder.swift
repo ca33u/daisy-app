@@ -425,6 +425,7 @@ final class CoreAudioMicRecorder {
         writeErrors.reset()
         framesWritten.reset()
         archiveClock.reset()
+        archiveClock.beginRecording()
         bufferTimestamp.reset()
         midSessionRebuilds = 0
         micLiveness.reset(to: Date())
@@ -1825,6 +1826,12 @@ private final class RenderContext: @unchecked Sendable {
         // try/accumulate pattern as AudioRecorder's tap: only count frames
         // that actually landed. `audioFile` is touched ONLY here.
         if archiveGate.value, let file = audioFile {
+            // First frame of the recording: silence up to the common origin,
+            // so this track starts at its real place on the wall clock.
+            let lead = archiveClock.takeLead(to: chunk.time)
+            if lead > 0 {
+                padGap(seconds: lead, in: file)
+            }
             let gap = archiveClock.advance(to: chunk.time, frames: pcm.frameLength)
             if gap > 0 {
                 padGap(seconds: gap, in: file)
@@ -1970,6 +1977,23 @@ nonisolated final class ArchiveClockBox: @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock<UInt64?>(initialState: nil)
 
     func reset() { lock.withLock { $0 = nil } }
+
+    /// Set when the recording starts (not on pause/resume), so the lead
+    /// silence is written once per recording, at the first frame.
+    private let leadTaken = OSAllocatedUnfairLock<Bool>(initialState: true)
+
+    func beginRecording() { leadTaken.withLock { $0 = false } }
+
+    /// Seconds between the recording's origin and `time`, the first time it
+    /// is asked after `beginRecording()`; 0 on every later call.
+    func takeLead(to time: AVAudioTime?) -> TimeInterval {
+        let first = leadTaken.withLock { taken -> Bool in
+            defer { taken = true }
+            return !taken
+        }
+        guard first, let time, time.isHostTimeValid else { return 0 }
+        return ArchiveOrigin.leadSeconds(to: time.hostTime)
+    }
 
     func advance(to time: AVAudioTime?, frames: AVAudioFrameCount) -> TimeInterval {
         guard let time, time.isHostTimeValid, time.sampleRate > 0 else { return 0 }

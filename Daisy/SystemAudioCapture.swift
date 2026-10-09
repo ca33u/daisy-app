@@ -161,6 +161,9 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// Seconds of silence the reopened archive starts with, so the
     /// timeline survives the switch. Touched on `outputQueue` only.
     nonisolated(unsafe) private var pendingLeadingSilence: TimeInterval = 0
+    /// The archive's lead to the recording origin is written once, when the
+    /// archive first opens; a backend switch reopens it but must not repeat it.
+    nonisolated(unsafe) private var archiveLeadTaken = false
     /// Listeners on the default output device ITSELF — its sample rate
     /// and stream layout. An A2DP→HFP flip keeps the same device and
     /// changes these, so the default-device listener alone never fired.
@@ -491,6 +494,10 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                 archiveWriteErrorCount = 0
                 firstArchiveWriteError = nil
                 deliveredFormat = nil
+                // A new recording gets its own lead to the origin, and no
+                // silence left over from a backend switch in the last one.
+                archiveLeadTaken = false
+                pendingLeadingSilence = 0
             }
             // Backend, tap scope and tap host are all fresh-start
             // decisions (see `backend` / `tapScope`).
@@ -748,7 +755,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             pinnedFormat: pinnedAudioFormat,
             deliveryQueue: outputQueue,
             onBuffer: { [weak self] chunk in
-                self?.ingest(chunk.pcm)
+                self?.ingest(chunk.pcm, hostTime: chunk.time.hostTime)
             },
             onDeath: { [weak self] dead, message in
                 Task { @MainActor [weak self] in
@@ -2092,7 +2099,22 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
               let pcm = Self.pcmBuffer(from: sampleBuffer) else {
             return
         }
-        ingest(pcm)
+        ingest(pcm, hostTime: Self.captureHostTime(of: sampleBuffer))
+    }
+
+    /// When ScreenCaptureKit captured this buffer, as a host time
+    /// (2026-10-09): its presentation timestamp is on the host clock. The
+    /// archive aligns its first frame to the recording's origin by this
+    /// time rather than by when the callback ran. Falls back to now for an
+    /// invalid stamp, or one implausibly far from now.
+    nonisolated static func captureHostTime(of sampleBuffer: CMSampleBuffer) -> UInt64 {
+        let now = mach_absolute_time()
+        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        guard pts.isValid, pts.isNumeric else { return now }
+        let host = CMClockConvertHostTimeToSystemUnits(pts)
+        let distance = host > now ? host - now : now - host
+        guard host > 0, AVAudioTime.seconds(forHostTime: distance) < 5 else { return now }
+        return host
     }
 
     /// Everything that happens to one buffer of remote-side audio: hand
@@ -2110,8 +2132,10 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// hops onto the same serial queue before calling. Every
     /// `archiveWriter` / `archiveURL` access below depends on that
     /// confinement.
-    nonisolated private func ingest(_ pcm: AVAudioPCMBuffer) {
-        let chunk = AudioChunk(pcm: pcm, time: AVAudioTime(hostTime: mach_absolute_time()))
+    /// `hostTime`: when the buffer was captured (each backend reads it from
+    /// its own stamp); now when unknown.
+    nonisolated private func ingest(_ pcm: AVAudioPCMBuffer, hostTime: UInt64? = nil) {
+        let chunk = AudioChunk(pcm: pcm, time: AVAudioTime(hostTime: hostTime ?? mach_absolute_time()))
         bufferContinuation?.yield(chunk)
 
         // Remember the format the session started in, so a rebuilt
@@ -2150,6 +2174,12 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         // single-threaded, so no race on archiveWriter / archiveURL.
         guard let url = archiveURL else { return }
         if archiveWriter == nil {
+            if !archiveLeadTaken {
+                archiveLeadTaken = true
+                // Silence up to the recording's origin, so the system track
+                // starts where it really did next to the microphone's.
+                pendingLeadingSilence += ArchiveOrigin.leadSeconds(to: chunk.time.hostTime)
+            }
             do {
                 archiveWriter = try AVAudioFile(
                     forWriting: url,

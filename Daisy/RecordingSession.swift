@@ -2061,6 +2061,8 @@ final class RecordingSession {
             micTranscriber.onDictationLiveText = nil
         }
         micTranscriber.start(consuming: micAudio, startedAt: nowStarted, tier: tier)
+        // The common clock every archive aligns to, before any track starts.
+        ArchiveOrigin.mark()
         do {
             try recorder.start(
                 archiveURL: micArchive,
