@@ -6,14 +6,15 @@
 //  centre. Wispr-Flow-inspired aesthetic: solid dark surface, dense
 //  glyph-free centre (colour communicates state), tight padding.
 //
-//  The mark selected 2026-10-09 uses original A at rest and during capture,
-//  softly bent B while loading; the whole flower rests at −11.25° (source:
-//  Assets.xcassets/DaisyMark.imageset/daisy_logo.svg, same geometry).
+//  The flower is the upright B+ mark at rest and during capture (A, the
+//  same outline as Assets.xcassets/DaisyMark.imageset/daisy_logo.svg), and
+//  softly bent petals (B) while loading. The −11.25° turn tried on
+//  2026-10-09 was dropped the same day; the bent loading petals stayed.
 //
 //  • Recording / dictation / voice note: straight petals follow mirrored FFT bands.
 //  • Preparing / Stopping: the petals rotate together clockwise, one
 //    revolution per 4.8 seconds, with a stationary status centre.
-//  • Other states and Reduce Motion: the still A mark at −11.25°.
+//  • Other states and Reduce Motion: the still, upright A mark.
 //
 
 import SwiftUI
@@ -126,12 +127,16 @@ struct DaisyWidget: View {
     private let petalCount = 8
     /// The whole mark's resting orientation, and where the loader's
     /// rotation starts from.
-    private static let orientationDegrees: Double = -11.25
+    /// Upright (Egor, 2026-10-09: the turned mark is out; the bent loading
+    /// petals stay).
+    private static let orientationDegrees: Double = 0
     /// One revolution per 4.8 s, clockwise.
     private static let spinDegreesPerSecond: Double = 360 / 4.8
     /// The A↔B shape change, and the shortest landing.
     private static let minimumLandingDuration: TimeInterval = 0.20
-    private static let petalReactiveGain: Float = 1.0
+    /// 1.3 (was 1.0): on a loud voice the petals stopped short of half
+    /// their swing (Egor, 2026-10-09).
+    private static let petalReactiveGain: Float = 1.3
     private let canvasSize: CGFloat = 42.075
     private var maxPetalLength: CGFloat { canvasSize * 0.278 }
     /// The shortest a petal gets while recording — at silence it sits a
@@ -463,6 +468,12 @@ struct DaisyWidget: View {
     /// During recording → spectrum bands (mirrored for symmetry).
     /// Processing and static states use the full silhouette.
     /// The existing whole-widget passive scale still applies after capture.
+    /// Which spectrum band drives a petal: its distance from the top petal,
+    /// so mirror-image petals left and right of vertical share one.
+    static func bandIndex(forPetal petal: Int, petalCount: Int) -> Int {
+        min(petal, petalCount - petal)
+    }
+
     private func amplitudeFor(
         petalIndex: Int,
         bands: [Float],
@@ -473,16 +484,17 @@ struct DaisyWidget: View {
         if reduceMotion { return 1 }
         switch status {
         case .recording:
-            // 8 petals, mirrored across the vertical axis → the lower 4 of
-            // the analyzer's 6 voice-tuned bands drive symmetric "blooming"
-            // (petal i and petal 7-i share a band). The bands are already
-            // dB-normalised + noise-gated + asymmetric-smoothed upstream in
-            // SpectrumAnalyzer (fast attack / slow decay), so the petals are
-            // a faithful read of the live spectrum, not raw FFT jitter.
-            let half = petalCount / 2
-            let bandIndex = petalIndex < half
-                ? petalIndex
-                : (petalCount - 1 - petalIndex)
+            // 8 petals, mirrored across the VERTICAL axis: petal 0 is on top
+            // and petal 4 at the bottom, each on its own band; the side
+            // pairs (1,7), (2,6), (3,5) share one. The lower 5 of the
+            // analyzer's 6 voice-tuned bands are used. Until 2026-10-09 the
+            // pairs were (i, 7−i), which mirrors across an axis 22.5° off
+            // vertical — the flower breathed lopsided and read as swaying
+            // left and right. The bands are already dB-normalised +
+            // noise-gated + asymmetric-smoothed upstream in SpectrumAnalyzer
+            // (fast attack / slow decay), so the petals are a faithful read
+            // of the live spectrum, not raw FFT jitter.
+            let bandIndex = Self.bandIndex(forPetal: petalIndex, petalCount: petalCount)
             guard bandIndex < bands.count else { return 0.12 }
             // Per-mode "character" so the recording modes read as different
             // by MOTION, not only by the small centre dot. Kept near 1.0 so
@@ -505,8 +517,8 @@ struct DaisyWidget: View {
             //   the floor, so the petals sat almost frozen (tester report).
             //   Routing dictation through the shared constant equalises its
             //   sensitivity to meeting by construction, and the two can no
-            //   longer drift apart. Meeting is unchanged (it was already
-            //   1.0 == petalReactiveGain), so this can't regress it.
+            //   longer drift apart. (The shared gain was 1.0 then; 1.3 since
+            //   2026-10-09, for both.)
             //   voiceNote keeps its deliberate +6% liveliness.
             let gain: Float
             switch mode {
