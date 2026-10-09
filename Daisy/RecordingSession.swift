@@ -2405,6 +2405,8 @@ final class RecordingSession {
         // `status = .paused` flips only after the pause has
         // actually committed downstream.
         await systemAudio.pause()
+        // Both tracks have stopped: the shared pause moment they pad to.
+        ArchiveOrigin.markPause()
         micTranscriber.pause()
         systemTranscriber.pause()
         screenshots.stop()
@@ -2420,6 +2422,8 @@ final class RecordingSession {
     /// continuous recording (gaps are simply absent, not silent).
     func resume() async {
         guard status == .paused else { return }
+        // Neither track has restarted yet: the shared resume moment.
+        ArchiveOrigin.markResume()
         do {
             try recorder.resume()
         } catch {

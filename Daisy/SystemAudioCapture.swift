@@ -164,6 +164,10 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// The archive's lead to the recording origin is written once, when the
     /// archive first opens; a backend switch reopens it but must not repeat it.
     nonisolated(unsafe) private var archiveLeadTaken = false
+    /// End (host time) of the last frame archived, and whether the next
+    /// frame is the first after a resume — see `ArchiveOrigin.resumePad`.
+    nonisolated(unsafe) private var archiveLastFrameEnd: UInt64 = 0
+    nonisolated(unsafe) private var archiveResumePending = false
     /// Listeners on the default output device ITSELF — its sample rate
     /// and stream layout. An A2DP→HFP flip keeps the same device and
     /// changes these, so the default-device listener alone never fired.
@@ -498,6 +502,8 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                 // silence left over from a backend switch in the last one.
                 archiveLeadTaken = false
                 pendingLeadingSilence = 0
+                archiveLastFrameEnd = 0
+                archiveResumePending = false
             }
             // Backend, tap scope and tap host are all fresh-start
             // decisions (see `backend` / `tapScope`).
@@ -2083,6 +2089,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             return
         }
         guard state == .paused else { return }
+        outputQueue.sync { archiveResumePending = true }
         // Re-run the full discover + filter + config dance — display
         // topology can change while we were paused (Mac plugged into
         // a different monitor, etc.).
@@ -2134,6 +2141,20 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// confinement.
     /// `hostTime`: when the buffer was captured (each backend reads it from
     /// its own stamp); now when unknown.
+    /// Zeros into the archive, one second at a time. On `outputQueue`.
+    nonisolated private func writeArchiveSilence(seconds: TimeInterval, to writer: AVAudioFile) {
+        let format = writer.processingFormat
+        var remaining = Int(seconds * format.sampleRate)
+        while remaining > 0 {
+            let n = min(Int(format.sampleRate), remaining)
+            guard let silence = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(n)) else { break }
+            silence.frameLength = AVAudioFrameCount(n)
+            guard (try? writer.write(from: silence)) != nil else { break }
+            archiveFramesWritten &+= UInt64(n)
+            remaining -= n
+        }
+    }
+
     nonisolated private func ingest(_ pcm: AVAudioPCMBuffer, hostTime: UInt64? = nil) {
         let chunk = AudioChunk(pcm: pcm, time: AVAudioTime(hostTime: hostTime ?? mach_absolute_time()))
         bufferContinuation?.yield(chunk)
@@ -2176,6 +2197,8 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         if archiveWriter == nil {
             if !archiveLeadTaken {
                 archiveLeadTaken = true
+                // The lead places this first frame; no resume pad on top.
+                archiveResumePending = false
                 // Silence up to the recording's origin, so the system track
                 // starts where it really did next to the microphone's.
                 pendingLeadingSilence += ArchiveOrigin.leadSeconds(to: chunk.time.hostTime)
@@ -2198,17 +2221,8 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             // After a backend switch the archive starts over; silence in
             // front keeps every later second where it was.
             if pendingLeadingSilence > 0, let writer = archiveWriter {
-                let format = writer.processingFormat
-                var remaining = Int(pendingLeadingSilence * format.sampleRate)
+                writeArchiveSilence(seconds: pendingLeadingSilence, to: writer)
                 pendingLeadingSilence = 0
-                while remaining > 0 {
-                    let n = min(Int(format.sampleRate), remaining)
-                    guard let silence = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(n)) else { break }
-                    silence.frameLength = AVAudioFrameCount(n)
-                    guard (try? writer.write(from: silence)) != nil else { break }
-                    archiveFramesWritten &+= UInt64(n)
-                    remaining -= n
-                }
             }
         }
         // Format guard (2026-08-10). `AVAudioFile.write(from:)` raises
@@ -2227,8 +2241,18 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             archiveURL = nil
             return
         }
+        // First frame after a resume: the same cut as the microphone's.
+        if archiveResumePending, let writer = archiveWriter {
+            archiveResumePending = false
+            let pad = ArchiveOrigin.resumePad(lastFrameEnd: archiveLastFrameEnd, firstFrame: chunk.time.hostTime)
+            if pad > 0 { writeArchiveSilence(seconds: pad, to: writer) }
+        }
         do {
             try archiveWriter?.write(from: pcm)
+            if archiveWriter != nil {
+                archiveLastFrameEnd = chunk.time.hostTime
+                    &+ AVAudioTime.hostTime(forSeconds: Double(pcm.frameLength) / pcm.format.sampleRate)
+            }
             // 2026-05-25 — counter for the silent-write-death detector.
             // hasReceivedAudio flips true on first SCK buffer (above);
             // archiveFramesWritten flips up only on a successful disk

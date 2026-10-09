@@ -537,6 +537,9 @@ final class CoreAudioMicRecorder {
         // so "Daisy can't hear you" doesn't outlive the problem.
         CaptureProblemNotification.cancel()
         micLiveness.reset(to: Date())
+        // The first frame after this resume pads to the shared pause/resume
+        // marks (ArchiveOrigin), so both tracks cut the same stretch.
+        archiveClock.beginResume()
 
         // Re-resolve the device — the user may have switched mics in
         // Settings, or unplugged a headset, while paused.
@@ -1832,6 +1835,11 @@ private final class RenderContext: @unchecked Sendable {
             if lead > 0 {
                 padGap(seconds: lead, in: file)
             }
+            // First frame after a resume: the same cut as the other track.
+            let resumePad = archiveClock.takeResumePad(to: chunk.time)
+            if resumePad > 0 {
+                padGap(seconds: resumePad, in: file)
+            }
             let gap = archiveClock.advance(to: chunk.time, frames: pcm.frameLength)
             if gap > 0 {
                 padGap(seconds: gap, in: file)
@@ -1982,7 +1990,29 @@ nonisolated final class ArchiveClockBox: @unchecked Sendable {
     /// silence is written once per recording, at the first frame.
     private let leadTaken = OSAllocatedUnfairLock<Bool>(initialState: true)
 
-    func beginRecording() { leadTaken.withLock { $0 = false } }
+    func beginRecording() {
+        leadTaken.withLock { $0 = false }
+        resumePending.withLock { $0 = false }
+        lastEnd.withLock { $0 = 0 }
+    }
+
+    /// End (host time) of the last frame written; kept through pause, which
+    /// clears `expected` so the paused stretch is not filled as a gap.
+    private let lastEnd = OSAllocatedUnfairLock<UInt64>(initialState: 0)
+    private let resumePending = OSAllocatedUnfairLock<Bool>(initialState: false)
+
+    /// Called on resume: the next frame pads to the shared pause/resume marks.
+    func beginResume() { resumePending.withLock { $0 = true } }
+
+    /// The silence to write before the first frame after a resume, once.
+    func takeResumePad(to time: AVAudioTime?) -> TimeInterval {
+        let pending = resumePending.withLock { p -> Bool in
+            defer { p = false }
+            return p
+        }
+        guard pending, let time, time.isHostTimeValid else { return 0 }
+        return ArchiveOrigin.resumePad(lastFrameEnd: lastEnd.withLock { $0 }, firstFrame: time.hostTime)
+    }
 
     /// Seconds between the recording's origin and `time`, the first time it
     /// is asked after `beginRecording()`; 0 on every later call.
@@ -1991,7 +2021,11 @@ nonisolated final class ArchiveClockBox: @unchecked Sendable {
             defer { taken = true }
             return !taken
         }
-        guard first, let time, time.isHostTimeValid else { return 0 }
+        guard first else { return 0 }
+        // The first frame of the recording came after a resume: the lead
+        // already places it, so there's no resume pad on top.
+        resumePending.withLock { $0 = false }
+        guard let time, time.isHostTimeValid else { return 0 }
         return ArchiveOrigin.leadSeconds(to: time.hostTime)
     }
 
@@ -1999,6 +2033,7 @@ nonisolated final class ArchiveClockBox: @unchecked Sendable {
         guard let time, time.isHostTimeValid, time.sampleRate > 0 else { return 0 }
         let start = time.hostTime
         let end = start &+ AVAudioTime.hostTime(forSeconds: Double(frames) / time.sampleRate)
+        lastEnd.withLock { $0 = end }
         return lock.withLock { expected -> TimeInterval in
             defer { expected = end }
             guard let due = expected, start > due else { return 0 }
