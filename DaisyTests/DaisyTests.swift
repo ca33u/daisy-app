@@ -147,10 +147,25 @@ struct DaisyTests {
                 cachedInputTokens: 1_000_000
             )
         )
-        // $2 + $12 + $0.20. Chat Completions caching is automatic,
-        // so there is no cache-write line to charge for.
+        // $2 + $12 + $0.20. No cache writes in this spend (they're
+        // priced separately, see the cache-write test).
         #expect(estimate.hasPricedUsage)
         #expect(abs(estimate.usd - 14.20) < 0.000_001)
+    }
+
+    @Test("OpenAI's cache write is priced on its own, at 1.25x input")
+    func tokenCostEstimate_openAICacheWrite() {
+        // gpt-6.1-sol's usage on a two-hour transcript (2026-10-10).
+        let spend = TokenSpend.openAICompatible(from: ["usage": [
+            "prompt_tokens": 35_866,
+            "completion_tokens": 272,
+            "prompt_tokens_details": ["cached_tokens": 0, "cache_write_tokens": 35_863],
+        ]])
+        #expect(spend.inputTokens == 3)
+        #expect(spend.cacheWriteTokens == 35_863)
+        let usd = TokenCostEstimator.estimate(provider: .openai, model: "gpt-6.1-sol", spend: spend).usd
+        // 3 × $2 + 35 863 × $2.50 + 272 × $10, per million.
+        #expect(abs(usd - (3 * 2 + 35_863 * 2.5 + 272 * 10) / 1_000_000) < 0.000_001)
     }
 
     @Test("Every model Settings offers has a price")

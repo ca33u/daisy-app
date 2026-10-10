@@ -170,7 +170,7 @@ public nonisolated struct AnthropicSummaryProvider: SummaryProvider {
 
 public nonisolated struct OpenAISummaryProvider: SummaryProvider {
     public let kind: SummaryProviderKind = .openai
-    public static let defaultModelID = "gpt-5.6-terra"
+    public static let defaultModelID = "gpt-6.1-sol"
     let model: String
     private let log = Logger(subsystem: DaisyCore.logSubsystem, category: "OpenAISummarizer")
 

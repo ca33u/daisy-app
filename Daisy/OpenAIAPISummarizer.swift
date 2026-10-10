@@ -121,10 +121,11 @@ nonisolated struct OpenAIAPISummarizer: SummaryProvider {
     /// (promotional, through at least 2026-11-21), Terra $2/$12, Luna
     /// $0.20/$1.20; none is deprecated.
     ///
-    /// Terra stays the default until GPT-6 has run Daisy's summary
-    /// request — json_object over a stream — on a real meeting
-    /// (Benchmarks/stream_gaps.py --model gpt-6.1-sol); 6.1 Sol is the
-    /// likely successor at a lower price.
+    /// 6.1 Sol is the default since 2026-10-10: it ran Daisy's summary
+    /// request (json_object over a stream, reasoning_effort low) on a
+    /// synthetic two-hour transcript — first byte and longest silence
+    /// 3.1 s, finish `stop` (Benchmarks/stream_gaps.py) — and costs less
+    /// than Terra ($2/$10 against $2/$12). A model someone picked stays.
     ///
     /// GPT-4o and GPT-4o mini stay on the list. They are not being shut
     /// down — they only fell out of the current price sheet — and mini
@@ -133,17 +134,17 @@ nonisolated struct OpenAIAPISummarizer: SummaryProvider {
     /// them here would make the picker a one-way door: switch away once
     /// and there is no field to type the id back in.
     static let availableModels: [(id: String, label: String)] = [
-        ("gpt-5.6-terra", "GPT-5.6 Terra (recommended)"),
-        ("gpt-6.1-sol",   "GPT-6.1 Sol (newest)"),
+        ("gpt-6.1-sol",   "GPT-6.1 Sol (recommended)"),
         ("gpt-6-astra",   "GPT-6 Astra (highest quality, priciest)"),
         ("gpt-6-luna",    "GPT-6 Luna (fastest, cheapest)"),
+        ("gpt-5.6-terra", "GPT-5.6 Terra"),
         ("gpt-5.6-sol",   "GPT-5.6 Sol"),
         ("gpt-5.6-luna",  "GPT-5.6 Luna"),
         ("gpt-4o",        "GPT-4o (previous generation)"),
         ("gpt-4o-mini",   "GPT-4o mini (previous generation)"),
     ]
 
-    static let defaultModelID = "gpt-5.6-terra"
+    static let defaultModelID = "gpt-6.1-sol"
 
     /// True for the GPT-5 generation and the o-series reasoning models,
     /// which take `max_completion_tokens` and refuse a custom

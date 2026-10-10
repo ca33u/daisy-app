@@ -80,18 +80,22 @@ nonisolated struct TokenSpend: Sendable {
 
     /// OpenAI chat completions and everything that mimics it (LM Studio):
     /// `usage: { prompt_tokens, completion_tokens,
-    /// prompt_tokens_details: { cached_tokens } }`. `prompt_tokens`
-    /// INCLUDES cached tokens upstream, so the cached slice is
-    /// subtracted out to keep `inputTokens` meaning "fresh input" the
-    /// same way it does for Anthropic.
+    /// prompt_tokens_details: { cached_tokens, cache_write_tokens } }`.
+    /// `prompt_tokens` INCLUDES both cache slices upstream (a gpt-6.1-sol
+    /// reading: 35 866 prompt, 35 863 written), so both are subtracted out
+    /// to keep `inputTokens` meaning "fresh input" the same way it does for
+    /// Anthropic; each slice is priced on its own.
     static func openAICompatible(from json: [String: Any]) -> TokenSpend {
         guard let usage = json["usage"] as? [String: Any] else { return TokenSpend() }
         var spend = TokenSpend()
         let prompt = intValue(usage["prompt_tokens"])
         if let details = usage["prompt_tokens_details"] as? [String: Any] {
             spend.cachedInputTokens = intValue(details["cached_tokens"])
+            // OpenAI bills the write into its prompt cache at 1.25× input
+            // (seen on gpt-6.1-sol, 2026-10-10); inside prompt_tokens.
+            spend.cacheWriteTokens = intValue(details["cache_write_tokens"])
         }
-        spend.inputTokens = max(0, prompt - spend.cachedInputTokens)
+        spend.inputTokens = max(0, prompt - spend.cachedInputTokens - spend.cacheWriteTokens)
         spend.outputTokens = intValue(usage["completion_tokens"])
         return spend
     }
@@ -449,48 +453,49 @@ nonisolated enum TokenCostEstimator {
                 return Price(input: 0.60, output: 3, cachedInput: 0, cacheWrite: 0, webSearch: 0)
             }
         case .openai:
-            // Chat Completions caching is automatic — there is no
-            // separate cache-WRITE charge to model; cached input is 10%
-            // of input, except 5% on 6.1 Sol.
+            // Chat Completions caching is automatic, and since 2026 the
+            // write is billed: 1.25× input for every model on the price
+            // page (`prompt_tokens_details.cache_write_tokens`, 2026-10-10).
+            // A read is 10% of input, except 5% on 6.1 Sol.
             // developers.openai.com/api/docs/pricing, 2026-10-08 (the
             // 5.6 prices fell since 2026-07-28). 5.6 Sol is promotional
             // "at least through 2026-11-21" with no stated price after;
             // from the 22nd it goes back to its launch $5/$30 — over-
             // stating a promo that ran on beats under-stating its end.
             if id.hasPrefix("gpt-6-astra") {
-                return Price(input: 10, output: 50, cachedInput: 1, cacheWrite: 0, webSearch: 0)
+                return Price(input: 10, output: 50, cachedInput: 1, cacheWrite: 12.5, webSearch: 0)
             }
             if id.hasPrefix("gpt-6.1-sol") {
-                return Price(input: 2, output: 10, cachedInput: 0.10, cacheWrite: 0, webSearch: 0)
+                return Price(input: 2, output: 10, cachedInput: 0.10, cacheWrite: 2.5, webSearch: 0)
             }
             if id.hasPrefix("gpt-6-sol") {
-                return Price(input: 2, output: 10, cachedInput: 0.20, cacheWrite: 0, webSearch: 0)
+                return Price(input: 2, output: 10, cachedInput: 0.20, cacheWrite: 2.5, webSearch: 0)
             }
             if id.hasPrefix("gpt-6-luna") {
-                return Price(input: 0.10, output: 0.50, cachedInput: 0.01, cacheWrite: 0, webSearch: 0)
+                return Price(input: 0.10, output: 0.50, cachedInput: 0.01, cacheWrite: 0.125, webSearch: 0)
             }
             if id.hasPrefix("gpt-5.6-sol") {
                 return dayKey < Self.gpt56SolPromoEndDay
-                    ? Price(input: 4, output: 20, cachedInput: 0.40, cacheWrite: 0, webSearch: 0)
-                    : Price(input: 5, output: 30, cachedInput: 0.50, cacheWrite: 0, webSearch: 0)
+                    ? Price(input: 4, output: 20, cachedInput: 0.40, cacheWrite: 5, webSearch: 0)
+                    : Price(input: 5, output: 30, cachedInput: 0.50, cacheWrite: 6.25, webSearch: 0)
             }
             if id.hasPrefix("gpt-5.6-terra") {
-                return Price(input: 2, output: 12, cachedInput: 0.20, cacheWrite: 0, webSearch: 0)
+                return Price(input: 2, output: 12, cachedInput: 0.20, cacheWrite: 2.5, webSearch: 0)
             }
             if id.hasPrefix("gpt-5.6-luna") {
-                return Price(input: 0.20, output: 1.20, cachedInput: 0.02, cacheWrite: 0, webSearch: 0)
+                return Price(input: 0.20, output: 1.20, cachedInput: 0.02, cacheWrite: 0.25, webSearch: 0)
             }
             if id.hasPrefix("gpt-4o-mini") {
-                return Price(input: 0.15, output: 0.60, cachedInput: 0.075, cacheWrite: 0, webSearch: 0)
+                return Price(input: 0.15, output: 0.60, cachedInput: 0.075, cacheWrite: 0.1875, webSearch: 0)
             }
             if id.hasPrefix("gpt-4o") {
-                return Price(input: 2.50, output: 10, cachedInput: 1.25, cacheWrite: 0, webSearch: 0)
+                return Price(input: 2.50, output: 10, cachedInput: 1.25, cacheWrite: 3.125, webSearch: 0)
             }
             if id.hasPrefix("gpt-4-turbo") {
                 // Chat Completions does not report cached tokens for this
                 // legacy model in Daisy today; count any future value at
                 // the normal input rate rather than inventing a discount.
-                return Price(input: 10, output: 30, cachedInput: 10, cacheWrite: 0, webSearch: 0)
+                return Price(input: 10, output: 30, cachedInput: 10, cacheWrite: 12.5, webSearch: 0)
             }
         // `.agentCLI` joins them: the agent CLI reports no per-request
         // usage we can price, and the spend lands on the user's
