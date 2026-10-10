@@ -95,6 +95,16 @@ extension Color {
     public static let daisyHomeAccent = Color(DaisyPalette.homeAccent)
     public static let daisyPetal = Color(DaisyPalette.petal)
 
+    // Petal mark on a dark surface: state colours
+    public static let daisyMarkReady = Color(DaisyPalette.markReady)
+    public static let daisyMarkMeeting = Color(DaisyPalette.markMeeting)
+    public static let daisyMarkDictation = Color(DaisyPalette.markDictation)
+    public static let daisyMarkVoiceNote = Color(DaisyPalette.markVoiceNote)
+    public static var daisyMarkPaused: Color { daisyMarkMeeting }
+    public static let daisyMarkError = Color(DaisyPalette.markError)
+    public static let daisyMarkPetal = Color(DaisyPalette.markPetal)
+    public static let daisyMarkPausedPetal = Color(DaisyPalette.markPausedPetal)
+
     // Text
     public static let daisyTextPrimary = Color(DaisyPalette.textPrimary)
     public static let daisyTextSecondary = Color(DaisyPalette.textSecondary)

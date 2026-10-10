@@ -121,6 +121,30 @@ public nonisolated enum DaisyPalette {
     /// Petal fill — ink that matches the text on each appearance.
     public static let petal = DaisyColorPair(light: 0x282824, dark: 0xF4F5EF)
 
+    // ─── Petal mark on a dark surface: state colours ─────────────────
+    //
+    // Egor's state sheet (2026-10-09) for the mark drawn on its own dark
+    // backdrop — the Mac's floating widget. The centre says the state;
+    // the petals stay cream except on pause, where they go grey and the
+    // centre keeps the meeting orange. The same in light and dark, since
+    // the backdrop doesn't change.
+    //
+    // Roles of their own, not aliases of `recording` / `paused` / `error`:
+    // those also fill buttons and colour text, where these hexes would
+    // fail contrast (the red is 3.2:1 on the light surface). The iPhone
+    // and the watch keep `centerIdle` / `recording` above until they move
+    // here.
+
+    public static let markReady = DaisyColorPair(light: 0xA7B69A, dark: 0xA7B69A)
+    public static let markMeeting = DaisyColorPair(light: 0xFF9147, dark: 0xFF9147)
+    public static let markDictation = DaisyColorPair(light: 0xBDA0FF, dark: 0xBDA0FF)
+    public static let markVoiceNote = DaisyColorPair(light: 0x89BCE0, dark: 0x89BCE0)
+    /// The centre while paused: the meeting's orange stays.
+    public static var markPaused: DaisyColorPair { markMeeting }
+    public static let markError = DaisyColorPair(light: 0xFF4D55, dark: 0xFF4D55)
+    public static let markPetal = DaisyColorPair(light: 0xF5F1E7, dark: 0xF5F1E7)
+    public static let markPausedPetal = DaisyColorPair(light: 0x979591, dark: 0x979591)
+
     // ─── Text ─────────────────────────────────────────────────────────
 
     public static let textPrimary = DaisyColorPair(light: 0x282824, dark: 0xF4F5EF)

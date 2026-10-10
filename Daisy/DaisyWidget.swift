@@ -532,28 +532,9 @@ struct DaisyWidget: View {
 
     private func petalColor(status: RecordingSession.Status) -> Color {
         // Cream in every state but pause, where the petals go grey and the
-        // centre keeps its orange (Egor's state sheet, 2026-10-09).
-        status == .paused ? StateColor.pausedPetal : StateColor.petal
-    }
-
-    /// The widget's own state colours (Egor's sheet, 2026-10-09). Widget only
-    /// for now: the shared DaisyPalette — buttons, status dots, iPhone, the
-    /// watch — keeps its tokens until these are seen live.
-    private enum StateColor {
-        static let ready = hex(0xA7B69A)
-        static let meeting = hex(0xFF9147)
-        static let dictation = hex(0xBDA0FF)
-        static let voiceNote = hex(0x89BCE0)
-        static let paused = hex(0xFF9147)
-        static let error = hex(0xFF4D55)
-        static let petal = hex(0xF5F1E7)
-        static let pausedPetal = hex(0x979591)
-
-        private static func hex(_ rgb: UInt32) -> Color {
-            Color(red: Double((rgb >> 16) & 0xFF) / 255,
-                  green: Double((rgb >> 8) & 0xFF) / 255,
-                  blue: Double(rgb & 0xFF) / 255)
-        }
+        // centre keeps its orange (Egor's state sheet, 2026-10-09; the
+        // colours live in DaisyPalette's petal-mark state group).
+        status == .paused ? Color.daisyMarkPausedPetal : Color.daisyMarkPetal
     }
 
     private func centerColor(
@@ -567,7 +548,7 @@ struct DaisyWidget: View {
         if status == .recording || status == .paused {
             switch session.systemAudioStatus {
             case .denied, .failed:
-                return StateColor.error
+                return Color.daisyMarkError
             default:
                 break
             }
@@ -575,17 +556,17 @@ struct DaisyWidget: View {
         switch status {
         case .recording:
             switch mode {
-            case .meeting:   return StateColor.meeting
-            case .dictation: return StateColor.dictation
-            case .voiceNote: return StateColor.voiceNote
+            case .meeting:   return Color.daisyMarkMeeting
+            case .dictation: return Color.daisyMarkDictation
+            case .voiceNote: return Color.daisyMarkVoiceNote
             }
         // Paused keeps the meeting's orange in the centre; the petals go
         // grey instead (see `petalColor`).
-        case .paused: return StateColor.paused
+        case .paused: return Color.daisyMarkPaused
         case .preparing:
             return Color.white.opacity(0.92)
-        case .idle, .stopping, .summarizing, .finished: return StateColor.ready
-        case .failed: return StateColor.error
+        case .idle, .stopping, .summarizing, .finished: return Color.daisyMarkReady
+        case .failed: return Color.daisyMarkError
         }
     }
 
