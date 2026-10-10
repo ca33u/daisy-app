@@ -287,7 +287,7 @@ final class SparkleUpdater {
 final class StagedUpdateOffer {
     /// Same predicate as the relaunch hold: anything still holding
     /// audio means "not now". Injectable for the tests.
-    var isBusy: @MainActor () -> Bool = { RecordingSession.isCapturingOrTranscribing }
+    var isBusy: @MainActor () -> Bool = { UpdateGate.relaunchWouldLoseWork }
     /// What "ask" means on screen. Injectable for the tests.
     var present: @MainActor (_ version: String) -> Void = { _ in }
 
@@ -349,6 +349,14 @@ final class StagedUpdateOffer {
 /// `UpdateGate` is the rule; `PostponedRelaunch` is the machinery that
 /// carries an already-installed update across the end of a recording.
 enum UpdateGate {
+    /// What makes "relaunch now" cost work: anything holding audio, or
+    /// an import batch still copying files — quitting mid-batch leaves
+    /// the files already copied untranscribed (see
+    /// `DaisyAppDelegate.quitWhileProcessingReply`).
+    static var relaunchWouldLoseWork: Bool {
+        RecordingSession.isCapturingOrTranscribing || AudioImportRunner.shared.isRunning
+    }
+
     /// Whether a check of this kind may start right now.
     ///
     /// A scheduled or background check waits: nobody asked for it, and
@@ -372,7 +380,7 @@ final class PostponedRelaunch {
     /// Asked once a second while something is held. Injectable so the
     /// rule can be tested without a recording, a Sparkle updater, or a
     /// wait for real time.
-    var isBusy: @MainActor () -> Bool = { RecordingSession.isCapturingOrTranscribing }
+    var isBusy: @MainActor () -> Bool = { UpdateGate.relaunchWouldLoseWork }
 
     private(set) var isWaiting = false
     private var install: (() -> Void)?
@@ -446,10 +454,10 @@ private final class DaisyUpdaterDelegate: NSObject, SPUUpdaterDelegate {
     @MainActor
     func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem,
                  untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
-        guard RecordingSession.isCapturingOrTranscribing else { return false }
+        guard UpdateGate.relaunchWouldLoseWork else { return false }
         SparkleUpdater.shared.relaunchHold.hold(installHandler)
         ToastCenter.shared.show(
-            String(localized: "Update ready. Daisy will restart when the recording ends."),
+            String(localized: "Update ready. Daisy will restart when it finishes the current work."),
             style: .info
         )
         return true

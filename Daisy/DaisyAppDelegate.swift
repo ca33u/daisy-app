@@ -247,7 +247,7 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
 
         guard let session = RecordingSession.current,
               session.status == .recording || session.status == .paused else {
-            return .terminateNow
+            return quitWhileProcessingReply()
         }
 
         let alert = NSAlert()
@@ -262,6 +262,7 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         // (the user is likely in another window when they hit ⌘Q).
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else {
+            Self.relaunching = false
             return .terminateCancel
         }
 
@@ -275,6 +276,58 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
+    }
+
+    /// Quitting while Daisy copies an import or transcribes stored audio
+    /// throws that work away without a word, so ask first, as for a live
+    /// recording. The question says what is lost: a queued job runs again
+    /// at the next launch; a manual "Transcribe audio" has to be started
+    /// again; a batch still copying leaves the files already copied as
+    /// audio only, since the batch queues its transcriptions at the end.
+    private func quitWhileProcessingReply() -> NSApplication.TerminateReply {
+        // Not when macOS logs out, restarts or shuts down — a modal there
+        // shows up as "Daisy cancelled the shutdown", and nothing is
+        // lost for good: queued jobs run again, staging is swept. Not on
+        // the language relaunch either. An export is the person's own
+        // and on screen; no question for that.
+        guard !Self.relaunching, !Self.quitComesFromSystem() else { return .terminateNow }
+        let processing = SessionAudioProcessing.shared
+        let copying = AudioImportRunner.shared.isRunning
+        guard copying || (processing.isRunning && !processing.isExporting) else { return .terminateNow }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        if copying {
+            alert.messageText = String(localized: "Daisy is still importing")
+            alert.informativeText = String(localized: "If you quit now, the files not copied yet aren't imported, and the ones already in the Library stay there as audio, not transcribed.")
+        } else {
+            alert.messageText = String(localized: "Daisy is still transcribing")
+            // Queued jobs and the iPhone's pending recordings are both
+            // saved to disk and picked up again at launch.
+            let restarts = ImportTranscriptionQueue.shared.activeJobID != nil
+                || AudioHandoffServer.shared.activeDiarization != nil
+            alert.informativeText = restarts
+                ? String(localized: "If you quit now, the transcription stops and starts over the next time you open Daisy.")
+                : String(localized: "If you quit now, the transcription stops. The recording keeps its audio, so you can transcribe it again later.")
+        }
+        alert.addButton(withTitle: String(localized: "Quit Anyway"))   // .alertFirstButtonReturn
+        alert.addButton(withTitle: String(localized: "Cancel"))        // .alertSecondButtonReturn
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
+    }
+
+    /// Set by the language switch just before it quits this instance.
+    static var relaunching = false
+
+    /// Whether this quit is macOS logging out, restarting or shutting
+    /// down rather than the person quitting Daisy.
+    private static func quitComesFromSystem() -> Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              event.eventClass == kCoreEventClass, event.eventID == kAEQuitApplication,
+              let reason = event.attributeDescriptor(forKeyword: kAEQuitReason)?.enumCodeValue
+        else { return false }
+        return [kAELogOut, kAEReallyLogOut, kAEShowRestartDialog, kAEShowShutdownDialog,
+                kAERestart, kAEShutDown].contains(reason)
     }
 
     // MARK: - UNUserNotificationCenterDelegate

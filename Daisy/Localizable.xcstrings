@@ -103,6 +103,16 @@
         }
       }
     },
+    "Already in the Library: “%@”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Уже в библиотеке: «%@»"
+          }
+        }
+      }
+    },
     "Apple Intelligence is still downloading. Try again in a few minutes." : {
       "localizations" : {
         "ru" : {
@@ -159,6 +169,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Проект по умолчанию нельзя удалить"
+          }
+        }
+      }
+    },
+    "Daisy is still importing" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy ещё импортирует файлы"
+          }
+        }
+      }
+    },
+    "Daisy is still transcribing" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy ещё расшифровывает запись"
           }
         }
       }
@@ -309,6 +339,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Не чаще раза в 2 мин"
+          }
+        }
+      }
+    },
+    "If you quit now, the files not copied yet aren't imported, and the ones already in the Library stay there as audio, not transcribed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Если выйти сейчас, ещё не скопированные файлы не попадут в библиотеку, а уже попавшие останутся в ней без расшифровки."
+          }
+        }
+      }
+    },
+    "If you quit now, the transcription stops and starts over the next time you open Daisy." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Если выйти сейчас, расшифровка остановится и начнётся заново при следующем запуске Daisy."
+          }
+        }
+      }
+    },
+    "If you quit now, the transcription stops. The recording keeps its audio, so you can transcribe it again later." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Если выйти сейчас, расшифровка остановится. Аудио останется в записи — расшифровать её можно позже."
+          }
+        }
+      }
+    },
+    "Import again" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Импортировать снова"
           }
         }
       }
@@ -469,6 +539,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Обработаем, когда Mac будет на зарядке"
+          }
+        }
+      }
+    },
+    "Quit Anyway" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Всё равно выйти"
           }
         }
       }
@@ -20518,12 +20598,12 @@
         }
       }
     },
-    "Update ready. Daisy will restart when the recording ends." : {
+    "Update ready. Daisy will restart when it finishes the current work." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Обновление готово. Daisy перезапустится, когда запись закончится."
+            "value" : "Обновление готово. Daisy перезапустится, когда закончит текущую работу."
           }
         }
       }

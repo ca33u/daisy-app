@@ -168,6 +168,10 @@ struct AudioImportSheet: View {
     @Bindable private var folders = FolderStore.shared
 
     @State private var candidates: [AudioImporter.Candidate] = []
+    /// Files already in the Library (a second drop of the same file),
+    /// by URL → that session's title. Left out unless ticked again.
+    @State private var duplicates: [URL: String] = [:]
+    @State private var importAgain: Set<URL> = []
     @State private var inspecting = true
     @State private var folderSlug: String
     @State private var mode: ImportMarker.Mode = .copy
@@ -188,7 +192,9 @@ struct AudioImportSheet: View {
         _folderSlug = State(initialValue: batch.folderSlug ?? SessionFolder.inbox.slug)
     }
 
-    private var importable: [AudioImporter.Candidate] { candidates.filter { $0.problem == nil } }
+    private var importable: [AudioImporter.Candidate] {
+        candidates.filter { $0.problem == nil && (duplicates[$0.url] == nil || importAgain.contains($0.url)) }
+    }
     private var droppedFolderNames: [String] {
         var seen: [String] = []
         for c in candidates {
@@ -280,6 +286,23 @@ struct AudioImportSheet: View {
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                                 Spacer()
+                                if candidate.problem == nil, let existing = duplicates[candidate.url] {
+                                    VStack(alignment: .trailing, spacing: 2) {
+                                        Text("Already in the Library: “\(existing)”")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                        Toggle("Import again", isOn: Binding(
+                                            get: { importAgain.contains(candidate.url) },
+                                            set: { on in
+                                                if on { importAgain.insert(candidate.url) } else { importAgain.remove(candidate.url) }
+                                            }
+                                        ))
+                                        .toggleStyle(.checkbox)
+                                        .controlSize(.small)
+                                    }
+                                }
                                 if let problem = candidate.problem {
                                     Text(problem)
                                         .font(.caption)
@@ -324,6 +347,16 @@ struct AudioImportSheet: View {
         .task {
             modelID = WhisperEngine.shared.modelID
             candidates = await AudioImporter.inspect(batch.urls)
+            // A file opened with Daisy at launch gets here before the
+            // first scan; join it (or run one) so a repeat isn't missed.
+            await SessionStore.shared.refresh()
+            let library = SessionStore.shared.sessions
+            for c in candidates where c.problem == nil {
+                if let started = c.startedAt, let seconds = c.durationSec,
+                   let existing = AudioImporter.existingSession(startedAt: started, durationSec: seconds, in: library) {
+                    duplicates[c.url] = existing.title
+                }
+            }
             // Folder drop → its name is the project unless the person
             // had a project chip active (then that wins).
             if batch.folderSlug == nil, !droppedFolderNames.isEmpty,

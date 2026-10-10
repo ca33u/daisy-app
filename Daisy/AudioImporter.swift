@@ -291,6 +291,25 @@ enum AudioImporter {
         }.value
     }
 
+    /// The Library session a candidate would duplicate: the same
+    /// recording date to the second and the same length — what dropping
+    /// the same file a second time produces, whatever it was renamed to
+    /// since. The date comes from the file itself (`probeAudio`), so an
+    /// unrelated recording practically never matches both. The length may
+    /// have grown a little: once transcribed, a session's duration is the
+    /// later of the file's and the last segment's end, and Whisper's last
+    /// timestamp often runs a few seconds past the audio.
+    nonisolated static func existingSession(
+        startedAt: Date,
+        durationSec: Int,
+        in sessions: [StoredSession]
+    ) -> StoredSession? {
+        sessions.first {
+            abs($0.startedAt.timeIntervalSince(startedAt)) < 1
+                && $0.durationSec >= durationSec - 1 && $0.durationSec <= durationSec + 30
+        }
+    }
+
     // MARK: - Pieces
 
     nonisolated private struct Probe: Sendable {

@@ -161,6 +161,9 @@ struct SettingsView: View {
         config.createsNewApplicationInstance = true
         NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: config) { _, _ in }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            // The new instance is already up: a quit question cancelled
+            // here would leave two Daisys running.
+            DaisyAppDelegate.relaunching = true
             NSApp.terminate(nil)
         }
     }

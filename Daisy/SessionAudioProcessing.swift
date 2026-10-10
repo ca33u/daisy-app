@@ -95,6 +95,8 @@ final class SessionAudioProcessing {
     static let shared = SessionAudioProcessing()
 
     private(set) var isRunning = false
+    /// `isRunning` for an audio export rather than a transcription.
+    private(set) var isExporting = false
     private(set) var statusText = ""
     /// How far the running transcription is, 0…1; nil when nothing is
     /// being transcribed or the length is unknown.
@@ -506,9 +508,11 @@ final class SessionAudioProcessing {
         guard files.hasAny else { throw ProcessingError.noAudio }
 
         isRunning = true
+        isExporting = true
         statusText = String(localized: "Creating M4A audio")
         defer {
             isRunning = false
+            isExporting = false
             statusText = ""
             progress = nil
         }
