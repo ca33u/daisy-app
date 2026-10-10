@@ -92,6 +92,10 @@ final class SessionStore {
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "SessionStore")
     @ObservationIgnored
     private var refreshTask: Task<Void, Never>?
+    /// The first scan after launch also clears abandoned staging folders
+    /// (see `StagingSweep`); later scans don't.
+    @ObservationIgnored
+    private var stagingSwept = false
 
     // MARK: - Search index state
     //
@@ -284,8 +288,12 @@ final class SessionStore {
         // detached scan reads under scope.
         let liveDirNames = liveRecordingDirNames
         let rootURLs = roots.map(\.url)
+        let sweepStaging = !stagingSwept
+            && ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
+        stagingSwept = true
         let scan = await Task.detached(priority: .userInitiated) {
-            Self.scanRoots(rootURLs, liveRecordingDirNames: liveDirNames)
+            if sweepStaging { StagingSweep.sweep(roots: rootURLs) }
+            return Self.scanRoots(rootURLs, liveRecordingDirNames: liveDirNames)
         }.value
         let loaded = scan.loaded
         let interruptedToRecover = scan.interrupted
