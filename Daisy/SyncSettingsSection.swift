@@ -118,7 +118,7 @@ struct SyncSettingsSection: View {
         case .failed(let message): parts.append(String(localized: "Recordings from the iPhone: failed — \(message)"))
         }
         if let at = handoff.lastTransferAt {
-            parts.append(String(localized: "Last received \(at.formatted(.relative(presentation: .named))) from \(handoff.lastPhoneName ?? "the iPhone")."))
+            parts.append(String(localized: "Last received \(at.formatted(.relative(presentation: .named))) from \(handoff.lastPhoneName ?? String(localized: "the iPhone"))."))
         }
         if let active = handoff.activeDiarization {
             parts.append(String(localized: "Diarizing \(active)…"))
