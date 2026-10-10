@@ -386,7 +386,7 @@
 				CODE_SIGN_ENTITLEMENTS = Daisy/Daisy.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 148;
+				CURRENT_PROJECT_VERSION = 149;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = LW64FQXZCU;
 				ENABLE_APP_SANDBOX = NO;
@@ -401,7 +401,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.8.31;
+				MARKETING_VERSION = 1.0.8.32;
 				PRODUCT_BUNDLE_IDENTIFIER = app.essazanov.Daisy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -422,7 +422,7 @@
 				CODE_SIGN_ENTITLEMENTS = Daisy/Daisy.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 148;
+				CURRENT_PROJECT_VERSION = 149;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = LW64FQXZCU;
 				ENABLE_APP_SANDBOX = NO;
@@ -437,7 +437,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.8.31;
+				MARKETING_VERSION = 1.0.8.32;
 				PRODUCT_BUNDLE_IDENTIFIER = app.essazanov.Daisy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
