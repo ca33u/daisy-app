@@ -240,7 +240,15 @@ final class AudioHandoffServer {
                     try? await Task.sleep(for: .seconds(60))
                     continue
                 }
-                guard let session = SessionStore.shared.sessions.first(where: { $0.id == id }) else {
+                var found = SessionStore.shared.sessions.first(where: { $0.id == id })
+                if found == nil {
+                    // At launch this runs before the Library's first scan,
+                    // and every pending id looked "gone" — dropped from the
+                    // saved list, never diarized. Scan, then decide.
+                    await SessionStore.shared.refresh()
+                    found = SessionStore.shared.sessions.first(where: { $0.id == id })
+                }
+                guard let session = found else {
                     pendingDiarization.removeFirst()
                     persistPending()
                     continue
