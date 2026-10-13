@@ -3,11 +3,12 @@
 //  Daisy
 //
 //  Read-only list of the user's recent dictations (`DictationHistory`),
-//  shown in Settings. Each row is the dictated text plus a relative
-//  timestamp; tapping a row re-copies that text to the clipboard. A
-//  destructive "Clear history" control empties the log. There's nothing
-//  to edit here — the history records itself as a side effect of
-//  dictation — so this is purely a recall surface.
+//  shown in the Dictation window's History tab. Each row is the dictated
+//  text plus a relative timestamp; tapping a row re-copies that text to
+//  the clipboard. On top: how long the history is kept, said in words
+//  and changeable right there — a list that empties itself without
+//  saying so reads as data lost (2026-10-13). Shortening the window asks
+//  before older dictations go.
 //
 //  Embedding contract: this view renders ONLY rows + controls — no
 //  `Form`, no `Section` of its own. The caller is expected to drop it
@@ -34,6 +35,12 @@ struct DictationHistoryView: View {
     /// recorded (while Settings is open) or cleared.
     @Bindable private var history = DictationHistory.shared
 
+    /// A shorter window waiting for "Delete" in the confirmation.
+    @State private var pendingRetention: DictationRetention?
+    /// What the open question is about. Kept after the answer, so the
+    /// title doesn't go blank while the dialog animates away.
+    @State private var askedRetention: DictationRetention = .default
+
     /// Relative-time formatter for the per-row timestamp ("3 minutes
     /// ago"). Held once rather than rebuilt per row.
     private static let relativeFormatter: RelativeDateTimeFormatter = {
@@ -43,20 +50,90 @@ struct DictationHistoryView: View {
     }()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // One-line explainer in Daisy's plain voice — sets the privacy
-            // expectation (local, auto-expiring) up front. Caption styling
-            // matches the per-section helper text used elsewhere.
-            Text("Kept on your Mac for 24 hours, then deleted. Click to copy.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        // Each piece is its own row of the caller's Form section: the
+        // header, then one row per dictation — so a list of 2,000 is
+        // built as it scrolls, not all at once.
+        Group {
+            VStack(alignment: .leading, spacing: 8) {
+                Picker("Keep dictation history", selection: Binding(
+                    get: { history.retention },
+                    set: { choose($0) }
+                )) {
+                    ForEach(DictationRetention.allCases) { option in
+                        Text(Self.label(for: option)).tag(option)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                // Says how long, in words: a list that empties itself
+                // without saying so reads as data lost.
+                Text(Self.explanation(for: history.retention))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .onAppear { history.sweepExpired() }
+            .confirmationDialog(
+                Self.deleteQuestion(keeping: askedRetention),
+                isPresented: Binding(get: { pendingRetention != nil }, set: { if !$0 { pendingRetention = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    if let new = pendingRetention { history.setRetention(new) }
+                    pendingRetention = nil
+                }
+                Button("Cancel", role: .cancel) { pendingRetention = nil }
+            } message: {
+                Text("Dictations to delete: \(history.entriesRemoved(by: askedRetention))")
+            }
 
             if history.entries.isEmpty {
                 emptyState
             } else {
-                rows
+                ForEach(history.entries) { entry in
+                    row(for: entry)
+                }
             }
+        }
+    }
+
+    // MARK: - Retention
+
+    /// A longer window applies at once; a shorter one that would remove
+    /// dictations asks first, and Cancel keeps the old window.
+    private func choose(_ new: DictationRetention) {
+        if history.entriesRemoved(by: new) > 0 {
+            askedRetention = new
+            pendingRetention = new
+        } else {
+            history.setRetention(new)
+        }
+    }
+
+    nonisolated static func label(for retention: DictationRetention) -> String {
+        switch retention {
+        case .day: return String(localized: "24 hours")
+        case .week: return String(localized: "7 days")
+        case .month: return String(localized: "30 days")
+        case .always: return String(localized: "Always")
+        }
+    }
+
+    nonisolated static func explanation(for retention: DictationRetention) -> String {
+        switch retention {
+        case .day: return String(localized: "Kept on your Mac for 24 hours, then deleted. Click to copy.")
+        case .week: return String(localized: "Kept on your Mac for 7 days, then deleted. Click to copy.")
+        case .month: return String(localized: "Kept on your Mac for 30 days, then deleted. Click to copy.")
+        case .always: return String(localized: "Kept on your Mac until you clear it — the latest 2,000 dictations. Click to copy.")
+        }
+    }
+
+    nonisolated static func deleteQuestion(keeping retention: DictationRetention) -> String {
+        switch retention {
+        case .day: return String(localized: "Delete dictations older than 24 hours?")
+        case .week: return String(localized: "Delete dictations older than 7 days?")
+        case .month: return String(localized: "Delete dictations older than 30 days?")
+        case .always: return ""   // never shorter than anything
         }
     }
 
@@ -70,29 +147,23 @@ struct DictationHistoryView: View {
         HStack(spacing: 8) {
             Image(systemName: "clock")
                 .foregroundStyle(.secondary)
-            Text("Nothing in the last 24 hours.")
+            Text(Self.emptyText(for: history.retention))
                 .foregroundStyle(.secondary)
             Spacer()
         }
         .font(.callout)
     }
 
-    // MARK: - Rows
-
-    @ViewBuilder
-    private var rows: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(history.entries) { entry in
-                row(for: entry)
-                // Hairline divider between entries, matching the divider
-                // idiom used elsewhere in Settings lists.
-                if entry.id != history.entries.last?.id {
-                    Divider()
-                        .overlay(Color.daisyDivider)
-                }
-            }
+    nonisolated static func emptyText(for retention: DictationRetention) -> String {
+        switch retention {
+        case .day: return String(localized: "Nothing in the last 24 hours.")
+        case .week: return String(localized: "Nothing in the last 7 days.")
+        case .month: return String(localized: "Nothing in the last 30 days.")
+        case .always: return String(localized: "No dictations yet.")
         }
     }
+
+    // MARK: - Rows
 
     @ViewBuilder
     private func row(for entry: DictationEntry) -> some View {
@@ -113,7 +184,7 @@ struct DictationHistoryView: View {
                     .foregroundStyle(.tertiary)
             }
             .contentShape(Rectangle())   // whole row is the hit target
-            .padding(.vertical, 6)
+            .padding(.vertical, 2)
         }
         .buttonStyle(.plain)
         .help("Copy")

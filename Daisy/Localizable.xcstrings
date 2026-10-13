@@ -113,6 +113,16 @@
         }
       }
     },
+    "Always" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Всегда"
+          }
+        }
+      }
+    },
     "Apple Intelligence is still downloading. Try again in a few minutes." : {
       "localizations" : {
         "ru" : {
@@ -199,6 +209,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Проект по умолчанию для заметок"
+          }
+        }
+      }
+    },
+    "Delete dictations older than 24 hours?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить диктовки старше 24 часов?"
+          }
+        }
+      }
+    },
+    "Delete dictations older than 7 days?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить диктовки старше 7 дней?"
+          }
+        }
+      }
+    },
+    "Delete dictations older than 30 days?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить диктовки старше 30 дней?"
+          }
+        }
+      }
+    },
+    "Dictations to delete: %lld" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Будет удалено диктовок: %lld"
           }
         }
       }
@@ -383,6 +433,46 @@
         }
       }
     },
+    "Keep dictation history" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Хранить историю диктовок"
+          }
+        }
+      }
+    },
+    "Kept on your Mac for 7 days, then deleted. Click to copy." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Хранится на твоём Mac 7 дней, затем удаляется. Нажми, чтобы скопировать."
+          }
+        }
+      }
+    },
+    "Kept on your Mac for 30 days, then deleted. Click to copy." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Хранится на твоём Mac 30 дней, затем удаляется. Нажми, чтобы скопировать."
+          }
+        }
+      }
+    },
+    "Kept on your Mac until you clear it — the latest 2,000 dictations. Click to copy." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Хранится на твоём Mac, пока не очистишь, — последние 2000 диктовок. Нажми, чтобы скопировать."
+          }
+        }
+      }
+    },
     "Layout fixer" : {
       "localizations" : {
         "ru" : {
@@ -463,6 +553,16 @@
         }
       }
     },
+    "No dictations yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Диктовок пока нет."
+          }
+        }
+      }
+    },
     "No summary" : {
       "localizations" : {
         "ru" : {
@@ -499,6 +599,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Недоступно."
+          }
+        }
+      }
+    },
+    "Nothing in the last 7 days." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ничего за последние 7 дней."
+          }
+        }
+      }
+    },
+    "Nothing in the last 30 days." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ничего за последние 30 дней."
           }
         }
       }

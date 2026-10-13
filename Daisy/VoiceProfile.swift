@@ -231,7 +231,7 @@ final class VoiceProfileStore {
         includesMeetings = UserDefaults.standard.bool(forKey: Self.includeMeetingsKey)
 
         loadOrMigrate()
-        // The rolling 24-hour `DictationHistory` used to seed an empty
+        // The `DictationHistory` used to seed an empty
         // corpus here. It no longer does, and that is the point: history
         // holds the text as PASTED, and at the time an opt-in LLM pass
         // could rewrite the paste in the model's taste — feeding that

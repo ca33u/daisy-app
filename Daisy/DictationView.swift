@@ -3,7 +3,7 @@
 //  Daisy
 //
 //  Top-level sidebar page for the dictation user — a focused home for
-//  the word-replacement dictionary and the rolling 24-hour history.
+//  the word-replacement dictionary and the dictation history.
 //  Promoted out of the Settings "Dictation" tab in 1.0.7.19 so it sits
 //  alongside Home / Library / Connections in the sidebar.
 //
@@ -186,8 +186,8 @@ struct DictationView: View {
     }
 
     private var clearHistoryButton: some View {
-        // Neutral, not destructive-red — clearing a rolling 24h history is
-        // low-stakes (it auto-clears anyway), so the red read as too alarming.
+        // Neutral, not destructive-red — clearing the history is low-stakes
+        // (it ages out anyway), so the red read as too alarming.
         Button {
             DictationHistory.shared.clear()
             ToastCenter.shared.show(String(localized: "History cleared"), style: .success)

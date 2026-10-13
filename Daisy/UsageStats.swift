@@ -7,7 +7,7 @@
 //  dictation and per finished recording: words produced + seconds spent.
 //  Aggregated per local day so it stays small (one row per active day),
 //  and it's the ONLY place these numbers live — dictations are ephemeral
-//  and DictationHistory is a 24h/200-cap window, so neither total words
+//  and DictationHistory is an age- and count-capped window, so neither total words
 //  nor WPM is derivable from anything else.
 //
 //  100% local (UserDefaults JSON). Never leaves the Mac.

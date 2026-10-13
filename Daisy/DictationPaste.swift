@@ -94,7 +94,7 @@ final class DictationPaste {
     /// transcribed" toast).
     /// Corrections + bookkeeping that every dictation gets, whatever it
     /// lands in: the user's vocabulary, the built-in brand layer, the
-    /// fixes counter, the 24-hour history and the voice-profile corpus.
+    /// fixes counter, the dictation history and the voice-profile corpus.
     ///
     /// Extracted from `handle` (2026-08-12) because dictation now has a
     /// second destination — a screenshot note (see
@@ -135,7 +135,7 @@ final class DictationPaste {
         // Feed the Home "fixes made by Daisy" widget.
         UsageStats.shared.recordFixes(dictionary: dictionaryFixes)
 
-        // Log the final, about-to-be-pasted text to the rolling 24-hour
+        // Log the final, about-to-be-pasted text to the
         // dictation history so the user can glance back / re-copy it later.
         // Placed AFTER `apply(to:)` so the record matches exactly what
         // lands in the user's field (dictionary already applied). Like
@@ -184,7 +184,7 @@ final class DictationPaste {
         }
 
         // `prepare` applies the user's vocabulary + brand corrections and
-        // does the once-per-dictation bookkeeping (fixes counter, 24h
+        // does the once-per-dictation bookkeeping (fixes counter,
         // history, voice-profile corpus); `deliver` puts the result where
         // the caret is. Both are MainActor-isolated same-actor calls.
         deliver(prepare(transcript), context: .freshDictation)
