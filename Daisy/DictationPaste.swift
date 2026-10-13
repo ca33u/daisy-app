@@ -214,7 +214,10 @@ final class DictationPaste {
             : String(localized: "Dictation inserted — clipboard untouched.")
     }
 
-    /// Re-paste the most recent dictation at the current caret — Wispr's
+    /// How far back the "paste last dictation" hotkey reaches.
+    static let repasteWindow: TimeInterval = 60 * 60
+
+    /// Re-paste the most recent dictation, if it is under an hour old, at the current caret — Wispr's
     /// "paste last transcript". The words a dictation put nowhere (no
     /// field focused, ⌘V landed in the void) are still in
     /// `DictationHistory`; this hands the newest one back to the same
@@ -226,10 +229,14 @@ final class DictationPaste {
     /// again would double-count fixes and re-grow the profile corpus
     /// from the same words.
     func repasteLast() {
+        // Only the last hour (Egor, 2026-10-13): the history now keeps
+        // days, and a hotkey that drops last week's paragraph at the
+        // caret is a surprise, not a recovery.
         guard let last = DictationHistory.shared.entries.first,
+              Date().timeIntervalSince(last.date) <= Self.repasteWindow,
               !last.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             ToastCenter.shared.show(
-                String(localized: "No recent dictation to paste."),
+                String(localized: "Nothing dictated in the last hour to paste."),
                 style: .info
             )
             return

@@ -1338,7 +1338,7 @@ struct SettingsView: View {
                 )
                 shortcutRow(
                     title: "Paste my last dictation",
-                    caption: "Re-inserts your most recent dictation at the cursor — for when it landed in the wrong window or nowhere at all",
+                    caption: "Re-inserts your last dictation from the past hour at the cursor — for when it landed in the wrong window or nowhere at all",
                     binding: $settings.repasteLastHotkey,
                     slot: .repaste,
                     // V-presets: paste mnemonic (⌘V muscle memory),

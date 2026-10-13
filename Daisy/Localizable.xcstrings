@@ -13416,12 +13416,12 @@
         }
       }
     },
-    "No recent dictation to paste." : {
+    "Nothing dictated in the last hour to paste." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Нет недавней диктовки для вставки."
+            "value" : "За последний час не было диктовок для вставки."
           }
         }
       }
@@ -15929,12 +15929,12 @@
         }
       }
     },
-    "Re-inserts your most recent dictation at the cursor — for when it landed in the wrong window or nowhere at all" : {
+    "Re-inserts your last dictation from the past hour at the cursor — for when it landed in the wrong window or nowhere at all" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Заново вставляет последнюю диктовку под курсор — если она попала не в то окно или никуда вовсе"
+            "value" : "Заново вставляет под курсор последнюю диктовку за прошедший час — если она попала не в то окно или никуда вовсе"
           }
         }
       }
