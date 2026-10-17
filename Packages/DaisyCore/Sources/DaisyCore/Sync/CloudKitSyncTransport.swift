@@ -58,13 +58,85 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
     /// Versions actually seen by the engine, never versions fetched just
     /// before a write (those could hide an intervening edit).
     private var serverRecords: [CKRecord.ID: CKRecord] = [:]
+    /// Where `serverRecords` outlives the process. Without it the first
+    /// push after every launch had no change tag, was refused as
+    /// `serverRecordChanged`, and the engine refetched the whole zone
+    /// (audit 2026-10-17). Safe to reuse: a pull always runs before a
+    /// push and replays every record changed since the engine's token,
+    /// and with no token the pull starts from nothing.
+    private let versionsURL: URL?
 
-    public init(containerID: String = CloudKitSyncTransport.defaultContainerID) {
+    public init(containerID: String = CloudKitSyncTransport.defaultContainerID, versionsURL: URL? = nil) {
         container = CKContainer(identifier: containerID)
         database = container.privateCloudDatabase
         zoneID = CKRecordZone.ID(zoneName: Self.zoneName, ownerName: CKCurrentUserDefaultName)
         scratch = FileManager.default.temporaryDirectory.appendingPathComponent("daisy-sync", isDirectory: true)
         try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        self.versionsURL = versionsURL
+        if let versionsURL, let data = try? Data(contentsOf: versionsURL) {
+            serverRecords = Self.unarchiveVersions(data)
+        }
+    }
+
+    // MARK: - Versions on disk
+
+    /// What a relaunch needs of a server record: CloudKit's system fields
+    /// (the change tag a conditional save is checked against) and, for a
+    /// Session record, its file list (which files a push deletes).
+    struct StoredVersion: Codable {
+        var fields: Data
+        var filePaths: String?
+    }
+
+    static func archiveVersions(_ records: [CKRecord.ID: CKRecord]) -> Data? {
+        var stored: [String: StoredVersion] = [:]
+        for (id, record) in records {
+            let coder = NSKeyedArchiver(requiringSecureCoding: true)
+            record.encodeSystemFields(with: coder)
+            coder.finishEncoding()
+            stored[id.recordName] = StoredVersion(fields: coder.encodedData, filePaths: record["filePaths"] as? String)
+        }
+        return try? JSONEncoder().encode(stored)
+    }
+
+    static func unarchiveVersions(_ data: Data) -> [CKRecord.ID: CKRecord] {
+        guard let stored = try? JSONDecoder().decode([String: StoredVersion].self, from: data) else { return [:] }
+        var records: [CKRecord.ID: CKRecord] = [:]
+        for version in stored.values {
+            guard let coder = try? NSKeyedUnarchiver(forReadingFrom: version.fields) else { continue }
+            coder.requiresSecureCoding = true
+            guard let record = CKRecord(coder: coder) else { continue }
+            coder.finishDecoding()
+            if let paths = version.filePaths { record["filePaths"] = paths as CKRecordValue }
+            records[record.recordID] = record
+        }
+        return records
+    }
+
+    private func saveVersions() {
+        guard let versionsURL else { return }
+        if serverRecords.isEmpty { try? FileManager.default.removeItem(at: versionsURL); return }
+        guard let data = Self.archiveVersions(serverRecords) else { return }
+        try? FileManager.default.createDirectory(at: versionsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: versionsURL, options: .atomic)
+    }
+
+    /// Splits a batch fetch into what arrived and what the server no
+    /// longer has. A record that is gone is a fact about the zone, not a
+    /// reason to refetch it: treated as a refetch, a list naming a file
+    /// that was deleted sent every pass back to a full zone download that
+    /// hit the same file again (audit 2026-10-17).
+    static func receivedAndGone(_ results: [CKRecord.ID: Result<CKRecord, any Error>]) throws -> ([CKRecord.ID: CKRecord], Set<CKRecord.ID>) {
+        var received: [CKRecord.ID: CKRecord] = [:]
+        var gone = Set<CKRecord.ID>()
+        for (id, result) in results {
+            switch result {
+            case .success(let record): received[id] = record
+            case .failure(let error as CKError) where error.code == .unknownItem: gone.insert(id)
+            case .failure(let error): throw error
+            }
+        }
+        return (received, gone)
     }
 
     // MARK: - Account & zone
@@ -191,31 +263,49 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
         let missing = touchedSessions.subtracting(sessionRecords.keys).subtracting(deleted)
         if !missing.isEmpty {
             let ids = missing.map { CKRecord.ID(recordName: $0, zoneID: zoneID) }
-            let fetched = try await database.records(for: ids)
-            for (id, record) in try Self.requireSuccesses(fetched) {
+            let (received, gone) = try Self.receivedAndGone(try await database.records(for: ids))
+            for (id, record) in received {
                 sessionRecords[id.recordName] = record
                 versions[id] = record
             }
+            // Files whose Session record is gone are being cascaded away.
+            for id in gone { fileRecords[id.recordName] = nil }
         }
         // Every file of every touched session: the Session record lists
         // its paths; fetch the ones this batch didn't carry.
         var records: [SessionSyncRecord] = []
-        for (id, record) in sessionRecords {
+        for (id, listed) in sessionRecords {
+            var record = listed
             var files = fileRecords[id] ?? []
             let paths = Self.decodeStrings(record["filePaths"] as? String)
             let have = Set(files.compactMap { $0["path"] as? String })
             let need = paths.filter { !have.contains($0) }.map { CKRecord.ID(recordName: Self.fileRecordName(id, $0), zoneID: zoneID) }
             if !need.isEmpty {
-                let fetched = try await database.records(for: need)
-                let received = try Self.requireSuccesses(fetched)
+                let (received, gone) = try Self.receivedAndGone(try await database.records(for: need))
                 files += received.values
                 versions.merge(received) { _, incoming in incoming }
+                if !gone.isEmpty {
+                    // The list names files the server no longer has: the
+                    // session arrives without them (a local copy stays —
+                    // a pull never deletes files), and the remembered
+                    // version lists only what exists, so a push does not
+                    // try to delete them again.
+                    let goneNames = Set(gone.map(\.recordName))
+                    let kept = paths.filter { !goneNames.contains(Self.fileRecordName(id, $0)) }
+                    if let trimmed = record.copy() as? CKRecord {
+                        trimmed["filePaths"] = Self.encode(kept) as CKRecordValue
+                        record = trimmed
+                        versions[record.recordID] = record
+                    }
+                    log.notice("Session \(id, privacy: .public) lists \(gone.count, privacy: .public) file(s) the server no longer has")
+                }
             }
             records.append(try Self.decode(session: record, files: files))
         }
         let tokenData = newToken.flatMap { try? NSKeyedArchiver.archivedData(withRootObject: $0, requiringSecureCoding: true) }
         // Publish versions only after every page, record and asset decoded.
         serverRecords = versions
+        saveVersions()
         return SyncChanges(records: records, deletedIDs: deleted, token: tokenData)
     }
 
@@ -265,6 +355,7 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
             _ = try Self.requireSuccesses(removed)
             serverRecords.merge(accepted) { _, incoming in incoming }
             for id in toDelete { serverRecords[id] = nil }
+            saveVersions()
             log.info("Pushed \(record.id, privacy: .public) with \(record.files.count, privacy: .public) file(s)")
         }
         try? FileManager.default.removeItem(at: scratch)
@@ -281,6 +372,7 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
             catch let error as CKError where error.code == .unknownItem { }
             serverRecords[id] = nil
         }
+        saveVersions()
     }
 
     /// J-0: the whole zone goes — every Session and SessionFile record
@@ -297,6 +389,7 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
         }
         zoneReady = false
         serverRecords.removeAll()
+        saveVersions()
         log.notice("Erased zone \(Self.zoneName, privacy: .public) on request")
     }
 

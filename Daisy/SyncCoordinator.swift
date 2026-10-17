@@ -58,7 +58,10 @@ final class SyncCoordinator {
         }
     }
 
-    private let transport = CloudKitSyncTransport()
+    /// The server versions outlive a relaunch, so the first push after
+    /// launch is not refused and followed by a full zone download.
+    private let transport = CloudKitSyncTransport(versionsURL: (SessionsFolder.defaultBase() ?? FileManager.default.temporaryDirectory)
+        .appendingPathComponent("Daisy/sync-versions.json"))
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "Sync")
     @ObservationIgnored private var engine: SessionSyncEngine?
     @ObservationIgnored private var pending: Task<Void, Never>?

@@ -149,4 +149,37 @@ struct CloudKitSyncReliabilityTests {
         let conflict = try #require(conflicts.first)
         #expect(try String(contentsOf: conflict, encoding: .utf8).contains("phone edit"))
     }
+
+    /// Audit 2026-10-17: the versions outlive a relaunch — the change tag
+    /// and a Session's file list, not its contents.
+    @Test func versionsSurviveARelaunch() throws {
+        let zone = CKRecordZone.ID(zoneName: "DaisySessions", ownerName: CKCurrentUserDefaultName)
+        let session = CKRecord(recordType: "Session", recordID: CKRecord.ID(recordName: "meeting", zoneID: zone))
+        session["filePaths"] = "[\"summary.json\"]" as CKRecordValue
+        session["frontmatter"] = "{}" as CKRecordValue
+        let file = CKRecord(recordType: "SessionFile", recordID: CKRecord.ID(recordName: "meeting|summary.json", zoneID: zone))
+        let data = try #require(CloudKitSyncTransport.archiveVersions([session.recordID: session, file.recordID: file]))
+        let restored = CloudKitSyncTransport.unarchiveVersions(data)
+        #expect(Set(restored.keys) == [session.recordID, file.recordID])
+        #expect(restored[session.recordID]?.recordType == "Session")
+        #expect(restored[session.recordID]?["filePaths"] as? String == "[\"summary.json\"]")
+        #expect(restored[session.recordID]?["frontmatter"] == nil)
+        #expect(CloudKitSyncTransport.unarchiveVersions(Data("not json".utf8)).isEmpty)
+    }
+
+    /// A listed record the server no longer has is gone, not a refetch —
+    /// as a refetch it looped through full zone downloads forever.
+    @Test func aRecordTheServerNoLongerHasIsGoneNotARefetch() throws {
+        let here = CKRecord.ID(recordName: "meeting|a.json"), gone = CKRecord.ID(recordName: "meeting|b.json")
+        let results: [CKRecord.ID: Result<CKRecord, any Error>] = [
+            here: .success(CKRecord(recordType: "SessionFile", recordID: here)),
+            gone: .failure(CKError(.unknownItem))
+        ]
+        let (received, missing) = try CloudKitSyncTransport.receivedAndGone(results)
+        #expect(Set(received.keys) == [here])
+        #expect(missing == [gone])
+        #expect(throws: CKError.self) {
+            try CloudKitSyncTransport.receivedAndGone([here: .failure(CKError(.networkFailure))])
+        }
+    }
 }
