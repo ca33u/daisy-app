@@ -24,6 +24,7 @@ public nonisolated struct AskProxyClient: Sendable {
 
     public struct Result: Sendable {
         public let answer: String
+        public let emotion: String?
         public let report: SensitiveDataProtectionReport
         /// Free uses left, when this question was on the trial.
         public let trialRemaining: Int?
@@ -32,8 +33,8 @@ public nonisolated struct AskProxyClient: Sendable {
     /// `history` is the earlier turns, oldest first (question, answer).
     public func ask(question: String, sources: [AskPrompt.Source], history: [CloudText.Message],
                     today: String, answerLanguage: String? = nil, credential: ProxyCredential,
-                    knownPeople: [String]) async throws -> Result {
-        var pseudonyms = PseudonymSession(knownPeople: knownPeople)
+                    knownPeople: [String], chatResponse: Bool = false, ownerName: String? = nil, allowHumor: Bool = true) async throws -> Result {
+        var pseudonyms = PseudonymSession(knownPeople: knownPeople + [ownerName].compactMap { $0 })
         let protectedSources = sources.map { source -> AskPrompt.Source in
             var s = source
             s.title = pseudonyms.protect(s.title)
@@ -41,13 +42,20 @@ public nonisolated struct AskProxyClient: Sendable {
             s.pieces = s.pieces.map { ($0.0, pseudonyms.protect($0.1)) }
             return s
         }
+        // Explicit identity metadata is optional: omit it when the best-effort
+        // recognizer cannot mask it (for example, a one-character name).
+        let protectedOwner = ownerName.flatMap { name -> String? in
+            let protected = pseudonyms.protect(name)
+            return protected != name ? protected : nil
+        }
         let material = AskPrompt.user(question: pseudonyms.protect(question), sources: protectedSources, today: today,
-                                      answerLanguage: answerLanguage)
+                                      answerLanguage: answerLanguage, ownerName: protectedOwner, allowHumor: allowHumor)
         let turns = history.suffix(AskLimits.historyTurns * 2).map { ["role": $0.role.rawValue, "text": pseudonyms.protect($0.text)] }
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "material": material,
             "history": turns,
         ].merging(credential.fields) { a, _ in a }
+        if chatResponse { body["responseFormat"] = "daisy-chat-v1" }
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
@@ -71,7 +79,7 @@ public nonisolated struct AskProxyClient: Sendable {
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let text = json["text"] as? String else { throw SummaryProxyClient.Failure.provider }
-        return Result(answer: pseudonyms.restore(text), report: pseudonyms.report,
+        return Result(answer: pseudonyms.restore(text), emotion: json["emotion"] as? String, report: pseudonyms.report,
                       trialRemaining: json["trialRemaining"] as? Int)
     }
 }

@@ -63,7 +63,13 @@ public final class SessionSyncEngine {
     @discardableResult
     public func syncOnce() async throws -> Summary {
         var summary = Summary()
-        let changes = try await transport.fetchChanges(since: state.changeToken)
+        let changes: SyncChanges
+        do {
+            changes = try await transport.fetchChanges(since: state.changeToken)
+        } catch {
+            try prepareRetry(after: error)
+            throw error
+        }
         var touched: [String] = []
         for record in changes.records {
             // Our own push echoed back: nothing the server has from this
@@ -88,7 +94,12 @@ public final class SessionSyncEngine {
 
         let outgoing = try scanForPush()
         if !outgoing.isEmpty {
-            try await transport.push(outgoing)
+            do {
+                try await transport.push(outgoing)
+            } catch {
+                try prepareRetry(after: error)
+                throw error
+            }
             for record in outgoing { remember(record) }
             summary.pushed = outgoing.count
         }
@@ -105,6 +116,15 @@ public final class SessionSyncEngine {
         try state.save(to: stateURL)
         sweepTrash()
         return summary
+    }
+
+    private func prepareRetry(after error: any Error) throws {
+        guard CloudKitSyncTransport.needsRefetch(error) else { return }
+        // A competing write or a restarted transport may have no usable
+        // server versions. Refetch the full zone before another push, so
+        // the engine merges the new text and keeps a conflict copy.
+        state.changeToken = nil
+        try state.save(to: stateURL)
     }
 
     /// J-0 "Delete my data from iCloud": everything on the server goes,

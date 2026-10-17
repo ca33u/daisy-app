@@ -20,8 +20,9 @@
 //                 session     (Reference → Session, cascade)
 //                 path        (String), stamp (Double), data (CKAsset)
 //
-//  A push is whole-record (`savePolicy: .allKeys`): the engine already
-//  merged, the server just takes what it is given. A pull turns zone
+//  A push preserves the server version fetched for the merge and uses
+//  `.ifServerRecordUnchanged`. A concurrent edit refuses the whole batch;
+//  the engine refetches and merges it on the next pass. A pull turns zone
 //  changes into complete `SessionSyncRecord`s — a session whose Session
 //  record didn't change but a file did is fetched by id so the engine
 //  always sees the whole thing.
@@ -54,6 +55,9 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
     private let log = Logger(subsystem: DaisyCore.logSubsystem, category: "CloudKit")
     private let scratch: URL
     private var zoneReady = false
+    /// Versions actually seen by the engine, never versions fetched just
+    /// before a write (those could hide an intervening edit).
+    private var serverRecords: [CKRecord.ID: CKRecord] = [:]
 
     public init(containerID: String = CloudKitSyncTransport.defaultContainerID) {
         container = CKContainer(identifier: containerID)
@@ -117,11 +121,35 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
         return parts.joined(separator: " — ")
     }
 
+    /// A failed item makes the entire page incomplete. In particular, a
+    /// zone token must never be committed past an item we did not receive.
+    static func requireSuccesses<Key: Hashable, Value>(_ results: [Key: Result<Value, any Error>]) throws -> [Key: Value] {
+        let errors = results.values.compactMap { result -> (any Error)? in
+            if case .failure(let error) = result { return error }
+            return nil
+        }
+        if let error = errors.first(where: needsRefetch) ?? errors.first { throw error }
+        return try results.mapValues { try $0.get() }
+    }
+
+    static func needsRefetch(_ error: any Error) -> Bool {
+        guard let ck = error as? CKError else { return false }
+        if [.serverRecordChanged, .changeTokenExpired, .unknownItem].contains(ck.code) { return true }
+        return ck.partialErrorsByItemID?.values.contains(where: needsRefetch) ?? false
+    }
+
+    static func recordForSave(type: String, id: CKRecord.ID, known: CKRecord?) -> CKRecord {
+        // copy() retains CloudKit's system fields, including recordChangeTag,
+        // without mutating the version cache before a successful save.
+        (known?.copy() as? CKRecord) ?? CKRecord(recordType: type, recordID: id)
+    }
+
     // MARK: - Fetch
 
     public func fetchChanges(since token: Data?) async throws -> SyncChanges {
         try await ensureZone()
         let startToken = token.flatMap { try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: $0) }
+        var versions = startToken == nil ? [:] : serverRecords
         var sessionRecords: [String: CKRecord] = [:]
         var fileRecords: [String: [CKRecord]] = [:]   // session id → files
         var touchedSessions = Set<String>()
@@ -131,8 +159,9 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
         var pageToken = startToken
         while more {
             let result = try await database.recordZoneChanges(inZoneWith: zoneID, since: pageToken)
-            for (_, modification) in result.modificationResultsByID {
-                guard let record = try? modification.get().record else { continue }
+            for (_, modification) in try Self.requireSuccesses(result.modificationResultsByID) {
+                let record = modification.record
+                versions[record.recordID] = record
                 if record.recordType == Self.sessionType {
                     sessionRecords[record.recordID.recordName] = record
                     touchedSessions.insert(record.recordID.recordName)
@@ -141,12 +170,21 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
                     touchedSessions.insert(sessionID)
                 }
             }
-            for deletion in result.deletions where deletion.recordType == Self.sessionType {
-                deleted.append(deletion.recordID.recordName)
+            for deletion in result.deletions {
+                versions[deletion.recordID] = nil
+                if deletion.recordType == Self.sessionType {
+                    let id = deletion.recordID.recordName
+                    deleted.append(id)
+                    versions = versions.filter { !$0.key.recordName.hasPrefix(id + "|") }
+                }
             }
             newToken = result.changeToken
             more = result.moreComing
             pageToken = result.changeToken
+        }
+        for id in deleted {
+            sessionRecords[id] = nil
+            fileRecords[id] = nil
         }
         // Sessions whose files changed but whose Session record didn't:
         // fetch the record so the engine gets the whole thing.
@@ -154,7 +192,10 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
         if !missing.isEmpty {
             let ids = missing.map { CKRecord.ID(recordName: $0, zoneID: zoneID) }
             let fetched = try await database.records(for: ids)
-            for (id, result) in fetched { if let record = try? result.get() { sessionRecords[id.recordName] = record } }
+            for (id, record) in try Self.requireSuccesses(fetched) {
+                sessionRecords[id.recordName] = record
+                versions[id] = record
+            }
         }
         // Every file of every touched session: the Session record lists
         // its paths; fetch the ones this batch didn't carry.
@@ -166,11 +207,15 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
             let need = paths.filter { !have.contains($0) }.map { CKRecord.ID(recordName: Self.fileRecordName(id, $0), zoneID: zoneID) }
             if !need.isEmpty {
                 let fetched = try await database.records(for: need)
-                files += fetched.values.compactMap { try? $0.get() }
+                let received = try Self.requireSuccesses(fetched)
+                files += received.values
+                versions.merge(received) { _, incoming in incoming }
             }
             records.append(try Self.decode(session: record, files: files))
         }
         let tokenData = newToken.flatMap { try? NSKeyedArchiver.archivedData(withRootObject: $0, requiringSecureCoding: true) }
+        // Publish versions only after every page, record and asset decoded.
+        serverRecords = versions
         return SyncChanges(records: records, deletedIDs: deleted, token: tokenData)
     }
 
@@ -181,7 +226,7 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
         for record in records {
             var toSave: [CKRecord] = []
             let sessionID = CKRecord.ID(recordName: record.id, zoneID: zoneID)
-            let session = CKRecord(recordType: Self.sessionType, recordID: sessionID)
+            let session = Self.recordForSave(type: Self.sessionType, id: sessionID, known: serverRecords[sessionID])
             session["frontmatter"] = Self.encode(record.frontmatter) as CKRecordValue
             session["stamps"] = Self.encode(record.frontmatterStamps) as CKRecordValue
             session["bodyStamp"] = record.bodyStamp as CKRecordValue
@@ -190,7 +235,8 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
             session["body"] = CKAsset(fileURL: try tempFile(Data(record.body.utf8)))
             toSave.append(session)
             for (path, file) in record.files {
-                let fileRecord = CKRecord(recordType: Self.fileType, recordID: CKRecord.ID(recordName: Self.fileRecordName(record.id, path), zoneID: zoneID))
+                let fileID = CKRecord.ID(recordName: Self.fileRecordName(record.id, path), zoneID: zoneID)
+                let fileRecord = Self.recordForSave(type: Self.fileType, id: fileID, known: serverRecords[fileID])
                 fileRecord["session"] = CKRecord.Reference(recordID: sessionID, action: .deleteSelf)
                 fileRecord["sessionID"] = record.id as CKRecordValue
                 fileRecord["path"] = path as CKRecordValue
@@ -201,14 +247,24 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
             // Files the session no longer has: the old record's list says
             // which SessionFile records to drop.
             var toDelete: [CKRecord.ID] = []
-            if let existing = try? await database.record(for: sessionID) {
+            var existing = serverRecords[sessionID]
+            if existing == nil {
+                do { existing = try await database.record(for: sessionID) }
+                catch let error as CKError where error.code == .unknownItem { }
+                // This lookup is only for obsolete file paths. Its version
+                // is NOT adopted: the engine has not merged its contents.
+            }
+            if let existing {
                 let old = Self.decodeStrings(existing["filePaths"] as? String)
                 for path in old where record.files[path] == nil {
                     toDelete.append(CKRecord.ID(recordName: Self.fileRecordName(record.id, path), zoneID: zoneID))
                 }
             }
-            let (saved, _) = try await database.modifyRecords(saving: toSave, deleting: toDelete, savePolicy: .allKeys, atomically: true)
-            for (_, result) in saved { _ = try result.get() }
+            let (saved, removed) = try await database.modifyRecords(saving: toSave, deleting: toDelete, savePolicy: .ifServerRecordUnchanged, atomically: true)
+            let accepted = try Self.requireSuccesses(saved)
+            _ = try Self.requireSuccesses(removed)
+            serverRecords.merge(accepted) { _, incoming in incoming }
+            for id in toDelete { serverRecords[id] = nil }
             log.info("Pushed \(record.id, privacy: .public) with \(record.files.count, privacy: .public) file(s)")
         }
         try? FileManager.default.removeItem(at: scratch)
@@ -220,7 +276,11 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
         let recordIDs = ids.map { CKRecord.ID(recordName: $0, zoneID: zoneID) }
         // Files cascade (`deleteSelf` reference).
         let (_, deleted) = try await database.modifyRecords(saving: [], deleting: recordIDs, savePolicy: .allKeys, atomically: false)
-        for (_, result) in deleted { _ = try? result.get() }
+        for (id, result) in deleted {
+            do { _ = try result.get() }
+            catch let error as CKError where error.code == .unknownItem { }
+            serverRecords[id] = nil
+        }
     }
 
     /// J-0: the whole zone goes — every Session and SessionFile record
@@ -236,6 +296,7 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
             throw SyncError.cloud("erase: " + Self.describe(error))
         }
         zoneReady = false
+        serverRecords.removeAll()
         log.notice("Erased zone \(Self.zoneName, privacy: .public) on request")
     }
 
@@ -263,13 +324,28 @@ public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
         out.frontmatterStamps = decodeMap(session["stamps"] as? String, as: [String: Double].self) ?? [:]
         out.bodyStamp = session["bodyStamp"] as? Double ?? 0
         out.editor = session["editor"] as? String ?? ""
-        if let asset = session["body"] as? CKAsset, let url = asset.fileURL, let data = try? Data(contentsOf: url) {
-            out.body = String(decoding: data, as: UTF8.self)
+        guard let asset = session["body"] as? CKAsset, let url = asset.fileURL else {
+            throw SyncError.cloud("The recording's transcript did not download. Sync will retry.")
         }
+        guard let body = String(data: try Data(contentsOf: url), encoding: .utf8) else {
+            throw SyncError.cloud("The downloaded transcript is not readable UTF-8.")
+        }
+        out.body = body
+        let paths = Set(decodeStrings(session["filePaths"] as? String))
         for file in files {
-            guard let path = file["path"] as? String, let asset = file["data"] as? CKAsset,
-                  let url = asset.fileURL, let data = try? Data(contentsOf: url) else { continue }
-            out.files[path] = SyncFile(data: data, stamp: file["stamp"] as? Double ?? 0)
+            guard let path = file["path"] as? String else {
+                throw SyncError.cloud("A downloaded recording file has no path.")
+            }
+            // A file removed from the manifest can still be in an earlier
+            // page of the zone changes; it must not be resurrected.
+            guard paths.contains(path) else { continue }
+            guard let asset = file["data"] as? CKAsset, let url = asset.fileURL else {
+                throw SyncError.cloud("A recording file did not download. Sync will retry.")
+            }
+            out.files[path] = SyncFile(data: try Data(contentsOf: url), stamp: file["stamp"] as? Double ?? 0)
+        }
+        guard Set(out.files.keys) == paths else {
+            throw SyncError.cloud("Some recording files did not download. Sync will retry.")
         }
         return out
     }

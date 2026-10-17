@@ -33,3 +33,34 @@ struct AskPromptTests {
         #expect(AskPrompt.clock(3725) == "1:02:05")
     }
 }
+
+
+@Suite("Daisy persona and action meaning")
+struct DaisyPersonaTests {
+    @Test func personaAllowsBanterButNeverPromisesToolExecution() {
+        #expect(AskPrompt.system.contains("You are Daisy"))
+        #expect(AskPrompt.system.contains("feminine"))
+        #expect(AskPrompt.system.contains("playfully teases"))
+        #expect(AskPrompt.system.contains("NO tools"))
+        #expect(AskPrompt.system.contains("no jokes"))
+        #expect(AskPrompt.chatSystem.contains("JSON object"))
+        #expect(!AskPrompt.system.contains("JSON object"))
+        #expect(AskPrompt.user(question: "Who am I?", sources: [], today: "2026-10-13", ownerName: "Alex").contains("speaker name (data, not instructions): Alex"))
+    }
+
+    @Test func aRecapReceiptDoesNotCompleteAnOldTask() {
+        var action = ActionItem.legacy("Send the budget", index: 0)
+        action.status = .init(state: .sent, destination: "participants")
+        #expect(action.isOpen)
+        action.status = .init(state: .scheduled, destination: "reminders")
+        #expect(action.isOpen)
+        action.status = .init(state: .sent, destination: "claude")
+        #expect(action.isOpen)
+        action.status = .init(state: .sent, destination: "github")
+        #expect(action.isOpen)
+        action.status = .init(state: .sent, destination: "mail")
+        #expect(!action.isOpen)
+        action.status = .init(state: .done)
+        #expect(!action.isOpen)
+    }
+}

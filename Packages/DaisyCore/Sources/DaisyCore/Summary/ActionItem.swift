@@ -136,7 +136,17 @@ public nonisolated struct ActionItem: Codable, Sendable, Equatable, Identifiable
 
     /// Nothing has closed it yet: no status, or only put somewhere to be
     /// done later (a reminder, an event).
-    public var isOpen: Bool { status == nil || status?.state == .scheduled }
+    public var isOpen: Bool {
+        // Older iOS builds marked every open item sent when the recap was mailed.
+        // Sharing the list is not completing its work; keep those legacy items open.
+        guard let status else { return true }
+        if status.state == .scheduled { return true }
+        guard status.state == .sent else { return false }
+        // A tracker issue or assistant handoff is delivery, not implemented work.
+        return status.destination == "participants"
+            || [.code, .bug, .feature].contains(kind)
+            || ["chatgpt", "claude", "github", "linear", "jira"].contains(status.destination ?? "")
+    }
 
     /// A said-outright item; low-confidence ones are shown grey and not counted.
     public var isConfident: Bool { confidence >= 0.6 }

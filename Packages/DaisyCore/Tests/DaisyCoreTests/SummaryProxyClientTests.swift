@@ -98,3 +98,36 @@ struct SummaryProxyClientTests {
         #expect(result.trialRemaining == 2)
     }
 }
+
+
+extension SummaryProxyClientTests {
+    @Test func theOwnerAndMaterialStayProtectedWithTheNewReplyFormat() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ProxyStub.self]
+        let client = AskProxyClient(endpoint: URL(string: "https://example.invalid/api/ask")!, session: URLSession(configuration: config))
+        ProxyStub.status = 200
+        ProxyStub.reply = ["text": "[[DAISY_PERSON_001]]: готово [1]", "emotion": "wink", "trialRemaining": 2]
+        let result = try await client.ask(question: "Что обещала Мария?", sources: [
+            .init(number: 1, title: "Мария", date: "2026-10-13", summary: "Мария: бюджет", pieces: [])
+        ], history: [], today: "2026-10-13", credential: .trial("test-token"), knownPeople: ["Мария"],
+           chatResponse: true, ownerName: "Мария")
+        #expect(ProxyStub.lastBody["responseFormat"] as? String == "daisy-chat-v1")
+        #expect(!String(describing: ProxyStub.lastBody).contains("Мария"))
+        #expect(ProxyStub.lastBody["system"] == nil)
+        #expect(result.answer.contains("Мария"))
+        #expect(result.emotion == "wink" && result.trialRemaining == 2)
+    }
+    @Test func unmaskedShortOwnerIsNotAddedAsExplicitMetadata() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ProxyStub.self]
+        let client = AskProxyClient(endpoint: URL(string: "https://example.invalid/api/ask")!, session: URLSession(configuration: config))
+        ProxyStub.status = 200
+        ProxyStub.reply = ["text": "Hello"]
+        _ = try await client.ask(question: "Hello", sources: [], history: [], today: "2026-10-13",
+                                 credential: .trial("test-token"), knownPeople: [], ownerName: "李")
+        let material = ProxyStub.lastBody["material"] as? String ?? ""
+        #expect(!material.contains("李"))
+        #expect(!material.contains("User's speaker name:"))
+    }
+
+}

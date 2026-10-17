@@ -33,6 +33,7 @@ let payload: [String: Any] = [
     // adds this system prompt and nothing else.
     "ask": [
         "system": AskPrompt.system,
+        "chatSystem": AskPrompt.chatSystem,
         "maxMaterialChars": AskLimits.contextCharacters + 4_000,
         "historyTurns": AskLimits.historyTurns,
     ] as [String: Any],
