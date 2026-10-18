@@ -549,6 +549,9 @@ final class Summarizer {
             )
             lastSummary = summary
             log.info("Summarized via \(self.providerKind.shortName, privacy: .public)")
+            if case .meeting = task {
+                ImprovementStats.record(.summary(providerKind, viaAccount: providerKind == .openai && openAIConnectionMethod == .account))
+            }
             isSummarizing = false
             return summary
         } catch is CancellationError {
@@ -562,6 +565,9 @@ final class Summarizer {
             return nil
         } catch {
             log.error("Summarize failed: \(error.localizedDescription, privacy: .public)")
+            if case .meeting = task {
+                ImprovementStats.record(.summaryFailed(providerKind, viaAccount: providerKind == .openai && openAIConnectionMethod == .account))
+            }
             lastError = error.localizedDescription
             isSummarizing = false
             return nil

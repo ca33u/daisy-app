@@ -90,6 +90,7 @@ enum SessionArchiveExporter {
                 }
             }
             let done = jobs.count - failures.count
+            ImprovementStats.record(.exportArchive, count: done)
             await MainActor.run {
                 if failures.isEmpty {
                     ToastCenter.shared.show(

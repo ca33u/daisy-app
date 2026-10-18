@@ -64,6 +64,7 @@ extension RecordingSession {
         markers.append(MomentMarker(offsetSec: offset, screenshot: frame, createdAt: Date()))
         MomentMarkerStore.write(markers, to: dir)
         momentMarkers = markers
+        ImprovementStats.record(.momentMarked)
 
         // Confirm, with the timecode. Deliberately NOT one of the
         // recording sounds — `playStart` mid-meeting reads as "recording

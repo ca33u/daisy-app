@@ -1232,6 +1232,7 @@ final class MCPServer {
         do {
             let callParams = try params.decoded(as: MCPToolCallParams.self)
             let result = await MCPTools.call(name: callParams.name, arguments: callParams.arguments)
+            ImprovementStats.record(.mcpToolCall(failed: result.isError == true))
             return JSONRPCResponse(id: id, result: try .wrap(result))
         } catch {
             return JSONRPCResponse(

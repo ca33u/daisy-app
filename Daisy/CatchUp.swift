@@ -123,6 +123,7 @@ enum CatchUp {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .unavailable }
         log.info("Catch-up: \(Int(Date().timeIntervalSince(started) * 1000), privacy: .public)ms, \(trimmed.count, privacy: .public) chars from \(slice.count, privacy: .public)")
+        ImprovementStats.record(.catchUpUsed)
         return .recap(trimmed)
     }
 }

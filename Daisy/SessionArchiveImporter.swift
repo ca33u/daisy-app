@@ -84,6 +84,7 @@ nonisolated enum SessionArchiveImporter {
             }
         }
         if imported > 0 {
+            ImprovementStats.record(.importArchive, count: imported)
             ToastCenter.shared.show(
                 imported == 1
                     ? String(localized: "Session imported from iPhone.")

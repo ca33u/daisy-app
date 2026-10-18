@@ -132,6 +132,7 @@ final class SyncCoordinator {
         do {
             let summary = try await engine(for: ticket.url).syncOnce()
             lastSummary = summary
+            ImprovementStats.record(.syncPulled, count: summary.pulled)
             lastSyncAt = Date()
             status = .idle
             if !summary.isEmpty {

@@ -209,6 +209,7 @@ final class AudioHandoffServer {
         lastTransferAt = Date()
         log.notice("Audio handoff: took \(header.name, privacy: .public) (\(header.size / 1_048_576, privacy: .public) MB) for \(header.id, privacy: .public)")
         try await link.send(.ack(.init(id: header.id, name: header.name, sha256: hash, ok: true)))
+        ImprovementStats.record(.iPhoneAudioReceived)
         return true
     }
 

@@ -198,6 +198,7 @@ enum AudioImporter {
 
         log.info("Imported \(name, privacy: .private) as session \(sessionID, privacy: .private) (\(probe.durationSec)s, \(effectiveMode.rawValue, privacy: .public))")
         await SessionStore.shared.refresh()
+        ImprovementStats.record(.importFile)
         return AudioImportResult(sessionID: sessionID, directoryURL: directory, title: marker.title)
     }
 

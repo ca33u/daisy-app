@@ -177,6 +177,7 @@ final class LayoutFixService {
     /// word and fixing the sentence — without it the next word goes
     /// wrong the same way.
     private func finish(with fix: LayoutFix.Fix, settings: AppSettings) {
+        ImprovementStats.record(.layoutFixed)
         if settings.layoutFixSwitchesSource {
             KeyboardLayouts.shared.select(fix.target)
         }
@@ -210,6 +211,7 @@ final class LayoutFixService {
         // the undo.
         LayoutFixUndo.shared.clear()
         log.info("Layout fix undone")
+        ImprovementStats.record(.layoutUndo)
         ToastCenter.shared.show(
             String(localized: "Undone — Daisy won't auto-fix that word again."),
             style: .info

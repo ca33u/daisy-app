@@ -539,6 +539,7 @@ final class SessionAudioProcessing {
                 throw error
             }
         }
+        ImprovementStats.record(.exportAudio)
     }
 
     /// The files a two-track export writes, beside `destination`: one for

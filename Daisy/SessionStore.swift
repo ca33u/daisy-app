@@ -633,6 +633,7 @@ final class SessionStore {
     /// the Detail view re-renders with the new names.
     func updateSpeakerMap(_ map: [String: String], for session: StoredSession) async {
         guard let url = session.transcriptURL else { return }
+        ImprovementStats.record(.speakersNamed)
         do {
             var text = try String(contentsOf: url, encoding: .utf8)
             let encoded = Self.encodeYAMLDict(map)

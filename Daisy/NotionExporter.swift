@@ -127,6 +127,7 @@ actor NotionExporter {
         // grants read/write access to that page. Status code is fine
         // in logs, the addressable identifier is not.
         log.info("Created Notion page at \(url.absoluteString, privacy: .private)")
+        ImprovementStats.record(.exportNotion)
         return url
     }
 

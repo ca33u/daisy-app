@@ -865,6 +865,7 @@ final class VoiceProfileStore {
             _ = writeProfiles()
             states[language] = .ready
             log.info("Voice profile for \(language, privacy: .public) generated from \(words, privacy: .public) words")
+            ImprovementStats.record(.voiceProfileGenerated)
         } catch {
             states[language] = .failed(error.localizedDescription)
             log.error("Voice profile for \(language, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")

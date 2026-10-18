@@ -317,6 +317,7 @@ final class ScreenshotNoteCapture {
 
         await SessionStore.shared.refresh()
         log.info("Screenshot note created")
+        ImprovementStats.record(.screenshotNote)
 
         // The race the 2026-08-21 log report exposed: the screenshot
         // FILE lands seconds after the shot (macOS holds it back for

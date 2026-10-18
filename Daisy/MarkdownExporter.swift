@@ -345,6 +345,7 @@ enum MarkdownExporter {
         do {
             try markdown.write(to: url, atomically: true, encoding: .utf8)
             log.info("Saved transcript to \(url.path, privacy: .private)")
+            ImprovementStats.record(.exportMarkdown)
             return url
         } catch {
             log.error("Failed to write transcript: \(error.localizedDescription, privacy: .public)")
@@ -363,6 +364,7 @@ enum MarkdownExporter {
     @MainActor
     static func copyToClipboard(session: RecordingSession) {
         RichClipboard.copy(markdown: renderMarkdown(session: session, includeFrontmatter: false))
+        ImprovementStats.record(.exportMarkdown)
     }
 
     // MARK: - Folder bookmark (security-scoped)

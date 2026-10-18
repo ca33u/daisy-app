@@ -29,6 +29,8 @@ struct AboutView: View {
     @Bindable private var updater = SparkleUpdater.shared
     /// `CrashReports.mode` (UserDefaults), written back on change.
     @State private var crashReportsMode = CrashReports.mode
+    /// "Help improve Daisy" — `ImprovementStats.mode`, on or not.
+    @State private var helpsImprove = ImprovementStats.mode == .on
 
     var body: some View {
         Form {
@@ -269,6 +271,23 @@ struct AboutView: View {
                 .onChange(of: crashReportsMode) { _, mode in CrashReports.mode = mode }
             } footer: {
                 Text("After a crash, Daisy asks before sending anything and shows the whole report: where in the code it failed, the app and macOS versions and the Mac model. Never your meetings, names, files or devices. “Never send” applies from the next launch.")
+            }
+
+            // Anonymous feature counts, only with a yes (ImprovementStats).
+            Section {
+                Toggle(isOn: $helpsImprove) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "chart.bar")
+                            .frame(width: 18)
+                            .foregroundStyle(.secondary)
+                        Text("Help improve Daisy")
+                    }
+                }
+                .onChange(of: helpsImprove) { _, on in ImprovementStats.mode = on ? .on : .off }
+                Button("What's sent") { ImprovementStats.showPreview() }
+                    .buttonStyle(.link)
+            } footer: {
+                Text("Once a day — anonymous counts of features and errors. No content, no identifier.")
             }
 
             Section {

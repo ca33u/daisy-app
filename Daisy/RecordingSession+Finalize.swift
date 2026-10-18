@@ -190,6 +190,9 @@ extension RecordingSession {
             hasSystem: !systemArchiveURLs.isEmpty
         )
         finalProgress.report()
+        // A live-pass error can still be standing; only a new one is the
+        // final pass failing (ImprovementStats).
+        let errorsBefore = (micTranscriber.lastError, systemTranscriber.lastError)
         async let micFinal: Void = micTranscriber.runFinalPass(
             archiveURLs: micArchiveURLs, biasTerms: biasTerms,
             onProgress: { finalProgress.mic = $0; finalProgress.report() }
@@ -200,6 +203,10 @@ extension RecordingSession {
         )
         _ = await (micFinal, sysFinal)
         signposter.endInterval("final_pass", finalPassState)
+        if (micTranscriber.lastError != nil && micTranscriber.lastError != errorsBefore.0)
+            || (systemTranscriber.lastError != nil && systemTranscriber.lastError != errorsBefore.1) {
+            ImprovementStats.record(.transcriptionFailed)
+        }
         // Kept as seconds for Stage 2b, which budgets itself as a share
         // of what the heavy stage cost.
         let finalPassSeconds = Date().timeIntervalSince(t_final)
@@ -1407,6 +1414,7 @@ extension RecordingSession {
             // Today's behaviour: matches land in the transcript's
             // speaker map immediately (MarkdownExporter embeds them).
             initialSpeakerMap = matched
+            ImprovementStats.record(.speakersMatched, count: matched.count)
         case .suggest:
             // Don't apply — surface as confirmable suggestions. The
             // transcript ships with raw Remote A/B/C; the detail view's

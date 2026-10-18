@@ -65,6 +65,7 @@ enum ClaudeExporter {
     @MainActor
     @discardableResult
     static func sendToClaude(data: MeetingExportData) -> Bool {
+        ImprovementStats.record(.exportClaude)
         let prompt = renderPrompt(data: data)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()

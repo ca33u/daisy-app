@@ -21870,6 +21870,106 @@
           }
         }
       }
+    },
+    "Help make Daisy better" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Помоги сделать Daisy лучше"
+          }
+        }
+      }
+    },
+    "We'd like to know which features people use, and what breaks or goes unnoticed — so we fix and improve what matters to you.\n\nOnce a day, Daisy can send us a short summary: how often recording, dictation and summaries ran, and where something went wrong. No text, titles, names or identifier — we won't know who you are." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мы хотим понимать, какими функциями пользуются, а что ломается или остаётся незамеченным, — чтобы чинить и улучшать то, что важно тебе.\n\nРаз в день Daisy может отправлять нам короткую сводку: сколько раз запускалась запись, диктовка, саммари и где что-то пошло не так. Без текста, названий, имён и без идентификатора — мы не узнаем, кто ты."
+          }
+        }
+      }
+    },
+    "Help" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Помочь"
+          }
+        }
+      }
+    },
+    "Not Now" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не сейчас"
+          }
+        }
+      }
+    },
+    "See What's Sent" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Посмотреть, что отправляется"
+          }
+        }
+      }
+    },
+    "What Daisy sends" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Что отправляет Daisy"
+          }
+        }
+      }
+    },
+    "Once a day, one report like this — counts for the day before, the app and macOS versions, the interface language, the update channel and whether sync is on. Nothing else." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Раз в день — одна такая сводка: счётчики за прошлый день, версии приложения и macOS, язык интерфейса, канал обновлений и включена ли синхронизация. Больше ничего."
+          }
+        }
+      }
+    },
+    "Help improve Daisy" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Помогать улучшать Daisy"
+          }
+        }
+      }
+    },
+    "What's sent" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Что отправляется"
+          }
+        }
+      }
+    },
+    "Once a day — anonymous counts of features and errors. No content, no identifier." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Раз в день — анонимные счётчики функций и ошибок. Без содержимого и идентификатора."
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

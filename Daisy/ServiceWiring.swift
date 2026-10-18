@@ -226,7 +226,10 @@ enum ServiceWiring {
             lookaheadHours: 48,
             autoStartOnMeeting: settings.autoStartFromCalendar
         ) { [weak session] meeting in
-            Task { await session?.startFromMeeting(meeting) }
+            Task {
+                session?.nextStartFromCalendar = true
+                await session?.startFromMeeting(meeting)
+            }
         }
     }
 

@@ -876,6 +876,7 @@ final class LayoutAutoFix {
         via path: String,
         undo: (originalWord: String, boundary: Character, replacementWord: String)? = nil
     ) {
+        ImprovementStats.record(.layoutFixed)
         // Our own typing is marked and skipped by the tap, so the buffer
         // would otherwise still hold the pre-fix word — and the fix key
         // must not be able to "fix" it a second time.

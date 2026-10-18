@@ -241,6 +241,7 @@ final class DictationPaste {
             )
             return
         }
+        ImprovementStats.record(.dictationRepaste)
         deliver(last.text, context: .repaste)
     }
 

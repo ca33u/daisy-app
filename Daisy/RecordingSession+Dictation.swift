@@ -109,9 +109,12 @@ extension RecordingSession {
             }
         }
 
+        let engineUsed: String
         if let fastText, !fastText.isEmpty {
             transcriptText = fastText
+            engineUsed = settings.dictationEngine == .appleSpeech ? "apple_speech" : settings.dictationEngine.rawValue
         } else {
+            engineUsed = "whisper"
             // Whisper path — default, and the automatic fallback when the
             // fast engine is off, errored, or produced nothing (e.g. a
             // sub-0.3 s clip, or Apple's model still downloading).
@@ -137,6 +140,7 @@ extension RecordingSession {
             seconds: Double(max(0, durSec)),
             kind: .dictation
         )
+        if !transcriptText.isEmpty { ImprovementStats.record(.dictation(engine: engineUsed)) }
         // A screenshot taken moments ago is waiting for context: this
         // dictation belongs in that note, not in whatever window happens
         // to be in front (see `ScreenshotNoteCapture`). The claim is made

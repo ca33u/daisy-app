@@ -794,6 +794,9 @@ final class RecordingSession {
     }
     @ObservationIgnored
     private var pendingAutoStartTrigger: PendingAutoStartTrigger?
+    /// The next start comes from the calendar (auto-start, or its prompt
+    /// answered) — for the anonymous counts only (ImprovementStats).
+    var nextStartFromCalendar = false
     /// The back-to-back meeting we've already asked about (its
     /// `localID`), so the 15 s calendar re-tick doesn't re-raise the
     /// «Next meeting — switch recording?» pill every time. Cleared with
@@ -1365,6 +1368,7 @@ final class RecordingSession {
         WidgetBubbleCenter.shared.dismiss(tag: Self.rotationAskBubbleTag)
         guard let trigger = pendingAutoStartTrigger else { return }
         pendingAutoStartTrigger = nil
+        nextStartFromCalendar = true
         switch trigger {
         case .calendar(let meeting):
             // Re-use the full calendar path (binding, auto-stop arming,
@@ -1569,6 +1573,8 @@ final class RecordingSession {
     }
 
     func start() async {
+        let fromCalendar = nextStartFromCalendar
+        nextStartFromCalendar = false
         // One microphone, one recording: a meeting can wait the seconds
         // a side dictation takes.
         if let side = sideDictation, side.isDictating {
@@ -2150,6 +2156,7 @@ final class RecordingSession {
 
         startedAt = nowStarted
         status = .recording
+        if currentMode == .meeting { ImprovementStats.record(.recordingStarted(fromCalendar: fromCalendar)) }
         installThermalDowngrade(startedTier: tier)
         if settings.recordingSoundsEnabled { SoundEffects.playStart(for: currentMode) }
 
@@ -2198,6 +2205,7 @@ final class RecordingSession {
         // it's the feature. Guarding here rather than at each call site
         // keeps a future caller from stamping a voice note as degraded.
         guard currentMode == .meeting else { return }
+        ImprovementStats.record(.recordingMicOnly)
         guard micOnlyCause == nil else { return }
         micOnlyCause = cause
         log.warning("Session degraded to microphone-only: \(cause.rawValue, privacy: .public)")
@@ -3081,6 +3089,11 @@ final class RecordingSession {
         stopSignposter.endInterval("session_store_refresh", refreshState)
         log.info("post-stop session_store_refresh: \(ms(t_refresh), privacy: .public)ms")
         status = .finished
+        switch currentMode {
+        case .meeting: ImprovementStats.record(.recordingSaved(seconds: max(0, durSec)))
+        case .voiceNote: ImprovementStats.record(.voiceNoteSaved)
+        case .dictation: break
+        }
         if settings.recordingSoundsEnabled { SoundEffects.playFinished() }
 
         // 2026-05-27 — ALWAYS launch the detached finalize task,
@@ -3218,6 +3231,7 @@ final class RecordingSession {
     /// timers, then flip the status. Safe to call multiple times.
     private func failFast(_ message: String) async {
         log.error("Session start failed: \(message, privacy: .public)")
+        ImprovementStats.record(.recordingFailed)
         // A screenshot note claimed at key-down would otherwise die
         // with the failed start: its pill sits frozen (claim paused the
         // countdown) and the note can never be dictated into. Give the
