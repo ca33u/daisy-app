@@ -382,11 +382,15 @@ else
     # That's on for Debug but off for Release (we don't want to weaken the
     # shipped/optimised build), so `-configuration Release test` fails to
     # resolve the module. The archive below still builds Release.
+    # English, whatever language the person picked for Daisy: the test
+    # host shares the app's defaults, and tests that read error copy
+    # failed under Russian (2026-10-18).
     if ! xcodebuild \
         -project "${DAISY_REPO}/Daisy.xcodeproj" \
         -scheme "${SCHEME}" \
         -configuration Debug \
         -destination 'platform=macOS' \
+        -testLanguage en -testRegion US \
         test; then
         echo "  ✗ Tests failed — aborting before archive." >&2
         echo "    Fix the tests, or re-run with DAISY_SKIP_TESTS=1 for an emergency hotfix." >&2
