@@ -1550,6 +1550,16 @@ final class RecordingSession {
         }
     }
 
+    /// `start()` is past its guards and yielding the Whisper engine from
+    /// a stored-audio job (up to 2 s) — `status` is still `.idle`, so
+    /// this is what keeps a second press out.
+    private var isStarting = false
+    /// The mode that start is going to be, from the moment it took its
+    /// pending intent until `.preparing`: `stopDictationHotkey` reads
+    /// `pendingMode == .dictation` to tell a release during a start from
+    /// a stray one, and the intent is no longer there by then.
+    private(set) var startingMode: RecordingMode?
+
     /// Drop everything a hotkey or calendar trigger queued for this
     /// start. A refused start must not leave `.dictation` pending for
     /// the next Record click to pick up.
@@ -1607,19 +1617,6 @@ final class RecordingSession {
             presentSpeechModelUnavailable()
             return
         }
-        // Stored-audio re-transcription temporarily owns the shared
-        // Whisper engine and can load a second CoreML graph. Starting a
-        // live capture in the middle of that job would make both workflows
-        // compete for the same serialized decoder and memory budget.
-        guard !SessionAudioProcessing.shared.isRunning else {
-            clearPendingStart()
-            ToastCenter.shared.show(
-                String(localized: "Wait for stored audio processing to finish."),
-                style: .info
-            )
-            return
-        }
-
         // If a previous Stop's summary task is still in flight, the
         // user has explicitly asked for a NEW recording — drop the
         // old finalize. transcript.md is already on disk (synchronous
@@ -1636,6 +1633,71 @@ final class RecordingSession {
             // not lie in wait for the next Record click.
             clearPendingStart()
             return
+        }
+
+        // Stored-audio transcription temporarily owns the shared Whisper
+        // engine and can load a second CoreML graph. Until 19.10 Record
+        // was refused while it ran («Wait for stored audio processing to
+        // finish») — the person whose meeting was starting saw a
+        // sentence that named nothing they had asked for and gave no
+        // time (user log A: a 70-minute meeting's final pass, after the
+        // next recording had already been queued behind it). Now the
+        // recording wins: the job is stopped — it writes to hidden
+        // staging and commits at the end, so nothing half-done lands and
+        // the model it loaded is released — its owner keeps it for after
+        // the recording, and a toast names it. An audio export is a few
+        // seconds of disk work without Whisper and runs alongside.
+        // The wait below is the first routine suspension before
+        // `.preparing`; a second press in it must not start a second
+        // recorder (review 19.10) — it's a double-click, ignored, and
+        // whatever it queued for itself goes (its screenshot claim back
+        // to the pill, as `failFast` does).
+        guard !isStarting else {
+            log.info("Start ignored: another start is in flight (\(String(describing: self.pendingMode), privacy: .public) pending)")
+            clearPendingStart()
+            if let p = pendingScreenshotNote {
+                pendingScreenshotNote = nil
+                ScreenshotNoteCapture.shared.restorePending(p)
+            }
+            return
+        }
+        isStarting = true
+        // What this start was asked to be — taken now, before the first
+        // suspension, so a different trigger landing during the wait
+        // (a dictation hotkey over a Record click, a calendar meeting
+        // over a voice note) can't rewrite it under us. Applied after
+        // `reset()` below, which would erase it if applied here.
+        let intent = (mode: pendingMode, meeting: pendingBoundMeeting,
+                      folderHint: pendingFolderHint, preparation: pendingMeetingPreparation)
+        clearPendingStart()
+        startingMode = intent.mode
+        let processing = SessionAudioProcessing.shared
+        defer {
+            isStarting = false
+            startingMode = nil
+            processing.yieldToRecordingEnded()
+            // A start that bailed after the yield gives the queue its
+            // turn back now rather than at the next minute's poll.
+            ImportTranscriptionQueue.shared.kick()
+        }
+        if processing.isRunning, !processing.isExporting, let yielded = processing.yieldToRecording() {
+            // Whisper checks for cancellation between speech spans and
+            // the job between blocks, so it often unwinds within the two
+            // seconds — not always (one long span, a file copy). Past
+            // that, start anyway: a live pass takes priority inside the
+            // engine, and the final pass is on its way out.
+            let deadline = ContinuousClock.now + .seconds(2)
+            while processing.isRunning, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            if processing.isRunning {
+                log.warning("Stored-audio job still unwinding 2 s after yielding to the recording — starting anyway")
+            } else {
+                log.info("Stored-audio job stopped for the recording")
+            }
+            if let notice = SessionAudioProcessing.interruptionNotice(for: yielded) {
+                ToastCenter.shared.show(notice, style: .info, duration: .seconds(5))
+            }
         }
 
         // A discard flag left over from a previous take. Cleared HERE and
@@ -1729,9 +1791,8 @@ final class RecordingSession {
         // sees `boundMeeting == nil`, and `finalizePostStop` runs
         // the meeting pipeline against what should have been a
         // dictation session.
-        if let m = pendingBoundMeeting {
+        if let m = intent.meeting {
             boundMeeting = m
-            pendingBoundMeeting = nil
             // Auto-suggest client tag from attendee domains. The
             // user can override in SessionDetailView; this just
             // pre-fills with a sensible guess so most meetings end
@@ -1740,20 +1801,17 @@ final class RecordingSession {
                 tag = suggested
             }
         }
-        if let preparation = pendingMeetingPreparation {
+        if let preparation = intent.preparation {
             meetingPreparationSnapshot = preparation
-            pendingMeetingPreparation = nil
             // Explicit preparation wins over automatic folder/tag hints.
             folder = FolderStore.shared.existingFolder(slug: preparation.projectSlug) ?? .inbox
             tag = preparation.tag
         }
-        if let hint = pendingFolderHint {
+        if let hint = intent.folderHint {
             if meetingPreparationSnapshot == nil, folder == .inbox { folder = hint }
-            pendingFolderHint = nil
         }
-        if let mode = pendingMode {
+        if let mode = intent.mode {
             currentMode = mode
-            pendingMode = nil
         } else {
             currentMode = .meeting
         }

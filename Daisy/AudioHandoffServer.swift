@@ -279,6 +279,10 @@ final class AudioHandoffServer {
                     await SessionStore.shared.refresh()
                 } catch ProcessingError.busy, ProcessingError.recordingActive {
                     try? await Task.sleep(for: .seconds(60))
+                } catch is CancellationError {
+                    // A recording took the engine (19.10): the id stays
+                    // pending and the loop's own check above waits it out.
+                    log.info("Audio handoff: diarization of \(id, privacy: .public) yields to a recording")
                 } catch {
                     log.error("Audio handoff: diarization of \(id, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
                     pendingDiarization.removeFirst()

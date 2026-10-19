@@ -156,7 +156,7 @@ extension RecordingSession {
         // `pendingMode` would begin a MEETING recording the moment the
         // model finished loading — which is what 1.0.7.71 shipped, saved
         // only by `start()` refusing everything at the time.
-        if let side = sideDictation, side.isDictating || side.pendingMode == .dictation {
+        if let side = sideDictation, side.isDictating || side.pendingMode == .dictation || side.startingMode == .dictation {
             return  // a repeat press of a key already held
         }
         // The previous recording is still being finished (final pass,
@@ -258,19 +258,21 @@ extension RecordingSession {
         //
         //   • `.preparing` — the usual one, waiting on a model load
         //     (minutes on a first-ever dictation);
-        //   • `.idle` with `pendingMode == .dictation` — `start()` is
-        //     awaiting the system microphone prompt, which happens
-        //     before it flips to `.preparing`. `pendingMode` is
-        //     non-nil only while a start is in flight, so it's a
-        //     precise tell rather than a widened net.
+        //   • `.idle` with `pendingMode == .dictation` — the press is
+        //     queued and `start()` hasn't taken it yet; or, once it
+        //     has (19.10: it takes its intent before its first wait —
+        //     a stored-audio job yielding, the system microphone
+        //     prompt), `startingMode == .dictation` until `.preparing`.
+        //     Both are non-nil only while a start is in flight, so
+        //     it's a precise tell rather than a widened net.
         //
         // Record the intent; `startDictationHotkey` acts on it the
         // moment `start()` returns.
-        if let side = sideDictation, side.isDictating || side.pendingMode == .dictation {
+        if let side = sideDictation, side.isDictating || side.pendingMode == .dictation || side.startingMode == .dictation {
             await side.stopDictationHotkey()
             return
         }
-        if status == .preparing || pendingMode == .dictation {
+        if status == .preparing || pendingMode == .dictation || startingMode == .dictation {
             dictationReleasedWhilePreparing = true
             return
         }

@@ -293,6 +293,16 @@
         }
       }
     },
+    "Finishing “%@” is paused — it continues after the recording." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Доработку «%@» отложили — продолжим после записи."
+          }
+        }
+      }
+    },
     "Fixing names and terms in the transcript…" : {
       "localizations" : {
         "ru" : {
@@ -773,6 +783,16 @@
         }
       }
     },
+    "Stopped — a recording started. Nothing was changed; try again after it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остановлено — началась запись. Ничего не изменилось; повтори после неё."
+          }
+        }
+      }
+    },
     "Summary settings" : {
       "localizations" : {
         "ru" : {
@@ -813,6 +833,16 @@
         }
       }
     },
+    "The recording stopped the new transcript for “%@” — start it again afterwards." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запись остановила новую расшифровку «%@» — запусти её снова после."
+          }
+        }
+      }
+    },
     "The transcript below is the draft from the meeting; the final one, speakers and summary come next." : {
       "localizations" : {
         "ru" : {
@@ -829,6 +859,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Этот Mac не поддерживает Apple Intelligence."
+          }
+        }
+      }
+    },
+    "Transcribing “%@” is paused — it continues after the recording." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Расшифровку «%@» отложили — продолжим после записи."
           }
         }
       }
@@ -20930,16 +20970,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Дождитесь завершения записи и расшифровки перед подготовкой моделей."
-          }
-        }
-      }
-    },
-    "Wait for stored audio processing to finish." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Дождись окончания обработки сохранённого аудио."
           }
         }
       }

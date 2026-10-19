@@ -10,7 +10,9 @@
 //
 //  Requirements Egor set:
 //    • the live recording always wins — a job waits for the recording
-//      AND its finalisation to end; that is a pause, never an error;
+//      AND its finalisation to end; that is a pause, never an error; a
+//      job already running when a recording starts is stopped and kept
+//      (19.10 — until then Record was refused for as long as it ran);
 //    • one job at a time, sharing `SessionAudioProcessing.isRunning` with
 //      manual "Transcribe audio" rather than competing with it;
 //    • survives quitting: `import-queue.json` in Application Support. A
@@ -85,10 +87,6 @@ final class ImportTranscriptionQueue {
     private var runTask: Task<Void, Never>?
     @ObservationIgnored
     private let fileURL: URL
-    /// Set when the active job was cancelled because a recording
-    /// started (keep the job) rather than by the user (job removed).
-    @ObservationIgnored
-    private var preempted = false
 
     private init() {
         let appSupport = (try? FileManager.default.url(
@@ -144,7 +142,6 @@ final class ImportTranscriptionQueue {
                 guard let self else { return }
                 if self.activeJobID != nil, SessionAudioProcessing.shared.recordingOrFinalizeIsActive {
                     self.log.info("Import job pre-empted by a recording")
-                    self.preempted = true
                     self.runTask?.cancel()
                 }
                 self.armPreemption()
@@ -383,8 +380,8 @@ final class ImportTranscriptionQueue {
         } catch is CancellationError {
             // Pre-empted by a recording → job stays for the next tick.
             // Removed by the user → cancel(sessionID:) already took it out.
-            log.info("Import job stopped: \(self.preempted ? "pre-empted, will retry" : "removed", privacy: .public)")
-            preempted = false
+            let kept = jobs.contains { $0.id == job.id }
+            log.info("Import job stopped: \(kept ? "pre-empted, will retry" : "removed", privacy: .public)")
         } catch ProcessingError.busy, ProcessingError.recordingActive {
             // Lost the race with a recording that started between the
             // guard and the call. Not an attempt — try again next tick.
@@ -430,14 +427,17 @@ final class ImportTranscriptionQueue {
     /// Removed by the user meanwhile → not in `jobs`, nothing more runs.
     private func finishRest(_ job: ImportTranscriptionJob, isMeeting: Bool) async {
         var done = false
-        if !Task.isCancelled, jobs.contains(where: { $0.id == job.id }) {
+        // A recording that took the engine during the final pass's last
+        // steps (names, after the commit) leaves this task uncancelled
+        // but owns the Mac now — the summary waits with the rest.
+        if !Task.isCancelled, !SessionAudioProcessing.shared.recordingOrFinalizeIsActive,
+           jobs.contains(where: { $0.id == job.id }) {
             done = await completeFinish(sessionID: job.sessionID, isMeeting: isMeeting)
         }
         if done {
             jobs.removeAll { $0.id == job.id }
         } else if let index = jobs.firstIndex(where: { $0.id == job.id }) {
             jobs[index].finalPassDoneKind = (isMeeting ? SessionKind.recording : SessionKind.note).rawValue
-            preempted = false
             log.info("Finishing job: transcript is final, the rest waits for the recording to end")
         }
         persist()

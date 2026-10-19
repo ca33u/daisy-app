@@ -74,6 +74,22 @@ nonisolated struct SessionRetranscriptionOptions: Sendable, Equatable {
     var diarize: Bool
 }
 
+/// A stored-audio transcription a recording stopped (19.10): which
+/// session, and whether it comes back on its own.
+nonisolated struct YieldedJob: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        /// The queue's final pass over a recording's live transcript.
+        case finishing
+        /// An import, a first transcript, the phone's diarization —
+        /// owned by something that runs it again later.
+        case transcribing
+        /// The sheet's job; the sheet decides what happens next.
+        case interactive
+    }
+    let title: String
+    let kind: Kind
+}
+
 /// The provider passes finalize runs after its final Whisper pass — the
 /// polish of names and terms (Stage 2b) and names from the conversation
 /// (Stage 2c) — for a meeting the queue finishes instead (07.10.2026).
@@ -97,6 +113,18 @@ final class SessionAudioProcessing {
     private(set) var isRunning = false
     /// `isRunning` for an audio export rather than a transcription.
     private(set) var isExporting = false
+    /// The transcription that is running, for the recording that
+    /// interrupts it (`yieldToRecording`). Nil while idle or exporting.
+    private(set) var activeJob: YieldedJob?
+    /// A recording is starting and has asked the running job to stop
+    /// (19.10): counts as "recording active" for everyone who checks
+    /// `recordingOrFinalizeIsActive`, so the queue doesn't chain into
+    /// its next job in the second between the yield and `.preparing`.
+    private(set) var yieldingToRecording = false
+    /// The running transcription as a task of its own, so a recording
+    /// can cancel it whoever started it — the queue, the sheet, the
+    /// phone's handoff. Cancelling the caller's task cancels it too.
+    @ObservationIgnored private var activeTask: Task<StoredSession.ID, Error>?
     private(set) var statusText = ""
     /// How far the running transcription is, 0…1; nil when nothing is
     /// being transcribed or the length is unknown.
@@ -111,6 +139,7 @@ final class SessionAudioProcessing {
     private init() {}
 
     var recordingOrFinalizeIsActive: Bool {
+        if yieldingToRecording { return true }
         guard let recording = RecordingSession.current else { return false }
         if recording.summaryTask != nil { return true }
         switch recording.status {
@@ -127,19 +156,94 @@ final class SessionAudioProcessing {
     /// it, and clear the `.recording` marker — not a derived copy.
     /// `finishing`: also run finalize's provider passes (the queue's
     /// finish of such a recording).
+    /// `interactive`: the person is watching this one in a sheet, which
+    /// speaks for itself when a recording stops it; the automatic owners
+    /// (the queue, the phone's handoff) keep their job and run it again,
+    /// and the recording's toast says so.
     func retranscribe(
         _ session: StoredSession,
         options: SessionRetranscriptionOptions,
         replaceLiveTranscript: Bool = false,
-        finishing: SessionFinishingPasses? = nil
+        finishing: SessionFinishingPasses? = nil,
+        interactive: Bool = false
     ) async throws -> StoredSession.ID {
         guard !isRunning else { throw ProcessingError.busy }
         guard !recordingOrFinalizeIsActive else { throw ProcessingError.recordingActive }
         let sourceFiles = SessionAudioFiles.discover(in: session.directoryURL)
         guard sourceFiles.hasAny else { throw ProcessingError.noAudio }
+        // Claimed here, before the task below gets its first turn, so a
+        // second caller in that gap meets `.busy` rather than a race.
+        isRunning = true
+        let kind: YieldedJob.Kind = interactive ? .interactive
+            : (replaceLiveTranscript || finishing != nil) ? .finishing : .transcribing
+        activeJob = YieldedJob(title: session.title, kind: kind)
+        let task = Task { [self] in
+            try await runRetranscription(
+                session, sourceFiles: sourceFiles, options: options,
+                replaceLiveTranscript: replaceLiveTranscript, finishing: finishing)
+        }
+        activeTask = task
+        defer {
+            // Only our own: the child resets `isRunning` before this
+            // parent resumes, and the next job may already be in here.
+            if activeTask == task {
+                activeTask = nil
+                activeJob = nil
+            }
+        }
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    /// A recording is starting (19.10, user log A): stop the running
+    /// transcription instead of refusing the recording. Nothing
+    /// half-done lands — the job writes into a hidden staging directory
+    /// and commits at the end, a cancellation discards it — and the
+    /// model it loaded is released on the way out. Returns what was
+    /// stopped, for the toast; nil when nothing was running. Holds
+    /// `recordingOrFinalizeIsActive` true until `yieldToRecordingEnded`.
+    @discardableResult
+    func yieldToRecording() -> YieldedJob? {
+        // `isRunning` first: a job that has just finished still has its
+        // handle here until its caller resumes, and is nothing to stop.
+        guard isRunning, let activeTask, let activeJob else { return nil }
+        yieldingToRecording = true
+        log.info("Stored-audio job yields to a recording: \(String(describing: activeJob.kind), privacy: .public)")
+        activeTask.cancel()
+        return activeJob
+    }
+
+    /// The recording that yielded is under way (its own status now
+    /// keeps the queue off) or never started.
+    func yieldToRecordingEnded() {
+        yieldingToRecording = false
+    }
+
+    /// The toast for a job a recording stopped, or nil when the sheet
+    /// that owns the job says it itself.
+    nonisolated static func interruptionNotice(for job: YieldedJob) -> String? {
+        switch job.kind {
+        case .finishing:
+            return String(localized: "Finishing “\(job.title)” is paused — it continues after the recording.")
+        case .transcribing:
+            return String(localized: "Transcribing “\(job.title)” is paused — it continues after the recording.")
+        case .interactive:
+            return nil
+        }
+    }
+
+    private func runRetranscription(
+        _ session: StoredSession,
+        sourceFiles: SessionAudioFiles,
+        options: SessionRetranscriptionOptions,
+        replaceLiveTranscript: Bool,
+        finishing: SessionFinishingPasses?
+    ) async throws -> StoredSession.ID {
         let isFirstTranscript = session.transcriptURL == nil || replaceLiveTranscript
 
-        isRunning = true
         statusText = isFirstTranscript
             ? String(localized: "Preparing the recording")
             : String(localized: "Preparing a new session")

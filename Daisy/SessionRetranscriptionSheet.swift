@@ -177,7 +177,7 @@ struct SessionRetranscriptionSheet: View {
         job = Task {
             defer { job = nil; isStopping = false }
             do {
-                let id = try await processor.retranscribe(session, options: options)
+                let id = try await processor.retranscribe(session, options: options, interactive: true)
                 // A queued import job for this session is now moot.
                 ImportTranscriptionQueue.shared.cancel(sessionID: session.id)
                 ToastCenter.shared.show(
@@ -189,9 +189,28 @@ struct SessionRetranscriptionSheet: View {
                 AppNavigation.shared.openInLibrary(id)
                 dismiss()
             } catch is CancellationError {
-                // The person asked for this; a stale copy of the session
-                // is already gone (staging is discarded on any exit).
-                errorMessage = String(localized: "Stopped — nothing was changed.")
+                // Staging is discarded on any exit, so nothing changed
+                // either way. Stopped by the person — say so. Stopped by
+                // a recording that started (19.10): a first transcript is
+                // the queue's kind of job, so it continues from there
+                // after the recording; a new transcript next to an
+                // existing one is theirs to start again.
+                if isStopping {
+                    errorMessage = String(localized: "Stopped — nothing was changed.")
+                } else if isFirstTranscript {
+                    ImportTranscriptionQueue.shared.enqueue(
+                        sessionID: session.id, directoryURL: session.directoryURL,
+                        title: session.title, options: options, notBefore: nil)
+                    ToastCenter.shared.show(
+                        String(localized: "Transcribing “\(session.title)” is paused — it continues after the recording."),
+                        style: .info, duration: .seconds(5))
+                    dismiss()
+                } else {
+                    errorMessage = String(localized: "Stopped — a recording started. Nothing was changed; try again after it.")
+                    ToastCenter.shared.show(
+                        String(localized: "The recording stopped the new transcript for “\(session.title)” — start it again afterwards."),
+                        style: .info, duration: .seconds(5))
+                }
             } catch {
                 errorMessage = error.localizedDescription
             }
