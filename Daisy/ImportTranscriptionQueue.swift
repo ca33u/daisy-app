@@ -599,8 +599,24 @@ final class ImportTranscriptionQueue {
         await SessionStore.shared.refresh()
         guard let session = SessionStore.shared.sessions.first(where: { $0.id == sessionID }),
               !session.transcriptText.isEmpty,
-              !FileManager.default.fileExists(atPath: session.directoryURL.appendingPathComponent("summary.json").path),
-              Summarizer.shared.availability == .available else { return }
+              !FileManager.default.fileExists(atPath: session.directoryURL.appendingPathComponent("summary.json").path)
+        else { return }
+        // A provider that can't run is a reason the meeting has no
+        // summary, not a reason to say nothing — finalize keeps and says
+        // it at stop, this path used to return here in silence (backlog
+        // 32 A-3). `.unknown` is the first seconds after launch, before
+        // the provider has been asked; ask now rather than skip.
+        if Summarizer.shared.availability == .unknown {
+            await Summarizer.shared.refreshAvailability()
+        }
+        if case .unavailable(let reason) = Summarizer.shared.availability {
+            guard !Task.isCancelled else { return }
+            log.warning("Finished recording \(sessionID, privacy: .public): summary skipped — provider unavailable: \(reason, privacy: .public)")
+            SummaryFailureNote.announce(
+                SummaryFailureNote.write(message: reason, provider: Summarizer.shared.providerKind.shortName, in: session.directoryURL)
+            )
+            return
+        }
         let localeHint = RecordingSession.resolveSummaryLocaleHint(
             transcript: session.transcriptText,
             transcriptLocale: session.locale,
@@ -620,8 +636,14 @@ final class ImportTranscriptionQueue {
             guard !Task.isCancelled else { return }
             log.warning("Finished recording \(sessionID, privacy: .public): summary failed — \(Summarizer.shared.lastError ?? "no summary", privacy: .public)")
             let reason = Summarizer.shared.lastError ?? String(localized: "The provider returned no summary.")
-            SummaryFailureNote.write(message: reason, provider: Summarizer.shared.providerKind.shortName, in: session.directoryURL)
-            SummaryFailureNote.announce(reason)
+            SummaryFailureNote.announce(
+                SummaryFailureNote.write(
+                    message: reason,
+                    provider: Summarizer.shared.providerKind.shortName,
+                    cause: Summarizer.shared.lastFailureCause,
+                    in: session.directoryURL
+                )
+            )
             return
         }
         await SessionStore.shared.updateSummary(summary, for: session)

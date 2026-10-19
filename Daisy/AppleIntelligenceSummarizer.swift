@@ -170,12 +170,8 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
         // language (Russian among them), and a user's summaries failed
         // that way for hours with only the log saying so (07.10.2026).
         if let hint = localeHint?.trimmingCharacters(in: .whitespaces), !hint.isEmpty, hint.lowercased() != "auto",
-           !SystemLanguageModel.default.supportsLocale(Locale(identifier: hint)) {
-            let language = Locale.current.localizedString(forIdentifier: hint) ?? hint
-            throw SummaryProviderError.modelUnavailable(
-                provider: "Apple Intelligence",
-                reason: String(localized: "it doesn't write in \(language) yet. Pick a cloud provider or Ollama in Settings → Summary.")
-            )
+           !Self.supportsLanguage(hint) {
+            throw SummaryProviderError.unsupportedLanguage(provider: "Apple Intelligence", languageCode: hint)
         }
 
         // Task dispatch — parity with the cloud providers, which get
@@ -335,9 +331,9 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
             }
             if msg.localizedCaseInsensitiveContains("unsupported language") ||
                msg.localizedCaseInsensitiveContains("locale") {
-                throw SummaryProviderError.modelUnavailable(
+                throw SummaryProviderError.unsupportedLanguage(
                     provider: "Apple Intelligence",
-                    reason: "Apple Intelligence doesn't support this language yet. Switch to Anthropic or OpenAI in Settings."
+                    languageCode: localeHint.flatMap { $0.lowercased() == "auto" ? nil : $0 }
                 )
             }
             throw error
@@ -484,6 +480,13 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
     }
 
     // MARK: - Helpers
+
+    /// Whether the on-device model writes this language ("ru", "ru-RU").
+    /// Settings asks before the first recording; `summarize` asks before
+    /// the request.
+    static func supportsLanguage(_ code: String) -> Bool {
+        SystemLanguageModel.default.supportsLocale(Locale(identifier: code))
+    }
 
     /// The specific reason Apple Intelligence is unavailable right now, or
     /// `nil` when it's ready. Lets Settings show an actionable message

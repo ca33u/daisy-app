@@ -546,8 +546,14 @@ extension RecordingSession {
                 // A summary that came but couldn't be saved has its own
                 // toast; this one is for the provider's answer.
                 let reason = summarizer.lastError ?? String(localized: "The provider returned no summary.")
-                SummaryFailureNote.write(message: reason, provider: summarizer.providerKind.shortName, in: directory)
-                SummaryFailureNote.announce(reason)
+                SummaryFailureNote.announce(
+                    SummaryFailureNote.write(
+                        message: reason,
+                        provider: summarizer.providerKind.shortName,
+                        cause: summarizer.lastFailureCause,
+                        in: directory
+                    )
+                )
             }
         }
 

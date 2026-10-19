@@ -293,6 +293,9 @@ final class Summarizer {
         return body()
     }
     private(set) var lastError: String?
+    /// Why `lastError` is there when the answer is not "try again" —
+    /// set and cleared with it (19.10.2026).
+    private(set) var lastFailureCause: SummaryFailureCause?
 
     /// Which provider is currently selected. Persisted to UserDefaults.
     /// Changing it triggers an availability re-check.
@@ -531,12 +534,14 @@ final class Summarizer {
         if Self.isEffectivelySilent(transcript) {
             lastSummary = .noSpeechCaptured
             lastError = nil
+            lastFailureCause = nil
             isSummarizing = false
             log.info("Skipped summary — transcript carried essentially no speech")
             return .noSpeechCaptured
         }
         isSummarizing = true
         lastError = nil
+        lastFailureCause = nil
 
         let provider = makeProvider()
         do {
@@ -561,6 +566,7 @@ final class Summarizer {
             // in front of the user as if summarizing had failed.
             log.info("Summarize cancelled")
             lastError = nil
+            lastFailureCause = nil
             isSummarizing = false
             return nil
         } catch {
@@ -569,6 +575,7 @@ final class Summarizer {
                 ImprovementStats.record(.summaryFailed(providerKind, viaAccount: providerKind == .openai && openAIConnectionMethod == .account))
             }
             lastError = error.localizedDescription
+            lastFailureCause = SummaryFailureCause.of(error)
             isSummarizing = false
             return nil
         }
@@ -587,6 +594,7 @@ final class Summarizer {
     func clear() {
         lastSummary = nil
         lastError = nil
+        lastFailureCause = nil
     }
 
     /// Isolated "dry run" — used by Settings → Test summary so the

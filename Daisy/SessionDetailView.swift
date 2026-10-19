@@ -1154,6 +1154,9 @@ struct SessionDetailView: View {
     /// Why this meeting has no summary, from `.summary_failure.json`, with
     /// the two ways out: try again, or change the provider (07.10.2026 —
     /// a user's summaries failed for hours with only the log saying so).
+    /// A language the provider can't write has one way out, so that is
+    /// the only button: trying again would fail the same way (backlog 32
+    /// A-3, 19.10.2026).
     @ViewBuilder
     private var summaryFailureBanner: some View {
         if session.summary == nil, !isResummarizing, let note = summaryFailure {
@@ -1163,25 +1166,34 @@ struct SessionDetailView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("No summary")
                         .font(.callout.weight(.medium))
-                    Text(note.message)
+                    Text(note.languageSentence ?? note.message)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
                 }
                 Spacer(minLength: 8)
-                Button("Summary settings") {
-                    AppNavigation.shared.pendingSettingsTab = .summary
-                    AppNavigation.shared.section = .settings
+                if note.languageSentence != nil {
+                    Button("Choose another provider") {
+                        AppNavigation.shared.pendingSettingsTab = .summary
+                        AppNavigation.shared.section = .settings
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                } else {
+                    Button("Summary settings") {
+                        AppNavigation.shared.pendingSettingsTab = .summary
+                        AppNavigation.shared.section = .settings
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    Button("Try again") {
+                        Task { await reSummarize() }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(session.transcriptText.isEmpty)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                Button("Try again") {
-                    Task { await reSummarize() }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(session.transcriptText.isEmpty)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -2534,7 +2546,12 @@ struct SessionDetailView: View {
             ToastCenter.shared.show(err, style: .error)
             // The banner shows the latest reason, not the first one.
             if session.summary == nil {
-                SummaryFailureNote.write(message: err, provider: Summarizer.shared.providerKind.shortName, in: session.directoryURL)
+                SummaryFailureNote.write(
+                    message: err,
+                    provider: Summarizer.shared.providerKind.shortName,
+                    cause: Summarizer.shared.lastFailureCause,
+                    in: session.directoryURL
+                )
             }
         } else {
             ToastCenter.shared.show(String(localized: "No summary returned"), style: .error)

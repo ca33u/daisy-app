@@ -275,6 +275,12 @@ enum SummaryProviderError: LocalizedError {
     case refused(provider: String)
     /// A streamed answer broke off after it had started.
     case streamInterrupted(provider: String, message: String)
+    /// The provider can't write the meeting's language — Apple
+    /// Intelligence and Russian (backlog 32 A-3). Its own case so the
+    /// session's no-summary banner can offer the one fix, another
+    /// provider, instead of "Try again". `languageCode` is nil when the
+    /// model refused without Daisy having asked for a language.
+    case unsupportedLanguage(provider: String, languageCode: String?)
 
     var errorDescription: String? {
         switch self {
@@ -298,6 +304,10 @@ enum SummaryProviderError: LocalizedError {
             return String(localized: "\(p) declined to summarize this transcript.")
         case .streamInterrupted(let p, let message):
             return String(localized: "\(p): the answer stopped halfway — \(message). Try again.")
+        case .unsupportedLanguage(let p, let code):
+            return AppleIntelligenceLanguageGate.cannotWritePhrase(provider: p, languageCode: code)
+                + " "
+                + String(localized: "Choose another provider in Settings → Summary.")
         case .contextOverflow(let p, let approx, let reported):
             if let reported {
                 // The server told us what it actually read. No hedging.

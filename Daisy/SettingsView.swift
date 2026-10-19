@@ -2557,6 +2557,17 @@ struct SettingsView: View {
                         summarizer.providerKind = firstAvailable
                     }
                 }
+                // Said here, before the first recording: Apple Intelligence
+                // picked by someone whose meetings arrive in a language it
+                // can't write would otherwise find out from a meeting with
+                // no summary (backlog 32 A-3, 19.10.2026). The explicit
+                // summary language keeps its own warning under its picker.
+                if let warning = appleIntelligenceLanguageWarning {
+                    Text(warning)
+                        .font(.caption)
+                        .foregroundStyle(Color.daisyWarning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 providerInlineRows
 
@@ -3531,6 +3542,34 @@ struct SettingsView: View {
     private var summarizerAvailable: Bool {
         if case .available = summarizer.availability { return true }
         return false
+    }
+
+    /// Apple Intelligence on "Auto", with meetings most likely in a
+    /// language it can't write — see `AppleIntelligenceLanguageGate`.
+    /// Only while the model is usable: an unavailable one has its own
+    /// reason in the footer, and would answer "no" for every language.
+    private var appleIntelligenceLanguageWarning: String? {
+        guard summarizerAvailable,
+              let code = AppleIntelligenceLanguageGate.languageToWarnAbout(
+                  provider: summarizer.providerKind,
+                  summaryLanguage: settings.summaryLanguage,
+                  interfaceLanguage: AppleIntelligenceLanguageGate.interfaceLanguage(override: Self.currentAppLanguage()),
+                  transcriptionLanguage: settings.defaultTranscriptionLocale,
+                  supports: Self.appleIntelligenceWrites
+              ) else { return nil }
+        return AppleIntelligenceLanguageGate.settingsWarning(
+            provider: SummaryProviderKind.appleIntelligence.shortName,
+            languageCode: code
+        )
+    }
+
+    /// The live answer on macOS 26; the static list where the framework
+    /// doesn't exist (the provider isn't offered there either).
+    private static func appleIntelligenceWrites(_ code: String) -> Bool {
+        if #available(macOS 26.0, *) {
+            return AppleIntelligenceSummarizer.supportsLanguage(code)
+        }
+        return SummaryLanguage(rawValue: code)?.supportedByAppleIntelligence ?? true
     }
 
     /// Whether there is a Voice Profile to imitate. Read straight from the

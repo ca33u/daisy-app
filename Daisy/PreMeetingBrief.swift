@@ -345,7 +345,7 @@ final class PreMeetingBriefStore {
             let msg = error.localizedDescription
             if let provErr = error as? SummaryProviderError {
                 switch provErr {
-                case .modelUnavailable, .missingAPIKey:
+                case .modelUnavailable, .missingAPIKey, .unsupportedLanguage:
                     publish(.unavailable(msg))
                 default:
                     publish(.failed(msg))

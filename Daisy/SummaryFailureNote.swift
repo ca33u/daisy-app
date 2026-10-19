@@ -19,16 +19,44 @@
 import Foundation
 import os
 
+/// What kept the summary from coming, when the fix is not "try again".
+/// Carried from the provider's error through `Summarizer.lastFailureCause`
+/// into the note, so the banner can offer the right button (19.10.2026).
+nonisolated enum SummaryFailureCause: Codable, Equatable, Sendable {
+    /// Apple Intelligence can't write this language (Russian among
+    /// them); `languageCode` is nil when it refused without being asked
+    /// for one. Trying again changes nothing — another provider does.
+    case unsupportedLanguage(languageCode: String?)
+
+    /// The cause behind a provider's error, or nil for the ordinary kind.
+    static func of(_ error: any Error) -> SummaryFailureCause? {
+        guard case .unsupportedLanguage(_, let code) = error as? SummaryProviderError else { return nil }
+        return .unsupportedLanguage(languageCode: code)
+    }
+}
+
 nonisolated struct SummaryFailureNote: Codable, Equatable, Sendable {
     let message: String
     let provider: String
     let date: Date
+    /// Absent in notes written before 19.10.2026 — those read as the
+    /// ordinary kind, with Try again.
+    var cause: SummaryFailureCause?
 
     static let fileName = ".summary_failure.json"
     private static let log = Logger(subsystem: "app.essazanov.Daisy", category: "SummaryFailureNote")
 
-    static func write(message: String, provider: String, in directory: URL) {
-        let note = SummaryFailureNote(message: message, provider: provider, date: Date())
+    /// What the banner says in the language case: the one sentence,
+    /// without the "choose another provider" the button already is.
+    var languageSentence: String? {
+        guard case .unsupportedLanguage(let code) = cause else { return nil }
+        return AppleIntelligenceLanguageGate.cannotWritePhrase(provider: provider, languageCode: code)
+    }
+
+    /// Returns what it wrote, for `announce`.
+    @discardableResult
+    static func write(message: String, provider: String, cause: SummaryFailureCause? = nil, in directory: URL) -> SummaryFailureNote {
+        let note = SummaryFailureNote(message: message, provider: provider, date: Date(), cause: cause)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         do {
@@ -36,6 +64,7 @@ nonisolated struct SummaryFailureNote: Codable, Equatable, Sendable {
         } catch {
             log.error("Summary failure note not saved: \(error.localizedDescription, privacy: .public)")
         }
+        return note
     }
 
     static func read(in directory: URL) -> SummaryFailureNote? {
@@ -50,12 +79,19 @@ nonisolated struct SummaryFailureNote: Codable, Equatable, Sendable {
     }
 
     /// Say it now, with the way to fix it — the note keeps it for later.
+    /// A language the provider can't write names the fix on the button,
+    /// so the text says only what went wrong.
     @MainActor
-    static func announce(_ message: String) {
+    static func announce(_ note: SummaryFailureNote) {
         SessionStore.shared.summaryFailureRevision += 1
+        let actionLabel: String
+        switch note.cause {
+        case .unsupportedLanguage: actionLabel = String(localized: "Choose another provider")
+        case nil: actionLabel = String(localized: "Summary settings")
+        }
         ToastCenter.shared.showAction(
-            String(localized: "No summary — \(message)"),
-            actionLabel: String(localized: "Summary settings"),
+            String(localized: "No summary — \(note.languageSentence ?? note.message)"),
+            actionLabel: actionLabel,
             style: .warning,
             duration: .seconds(15)
         ) {

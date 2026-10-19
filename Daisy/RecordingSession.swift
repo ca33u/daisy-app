@@ -3121,8 +3121,9 @@ final class RecordingSession {
         // try, and that used to be silent. Keep and say why (07.10.2026).
         if settings.autoSummarize, currentMode == .meeting, !segments.isEmpty, !captureLikelyFailed,
            case .unavailable(let reason) = summarizer.availability {
-            SummaryFailureNote.write(message: reason, provider: summarizer.providerKind.shortName, in: dir)
-            SummaryFailureNote.announce(reason)
+            SummaryFailureNote.announce(
+                SummaryFailureNote.write(message: reason, provider: summarizer.providerKind.shortName, in: dir)
+            )
         }
 
         // Mark the session as "summary in flight" BEFORE flipping

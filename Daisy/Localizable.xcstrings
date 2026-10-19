@@ -1,6 +1,96 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ doesn't write in Russian yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ пока не пишет по-русски."
+          }
+        }
+      }
+    },
+    "%@ doesn't write in Ukrainian yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ пока не пишет по-украински."
+          }
+        }
+      }
+    },
+    "%@ doesn't write in Belarusian yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ пока не пишет по-белорусски."
+          }
+        }
+      }
+    },
+    "%@ doesn't write in Polish yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ пока не пишет по-польски."
+          }
+        }
+      }
+    },
+    "%@ doesn't write in %@ yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ пока не пишет на языке «%2$@»."
+          }
+        }
+      }
+    },
+    "%@ doesn't write in this language yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ пока не пишет на этом языке."
+          }
+        }
+      }
+    },
+    "Meetings in that language get no summary — choose another provider above." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встречи на этом языке останутся без саммари — выбери другого провайдера выше."
+          }
+        }
+      }
+    },
+    "Choose another provider in Settings → Summary." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбери другого провайдера в «Настройки → Саммари»."
+          }
+        }
+      }
+    },
+    "Choose another provider" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбрать другого провайдера"
+          }
+        }
+      }
+    },
     "" : {
       "localizations" : {
         "ru" : {
