@@ -158,6 +158,18 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// Stalled-tap rebuilds this capture; two, then the silence monitor
     /// and its announcements take over.
     private var tapStallRebuilds = 0
+    /// The last output-route change the tap rode out (B-1, 19.10): a
+    /// headset flipping to call mode and back keeps the same device and
+    /// a live host, so nothing used to happen — and a tap that went
+    /// quiet on the way back stayed quiet to the end (user log B: silent
+    /// after the second flip of a 77-minute call, with the other side
+    /// heard before, so the silent-content monitor never looked). Each
+    /// change arms a hearing check `RouteFlipCheck.window` later; only
+    /// the latest one's check runs.
+    private var lastRouteChangeAt: Date?
+    /// Tap rebuilds this capture because the tap was silent after a
+    /// route change; capped by `RouteFlipCheck.maxRebuilds`.
+    private var routeFlipRebuilds = 0
     /// Seconds of silence the reopened archive starts with, so the
     /// timeline survives the switch. Touched on `outputQueue` only.
     nonisolated(unsafe) private var pendingLeadingSilence: TimeInterval = 0
@@ -484,6 +496,8 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             gaveUpNoticeShown = false
             probingAfterSilentTap = false
             tapStallRebuilds = 0
+            lastRouteChangeAt = nil
+            routeFlipRebuilds = 0
             gapStartedAt = nil
             displayReturnPausedBySession = false
             silenceWarningFired = false
@@ -1302,6 +1316,50 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         }
     }
 
+    /// B-1 (19.10): a route change the tap rode out is an event, not a
+    /// no-op. `RouteFlipCheck.window` after the LAST change, if the tap
+    /// has heard nothing since, it is rebuilt in place on the same host
+    /// — twice in a row at most, then left alone until sound proves it
+    /// alive again. Not the silent-content monitor's move to
+    /// ScreenCaptureKit: that path restarts the archive as leading
+    /// silence because the tap's archive held nothing audible, and here
+    /// it may hold an hour of the other side (review 19.10). Sound heard
+    /// since the change ends the check quietly.
+    private func armRouteFlipHearingCheck() {
+        let changedAt = Date()
+        lastRouteChangeAt = changedAt
+        let generation = captureGeneration
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(RouteFlipCheck.window))
+            guard let self, generation == captureGeneration, state == .capturing,
+                  lastRouteChangeAt == changedAt, backend == .processTap, !outputRestartInFlight else { return }
+            let route = Self.outputRoute()
+            let action = RouteFlipCheck.decide(
+                changedAt: changedAt, lastAudibleAt: lastAudibleSampleAt, rebuilds: routeFlipRebuilds)
+            let tapLine = tap?.diagnosticsLine ?? "no tap"
+            switch action {
+            case .keep:
+                log.info("Tap heard sound after the route change (\(route.description, privacy: .public)) — kept\(self.routeFlipRebuilds > 0 ? " after a rebuild" : "", privacy: .public)")
+                // A tap proven alive earns the full budget back: the next
+                // silent flip, an hour on, is rescued too.
+                routeFlipRebuilds = 0
+            case .rebuildTap:
+                routeFlipRebuilds += 1
+                log.warning("Tap silent \(Int(RouteFlipCheck.window), privacy: .public) s after the route change on \(route.description, privacy: .public) (\(tapLine, privacy: .public)) — rebuilding (\(self.routeFlipRebuilds, privacy: .public)/\(RouteFlipCheck.maxRebuilds, privacy: .public))")
+                outputRestartInFlight = true
+                let ok = await rebuildStream(reason: "silent-after-route-change")
+                outputRestartInFlight = false
+                lastOutputRestartAt = Date()
+                log.notice("Rebuild of a tap silent after a route change: \(ok ? "ok" : "failed", privacy: .public)")
+                // The rebuilt tap gets the same hearing check; still
+                // silent, it is rebuilt once more, then left alone.
+                if ok { armRouteFlipHearingCheck() }
+            case .giveUp:
+                log.error("Tap still silent after \(self.routeFlipRebuilds, privacy: .public) rebuild(s) following a route change on \(route.description, privacy: .public) (\(tapLine, privacy: .public)) — leaving it; the other side may be lost")
+            }
+        }
+    }
+
     /// The route moved while the engine was being built: build again on
     /// the route that exists now. Quiet — the person did nothing, and the
     /// recording has lost at most the setup's fraction of a second.
@@ -1364,6 +1422,9 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         // we are actually hosted on has gone away.
         if backend == .processTap, let t = tap, t.hostDeviceIsAlive {
             log.info("Default output changed — process tap keeps capturing (host device still present)")
+            // …and is checked: the same headset flipping profile and back
+            // can leave the tap handing over zeros (user log B, 19.10).
+            if !quietDiagnostics { armRouteFlipHearingCheck() }
             return
         }
         // Wall-clock cooldown — defer-only debounce leaks the gap
@@ -2387,6 +2448,34 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     }
 }
 
+
+/// B-1 (19.10): what to do with a process tap that rode out an output
+/// route change — a headset flipping to call mode and back, the same
+/// device with a new rate and channel count; any default-output change
+/// reaches it, the tap's host being the built-in output — once `window`
+/// has passed since the LAST change. Sound heard since the change:
+/// nothing. Silence: rebuild the tap in place, `maxRebuilds` times in a
+/// row at most; the count goes back to zero when sound proves a tap
+/// alive. Never ScreenCaptureKit from here — its switch restarts the
+/// archive as silence, right for a tap that never heard anything, ruinous
+/// for one that holds the meeting so far.
+nonisolated enum RouteFlipCheck {
+    /// Long enough for a sentence from the other side after a mute flip,
+    /// short enough that a lost half hour never happens again.
+    static let window: TimeInterval = 15
+    static let maxRebuilds = 2
+
+    enum Action: Equatable {
+        case keep
+        case rebuildTap
+        case giveUp
+    }
+
+    static func decide(changedAt: Date, lastAudibleAt: Date?, rebuilds: Int) -> Action {
+        if let lastAudibleAt, lastAudibleAt > changedAt { return .keep }
+        return rebuilds < maxRebuilds ? .rebuildTap : .giveUp
+    }
+}
 
 /// 30.09: when ScreenCaptureKit hearing sound after a silent tap puts the
 /// blame on the tap. Only sound within the first seconds after the switch
