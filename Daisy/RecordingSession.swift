@@ -2219,6 +2219,12 @@ final class RecordingSession {
 
         startedAt = nowStarted
         status = .recording
+        // The recording's own log excerpt, kept in its folder from here
+        // on (B-3): the Info lines a report sent hours later has lost.
+        // Not for dictation — seconds long, and its folder is a sidecar.
+        if currentMode != .dictation, let dir {
+            Task { await SessionDiagnosticsLog.shared.begin(directory: dir, recordingStartedAt: nowStarted) }
+        }
         if currentMode == .meeting { ImprovementStats.record(.recordingStarted(fromCalendar: fromCalendar)) }
         installThermalDowngrade(startedTier: tier)
         if settings.recordingSoundsEnabled { SoundEffects.playStart(for: currentMode) }
@@ -2901,6 +2907,17 @@ final class RecordingSession {
         // has to go hunting for a low-disk warning elsewhere in the log.
         let summary = "mode=\(currentMode) dur=\(durSec)s sys=\(String(describing: sysStatus)) mic=\(String(describing: micStatus)) sysReceived=\(hasCapturedSystemAudio) captureSysSetting=\(settings.captureSystemAudio) archivingDisabled=\(audioArchivingDisabled) boundEndDelta=\(boundEndDelta.map { "\($0)s" } ?? "none")"
         log.notice("post-stop SESSION SUMMARY — \(summary, privacy: .public)")
+        // Everything since the last five-minute capture, the summary
+        // line above included, goes to the folder's diagnostics.log; the
+        // finalize task adds its own lines when it ends. Off the main
+        // actor, and nothing below waits for it. `diagnosticsSince` is
+        // the finalize capture's fallback window: normally the cursor
+        // this capture leaves is later and wins, but if this one failed
+        // the finalize's starts here rather than at its own end.
+        let diagnosticsSince = Date()
+        if currentMode != .dictation, let dir = sessionDirectory {
+            Task { await SessionDiagnosticsLog.shared.end(directory: dir) }
+        }
 
         // ── Capture-failure gate (2026-07-22, AirPods support case) ───────
         // If NEITHER channel reached `.captured` AND the transcript is
@@ -3274,6 +3291,10 @@ final class RecordingSession {
                 micArchiveURLs: micArchiveURLs,
                 systemArchiveURLs: systemArchiveURLs
             )
+            // The final pass, the summary and the auto-send — or the
+            // bail that queued them — are the lines a "no summary" report
+            // is about. Captured whichever way finalize ended.
+            await SessionDiagnosticsLog.shared.captureWindow(directory: dir, from: diagnosticsSince, reason: "finalize")
         }
     }
 

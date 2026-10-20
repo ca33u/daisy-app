@@ -342,6 +342,18 @@ final class ImportTranscriptionQueue {
             // up (refresh coalesces with one in flight). Next tick.
             return
         }
+        // Whatever this job logs — the Whisper passes, the summary's
+        // verdict, a pre-emption — goes to the folder's diagnostics.log
+        // when it ends (B-3): these are Info lines, and a report sent
+        // after the job has long rotated them out of logd.
+        let jobStarted = Date()
+        let directory = session.directoryURL
+        func captureDiagnostics() {
+            Task {
+                await SessionDiagnosticsLog.shared.captureWindow(
+                    directory: directory, from: jobStarted.addingTimeInterval(-DiagnosticsLog.leadIn), reason: "queue")
+            }
+        }
         // Store may be one scan stale after a manual transcription or an
         // iCloud-synced one from another Mac — trust the disk.
         let transcriptOnDisk = FileManager.default.fileExists(
@@ -357,6 +369,7 @@ final class ImportTranscriptionQueue {
         let isMeeting = session.kind == .recording
         if finishing, let kind = job.finalPassDoneKind {
             await finishRest(job, isMeeting: kind == SessionKind.recording.rawValue)
+            captureDiagnostics()
             return
         }
         // A draft the person edited while the job waited (on a charger,
@@ -368,6 +381,7 @@ final class ImportTranscriptionQueue {
             try? FileManager.default.removeItem(
                 at: session.directoryURL.appendingPathComponent(SessionStore.recordingMarkerName))
             await finishRest(job, isMeeting: isMeeting)
+            captureDiagnostics()
             return
         }
         guard finishing || (session.transcriptURL == nil && !transcriptOnDisk) else {
@@ -376,6 +390,9 @@ final class ImportTranscriptionQueue {
             persist()
             return
         }
+        // Every way out from here did real work on the folder — done,
+        // pre-empted, deferred, failed — and each is worth keeping.
+        defer { captureDiagnostics() }
         do {
             _ = try await SessionAudioProcessing.shared.retranscribe(
                 session, options: job.options, replaceLiveTranscript: finishing,

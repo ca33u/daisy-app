@@ -22,10 +22,19 @@
 //  covers the CURRENT launch, while tester reports are usually about
 //  a session that ended (or a copy that crashed) earlier today.
 //  `log show` reads the persisted store across launches. Trade-off:
-//  info/debug lines are best-effort (the in-memory window rotates),
-//  errors/faults are always there. Anything marked privacy-private
-//  comes out as `<private>` — the report is privacy-safe by
-//  construction.
+//  only Default (`.notice`), Error and Fault lines are persisted to
+//  disk; Info lines live in logd's in-memory ring, shared by every
+//  process, and roll out within minutes (user log A, 19.10: a report
+//  generated at 16:14 held Info from 16:01 and Default/Error from
+//  12:59); Debug lines never reach logd unless the subsystem is
+//  enabled. So a report sent hours after a call carries the call's
+//  SESSION SUMMARY and errors, not its Info lines — which is where the
+//  passes, the queue and the route changes are told. For that, each
+//  recording's own excerpt, `diagnostics.log` in its folder (captured
+//  during the recording and after it — see `SessionDiagnosticsLog`),
+//  is attached for the last three recordings. Anything marked
+//  privacy-private comes out as `<private>` in both — the report is
+//  privacy-safe by construction.
 //
 
 import AppKit
@@ -291,7 +300,39 @@ enum LogReporter {
             duration: .seconds(3)
         )
         let logText = await collectLogs()
-        return await header(settings: settings) + "\n" + logText
+        let diagnostics = await collectSessionDiagnostics()
+        return await header(settings: settings) + "\n" + logText + diagnostics
+    }
+
+    /// How many recordings' `diagnostics.log` ride along. Three covers
+    /// "the call this morning and the two since" without a picker, at
+    /// up to 2 MB each on top of the 5 MB log.
+    nonisolated private static let attachedDiagnosticsCount = 3
+
+    /// The `diagnostics.log` of the newest three recordings that have
+    /// one, each under its own rule with the recording's start time —
+    /// never the folder name, which the person may have renamed to
+    /// anything. The Library's order (newest first) is read on the main
+    /// actor; the files are read off it.
+    private static func collectSessionDiagnostics() async -> String {
+        let candidates = SessionStore.shared.sessions.map {
+            (directory: $0.directoryURL, startedAt: $0.startedAt)
+        }
+        return await Task.detached(priority: .userInitiated) {
+            var sections: [String] = []
+            for candidate in candidates where sections.count < attachedDiagnosticsCount {
+                let url = candidate.directory.appendingPathComponent(DiagnosticsLog.fileName)
+                guard FileManager.default.fileExists(atPath: url.path),
+                      !SessionStore.isCloudEvicted(url),
+                      let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                let started = candidate.startedAt.formatted(date: .abbreviated, time: .shortened)
+                sections.append(
+                    "\n── diagnostics.log — recording of \(started) ────────────\n"
+                    + text.trimmingCharacters(in: .newlines) + "\n"
+                )
+            }
+            return sections.joined()
+        }.value
     }
 
     /// Park the report in a temp file so Mail has something to attach.
@@ -393,7 +434,7 @@ enum LogReporter {
             // the Mac unless the user sends it, so the transcript is an
             // offer, never an expectation.
             String(localized: "If you can share it, attach the session folder or just the transcript — that's the fastest way to see what Daisy actually heard."),
-            String(localized: "The attached log covers the last 24 hours. It holds diagnostics only — no transcript text."),
+            String(localized: "The attached log covers the last 24 hours, plus the diagnostics saved with the last three recordings. It holds diagnostics only — no transcript text."),
         ].joined(separator: "\n")
         return "\(form)\n\n\u{2014}\n\(footer)\n"
     }

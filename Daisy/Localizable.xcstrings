@@ -19611,12 +19611,12 @@
         }
       }
     },
-    "The attached log covers the last 24 hours. It holds diagnostics only — no transcript text." : {
+    "The attached log covers the last 24 hours, plus the diagnostics saved with the last three recordings. It holds diagnostics only — no transcript text." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Приложенный лог — за последние 24 часа. В нём только диагностика, без текста транскриптов."
+            "value" : "Приложенный лог — за последние 24 часа, плюс диагностика, сохранённая с последними тремя записями. В нём только диагностика, без текста транскриптов."
           }
         }
       }
