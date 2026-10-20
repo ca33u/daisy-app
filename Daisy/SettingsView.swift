@@ -226,6 +226,12 @@ struct SettingsView: View {
     /// Live `/api/tags` model list for the Ollama picker (empty until
     /// fetched / when the server is unreachable → static catalog).
     @State private var ollamaInstalledModels: [String] = []
+    /// Whether Ollama answered `/api/tags` at all: nil until the first
+    /// probe, false shows the install button and keeps probing every
+    /// 5 s, true shows the download list (backlog 33).
+    @State private var ollamaReachable: Bool?
+    /// Bumped after a download lands so the installed list is re-read.
+    @State private var ollamaRefreshTick = 0
     /// Owns the user-added meeting-app list; @Observable, so the rows
     /// below refresh as it changes.
     @Bindable private var detector = MeetingDetector.shared
@@ -2976,34 +2982,60 @@ struct SettingsView: View {
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity)
             }
-            Picker("Model", selection: $summarizer.ollamaModel) {
-                ForEach(ollamaModelChoices, id: \.id) { item in
-                    Text(item.label).tag(item.id)
-                }
-                // Free-form fallback — the current value may not be in
-                // the live list yet (just typed, or the server is down
-                // and we're on the static catalog).
-                if !ollamaModelChoices.contains(where: { $0.id == summarizer.ollamaModel }) {
-                    Text(String(localized: "Custom: \(summarizer.ollamaModel)")).tag(summarizer.ollamaModel)
+            // Read the real installed-model list from /api/tags on first
+            // appearance, whenever the server URL changes, and after a
+            // download lands. No answer means no Ollama: the install
+            // button is shown and the probe repeats every 5 s, so the
+            // list appears by itself once Ollama is running — no
+            // relaunch (backlog 33 У-2).
+            .task(id: "\(summarizer.ollamaBaseURL)|\(ollamaRefreshTick)") {
+                while !Task.isCancelled {
+                    let models = await OllamaAPISummarizer.fetchInstalledModelsIfReachable(baseURL: ollamaBaseURLValue)
+                    let wasReachable = ollamaReachable
+                    ollamaReachable = models != nil
+                    ollamaInstalledModels = models ?? []
+                    if models != nil {
+                        if wasReachable != true { await summarizer.refreshAvailability() }
+                        return
+                    }
+                    try? await Task.sleep(for: .seconds(5))
                 }
             }
-            .pickerStyle(.menu)
-            // Pull the real installed-model list from /api/tags on first
-            // appearance and whenever the server URL changes. An empty
-            // result (server unreachable) leaves ollamaModelChoices on
-            // the static catalog.
-            .task(id: summarizer.ollamaBaseURL) {
-                ollamaInstalledModels = await OllamaAPISummarizer.fetchInstalledModels(
-                    baseURL: URL(string: summarizer.ollamaBaseURL)
-                        ?? URL(string: OllamaAPISummarizer.defaultBaseURLString)!
-                )
-            }
-            LabeledContent("Model tag") {
-                TextField("", text: $summarizer.ollamaModel, prompt: Text(OllamaAPISummarizer.defaultModelID))
-                    .textFieldStyle(.roundedBorder)
-                    .labelsHidden()
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity)
+            // No answer from a loopback address means Ollama isn't on this
+            // Mac: the way in. A remote host that doesn't answer is the
+            // person's server, not something to install here (review 20.10).
+            if ollamaReachable == false, ollamaBaseURLIsLoopback {
+                ollamaInstallRows
+                LabeledContent("Model tag") {
+                    TextField("", text: $summarizer.ollamaModel, prompt: Text(OllamaAPISummarizer.defaultModelID))
+                        .textFieldStyle(.roundedBorder)
+                        .labelsHidden()
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity)
+                }
+            } else {
+                Picker("Model", selection: $summarizer.ollamaModel) {
+                    ForEach(ollamaModelChoices, id: \.id) { item in
+                        Text(item.label).tag(item.id)
+                    }
+                    // Free-form fallback — the current value may not be in
+                    // the live list yet (just typed, or the server is down
+                    // and we're on the static catalog).
+                    if !ollamaModelChoices.contains(where: { $0.id == summarizer.ollamaModel }) {
+                        Text(String(localized: "Custom: \(summarizer.ollamaModel)")).tag(summarizer.ollamaModel)
+                    }
+                }
+                .pickerStyle(.menu)
+                LabeledContent("Model tag") {
+                    TextField("", text: $summarizer.ollamaModel, prompt: Text(OllamaAPISummarizer.defaultModelID))
+                        .textFieldStyle(.roundedBorder)
+                        .labelsHidden()
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity)
+                }
+                if ollamaReachable == true {
+                    ollamaCatalogRows
+                }
             }
 
         case .lmStudio:
@@ -3266,7 +3298,7 @@ struct SettingsView: View {
             if OllamaAPISummarizer.isCloudModel(summarizer.ollamaModel) {
                 return String(localized: "“\(summarizer.ollamaModel)” is an Ollama cloud model: your local Ollama daemon proxies the request to ollama.com, so the transcript LEAVES your Mac (Ollama bills the usage). For fully on-device summaries pick a model without a `:cloud`/`-cloud` tag.")
             }
-            return String(localized: "Daisy calls your local Ollama server (`ollama serve`) over its native `/api/chat` REST. No API key, no network egress — everything stays on your Mac. Pull the model first: `ollama pull \(OllamaAPISummarizer.defaultModelID)`. Free.")
+            return String(localized: "Daisy calls your local Ollama server over its native `/api/chat` REST. No API key, no network egress — everything stays on your Mac. The model downloads from the list below, from ollama.com, once. Free.")
         case .lmStudio:
             return String(localized: "Daisy calls your local LM Studio server over its OpenAI-compatible `/v1/chat/completions` REST. No API key, no network egress — everything stays on your Mac. Load a model in the LM Studio app and click Developer → Start. The API identifier in this picker must match the one LM Studio shows under the loaded model. Free.")
         case .mcp:
@@ -3280,6 +3312,160 @@ struct SettingsView: View {
     /// listing (what the user has actually pulled, including spooled
     /// `:cloud` stubs); falls back to the static catalog when the
     /// server is unreachable. Known ids reuse the catalog's friendly
+    private var ollamaBaseURLValue: URL {
+        URL(string: summarizer.ollamaBaseURL) ?? URL(string: OllamaAPISummarizer.defaultBaseURLString)!
+    }
+
+    private var ollamaBaseURLIsLoopback: Bool {
+        let host = ollamaBaseURLValue.host()?.lowercased() ?? ""
+        return host.isEmpty || host == "127.0.0.1" || host == "localhost" || host == "::1" || host == "[::1]"
+    }
+
+    /// Backlog 33 У-2 (а): no Ollama answering — the way in, without
+    /// installing anything for the person. Daisy opens the download
+    /// page; the probe above notices the first answer.
+    @ViewBuilder
+    private var ollamaInstallRows: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Ollama isn't running on this Mac. Install it and open it once — the list of models appears here by itself.")
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                Button("Install Ollama") {
+                    if let url = URL(string: "https://ollama.com/download") { NSWorkspace.shared.open(url) }
+                }
+                .buttonStyle(.daisyPrimary)
+                ProgressView().controlSize(.small)
+                Text("Waiting for Ollama…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text("Daisy opens ollama.com and installs nothing itself. Ollama is free, open source, and runs the model on this Mac.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 4)
+    }
+
+    /// Backlog 33 У-1: the catalogue with a Download button per model,
+    /// progress and Cancel while one runs, what is installed, and which
+    /// one suits this Mac's memory.
+    @ViewBuilder
+    private var ollamaCatalogRows: some View {
+        let memoryGB = OllamaModelCatalog.physicalMemoryGB()
+        if memoryGB < OllamaModelCatalog.minimumMemoryGB {
+            Text("This Mac has \(memoryGB) GB of memory — a local model would be slow and may not fit next to the transcription. A cloud provider is the better choice here.")
+                .font(.caption)
+                .foregroundStyle(Color.daisyWarning)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            let recommended = OllamaModelCatalog.recommendedModelID(memoryGB: memoryGB)
+            ForEach(OllamaModelCatalog.models) { model in
+                ollamaModelRow(model, memoryGB: memoryGB, recommended: recommended)
+            }
+            Text("Models download from ollama.com (the size is on the button) and stay on this Mac. Closing this window doesn't stop a download; quitting Daisy does, and the next Download picks up where it left off.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private func ollamaModelRow(_ model: OllamaCatalogModel, memoryGB: Int, recommended: String?) -> some View {
+        let downloader = OllamaModelDownloader.shared
+        let installed = ollamaInstalledModels.contains(model.id)
+            || ollamaInstalledModels.contains(model.id.replacingOccurrences(of: ":latest", with: ""))
+        let selected = summarizer.ollamaModel == model.id
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(model.name)
+                        if installed {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .help("Installed")
+                        }
+                    }
+                    HStack(spacing: 6) {
+                        Text(OllamaModelCatalog.sizeLabel(gb: model.sizeGB))
+                        if model.id == recommended {
+                            Text("·")
+                            Text("Recommended for this Mac").fontWeight(.medium)
+                        } else if OllamaModelCatalog.fits(model, memoryGB: memoryGB) {
+                            Text("·")
+                            Text("Fits this Mac")
+                        } else {
+                            Text("·")
+                            Text("Needs a \(model.minMemoryGB) GB Mac")
+                        }
+                        if let note = model.note {
+                            Text("·")
+                            Text(LocalizedStringKey(note))
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                if let progress = downloader.progress[model.id] {
+                    HStack(spacing: 8) {
+                        if let fraction = progress.fraction {
+                            ProgressView(value: fraction)
+                                .frame(width: 90)
+                            Text("\(Int(fraction * 100))%")
+                                .font(.caption)
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ProgressView().controlSize(.small)
+                            Text(ollamaPullStatusLabel(progress.status))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Button("Cancel") { downloader.cancel(model: model.id) }
+                            .controlSize(.small)
+                    }
+                } else if installed {
+                    if selected {
+                        Text("Selected")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Button("Use") { summarizer.ollamaModel = model.id }
+                            .controlSize(.small)
+                    }
+                } else {
+                    Button(String(localized: "Download (\(OllamaModelCatalog.sizeLabel(gb: model.sizeGB)))")) {
+                        downloader.download(model: model.id, baseURL: ollamaBaseURLValue) { id in
+                            summarizer.ollamaModel = id
+                            if !ollamaInstalledModels.contains(id) { ollamaInstalledModels.append(id) }
+                            ollamaRefreshTick += 1
+                        }
+                    }
+                    .controlSize(.small)
+                }
+            }
+            if let error = downloader.errors[model.id] {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(Color.daisyWarning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// Ollama's step names, said plainly.
+    private func ollamaPullStatusLabel(_ status: String) -> String {
+        switch status {
+        case "starting", "pulling manifest": return String(localized: "Preparing…")
+        case "verifying sha256 digest": return String(localized: "Verifying…")
+        case "writing manifest", "removing any unused layers": return String(localized: "Finishing…")
+        default: return String(localized: "Downloading…")
+        }
+    }
+
     /// label; unknown ids show the raw tag, and cloud models are marked
     /// so the egress is visible before selection.
     private var ollamaModelChoices: [(id: String, label: String)] {

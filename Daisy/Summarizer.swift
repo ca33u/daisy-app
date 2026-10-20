@@ -488,7 +488,7 @@ final class Summarizer {
         case .gemini:
             return String(localized: "Gemini API key is missing. Add it in Settings → Summary Provider.")
         case .ollama:
-            return "Couldn't reach Ollama at \(ollamaBaseURL). Open Terminal and run `ollama serve`, then pull a model with `ollama pull \(OllamaAPISummarizer.defaultModelID)`."
+            return String(localized: "Couldn't reach Ollama at \(ollamaBaseURL). Install or open Ollama — Settings → Summary → Ollama has the install button, and the model downloads from there.")
         case .lmStudio:
             return "Couldn't reach LM Studio at \(lmStudioBaseURL). Open the LM Studio app, load a model, then start the local server (Developer tab → Start)."
         case .mcp:

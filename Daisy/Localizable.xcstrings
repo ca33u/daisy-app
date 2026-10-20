@@ -61,12 +61,102 @@
         }
       }
     },
+    "Couldn't download “%@”: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось скачать «%1$@»: %2$@"
+          }
+        }
+      }
+    },
+    "Couldn't reach Ollama at %@. Install or open Ollama — Settings → Summary → Ollama has the install button, and the model downloads from there." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не видит Ollama по адресу %@. Установи или открой Ollama — в Настройки → Саммари → Ollama есть кнопка установки, и модель скачается оттуда же."
+          }
+        }
+      }
+    },
+    "Daisy calls your local Ollama server over its native `/api/chat` REST. No API key, no network egress — everything stays on your Mac. The model downloads from the list below, from ollama.com, once. Free." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy обращается к локальному серверу Ollama по его REST `/api/chat`. Без API-ключа и без выхода в сеть — всё остаётся на твоём Mac. Модель скачивается из списка ниже, с ollama.com, один раз. Бесплатно."
+          }
+        }
+      }
+    },
+    "Daisy opens ollama.com and installs nothing itself. Ollama is free, open source, and runs the model on this Mac." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy только открывает ollama.com и ничего не устанавливает сама. Ollama бесплатна, с открытым кодом и запускает модель на этом Mac."
+          }
+        }
+      }
+    },
+    "Download (%@)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скачать (%@)"
+          }
+        }
+      }
+    },
+    "Finishing…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Завершение…"
+          }
+        }
+      }
+    },
+    "Fits this Mac" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подходит этому Mac"
+          }
+        }
+      }
+    },
     "Headphones as the microphone" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Наушники как микрофон"
+          }
+        }
+      }
+    },
+    "Install Ollama" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установить Ollama"
+          }
+        }
+      }
+    },
+    "Installed" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установлена"
           }
         }
       }
@@ -653,12 +743,32 @@
         }
       }
     },
+    "Models download from ollama.com (the size is on the button) and stay on this Mac. Closing this window doesn't stop a download; quitting Daisy does, and the next Download picks up where it left off." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Модели скачиваются с ollama.com (размер — на кнопке) и остаются на этом Mac. Закрытие этого окна загрузку не прерывает; выход из Daisy — прерывает, и следующее «Скачать» продолжит с того же места."
+          }
+        }
+      }
+    },
     "Names, terms, who spoke" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Имена, термины, кто говорил"
+          }
+        }
+      }
+    },
+    "Needs a %lld GB Mac" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нужен Mac с %lld ГБ"
           }
         }
       }
@@ -729,6 +839,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ничего за последние 30 дней."
+          }
+        }
+      }
+    },
+    "Ollama gave an unexpected reply." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ollama ответила неожиданно."
+          }
+        }
+      }
+    },
+    "Ollama isn't running on this Mac. Install it and open it once — the list of models appears here by itself." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ollama на этом Mac не запущена. Установи её и открой один раз — список моделей появится здесь сам."
           }
         }
       }
@@ -813,6 +943,16 @@
         }
       }
     },
+    "Recommended for this Mac" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рекомендуется для этого Mac"
+          }
+        }
+      }
+    },
     "Recommended. A light live transcript, the other side’s speakers told apart." : {
       "localizations" : {
         "ru" : {
@@ -863,6 +1003,16 @@
         }
       }
     },
+    "Selected" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбрана"
+          }
+        }
+      }
+    },
     "Sent to Google over HTTPS, using your API key." : {
       "localizations" : {
         "ru" : {
@@ -909,6 +1059,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Настройки саммари"
+          }
+        }
+      }
+    },
+    "The download stopped before Ollama confirmed the model." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Загрузка прервалась до того, как Ollama подтвердила модель."
           }
         }
       }
@@ -973,6 +1133,26 @@
         }
       }
     },
+    "This Mac has %lld GB of memory — a local model would be slow and may not fit next to the transcription. A cloud provider is the better choice here." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На этом Mac %lld ГБ памяти — локальная модель будет медленной и может не поместиться рядом с расшифровкой. Здесь лучше облачный провайдер."
+          }
+        }
+      }
+    },
+    "This is an Ollama cloud model — it runs on ollama.com, not on this Mac." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это облачная модель Ollama — она работает на ollama.com, а не на этом Mac."
+          }
+        }
+      }
+    },
     "To keep your headphones from switching to headset mode during the call, pick the built-in microphone in System Settings → Sound → Input." : {
       "localizations" : {
         "ru" : {
@@ -1029,6 +1209,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Включи исправление раскладки в «Транскрипция → Раскладка клавиатуры»."
+          }
+        }
+      }
+    },
+    "Use" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбрать"
+          }
+        }
+      }
+    },
+    "Verifying…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверка…"
+          }
+        }
+      }
+    },
+    "Waiting for Ollama…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ждём Ollama…"
           }
         }
       }
@@ -1095,6 +1305,72 @@
         }
       }
     },
+    "more capable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "мощнее"
+          }
+        }
+      }
+    },
+    "multilingual" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "многоязычная"
+          }
+        }
+      }
+    },
+    "needs a 32 GB Mac" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "нужен Mac с 32 ГБ"
+          }
+        }
+      }
+    },
+    "older" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "старше"
+          }
+        }
+      }
+    },
+    "older, smallest" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "старше, самая маленькая"
+          }
+        }
+      }
+    },
+    "older, widely installed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "старше, у многих уже стоит"
+          }
+        }
+      }
+    },
     "preset.live.full" : {
       "localizations" : {
         "en" : {
@@ -1143,6 +1419,17 @@
         }
       }
     },
+    "smallest Gemma 4" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "самая маленькая Gemma 4"
+          }
+        }
+      }
+    },
     "—" : {
       "comment" : "A placeholder text that appears when a value is not available.",
       "extractionState" : "stale",
@@ -1152,6 +1439,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "—"
+          }
+        }
+      }
+    },
+    "“%@” is downloaded and selected for summaries." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@» скачана и выбрана для саммари."
           }
         }
       }
@@ -7373,16 +7670,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Daisy обращается к твоему локальному серверу LM Studio через REST `/v1/chat/completions`, совместимый с OpenAI. Без API-ключа, без выхода в сеть — всё остаётся на твоём Mac. Загрузи модель в приложении LM Studio и нажми Developer → Start. Идентификатор API в этом списке должен совпадать с тем, что LM Studio показывает для загруженной модели. Бесплатно."
-          }
-        }
-      }
-    },
-    "Daisy calls your local Ollama server (`ollama serve`) over its native `/api/chat` REST. No API key, no network egress — everything stays on your Mac. Pull the model first: `ollama pull %@`. Free." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daisy обращается к твоему локальному серверу Ollama (`ollama serve`) через нативный REST `/api/chat`. Без API-ключа, без выхода в сеть — всё остаётся на твоём Mac. Сначала загрузи модель: `ollama pull %@`. Бесплатно."
           }
         }
       }

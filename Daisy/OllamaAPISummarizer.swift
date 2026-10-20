@@ -236,29 +236,14 @@ nonisolated struct OllamaAPISummarizer: SummaryProvider {
     /// Default base URL. Stock Ollama binds here.
     static let defaultBaseURLString = "http://127.0.0.1:11434"
 
-    /// Catalog of well-known Ollama models. This is a FALLBACK and a
-    /// source of friendly labels — the picker prefers the live
+    /// Catalog of well-known Ollama models, for the picker's labels and
+    /// the download list (backlog 33). The picker prefers the live
     /// `/api/tags` listing, so whatever the user has actually pulled
-    /// wins. User-typed model IDs are also accepted (free text field).
-    ///
-    /// Refreshed 2026-10-08; sizes are the default-quant download sizes
-    /// from ollama.com/library. Gemma 4 is new (e2b / e4b / 12b fit a
-    /// 16 GB Mac); Qwen 3.6 and 3.8 come only at 27B and up, so Qwen 3.5
-    /// stays the small default. Gemma 3, GPT-OSS and Llama haven't been
-    /// updated in a year or more — kept for anyone who already has them.
-    static let availableModels: [(id: String, label: String)] = [
-        ("qwen3.5:4b",             "Qwen 3.5 4B (~3.3 GB) — recommended"),
-        ("qwen3.5:9b",             "Qwen 3.5 9B (~6.6 GB) — more capable"),
-        ("gemma4:e4b",             "Gemma 4 E4B (~6.6 GB) — multilingual"),
-        ("gemma4:12b",             "Gemma 4 12B (~8 GB) — more capable"),
-        ("gemma4:e2b",             "Gemma 4 E2B (~4.6 GB) — smallest Gemma 4"),
-        ("qwen3.5:27b",            "Qwen 3.5 27B (~17 GB) — needs a 32 GB Mac"),
-        ("gemma3:4b",              "Gemma 3 4B (~3.3 GB) — older"),
-        ("gemma3:12b",             "Gemma 3 12B (~8.1 GB) — older"),
-        ("gpt-oss:20b",            "GPT-OSS 20B (~13 GB)"),
-        ("llama3.1:8b",            "Llama 3.1 8B (~4.7 GB) — older, widely installed"),
-        ("llama3.2:latest",        "Llama 3.2 3B (~2 GB) — older, smallest"),
-    ]
+    /// wins; user-typed model IDs are also accepted (free text field).
+    /// Sizes, memory needs and notes live in `OllamaModelCatalog`.
+    static var availableModels: [(id: String, label: String)] {
+        OllamaModelCatalog.models.map { ($0.id, OllamaModelCatalog.pickerLabel($0)) }
+    }
 
     // MARK: - Cloud-model detection
 
@@ -292,17 +277,28 @@ nonisolated struct OllamaAPISummarizer: SummaryProvider {
         baseURL: URL,
         urlSession: URLSession = .shared
     ) async -> [String] {
+        await fetchInstalledModelsIfReachable(baseURL: baseURL, urlSession: urlSession) ?? []
+    }
+
+    /// The same listing, with "no server" told from "no models": nil when
+    /// Ollama didn't answer, `[]` when it answered with nothing pulled
+    /// yet. Settings shows the install button on nil and the download
+    /// list on `[]` (backlog 33 У-2).
+    static func fetchInstalledModelsIfReachable(
+        baseURL: URL,
+        urlSession: URLSession = .shared
+    ) async -> [String]? {
         var request = URLRequest(url: baseURL.appendingPathComponent("api/tags"))
         request.httpMethod = "GET"
         request.timeoutInterval = 2
         do {
             let (data, response) = try await urlSession.data(for: request)
             guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode) else { return [] }
+                  (200..<300).contains(http.statusCode) else { return nil }
             let decoded = try JSONDecoder().decode(TagsResponse.self, from: data)
             return decoded.models.map(\.name)
         } catch {
-            return []
+            return nil
         }
     }
 }
