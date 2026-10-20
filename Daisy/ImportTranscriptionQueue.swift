@@ -134,15 +134,25 @@ final class ImportTranscriptionQueue {
     /// handles it; a job already inside Whisper is pre-empted here the
     /// moment a recording begins, and re-run later (an interrupted
     /// retranscribe discards its hidden staging, so nothing is lost).
+    /// The same flip the other way — the recording's final pass is over
+    /// — starts the next job now rather than at the minute's poll
+    /// (A-2, 19.10: user log A showed the queue picking up a rotated
+    /// meeting's final pass about a minute after the next meeting's
+    /// finalize ended; the minute is the poll, and a person watching a
+    /// card that says nothing for a minute restarts the app).
     private func armPreemption() {
         withObservationTracking {
             _ = SessionAudioProcessing.shared.recordingOrFinalizeIsActive
         } onChange: {
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if self.activeJobID != nil, SessionAudioProcessing.shared.recordingOrFinalizeIsActive {
-                    self.log.info("Import job pre-empted by a recording")
-                    self.runTask?.cancel()
+                if SessionAudioProcessing.shared.recordingOrFinalizeIsActive {
+                    if self.activeJobID != nil {
+                        self.log.info("Import job pre-empted by a recording")
+                        self.runTask?.cancel()
+                    }
+                } else {
+                    self.tick()
                 }
                 self.armPreemption()
             }

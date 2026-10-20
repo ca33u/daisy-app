@@ -1553,7 +1553,12 @@ final class RecordingSession {
     /// `start()` is past its guards and yielding the Whisper engine from
     /// a stored-audio job (up to 2 s) — `status` is still `.idle`, so
     /// this is what keeps a second press out.
-    private var isStarting = false
+    /// Readable by `SessionAudioProcessing.recordingOrFinalizeIsActive`:
+    /// `start()` nils `summaryTask` on its way in, which the queue
+    /// observes as "the finalize is over" — and from that moment until
+    /// `.preparing` this is what says a recording is coming (review
+    /// 20.10).
+    private(set) var isStarting = false
     /// The mode that start is going to be, from the moment it took its
     /// pending intent until `.preparing`: `stopDictationHotkey` reads
     /// `pendingMode == .dictation` to tell a release during a start from

@@ -141,6 +141,9 @@ final class SessionAudioProcessing {
     var recordingOrFinalizeIsActive: Bool {
         if yieldingToRecording { return true }
         guard let recording = RecordingSession.current else { return false }
+        // Past its guards and on its way to `.preparing`: the queue must
+        // not start a job in the seconds before that (review 20.10).
+        if recording.isStarting { return true }
         if recording.summaryTask != nil { return true }
         switch recording.status {
         case .preparing, .recording, .paused, .stopping, .summarizing:
