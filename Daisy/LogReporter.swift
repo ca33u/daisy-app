@@ -509,7 +509,13 @@ enum LogReporter {
         case .ready:
             state = "ready"
         case .notInstalled:
-            state = "SUPPORTED BUT NOT INSTALLED (falls back to Whisper)"
+            // "Never asked" and "asked, failed, held for a day" read the
+            // same from the installed set alone (B-4, 19.10).
+            if let failed = await AppleSpeechLiveEngine.lastDownloadFailure(locale: Locale(identifier: id)) {
+                state = "SUPPORTED BUT NOT INSTALLED — download failed \(failed.formatted(date: .abbreviated, time: .shortened)), next automatic try a day later (falls back to Whisper)"
+            } else {
+                state = "SUPPORTED BUT NOT INSTALLED (falls back to Whisper)"
+            }
         case .unsupported:
             state = "NOT SUPPORTED for this language (falls back to Whisper)"
         case .frameworkUnavailable:
@@ -557,17 +563,22 @@ enum LogReporter {
 
     /// Sparkle updater state — the single most-asked "why didn't it
     /// update?" follow-up, surfaced so the answer is in the report
-    /// itself: whether automatic checks are on, when the last one ran,
-    /// whether the user opted into the beta channel, and the feed URL
-    /// the app is actually pointed at. Reads `SparkleUpdater.shared`
-    /// (real impl or the no-Sparkle stub — both expose these four).
+    /// itself: whether automatic checks (and downloads) are on, when the
+    /// last one ran and what it concluded, what is found, downloading,
+    /// staged or skipped, whether the user opted into the beta channel,
+    /// and the feed URL the app is actually pointed at. Reads
+    /// `SparkleUpdater.shared` (real impl or the no-Sparkle stub — both
+    /// expose the same fields). B-4 (19.10): the four fields this line
+    /// had could not say whether a check that ran had seen the newer
+    /// stable, offered it and been told "skip", or staged it for a quit
+    /// that never comes.
     private static func updaterLine() -> String {
         let u = SparkleUpdater.shared
         let last = u.lastUpdateCheckDate.map {
             $0.formatted(date: .abbreviated, time: .shortened)
         } ?? "never"
         let feed = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String ?? "?"
-        return "autoCheck=\(u.automaticallyChecksForUpdates) betaChannel=\(u.receiveBetaUpdates) lastCheck=\(last) canCheck=\(u.canCheckForUpdates) feed=\(feed)"
+        return "autoCheck=\(u.automaticallyChecksForUpdates) autoDownload=\(u.automaticallyDownloadsUpdates) betaChannel=\(u.receiveBetaUpdates) lastCheck=\(last) outcome=\(u.lastCheckOutcome ?? "— (no check this launch)") found=\(u.availableUpdate?.shortVersion ?? "—") downloading=\(u.downloadingVersion ?? "—") staged=\(u.stagedVersion ?? "—") skippedBuild=\(u.skippedBuild ?? "—") canCheck=\(u.canCheckForUpdates) feed=\(feed)"
     }
 
     private static var appVersionString: String {

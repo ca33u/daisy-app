@@ -2131,7 +2131,7 @@ struct SettingsView: View {
             // for the asset — the person is looking right at the line
             // that says it's missing.
             if settings.dictationEngine == .appleSpeech {
-                await AppleSpeechEngine.ensureModelReady(locale: locale)
+                await AppleSpeechEngine.ensureModelReady(locale: locale, userInitiated: true)
             }
         case .unsupported:
             appleSpeechAvailability = .unsupported
@@ -2169,7 +2169,7 @@ struct SettingsView: View {
                     : settings.dictationLocale
                 if localeID != "auto", !localeID.isEmpty {
                     appleAssetMissing = !(await AppleSpeechEngine.ensureModelReady(
-                        locale: Locale(identifier: localeID)
+                        locale: Locale(identifier: localeID), userInitiated: true
                     ))
                 }
             }

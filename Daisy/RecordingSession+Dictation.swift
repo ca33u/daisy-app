@@ -99,7 +99,7 @@ extension RecordingSession {
                             log.warning("Dictation fast-engine miss: Apple SpeechAnalyzer error \(error.localizedDescription, privacy: .public) — Whisper fallback")
                         }
                     } else {
-                        log.info("Dictation fast-engine miss: Apple model for \(localeID, privacy: .public) not installed yet (download kicked) — Whisper fallback")
+                        log.info("Dictation fast-engine miss: Apple model for \(localeID, privacy: .public) not installed (download asked for, or held a day after a failure) — Whisper fallback")
                     }
                 } else {
                     log.info("Dictation fast-engine miss: Apple SpeechAnalyzer has no model for \(localeID, privacy: .public) on this OS — Whisper fallback (permanent for this language). Note: the system's own dictation supports more languages than SpeechTranscriber does, so \"my Mac dictates this fine\" and this line can both be true.")

@@ -103,7 +103,11 @@ final class AppleSpeechLiveEngine {
     /// session can use Apple) and returns false — the caller falls back
     /// to Whisper-Lite for this session rather than blocking on a large
     /// model pull.
-    static func ensureModelReady(locale: Locale) async -> Bool {
+    /// `userInitiated`: the person pressed a button that asks for this
+    /// model (Settings, onboarding) — one request goes through even while
+    /// the daily backoff holds; the automatic callers (a recording's
+    /// live path, a dictation) wait it out.
+    static func ensureModelReady(locale: Locale, userInitiated: Bool = false) async -> Bool {
         guard let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) else {
             return false
         }
@@ -111,6 +115,18 @@ final class AppleSpeechLiveEngine {
         let installed = await SpeechTranscriber.installedLocales
         if installed.contains(where: { $0.identifier(.bcp47) == target }) {
             return true
+        }
+        // A download that failed is not asked for again for a day (B-4,
+        // 19.10): a Lite-tier user with Russian saw «model download for
+        // ru-RU failed — asset unavailable» at the start of every
+        // recording, a doomed request and an error line each time, while
+        // Whisper covered the session regardless. Settings still says the
+        // model is supported but not installed.
+        let failedAt = UserDefaults.standard.object(forKey: AppleSpeechDownloadBackoff.key(target)) as? Date
+        guard userInitiated || AppleSpeechDownloadBackoff.shouldAttempt(lastFailureAt: failedAt) else {
+            Logger(subsystem: "app.essazanov.Daisy", category: "AppleSpeechLiveEngine")
+                .info("Apple speech: download for \(target, privacy: .public) failed at \(failedAt.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "?", privacy: .public) — not retried for a day, Whisper covers this session")
+            return false
         }
         // One download attempt in flight per locale. Every dictation used
         // to kick a fresh one, so a language whose asset keeps failing got
@@ -135,6 +151,7 @@ final class AppleSpeechLiveEngine {
                     log.info("Apple speech: downloading model for \(target, privacy: .public)…")
                     try await request.downloadAndInstall()
                     log.info("Apple speech: model for \(target, privacy: .public) installed")
+                    UserDefaults.standard.removeObject(forKey: AppleSpeechDownloadBackoff.key(target))
                 } else {
                     // No request to make, yet the locale isn't installed:
                     // the asset catalog thinks it's covered when it isn't.
@@ -145,6 +162,7 @@ final class AppleSpeechLiveEngine {
                 // failure must NOT be silent: this is exactly where a
                 // supported language looks unsupported forever.
                 log.error("Apple speech: model download for \(target, privacy: .public) failed — \(error.localizedDescription, privacy: .public)")
+                UserDefaults.standard.set(Date(), forKey: AppleSpeechDownloadBackoff.key(target))
             }
             await MainActor.run { _ = installsInFlight.remove(target) }
         }
@@ -153,6 +171,13 @@ final class AppleSpeechLiveEngine {
 
     /// bcp47 identifiers whose asset download is running right now.
     private static var installsInFlight: Set<String> = []
+
+    /// When the last download of this language's model failed, if it did
+    /// and nothing has succeeded since — for the log report.
+    static func lastDownloadFailure(locale: Locale) async -> Date? {
+        guard let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) else { return nil }
+        return UserDefaults.standard.object(forKey: AppleSpeechDownloadBackoff.key(supported.identifier(.bcp47))) as? Date
+    }
 
     func start() async throws {
         let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) ?? locale
@@ -246,5 +271,21 @@ final class AppleSpeechLiveEngine {
             return out.frameLength > 0 ? out : nil
         }
         return nil
+    }
+}
+
+/// B-4 (19.10): how long a failed Apple speech model download waits
+/// before the next attempt. Per locale, persisted in UserDefaults, so a
+/// language whose asset the system can't deliver (`asset unavailable
+/// after attempted download`) costs one request a day instead of one per
+/// recording and per dictation. A successful install clears it.
+nonisolated enum AppleSpeechDownloadBackoff {
+    static let retryAfter: TimeInterval = 24 * 60 * 60
+
+    static func key(_ bcp47: String) -> String { "daisy.appleSpeech.downloadFailedAt.\(bcp47)" }
+
+    static func shouldAttempt(lastFailureAt: Date?, now: Date = Date()) -> Bool {
+        guard let lastFailureAt else { return true }
+        return now.timeIntervalSince(lastFailureAt) >= retryAfter
     }
 }

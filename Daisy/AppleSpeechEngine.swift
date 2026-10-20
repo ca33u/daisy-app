@@ -49,8 +49,8 @@ final class AppleSpeechEngine {
     /// background download if not, returning false so the caller uses
     /// Whisper for this session).
     @discardableResult
-    static func ensureModelReady(locale: Locale) async -> Bool {
-        await AppleSpeechLiveEngine.ensureModelReady(locale: locale)
+    static func ensureModelReady(locale: Locale, userInitiated: Bool = false) async -> Bool {
+        await AppleSpeechLiveEngine.ensureModelReady(locale: locale, userInitiated: userInitiated)
     }
 
     /// Transcribe a 16 kHz mono Float sample buffer (the mic capture the

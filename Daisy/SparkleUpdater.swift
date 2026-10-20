@@ -124,6 +124,30 @@ final class SparkleUpdater {
     /// delegate in this file can write it while callers stay read-only.
     fileprivate(set) var availableUpdate: AvailableUpdate?
 
+    /// What the last check concluded, one line for the log report (B-4,
+    /// 19.10): a person on 1.0.8.11 with checks on and a check that very
+    /// evening had not been offered 1.0.8.32, stable for two days, and
+    /// the report could not say what the check had seen — Sparkle's own
+    /// log lives in its subsystem and never reaches the report.
+    fileprivate(set) var lastCheckOutcome: String?
+    /// Sparkle's "download and install automatically" preference; off,
+    /// an update is a dialog the person has to answer.
+    var automaticallyDownloadsUpdates: Bool { controller.updater.automaticallyDownloadsUpdates }
+    /// The build the person told Sparkle to skip, if any — Sparkle's own
+    /// defaults (`SUSkippedMinorVersionKey` holds the item's build number,
+    /// `SUSkippedMajorVersionKey` a major upgrade), read for the report.
+    var skippedBuild: String? {
+        let defaults = UserDefaults.standard
+        let minor = defaults.string(forKey: "SUSkippedVersion")
+        let major = defaults.string(forKey: "SUSkippedMajorVersion")
+        switch (minor, major) {
+        case (nil, nil): return nil
+        case (let m?, nil): return m
+        case (nil, let M?): return "major \(M)"
+        case (let m?, let M?): return "\(m), major \(M)"
+        }
+    }
+
     /// The version Sparkle is downloading and unpacking in the background
     /// (29.09: three minutes in which «Update» and «Check for Updates…»
     /// did nothing — Sparkle refuses every call while its session runs —
@@ -492,8 +516,22 @@ private final class DaisyUpdaterDelegate: NSObject, SPUUpdaterDelegate {
         Task { @MainActor in SparkleUpdater.shared.downloadingVersion = nil }
     }
 
+    /// Every check ends here, the ordinary "no update" included (as
+    /// `SUNoUpdateError`, already reported above). Anything else — the
+    /// feed unreachable, unparsable, a bad signature — is the outcome the
+    /// report has to show next to `lastCheck`, or a failed check reads
+    /// as the previous successful one (B-4, 19.10).
     nonisolated func updater(_ updater: SPUUpdater, didAbortWithError error: any Error) {
-        Task { @MainActor in SparkleUpdater.shared.downloadingVersion = nil }
+        let nsError = error as NSError
+        let aborted = !(nsError.domain == SUSparkleErrorDomain && nsError.code == Int(SUError.noUpdateError.rawValue))
+        if aborted {
+            Logger(subsystem: "app.essazanov.Daisy", category: "Updates")
+                .error("Update check aborted: \(error.localizedDescription, privacy: .public)")
+        }
+        Task { @MainActor in
+            SparkleUpdater.shared.downloadingVersion = nil
+            if aborted { SparkleUpdater.shared.lastCheckOutcome = "aborted: \(error.localizedDescription)" }
+        }
     }
 
     nonisolated func updater(_ updater: SPUUpdater, didFinishLoading appcast: SUAppcast) {
@@ -536,16 +574,58 @@ private final class DaisyUpdaterDelegate: NSObject, SPUUpdaterDelegate {
             // nullable, and its absence means the stable channel.
             "Update offered: \(item.displayVersionString, privacy: .public) (build \(item.versionString, privacy: .public)), channel=\(item.channel ?? "stable", privacy: .public)"
         )
-        Task { @MainActor in SparkleUpdater.shared.availableUpdate = found }
+        let outcome = "found \(item.displayVersionString) (\(item.versionString))"
+        Task { @MainActor in
+            SparkleUpdater.shared.availableUpdate = found
+            SparkleUpdater.shared.lastCheckOutcome = outcome
+        }
     }
 
     /// No update available (including after the user chose "Skip" for the
     /// offered version, or once we've relaunched into it) — clear the badge.
-    nonisolated func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+    /// Why, and which item the feed's newest was, go to the log and the
+    /// report: with checks on and the feed carrying a newer stable, this
+    /// is the one line that tells a skipped version from a feed the app
+    /// never saw (B-4, 19.10).
+    nonisolated func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: any Error) {
+        let info = (error as NSError).userInfo
+        let reason: String
+        switch (info[SPUNoUpdateFoundReasonKey] as? NSNumber).flatMap({ SPUNoUpdateFoundReason(rawValue: $0.int32Value) }) {
+        case .onLatestVersion: reason = "on latest"
+        case .onNewerThanLatestVersion: reason = "newer than feed"
+        case .systemIsTooOld: reason = "macOS too old"
+        case .systemIsTooNew: reason = "macOS too new"
+        case .hardwareDoesNotSupportARM64: reason = "hardware"
+        case .unknown, .none: reason = "unknown"
+        @unknown default: reason = "unknown"
+        }
+        let latest = (info[SPULatestAppcastItemFoundKey] as? SUAppcastItem)
+            .map { "\($0.displayVersionString) (\($0.versionString), \($0.channel ?? "stable"))" } ?? "—"
+        let skipped = UserDefaults.standard.string(forKey: "SUSkippedVersion") ?? "—"
+        Logger(subsystem: "app.essazanov.Daisy", category: "Updates")
+            .info("No update: \(reason, privacy: .public); feed's newest for this channel \(latest, privacy: .public); skipped=\(skipped, privacy: .public)")
+        let outcome = "none (\(reason); newest \(latest))"
         Task { @MainActor in
             SparkleUpdater.shared.availableUpdate = nil
             SparkleUpdater.shared.downloadingVersion = nil
+            SparkleUpdater.shared.lastCheckOutcome = outcome
         }
+    }
+
+    /// What the person answered to an update dialog — "Skip" in
+    /// particular is a version that will never be offered again, and
+    /// nothing else in the report says it happened (B-4, 19.10).
+    nonisolated func updater(_ updater: SPUUpdater, userDidMake choice: SPUUserUpdateChoice,
+                             forUpdate updateItem: SUAppcastItem, state: SPUUserUpdateState) {
+        let answer: String
+        switch choice {
+        case .skip: answer = "skip"
+        case .install: answer = "install"
+        case .dismiss: answer = "later"
+        @unknown default: answer = "unknown"
+        }
+        Logger(subsystem: "app.essazanov.Daisy", category: "Updates")
+            .notice("Update choice: \(answer, privacy: .public) for \(updateItem.displayVersionString, privacy: .public) (build \(updateItem.versionString, privacy: .public))")
     }
 }
 
@@ -568,6 +648,9 @@ final class SparkleUpdater {
     let canCheckForUpdates: Bool = false
     let lastUpdateCheckDate: Date? = nil
     let availableUpdate: AvailableUpdate? = nil
+    let lastCheckOutcome: String? = nil
+    let automaticallyDownloadsUpdates: Bool = false
+    let skippedBuild: String? = nil
 
     private init() {}
 

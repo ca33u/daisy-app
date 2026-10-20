@@ -163,7 +163,7 @@ final class ModelPreparation {
             let locale = settings.dictationLocale.isEmpty ? settings.defaultTranscriptionLocale : settings.dictationLocale
             if !locale.isEmpty, locale != "auto" {
                 stage = String(localized: "Preparing Apple dictation…")
-                guard await AppleSpeechEngine.ensureModelReady(locale: Locale(identifier: locale)) else {
+                guard await AppleSpeechEngine.ensureModelReady(locale: Locale(identifier: locale), userInitiated: true) else {
                     error = String(localized: "Apple dictation is unavailable for this language. Choose Standard in Settings → Transcription and try again.")
                     return
                 }
