@@ -61,6 +61,16 @@
         }
       }
     },
+    "Headphones as the microphone" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Наушники как микрофон"
+          }
+        }
+      }
+    },
     "Meetings in that language get no summary — choose another provider above." : {
       "localizations" : {
         "ru" : {
@@ -733,6 +743,16 @@
         }
       }
     },
+    "Open System Settings" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть Системные настройки"
+          }
+        }
+      }
+    },
     "Optimal" : {
       "localizations" : {
         "ru" : {
@@ -949,6 +969,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Этот Mac не поддерживает Apple Intelligence."
+          }
+        }
+      }
+    },
+    "To keep your headphones from switching to headset mode during the call, pick the built-in microphone in System Settings → Sound → Input." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чтобы наушники не переключались в режим гарнитуры во время звонка, выбери встроенный микрофон в Системных настройках → Звук → Вход."
           }
         }
       }

@@ -1484,6 +1484,43 @@ final class RecordingSession {
     /// another prompt's `dismiss(tag:)`.
     private static let virtualInputBubbleTag = "virtual-input-warning"
 
+    /// B-2 (19.10): once per headset, at the start of a meeting, when the
+    /// SYSTEM default input — not necessarily Daisy's microphone — is a
+    /// Bluetooth headset: that is what the call app takes, and what flips
+    /// the headset into 16 kHz headset mode (user log B, WH-1000XM4). The
+    /// remedy is in System Settings → Sound → Input, so the button opens it.
+    private func hintIfSystemInputIsBluetoothHeadset() {
+        guard currentMode == .meeting else { return }
+        let deviceID = AudioInputDevices.systemDefaultInputID()
+        guard deviceID != 0 else { return }
+        // `isBluetooth` looks inside an aggregate too; the label is for the log.
+        let transport = AudioInputDevices.isBluetooth(deviceID) ? "bluetooth" : AudioInputDevices.transportLabel(deviceID)
+        let uid = AudioInputDevices.uid(for: deviceID) ?? ""
+        let defaults = UserDefaults.standard
+        let shown = Set(defaults.stringArray(forKey: BluetoothInputHint.shownKey) ?? [])
+        guard BluetoothInputHint.shouldShow(transport: transport, uid: uid, shown: shown) else { return }
+        let name = AudioInputDevices.name(for: deviceID) ?? "Bluetooth"
+        log.notice("System default input is a Bluetooth headset (\(name, privacy: .public), \(transport, privacy: .public)) — one-time hint to pick the built-in microphone")
+        let message = String(localized: "To keep your headphones from switching to headset mode during the call, pick the built-in microphone in System Settings → Sound → Input.")
+        let open = String(localized: "Open System Settings")
+        // A recording mostly starts from a hotkey, the widget or the
+        // calendar with the window closed, and the toast lives in the
+        // window: the pill carries it there, a notification when there
+        // is no pill — as the virtual-input and low-disk warnings do.
+        // Only then is the headset marked as told.
+        WidgetBubbleCenter.shared.present(
+            WidgetBubbleContent(text: message, actionTitle: open, autoDismiss: 15, tag: Self.bluetoothInputBubbleTag,
+                                action: { BluetoothInputHint.openSoundSettings() }),
+            notificationTitle: String(localized: "Headphones as the microphone")
+        )
+        ToastCenter.shared.showAction(message, actionLabel: open, style: .info, duration: .seconds(12)) {
+            BluetoothInputHint.openSoundSettings()
+        }
+        defaults.set(Array(shown.union([uid])).sorted(), forKey: BluetoothInputHint.shownKey)
+    }
+
+    private static let bluetoothInputBubbleTag = "bluetooth-input-hint"
+
     /// Set when `start()` already warned about a closed lid, so the
     /// silence watchdog 10 s later doesn't repeat the same toast.
     @ObservationIgnored
@@ -1892,6 +1929,11 @@ final class RecordingSession {
                 title = "\(prefix) \(f.string(from: Date()))"
             }
         }
+
+        // The system's input is a Bluetooth headset: the call app will
+        // flip it to headset mode, see `BluetoothInputHint`. After the
+        // mode pickup above — a meeting's concern, not a dictation's.
+        hintIfSystemInputIsBluetoothHeadset()
 
         status = .preparing
 
