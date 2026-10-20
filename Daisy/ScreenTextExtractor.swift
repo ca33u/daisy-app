@@ -91,6 +91,10 @@ nonisolated enum ScreenTextExtractor {
         /// Filename behind each entry of `kept`, index-for-index.
         var keptFrames: [String] = []
         var lastTokens: Set<String> = []
+        /// Frames Vision refused (A-4, 19.10: «Vision perform failed …
+        /// error -1» on macOS 26.6.2). One such frame is one frame lost;
+        /// counted so the summary line tells one from all of them.
+        var visionFailures = 0
 
         for url in frames {
             // One autorelease pool PER FRAME, and it is load-bearing.
@@ -117,8 +121,11 @@ nonisolated enum ScreenTextExtractor {
             // Only the recognised text escapes the pool.
             let normalized: String? = autoreleasepool {
                 guard let cg = loadCGImage(url) else { return nil }
-                let text = recognizeText(in: cg)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let recognized = recognizeText(in: cg) else {
+                    visionFailures += 1
+                    return nil
+                }
+                let text = recognized.trimmingCharacters(in: .whitespacesAndNewlines)
                 return contentCharCount(text) >= minContentChars ? text : nil
             }
             guard let normalized else { continue }
@@ -145,7 +152,12 @@ nonisolated enum ScreenTextExtractor {
             if kept.reduce(0, { $0 + $1.count }) > maxTotalChars { break }
         }
 
-        guard !kept.isEmpty else { return Result(markdown: "", distinctScreens: 0, distinctFrames: []) }
+        guard !kept.isEmpty else {
+            if visionFailures > 0 {
+                log.error("Screen OCR: nothing read — Vision failed on \(visionFailures, privacy: .public) of \(frames.count, privacy: .public) frames")
+            }
+            return Result(markdown: "", distinctScreens: 0, distinctFrames: [])
+        }
 
         var md = ""
         for (i, block) in kept.enumerated() {
@@ -153,7 +165,7 @@ nonisolated enum ScreenTextExtractor {
             md += block
             md += "\n\n"
         }
-        log.info("Screen OCR: \(frames.count, privacy: .public) frames → \(kept.count, privacy: .public) distinct screens")
+        log.info("Screen OCR: \(frames.count, privacy: .public) frames → \(kept.count, privacy: .public) distinct screens\(visionFailures > 0 ? " (Vision failed on \(visionFailures))" : "", privacy: .public)")
         return Result(
             markdown: md.trimmingCharacters(in: .whitespacesAndNewlines),
             distinctScreens: kept.count,
@@ -169,8 +181,9 @@ nonisolated enum ScreenTextExtractor {
     }
 
     /// Synchronous Vision text recognition. Runs on the caller's (non-main)
-    /// executor — finalize is already a detached task.
-    private static func recognizeText(in image: CGImage) -> String {
+    /// executor — finalize is already a detached task. Nil when Vision
+    /// itself failed (not "no text"): the caller counts those.
+    private static func recognizeText(in image: CGImage) -> String? {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
@@ -185,7 +198,7 @@ nonisolated enum ScreenTextExtractor {
             try handler.perform([request])
         } catch {
             log.error("Vision perform failed: \(error.localizedDescription, privacy: .public)")
-            return ""
+            return nil
         }
         // `request.results` is already typed `[VNRecognizedTextObservation]?`
         // on current SDKs — the old `as? [VNRecognizedTextObservation]`
