@@ -131,7 +131,8 @@ nonisolated enum SensitiveDataProtector {
         // restored locally afterwards.
         let reversibleOnly: Bool
         switch task {
-        case .dictationPolish, .transcriptPolish: reversibleOnly = true
+        // A Daisy-key command's result goes into the person's field too.
+        case .dictationPolish, .transcriptPolish, .voiceCommand: reversibleOnly = true
         default:                                  reversibleOnly = false
         }
         var context = TaskContext(session: PseudonymSession(
@@ -178,6 +179,9 @@ nonisolated enum SensitiveDataProtector {
                 return task
             case .dictationPolish(let instruction):
                 return .dictationPolish(instruction: protect(instruction))
+            case .voiceCommand(var context):
+                context.voice = context.voice.map { protect($0) }
+                return .voiceCommand(context)
             case .transcriptPolish(let context):
                 return .transcriptPolish(
                     TranscriptPolisher.PromptContext(

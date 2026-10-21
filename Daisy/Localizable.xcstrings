@@ -61,6 +61,26 @@
         }
       }
     },
+    "Allow and run" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешить и выполнить"
+          }
+        }
+      }
+    },
+    "Commands send what you said and selected to %@. Saved as a note for now" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Команды отправляют сказанное и выделенное в %@. Пока сохранила как заметку"
+          }
+        }
+      }
+    },
     "Couldn't download “%@”: %@" : {
       "localizations" : {
         "ru" : {
@@ -77,6 +97,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Daisy не видит Ollama по адресу %@. Установи или открой Ollama — в Настройки → Саммари → Ollama есть кнопка установки, и модель скачается оттуда же."
+          }
+        }
+      }
+    },
+    "Couldn’t do that — saved as a note" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не получилось — сохранила как заметку"
           }
         }
       }
@@ -191,6 +221,16 @@
         }
       }
     },
+    "Inserted" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вставлено"
+          }
+        }
+      }
+    },
     "Install Ollama" : {
       "localizations" : {
         "ru" : {
@@ -207,6 +247,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Установлена"
+          }
+        }
+      }
+    },
+    "It’s a command — run it" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это команда — выполнить"
           }
         }
       }
@@ -873,6 +923,16 @@
         }
       }
     },
+    "No summary provider is available — saved as a note" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Провайдер саммари недоступен — сохранила как заметку"
+          }
+        }
+      }
+    },
     "No summary — %@" : {
       "localizations" : {
         "ru" : {
@@ -1053,6 +1113,16 @@
         }
       }
     },
+    "Put on the clipboard" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В буфере обмена"
+          }
+        }
+      }
+    },
     "Quit Anyway" : {
       "localizations" : {
         "ru" : {
@@ -1079,6 +1149,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Читаем текст со скриншотов…"
+          }
+        }
+      }
+    },
+    "Ready — it’s on the clipboard: ⌘V" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Готово — текст в буфере обмена: ⌘V"
+          }
+        }
+      }
+    },
+    "Ready — you moved to another field, so it’s on the clipboard: ⌘V" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Готово — поле сменилось, поэтому текст в буфере обмена: ⌘V"
           }
         }
       }
@@ -1233,6 +1323,36 @@
         }
       }
     },
+    "Still working on the last command" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ещё работаю над прошлой командой"
+          }
+        }
+      }
+    },
+    "Still working on the last command — saved this one as a note" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ещё работаю над прошлой командой — эту сохранила как заметку"
+          }
+        }
+      }
+    },
+    "Still writing…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ещё пишу…"
+          }
+        }
+      }
+    },
     "Stop the note first" : {
       "localizations" : {
         "ru" : {
@@ -1243,12 +1363,32 @@
         }
       }
     },
+    "Stopped" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остановлено"
+          }
+        }
+      }
+    },
     "Stopped — a recording started. Nothing was changed; try again after it." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Остановлено — началась запись. Ничего не изменилось; повтори после неё."
+          }
+        }
+      }
+    },
+    "Stopped — what you said is in the command history" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остановила — сказанное в истории команд"
           }
         }
       }
@@ -1479,6 +1619,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ждём Ollama…"
+          }
+        }
+      }
+    },
+    "Writing…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пишу…"
           }
         }
       }

@@ -55,6 +55,9 @@ nonisolated struct DaisyKeyContext: Sendable, Equatable {
     var isSecureField = false
     /// Accessibility was granted when the key went down.
     var accessibilityTrusted = false
+    /// The focused element itself, so a result is inserted only where the
+    /// person was when the key went down (K-2).
+    var element: AXElementBox?
 
     static let empty = DaisyKeyContext()
 
@@ -84,6 +87,7 @@ nonisolated struct DaisyKeyContext: Sendable, Equatable {
               let focusedRef, CFGetTypeID(focusedRef) == AXUIElementGetTypeID() else { return context }
         let element = focusedRef as! AXUIElement
         AXUIElementSetMessagingTimeout(element, 0.2)
+        context.element = AXElementBox(element)
         let role = string(element, kAXRoleAttribute) ?? ""
         let subrole = string(element, kAXSubroleAttribute) ?? ""
         if role == "AXSecureTextField" || subrole == kAXSecureTextFieldSubrole as String {
@@ -100,6 +104,26 @@ nonisolated struct DaisyKeyContext: Sendable, Equatable {
         return context
     }
 
+    /// The text selected in `box` right now, or nil when there is none or
+    /// it can't be read.
+    static func currentSelection(in box: AXElementBox) -> String? {
+        var raw: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(box.element, kAXSelectedTextAttribute as CFString, &raw) == .success,
+              let text = raw as? String, !text.isEmpty else { return nil }
+        return text
+    }
+
+    /// The element that has the keyboard focus now, or nil.
+    static func focusedElement() -> AXElementBox? {
+        guard AXIsProcessTrusted() else { return nil }
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, 0.2)
+        var focusedRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
+              let focusedRef, CFGetTypeID(focusedRef) == AXUIElementGetTypeID() else { return nil }
+        return AXElementBox(focusedRef as! AXUIElement)
+    }
+
     private static func string(_ element: AXUIElement, _ attribute: String) -> String? {
         var raw: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &raw) == .success else { return nil }
@@ -111,6 +135,14 @@ nonisolated struct DaisyKeyContext: Sendable, Equatable {
         guard AXUIElementIsAttributeSettable(element, attribute, &settable) == .success else { return false }
         return settable.boolValue
     }
+}
+
+/// An AX element carried across actors. AX elements are CF references
+/// safe to pass between threads; equality is the element's identity.
+nonisolated final class AXElementBox: @unchecked Sendable, Equatable {
+    let element: AXUIElement
+    init(_ element: AXUIElement) { self.element = element }
+    static func == (lhs: AXElementBox, rhs: AXElementBox) -> Bool { CFEqual(lhs.element, rhs.element) }
 }
 
 // MARK: - What a hold meant (no model)
@@ -129,7 +161,7 @@ nonisolated enum DaisyKeyIntentParser {
     /// Words that, said first, make the rest a note. Longer openings
     /// («запиши заметку», «make a note») are tried before shorter ones.
     static let noteOpenings: [[String]] = [
-        ["запиши", "заметку"], ["сделай", "заметку"], ["make", "a", "note"], ["take", "a", "note"], ["note", "down"],
+        ["запиши", "заметку"], ["сделай", "заметку"], ["make", "a", "note"], ["take", "a", "note"], ["note", "down"], ["write", "down"],
         ["заметка"], ["заметку"], ["запиши"], ["запомни"], ["записать"], ["note"], ["remember"],
     ]
     /// A name said before the command («Daisy, запиши …») is not part of it.
@@ -161,6 +193,116 @@ nonisolated enum DaisyKeyIntentParser {
         var t = Substring(text)
         while let c = t.first, c.isPunctuation || c.isWhitespace || c == "—" || c == "-" { t = t.dropFirst() }
         return String(t)
+    }
+}
+
+// MARK: - Commands that need a model (K-2)
+
+/// What a command asks for, and so where its result may go.
+nonisolated enum DaisyKeyCommandKind: Equatable, Sendable {
+    /// Change the selected text in place (an edit verb over an editable
+    /// selection): the result replaces the selection.
+    case edit
+    /// Write new text («напиши», «ответь» with nothing selected): the
+    /// result goes in at the caret.
+    case write
+    /// Answer from the selection as a source — a reply to a selected
+    /// email, a translation for the person, «о чём тут»: the selection is
+    /// never replaced, the result goes to the clipboard.
+    case answer
+}
+
+nonisolated enum DaisyKeyCommandParser {
+    /// Verbs that change the selected text («короче», «исправь»).
+    static let editVerbs: Set<String> = [
+        "перепиши", "переписать", "сократи", "сократить", "короче", "покороче", "исправь", "поправь",
+        "вежливее", "официальнее", "проще", "улучши", "переформулируй", "отредактируй", "причеши",
+        "rewrite", "shorten", "shorter", "fix", "polish", "improve", "simplify", "rephrase", "edit", "proofread", "correct",
+    ]
+    /// Verbs that write new text («напиши», «ответь»).
+    static let writeVerbs: Set<String> = [
+        "напиши", "ответь", "составь", "подготовь", "сформулируй", "набросай", "сочини",
+        "write", "reply", "draft", "compose", "answer", "prepare",
+    ]
+    static let translateVerbs: Set<String> = ["переведи", "translate"]
+    /// «сделай короче», «make it shorter», «сделай промпт».
+    static let makeVerbs: Set<String> = ["сделай", "make"]
+    /// What «сделай / make it» has to be followed by to be an edit:
+    /// «сделай из этого задачу» is not one (review 21.10).
+    static let editAfterMake: Set<String> = [
+        "короче", "покороче", "вежливее", "официальнее", "проще", "понятнее", "мягче", "лучше", "яснее", "живее",
+        "shorter", "simpler", "clearer", "nicer", "politer", "friendlier", "better", "more", "less",
+    ]
+    /// Openings that ask about the selection.
+    static let answerOpenings: [[String]] = [
+        ["о", "чём"], ["о", "чем"], ["что", "тут"], ["что", "здесь"], ["объясни"], ["перескажи"],
+        ["summarize"], ["explain"], ["what", "is", "this"], ["what's", "this"], ["what’s", "this"],
+    ]
+    /// After «переведи»: the translation is for the person, not the field.
+    static let forMe: Set<String> = ["мне", "me"]
+
+    /// nil when the words aren't a command by these rules — they are
+    /// then kept as a note, with a button to run them anyway.
+    static func kind(of text: String, hasSelection: Bool, selectionEditable: Bool) -> DaisyKeyCommandKind? {
+        var words = text.split(whereSeparator: \.isWhitespace).map { DaisyKeyIntentParser.normalized(String($0)) }
+        if let first = words.first, DaisyKeyIntentParser.addressWords.contains(first) { words.removeFirst() }
+        guard let first = words.first else { return nil }
+        if answerOpenings.contains(where: { opening in words.count >= opening.count && zip(words, opening).allSatisfy { $0 == $1 } }) {
+            return hasSelection ? .answer : nil
+        }
+        if translateVerbs.contains(first) {
+            guard hasSelection else { return .write }
+            // «переведи мне», «translate for me»
+            let forThem = words.dropFirst().prefix(2).contains(where: forMe.contains)
+            return selectionEditable && !forThem ? .edit : .answer
+        }
+        if makeVerbs.contains(first), words.count > 1 {
+            let next = words[1] == "it" && words.count > 2 ? words[2] : words[1]
+            if next.hasPrefix("промпт") || next == "prompt" || next == "a" { return hasSelection ? .answer : .write }
+            if editAfterMake.contains(next) { return hasSelection ? (selectionEditable ? .edit : .answer) : nil }
+            return hasSelection ? .answer : nil
+        }
+        if editVerbs.contains(first) {
+            return hasSelection ? (selectionEditable ? .edit : .answer) : nil
+        }
+        if writeVerbs.contains(first) {
+            return hasSelection ? .answer : .write
+        }
+        return nil
+    }
+
+    /// Where the text goes, for its shape, from the app in front.
+    static func field(bundleID: String?) -> VoiceCommandContext.Field {
+        guard let id = bundleID?.lowercased() else { return .plain }
+        let mail = ["com.apple.mail", "com.microsoft.outlook", "com.readdle.smartemail-mac", "com.superhuman.electron", "com.mimestream.mimestream"]
+        let chat = ["com.tinyspeck.slackmacgap", "ru.keepcoder.telegram", "com.tdesktop.telegram", "com.apple.mobilesms",
+                    "net.whatsapp.whatsapp", "com.hnc.discord", "desktop.whatsapp", "com.microsoft.teams2", "com.microsoft.teams"]
+        let terminal = ["com.apple.terminal", "com.googlecode.iterm2", "dev.warp.warp-stable", "com.mitchellh.ghostty", "net.kovidgoyal.kitty"]
+        let code = ["com.microsoft.vscode", "com.apple.dt.xcode", "dev.zed.zed", "com.todesktop.230313mzl4w4u92", "com.sublimetext.4"]
+        if mail.contains(id) { return .mail }
+        if chat.contains(id) { return .messenger }
+        if terminal.contains(id) { return .terminal }
+        if code.contains(id) || id.hasPrefix("com.jetbrains.") { return .code }
+        return .plain
+    }
+
+    /// The model's text, as it may be inserted: trimmed, without quotes or
+    /// a code fence wrapped round it, one line for a terminal. nil when
+    /// nothing usable came back.
+    static func cleaned(_ raw: String, field: VoiceCommandContext.Field) -> String? {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("```"), text.hasSuffix("```"), text.count > 6 {
+            text = String(text.dropFirst(3).dropLast(3))
+            if let newline = text.firstIndex(of: "\n"), !text[..<newline].contains(" ") { text = String(text[text.index(after: newline)...]) }
+            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        for (open, close) in [("\"", "\""), ("«", "»"), ("“", "”")] where text.hasPrefix(open) && text.hasSuffix(close) && text.count > 2 {
+            let inner = String(text.dropFirst().dropLast())
+            if !inner.contains(open) && !inner.contains(close) { text = inner }
+        }
+        // Any line break — a \r included — would press Return in a terminal.
+        if field == .terminal { text = text.split(whereSeparator: \.isNewline).joined(separator: " ") }
+        return text.isEmpty ? nil : text
     }
 }
 
@@ -507,11 +649,16 @@ final class DaisyKeyController {
     /// What a capturing press saw, kept until its hold is finished.
     private struct Hold {
         let appName: String?
+        let bundleID: String?
         let context: Task<DaisyKeyContext, Never>
         let at: Date
     }
 
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "DaisyKey")
+    /// A command is being written right now.
+    private var isWorking = false
+    /// Ends the command being written: Esc, the deadline, or its result.
+    private var stopWriting: (() -> Void)?
     private var current: Press?
     private var holds: [UUID: Hold] = [:]
     private var holdCap: Task<Void, Never>?
@@ -555,7 +702,10 @@ final class DaisyKeyController {
     func press(session: RecordingSession) async {
         guard current == nil else { return }
         let token = UUID()
-        let mode = Self.mode(for: session)
+        // A command still being written owns the key: say so rather than
+        // ignore the press (research 21.10).
+        let mode = isWorking ? .ignored : Self.mode(for: session)
+        if isWorking { tell(String(localized: "Still working on the last command")) }
         current = Press(token: token, at: Date(), mode: mode)
         holdCap?.cancel()
         holdCap = Task { [weak self, weak session] in
@@ -568,8 +718,10 @@ final class DaisyKeyController {
         // A hold whose finish never came (a start that was refused) is
         // not kept forever.
         holds = holds.filter { Date().timeIntervalSince($0.value.at) < Self.maxHold * 2 }
+        let front = NSWorkspace.shared.frontmostApplication
         holds[token] = Hold(
-            appName: NSWorkspace.shared.frontmostApplication?.localizedName,
+            appName: front?.localizedName,
+            bundleID: front?.bundleIdentifier,
             context: Task.detached(priority: .userInitiated) { DaisyKeyContext.read() },
             at: Date()
         )
@@ -646,7 +798,6 @@ final class DaisyKeyController {
         }
         ImprovementStats.record(.daisyKeyHold)
         let entryID = DaisyCommandHistory.shared.record(text: text, samples: samples, appName: hold?.appName)
-        hold?.context.cancel()
         switch intent {
         case .note(let rest):
             ImprovementStats.record(.daisyKeyIntent(.note))
@@ -670,17 +821,199 @@ final class DaisyKeyController {
             }
             log.info("Daisy key note saved (\(route.body.count, privacy: .public) chars)")
         case .unclear(let words):
-            // K-1 has no model: whatever isn't a note by the rules is
-            // kept as one. K-2 adds «Это команда — выполнить».
-            ImprovementStats.record(.daisyKeyIntent(.unclear))
-            let slug = FolderStore.shared.defaultNoteFolderSlug
-            guard let saved = await DaisyKeyNote.write(body: words, samples: samples, durationSec: durationSec, folderSlug: slug) else {
-                return noteNotSaved(text, entryID: entryID)
+            let context = await hold?.context.value ?? .empty
+            // A password field is never read from or written to: what was
+            // said there is a note, whatever it sounds like.
+            if !context.isSecureField,
+               let kind = DaisyKeyCommandParser.kind(of: words, hasSelection: context.hasSelection, selectionEditable: context.isEditable) {
+                ImprovementStats.record(.daisyKeyIntent(kind == .edit ? .edit : .write))
+                await runCommand(kind, request: words, context: context, bundleID: hold?.bundleID,
+                                 entryID: entryID, samples: samples, durationSec: durationSec, atPress: true)
+                return
             }
-            await SessionStore.shared.refresh()
-            DaisyCommandHistory.shared.setOutcome("unclear", for: entryID)
-            tell(String(localized: "Saved as a note"),
-                 action: (String(localized: "Open"), { AppNavigation.shared.openInLibrary(saved) }))
+            ImprovementStats.record(.daisyKeyIntent(.unclear))
+            await keepAsNote(words, samples: samples, durationSec: durationSec, entryID: entryID,
+                             outcome: "unclear", message: String(localized: "Saved as a note"), offerToRun: true,
+                             context: context.isSecureField ? .empty : context)
+        }
+    }
+
+    // MARK: Commands (K-2)
+
+    /// Writes, changes or answers with the summary provider, then puts the
+    /// result where it belongs. `atPress`: the field the key went down in
+    /// is still the place to insert into (false when run later from a
+    /// note's button — the result then goes to the clipboard). Anything
+    /// that doesn't work out keeps the words as a note.
+    private func runCommand(_ kind: DaisyKeyCommandKind, request: String, context: DaisyKeyContext, bundleID: String?,
+                            entryID: UUID, samples: [Float], durationSec: Int, atPress: Bool, noteKept: Bool = false) async {
+        let summarizer = Summarizer.shared
+        func fallBack(_ message: String) async {
+            if noteKept {
+                tell(message, style: .warning)
+            } else {
+                await keepAsNote(request, samples: samples, durationSec: durationSec, entryID: entryID,
+                                 outcome: "unclear", message: message, offerToRun: true,
+                                 context: context.isSecureField ? .empty : context)
+            }
+        }
+        // One command at a time: the pill, Esc and «Ещё работаю» are one
+        // slot each (review 21.10). A second one keeps its words as a note.
+        guard !isWorking else {
+            return await fallBack(String(localized: "Still working on the last command — saved this one as a note"))
+        }
+        isWorking = true
+        defer { isWorking = false }
+        if summarizer.availability != .available { await summarizer.refreshAvailability() }
+        guard summarizer.availability == .available else {
+            return await fallBack(String(localized: "No summary provider is available — saved as a note"))
+        }
+        let local = summarizer.providerIsEffectivelyLocal
+        if !local, !Self.cloudAllowed(summarizer.providerKind) {
+            // One yes per provider (spec 21.10): until then the words stay
+            // a note, and the button is the yes.
+            if !noteKept {
+                await keepAsNote(request, samples: samples, durationSec: durationSec, entryID: entryID,
+                                 outcome: "unclear", message: nil, offerToRun: false)
+            }
+            let provider = summarizer.providerKind.shortName
+            tell(String(localized: "Commands send what you said and selected to \(provider). Saved as a note for now"),
+                 action: (String(localized: "Allow and run"), { [weak self] in
+                     Self.allowCloud(summarizer.providerKind)
+                     Task { await self?.runCommand(kind, request: request, context: context, bundleID: bundleID, entryID: entryID,
+                                                   samples: [], durationSec: 0, atPress: false, noteKept: true) }
+                 }))
+            return
+        }
+        let role: VoiceCommandContext.Role = kind == .edit ? .edit : (context.hasSelection ? .source : .none)
+        let field = DaisyKeyCommandParser.field(bundleID: bundleID)
+        // The voice is the language of what's being written: the selection's
+        // for an edit, what was said for the rest.
+        let voice = VoiceProfileStore.shared.resolveStyle(
+            forTextIn: LanguageDetector.detect(kind == .edit ? (context.selection ?? request) : request))?.promptInstruction
+        let commandContext = VoiceCommandContext(role: role, field: field, voice: voice)
+        let payload = SummaryPrompt.voiceCommandPayload(request: request, source: role == .none ? nil : context.selection)
+        let written = await write(payload: payload, context: commandContext)
+        if case .stopped = written {
+            // Esc or the deadline: stopped on purpose, the words are in the
+            // command history (spec 21.10) — no note made of them.
+            DaisyCommandHistory.shared.setOutcome("stopped", for: entryID)
+            tell(String(localized: "Stopped — what you said is in the command history"))
+            return
+        }
+        guard case .text(let result) = written else {
+            return await fallBack(String(localized: "Couldn’t do that — saved as a note"))
+        }
+        ImprovementStats.record(.daisyKeyGenerated(local: local))
+        let insertable = atPress && (kind == .edit || (kind == .write && role == .none))
+            && context.isEditable && !context.isSecureField
+        // An edit goes in only over the same selection: a click elsewhere in
+        // the same field during the wait would put it beside the original.
+        let selectionStill = kind != .edit || context.element.flatMap(DaisyKeyContext.currentSelection(in:)) == context.selection
+        if insertable, selectionStill, let element = context.element, DaisyKeyContext.focusedElement() == element {
+            DictationPaste.shared.insert(result)
+            DaisyCommandHistory.shared.setOutcome("inserted", for: entryID)
+            log.info("Daisy key command inserted (\(result.count, privacy: .public) chars, \(local ? "local" : "cloud", privacy: .public))")
+            return
+        }
+        if insertable { ImprovementStats.record(.daisyKeyFocusChanged) }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(result, forType: .string)
+        DaisyCommandHistory.shared.setOutcome("clipboard", for: entryID)
+        tell(insertable
+             ? String(localized: "Ready — you moved to another field, so it’s on the clipboard: ⌘V")
+             : String(localized: "Ready — it’s on the clipboard: ⌘V"),
+             style: .success)
+        log.info("Daisy key command to the clipboard (\(result.count, privacy: .public) chars, kind \(String(describing: kind), privacy: .public))")
+    }
+
+    /// The provider's text, or nil: cancelled with Esc, past 30 s, or
+    /// nothing usable. «Ещё пишу…» at 15 s. The press that comes in the
+    /// meantime is told the key is busy.
+    private enum Written {
+        case text(String)
+        /// Esc or the 30-second limit.
+        case stopped
+        /// The provider failed or gave nothing usable.
+        case failed
+    }
+
+    private func write(payload: String, context: VoiceCommandContext) async -> Written {
+        defer { stopWriting = nil }
+        _ = WidgetBubbleCenter.shared.show(WidgetBubbleContent(text: String(localized: "Writing…"), autoDismiss: 40, tag: Self.progressTag))
+        defer { WidgetBubbleCenter.shared.dismiss(tag: Self.progressTag) }
+        let work = Task<String?, Never> {
+            guard let summary = try? await Summarizer.shared.runProbe(
+                transcript: payload, title: "Daisy", localeHint: nil, task: .voiceCommand(context)) else { return nil }
+            let text = summary.clientFollowUp
+            guard !SensitiveDataProtector.containsUnrestoredMarker(text) else { return nil }
+            return DaisyKeyCommandParser.cleaned(text, field: context.field)
+        }
+        let still = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(Self.stillWritingAfter))
+            guard !Task.isCancelled else { return }
+            _ = WidgetBubbleCenter.shared.show(WidgetBubbleContent(text: String(localized: "Still writing…"), autoDismiss: 20, tag: Self.progressTag))
+        }
+        defer { still.cancel() }
+        let escape = EscapeWatch { [weak self] in self?.stopWriting?() }
+        defer { escape.stop() }
+        var deadline: Task<Void, Never>?
+        let outcome: String?? = await withCheckedContinuation { continuation in
+            let once = Once(continuation)
+            stopWriting = { once.resume(.none); work.cancel() }
+            Task { once.resume(.some(await work.value)) }
+            deadline = Task {
+                try? await Task.sleep(for: .seconds(Self.giveUpAfter))
+                guard !Task.isCancelled else { return }
+                once.resume(.none)
+                work.cancel()
+            }
+        }
+        deadline?.cancel()
+        guard let finished = outcome else {
+            log.info("Daisy key command stopped (Esc or \(Int(Self.giveUpAfter), privacy: .public) s) — the words are in the command history")
+            return .stopped
+        }
+        return finished.map(Written.text) ?? .failed
+    }
+
+    nonisolated static let stillWritingAfter: TimeInterval = 15
+    nonisolated static let giveUpAfter: TimeInterval = 30
+    nonisolated static let progressTag = "daisy-key-progress"
+
+    /// Whether commands may go to this cloud provider (one yes each).
+    static func cloudAllowed(_ kind: SummaryProviderKind) -> Bool {
+        UserDefaults.standard.bool(forKey: "daisy.daisyKey.cloudAllowed.\(kind.rawValue)")
+    }
+
+    static func allowCloud(_ kind: SummaryProviderKind) {
+        UserDefaults.standard.set(true, forKey: "daisy.daisyKey.cloudAllowed.\(kind.rawValue)")
+    }
+
+    /// The words as a note in the default notes folder — the end of every
+    /// path that doesn't work out. `offerToRun`: the note's message carries
+    /// «Это команда — выполнить».
+    private func keepAsNote(_ words: String, samples: [Float], durationSec: Int, entryID: UUID,
+                            outcome: String, message: String?, offerToRun: Bool, context: DaisyKeyContext = .empty) async {
+        let slug = FolderStore.shared.defaultNoteFolderSlug
+        guard let saved = await DaisyKeyNote.write(body: words, samples: samples, durationSec: durationSec, folderSlug: slug) else {
+            return noteNotSaved(words, entryID: entryID)
+        }
+        await SessionStore.shared.refresh()
+        DaisyCommandHistory.shared.setOutcome(outcome, for: entryID)
+        guard let message else { return }
+        if offerToRun {
+            tell(message, action: (String(localized: "It’s a command — run it"), { [weak self] in
+                Task {
+                    // The selection seen at the press still counts as the
+                    // source; nothing is inserted this late, only copied.
+                    let kind = DaisyKeyCommandParser.kind(of: words, hasSelection: context.hasSelection, selectionEditable: false) ?? .write
+                    await self?.runCommand(kind, request: words, context: context, bundleID: nil, entryID: entryID,
+                                           samples: [], durationSec: 0, atPress: false, noteKept: true)
+                }
+            }))
+        } else {
+            tell(message, action: (String(localized: "Open"), { AppNavigation.shared.openInLibrary(saved) }))
         }
     }
 
@@ -759,3 +1092,39 @@ final class DaisyKeyController {
         return text
     }
 }
+
+/// Resumes a continuation once, whoever comes first.
+nonisolated private final class Once<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, Never>?
+    init(_ continuation: CheckedContinuation<Value, Never>) { self.continuation = continuation }
+    func resume(_ value: Value) {
+        lock.lock()
+        let c = continuation
+        continuation = nil
+        lock.unlock()
+        c?.resume(returning: value)
+    }
+}
+
+/// Esc, anywhere, while a command is being written: in another app (the
+/// global monitor) or in Daisy's own window (the local one).
+@MainActor
+private final class EscapeWatch {
+    private var monitors: [Any] = []
+
+    init(_ onEscape: @escaping @MainActor () -> Void) {
+        let handle: (NSEvent) -> Void = { event in
+            guard event.keyCode == 53 else { return }
+            Task { @MainActor in onEscape() }
+        }
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: handle) { monitors.append(global) }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { handle($0); return $0 }) { monitors.append(local) }
+    }
+
+    func stop() {
+        monitors.forEach(NSEvent.removeMonitor)
+        monitors = []
+    }
+}
+

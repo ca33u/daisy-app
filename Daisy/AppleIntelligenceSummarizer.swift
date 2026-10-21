@@ -188,6 +188,12 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
         switch task {
         case .dictationPolish(let instruction):
             return try await polishDictation(text: trimmed, instruction: instruction)
+        case .voiceCommand(let context):
+            // Freeform, like the polish: the guided schema is meeting-shaped.
+            let session = LanguageModelSession(instructions: SummaryPrompt.voiceCommandRules(context))
+            let response = try await session.respond(to: SummaryPrompt.voiceCommandUserPrompt(payload: trimmed))
+            let text = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            return MeetingSummary(summary: "", sections: [], actionItems: [], clientFollowUp: text)
         case .transcriptPolish(let context):
             return try await polishTranscript(payload: trimmed, context: context)
         case .speakerNames(let context):
