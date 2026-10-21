@@ -18,7 +18,11 @@ struct ImprovementStatsTests {
             .voiceProfileGenerated, .catchUpUsed, .speakersNamed, .speakersMatched,
             .rewriteDone, .rewriteFailed,
             .ask(withSelection: true, local: true), .ask(withSelection: false, local: false), .askUndone,
+            .daisyKeyTapNote, .daisyKeyHold, .daisyKeyRewriteSilent, .daisyKeyMoment, .daisyKeyScreenshotContext,
+            .daisyKeyUndone, .daisyKeyGenerated(local: true), .daisyKeyGenerated(local: false),
+            .daisyKeyFocusChanged, .daisyKeyMeetingCommand,
         ]
+        events += ImprovementStats.DaisyKeyIntentName.allCases.map { .daisyKeyIntent($0) }
         for kind in SummaryProviderKind.allCases {
             events += [.summary(kind, viaAccount: false), .summaryFailed(kind, viaAccount: false)]
         }

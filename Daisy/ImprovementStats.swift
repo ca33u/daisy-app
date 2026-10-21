@@ -77,6 +77,29 @@ nonisolated enum ImprovementStats {
         /// published ahead so the server already takes them when it ships.
         case ask(withSelection: Bool, local: Bool)
         case askUndone
+        /// The Daisy key (backlog 34). Published ahead of the key itself,
+        /// so the server already takes them when the build that sends
+        /// them ships. A tap that starts a long note.
+        case daisyKeyTapNote
+        /// A hold that ended with something to do (said or selected).
+        case daisyKeyHold
+        /// What a hold was understood as, without its text.
+        case daisyKeyIntent(DaisyKeyIntentName)
+        /// A silent hold over a selection: rewrite in my voice.
+        case daisyKeyRewriteSilent
+        /// A hold during a meeting became a moment with a comment.
+        case daisyKeyMoment
+        /// A hold after a screenshot added spoken context to it.
+        case daisyKeyScreenshotContext
+        /// A result the key inserted was undone.
+        case daisyKeyUndone
+        /// A result was written by a provider on this Mac / in the cloud.
+        case daisyKeyGenerated(local: Bool)
+        /// The focus moved while Daisy worked: the result went to the
+        /// clipboard instead of the field.
+        case daisyKeyFocusChanged
+        /// A command ran during a meeting ("Commands during meetings" on).
+        case daisyKeyMeetingCommand
 
         /// The counter names an occurrence adds to.
         var names: [String] {
@@ -119,6 +142,16 @@ nonisolated enum ImprovementStats {
             case .ask(let withSelection, let local):
                 return ["ask.done", local ? "ask.local" : "ask.cloud"] + (withSelection ? ["ask.with_selection"] : [])
             case .askUndone: return ["ask.undone"]
+            case .daisyKeyTapNote: return ["daisy_key.tap_note"]
+            case .daisyKeyHold: return ["daisy_key.hold"]
+            case .daisyKeyIntent(let intent): return ["daisy_key.intent." + intent.rawValue]
+            case .daisyKeyRewriteSilent: return ["daisy_key.rewrite_silent"]
+            case .daisyKeyMoment: return ["daisy_key.moment"]
+            case .daisyKeyScreenshotContext: return ["daisy_key.screenshot_context"]
+            case .daisyKeyUndone: return ["daisy_key.undone"]
+            case .daisyKeyGenerated(let local): return [local ? "daisy_key.local" : "daisy_key.cloud"]
+            case .daisyKeyFocusChanged: return ["daisy_key.focus_changed"]
+            case .daisyKeyMeetingCommand: return ["daisy_key.meeting_command"]
             }
         }
 
@@ -136,6 +169,12 @@ nonisolated enum ImprovementStats {
             case .agentCLI: return "agent_cli"
             }
         }
+    }
+
+    /// The intents a Daisy-key hold can resolve to (spec 21.10, table
+    /// «Намерения»). Names only — the words said are never counted.
+    enum DaisyKeyIntentName: String, CaseIterable, Sendable {
+        case note, edit, write, ask, action, unclear
     }
 
     /// Every counter name, as daisy-api's src/usage.ts lists them and
@@ -159,7 +198,11 @@ nonisolated enum ImprovementStats {
             "speakers.named", "speakers.matched",
             "rewrite.done", "rewrite.failed",
             "ask.done", "ask.with_selection", "ask.undone", "ask.local", "ask.cloud",
-        ] + providers.map { "summary." + $0 } + providers.map { "summary.failed." + $0 })
+            "daisy_key.tap_note", "daisy_key.hold", "daisy_key.rewrite_silent", "daisy_key.moment",
+            "daisy_key.screenshot_context", "daisy_key.undone", "daisy_key.local", "daisy_key.cloud",
+            "daisy_key.focus_changed", "daisy_key.meeting_command",
+        ] + providers.map { "summary." + $0 } + providers.map { "summary.failed." + $0 }
+          + DaisyKeyIntentName.allCases.map { "daisy_key.intent." + $0.rawValue })
     }()
 
     /// Counts one occurrence, when the person agreed. Cheap; any thread.
