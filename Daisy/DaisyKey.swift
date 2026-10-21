@@ -628,6 +628,83 @@ nonisolated enum DictationPurpose: Sendable, Equatable {
     case daisyKeyTap(UUID)
 }
 
+/// What the Daisy key is doing after its key-up, for the widget (the
+/// widget's state language, Egor 21.10): lavender centre and white →
+/// lavender petals while Daisy works, the stage told by motion — a slow
+/// turn while it understands, petals growing one by one while it writes,
+/// one flash when it's done. The hold itself (Listening) is read off the
+/// session; this carries what comes after. Every stage ends on its own,
+/// so an outcome that sets none can't leave the flower stuck.
+@Observable
+@MainActor
+final class DaisyKeyIndicator {
+    static let shared = DaisyKeyIndicator()
+
+    enum Stage: Equatable {
+        case none
+        case understanding
+        case writing
+        case done
+        case savedAsNote
+        case failed
+    }
+
+    private(set) var stage: Stage = .none
+    /// When the stage began: the writing petals' clock.
+    private(set) var since = Date()
+    /// A command is being written. A brief stage shown meanwhile (another
+    /// hold kept as a note) falls back to writing, not to rest.
+    var isWriting = false {
+        didSet { if !isWriting, stage == .writing { show(.none) } }
+    }
+    @ObservationIgnored private var expiry: Task<Void, Never>?
+
+    private init() {}
+
+    func show(_ stage: Stage) {
+        expiry?.cancel()
+        self.stage = stage
+        since = Date()
+        guard let lasts = Self.lasts(stage) else { return }
+        expiry = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(lasts))
+            guard !Task.isCancelled, let self, self.stage == stage else { return }
+            self.show(self.isWriting && stage != .writing ? .writing : .none)
+        }
+    }
+
+    /// Ends a working stage nothing else ended (an outcome with no stage
+    /// of its own: a silent hold, a stop) — back to writing if a command
+    /// still is.
+    func settle() {
+        if stage == .understanding || (stage == .writing && !isWriting) {
+            show(isWriting ? .writing : .none)
+        }
+    }
+
+    /// A note was kept — unless the command it is kept from just failed:
+    /// that stays red, as «Не вышло» (spec 21.10); the note is the safety
+    /// net, the pill says so.
+    func showSavedAsNote() {
+        guard stage != .failed else { return }
+        show(.savedAsNote)
+    }
+
+    /// How long each stage stays at most: the brief ones are the spec's
+    /// («через 1 с — обычный вид»); the working ones outlast the command's
+    /// own 30-second stop.
+    nonisolated static func lasts(_ stage: Stage) -> TimeInterval? {
+        switch stage {
+        case .none: nil
+        case .understanding: 60
+        case .writing: 40
+        case .done: 1
+        case .savedAsNote: 1.2
+        case .failed: 1.5
+        }
+    }
+}
+
 @MainActor
 final class DaisyKeyController {
     static let shared = DaisyKeyController()
@@ -819,9 +896,27 @@ final class DaisyKeyController {
                 tell(String(localized: "Stop the note first"))
             }
         case .capturing:
-            if isTap { session.markDaisyKeyTap(press.token) }
+            if isTap {
+                session.markDaisyKeyTap(press.token)
+            } else if !isWorking, Self.captures(press.token, on: session) || session.sideDictation.map({ Self.captures(press.token, on: $0) }) == true {
+                // Only a hold whose capture really runs (or is starting) is
+                // understood — a refused start never reaches the finish that
+                // settles it — and not over a command still being written.
+                DaisyKeyIndicator.shared.show(.understanding)
+            }
             await session.stopDictationHotkey(daisyKeyToken: press.token)
+            // A stop that really ran has finished (and settled) by now; one
+            // still starting will settle at its finish.
+            if !isTap, !Self.captures(press.token, on: session), session.sideDictation.map({ Self.captures(press.token, on: $0) }) != true {
+                DaisyKeyIndicator.shared.settle()
+            }
         }
+    }
+
+    /// This press's capture is running or on its way on that session.
+    private static func captures(_ token: UUID, on session: RecordingSession) -> Bool {
+        (session.isDictating || session.pendingMode == .dictation || session.startingMode == .dictation)
+            && session.ownsDictationCapture(token)
     }
 
     private static func mode(for session: RecordingSession) -> PressMode {
@@ -854,6 +949,7 @@ final class DaisyKeyController {
     /// A hold ended with its words recognized (possibly none). Saved
     /// first, then acted on.
     func holdFinished(token: UUID, transcript raw: String, samples: [Float], durationSec: Int) async {
+        defer { DaisyKeyIndicator.shared.settle() }
         let hold = holds.removeValue(forKey: token)
         let text = Self.corrected(raw)
         guard let intent = DaisyKeyIntentParser.parse(text) else {
@@ -883,6 +979,7 @@ final class DaisyKeyController {
             }
             await SessionStore.shared.refresh()
             let folderName = FolderStore.shared.existingFolder(slug: slug)?.name ?? slug
+            DaisyKeyIndicator.shared.showSavedAsNote()
             if route.unmatched || route.ambiguous {
                 DaisyCommandHistory.shared.setOutcome("inbox", for: entryID)
                 tell(route.ambiguous
@@ -1166,6 +1263,16 @@ final class DaisyKeyController {
 
     private func write(payload: String, context: VoiceCommandContext) async -> Written {
         defer { stopWriting = nil }
+        // The flower writes with it, and says how it ended: one flash for a
+        // result, red for none, back to rest for a stop.
+        let indicator = DaisyKeyIndicator.shared
+        indicator.isWriting = true
+        indicator.show(.writing)
+        var ended: DaisyKeyIndicator.Stage = .failed
+        defer {
+            indicator.isWriting = false
+            indicator.show(ended)
+        }
         _ = WidgetBubbleCenter.shared.show(WidgetBubbleContent(text: String(localized: "Writing…"), autoDismiss: 40, tag: Self.progressTag))
         defer { WidgetBubbleCenter.shared.dismiss(tag: Self.progressTag) }
         let work = Task<String?, Never> {
@@ -1198,8 +1305,10 @@ final class DaisyKeyController {
         deadline?.cancel()
         guard let finished = outcome else {
             log.info("Daisy key command stopped (Esc or \(Int(Self.giveUpAfter), privacy: .public) s) — the words are in the command history")
+            ended = .none
             return .stopped
         }
+        if finished != nil { ended = .done }
         return finished.map(Written.text) ?? .failed
     }
 
@@ -1219,15 +1328,19 @@ final class DaisyKeyController {
     /// The words as a note in the default notes folder — the end of every
     /// path that doesn't work out. `offerToRun`: the note's message carries
     /// «Это команда — выполнить».
+    /// Returns whether the note was written.
+    @discardableResult
     private func keepAsNote(_ words: String, samples: [Float], durationSec: Int, entryID: UUID,
-                            outcome: String, message: String?, offerToRun: Bool, context: DaisyKeyContext = .empty) async {
+                            outcome: String, message: String?, offerToRun: Bool, context: DaisyKeyContext = .empty) async -> Bool {
         let slug = FolderStore.shared.defaultNoteFolderSlug
         guard let saved = await DaisyKeyNote.write(body: words, samples: samples, durationSec: durationSec, folderSlug: slug) else {
-            return noteNotSaved(words, entryID: entryID)
+            noteNotSaved(words, entryID: entryID)
+            return false
         }
         await SessionStore.shared.refresh()
         DaisyCommandHistory.shared.setOutcome(outcome, for: entryID)
-        guard let message else { return }
+        DaisyKeyIndicator.shared.showSavedAsNote()
+        guard let message else { return true }
         if offerToRun {
             tell(message, action: (String(localized: "It’s a command — run it"), { [weak self] in
                 Task {
@@ -1241,6 +1354,7 @@ final class DaisyKeyController {
         } else {
             tell(message, action: (String(localized: "Open"), { AppNavigation.shared.openInLibrary(saved) }))
         }
+        return true
     }
 
     // MARK: Pieces
@@ -1277,6 +1391,7 @@ final class DaisyKeyController {
     /// The note couldn't be written: the words are in the Command History
     /// already, and go on the clipboard too, so nothing is lost.
     private func noteNotSaved(_ text: String, entryID: UUID) {
+        DaisyKeyIndicator.shared.show(.failed)
         DaisyCommandHistory.shared.setOutcome("failed", for: entryID)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)

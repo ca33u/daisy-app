@@ -15,6 +15,12 @@
 //  • Preparing / Stopping: the petals rotate together clockwise, one
 //    revolution per 4.8 seconds, with a stationary status centre.
 //  • Other states and Reduce Motion: the still, upright A mark.
+//  • The Daisy key (backlog 34, Egor 21.10): cream petals mean you are
+//    working, white → lavender ones mean Daisy is, around one lavender
+//    centre in every stage. The stage is the motion: the petals follow
+//    the voice while it listens, turn while it understands, grow one by
+//    one while it writes, flash once when it's done. Saved as a note is
+//    the note's blue centre with cream petals; a failure, red.
 //
 
 import SwiftUI
@@ -52,6 +58,8 @@ struct DaisyWidget: View {
     @State private var landingStartOffset: Double = 0
     @State private var landingStartedAt: Date?
     @State private var landingDuration: TimeInterval = Self.minimumLandingDuration
+    /// The Daisy key's one flash on «done» — added brightness on the petals.
+    @State private var daisyFlash: Double = 0
 
     /// Daisy shrinks in "passive" states (idle, finished) so it sits
     /// less prominently after recording is done. Full size during
@@ -66,7 +74,9 @@ struct DaisyWidget: View {
     /// Passive states sit at 0.80 (was 0.66 — that deflated the finished
     /// daisy to ~a third of its size; 0.80 still recedes without looking
     /// like it shrank away).
-    private static func targetPassiveScale(_ status: RecordingSession.Status) -> CGFloat {
+    private static func targetPassiveScale(_ status: RecordingSession.Status, look: DaisyKeyLook?) -> CGFloat {
+        // Daisy working is active work, at full size.
+        if look != nil { return 1.0 }
         switch status {
         case .idle, .finished: return 0.80
         default: return 1.0
@@ -99,9 +109,41 @@ struct DaisyWidget: View {
         return landingStartOffset + (restingOffset - landingStartOffset) * eased
     }
 
-    private func updateRotation(from old: RecordingSession.Status, to new: RecordingSession.Status) {
-        let wasLoading = Self.isLoadingStatus(old)
-        let loading = Self.isLoadingStatus(new)
+    /// What the Daisy key shows, when it shows anything: its hold while
+    /// that capture runs, and what comes after while nothing is being
+    /// recorded — a meeting keeps its own look.
+    private enum DaisyKeyLook: Equatable {
+        case listening, understanding, writing, done, savedAsNote, failed
+    }
+
+    private var daisyKeyLook: DaisyKeyLook? {
+        let status = session.status
+        // A tap's capture is a hold for its first 0.35 s; past the tap's
+        // length it really is one (the media clock ticks in halves, so the
+        // look comes at half a second).
+        if status == .recording {
+            return session.isDaisyKeyHold && session.elapsed >= DaisyKeyController.tapThreshold ? .listening : nil
+        }
+        if status == .paused { return nil }
+        // A meeting or note getting ready or stopping keeps its own look.
+        if status == .preparing || status == .stopping, session.currentMode != .dictation { return nil }
+        switch DaisyKeyIndicator.shared.stage {
+        case .none: return nil
+        case .understanding: return .understanding
+        case .writing: return .writing
+        case .done: return .done
+        case .savedAsNote: return .savedAsNote
+        case .failed: return .failed
+        }
+    }
+
+    /// The petals turn: a recording getting ready or stopping, or Daisy
+    /// understanding what was said.
+    private var isLoading: Bool {
+        Self.isLoadingStatus(session.status) || daisyKeyLook == .understanding
+    }
+
+    private func updateRotation(wasLoading: Bool, loading: Bool) {
         guard wasLoading != loading else { return }
         let now = Date()
         let offset = rotationOffset(at: now, loading: wasLoading)
@@ -160,16 +202,20 @@ struct DaisyWidget: View {
     var body: some View {
         // Preserve one view tree across states. Only petals rotate while
         // loading; the centre keeps the recorder's existing status colour.
-        let loading = Self.isLoadingStatus(session.status)
+        let loading = isLoading
+        let look = daisyKeyLook
         let interval = loading || landingStartedAt != nil ? 1.0 / 60.0 : 1.0 / 30.0
-        let animating = !reduceMotion && (session.status == .recording || loading || landingStartedAt != nil)
+        let animating = !reduceMotion
+            && (session.status == .recording || loading || landingStartedAt != nil || look == .writing)
+        let writingSince = DaisyKeyIndicator.shared.since
         return TimelineView(.animation(minimumInterval: interval, paused: !animating)) { context in
             let status = session.status
             let mode = session.currentMode
             let bands = session.spectrumBands
             // Positive degrees turn clockwise in SwiftUI.
             let rotation = Self.orientationDegrees + rotationOffset(at: context.date, loading: loading)
-            let center = centerColor(for: status, mode: mode)
+            let center = look.map(Self.centerColor(for:)) ?? centerColor(for: status, mode: mode)
+            let fill = look.map(Self.petalFill(for:)) ?? .solid(petalColor(status: status))
 
             ZStack {
                 Circle()
@@ -184,7 +230,11 @@ struct DaisyWidget: View {
                             amplitude: amplitudeFor(petalIndex: i, bands: bands, status: status, mode: mode, date: context.date),
                             angleDegrees: petalAngle,
                             curvature: loading && !reduceMotion ? 1 : 0,
-                            color: petalColor(status: status),
+                            fill: fill,
+                            growth: look == .writing && !reduceMotion
+                                ? Self.writingGrowth(petal: i, count: petalCount,
+                                                     elapsed: context.date.timeIntervalSince(writingSince))
+                                : nil,
                             width: petalWidth,
                             baseLength: basePetalLength,
                             maxLength: maxPetalLength,
@@ -194,6 +244,7 @@ struct DaisyWidget: View {
                         )
                     }
                 }
+                .brightness(daisyFlash)
                 .rotationEffect(.degrees(rotation))
                 .scaleEffect(flowerScale)
 
@@ -233,9 +284,17 @@ struct DaisyWidget: View {
             togglePrimary()
         }
         .contextMenu { contextMenuItems }
-        .onChange(of: session.status) { oldStatus, newStatus in
-            updateRotation(from: oldStatus, to: newStatus)
+        .onChange(of: session.status) { _, newStatus in
             handleStatusChange(newStatus)
+        }
+        .onChange(of: isLoading) { wasLoading, loading in
+            updateRotation(wasLoading: wasLoading, loading: loading)
+        }
+        .onChange(of: daisyKeyLook) { _, look in
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) {
+                passiveScale = Self.targetPassiveScale(session.status, look: look)
+            }
+            if look == .done { playDaisyFlash() }
         }
         .task(id: landingStartedAt) {
             guard landingStartedAt != nil else { return }
@@ -253,9 +312,9 @@ struct DaisyWidget: View {
         }
         .onAppear {
             // Shown again mid-load: carry on from the angle it had.
-            loaderStartOffset = rotationOffset(at: Date(), loading: Self.isLoadingStatus(session.status))
+            loaderStartOffset = rotationOffset(at: Date(), loading: isLoading)
             loaderStartedAt = Date()
-            passiveScale = Self.targetPassiveScale(session.status)
+            passiveScale = Self.targetPassiveScale(session.status, look: daisyKeyLook)
             // Lend the SwiftUI-only openWindow action to AppKit-side
             // bubble actions (morning brief's "Open") — it's the only
             // way to RECREATE the main window scene once closed. The
@@ -279,7 +338,7 @@ struct DaisyWidget: View {
     /// failure cue. Centralised so the two scale animations never overlap
     /// on the shared `scaleEffect`.
     private func handleStatusChange(_ status: RecordingSession.Status) {
-        let target = Self.targetPassiveScale(status)
+        let target = Self.targetPassiveScale(status, look: daisyKeyLook)
         if case .finished = status {
             // Celebrate at full size, THEN settle small. The shrink is
             // delayed past the pop so the two don't fight (previously both
@@ -319,6 +378,56 @@ struct DaisyWidget: View {
                 celebrationScale = 1.0
             }
         }
+    }
+
+    /// The Daisy key's «done»: one flash of the petals, gone within the
+    /// second the stage lasts. Nothing under Reduce Motion — the stage
+    /// still reads from the centre and the pill.
+    private func playDaisyFlash() {
+        guard !reduceMotion else { return }
+        // Up and back as two animations: set-then-animate in one update
+        // never draws the bright frame (review 21.10).
+        withAnimation(.easeOut(duration: 0.08)) {
+            daisyFlash = 0.35
+        } completion: {
+            withAnimation(.easeOut(duration: 0.6)) { daisyFlash = 0 }
+        }
+    }
+
+    /// Writing: the petals grow one by one, clockwise from the top, 0.22 s
+    /// apart, from small to full with a slight overshoot (1.06); once all
+    /// are full they hold a moment, go small together, and it starts over
+    /// — a writing rhythm, not a progress bar (nothing measures progress).
+    nonisolated static func writingGrowth(petal: Int, count: Int, elapsed: TimeInterval) -> CGFloat {
+        let step = 0.22, rise = 0.30, hold = 0.5, fall = 0.35
+        let small: CGFloat = 0.25
+        let cycle = Double(count - 1) * step + rise + hold + fall
+        let t = max(0, elapsed).truncatingRemainder(dividingBy: cycle)
+        if t >= cycle - fall {
+            let p = (t - (cycle - fall)) / fall
+            let eased = p * p * (3 - 2 * p)
+            return 1 - (1 - small) * CGFloat(eased)
+        }
+        let p = (t - Double(petal) * step) / rise
+        if p <= 0 { return small }
+        if p >= 1 { return 1 }
+        if p < 0.7 {
+            let q = p / 0.7
+            return small + (1.06 - small) * CGFloat(1 - (1 - q) * (1 - q))
+        }
+        return 1.06 - 0.06 * CGFloat((p - 0.7) / 0.3)
+    }
+
+    private static func centerColor(for look: DaisyKeyLook) -> Color {
+        switch look {
+        case .listening, .understanding, .writing, .done: Color.daisyMarkDaisyCenter
+        case .savedAsNote: Color.daisyMarkVoiceNote
+        case .failed: Color.daisyMarkError
+        }
+    }
+
+    private static func petalFill(for look: DaisyKeyLook) -> PetalFill {
+        look == .savedAsNote ? .solid(Color.daisyMarkPetal) : .daisy
     }
 
     /// Confirmation for the destructive discard. The alert itself moved
@@ -775,11 +884,21 @@ struct DaisyPetalShape: Shape {
 
 // MARK: - Petal subview
 
+/// A petal's paint: one colour, or the Daisy key's white → lavender
+/// along the petal, white at the centre.
+enum PetalFill: Equatable {
+    case solid(Color)
+    case daisy
+}
+
 private struct Petal: View, Equatable {
     let amplitude: Float
     let angleDegrees: Double
     let curvature: CGFloat
-    let color: Color
+    let fill: PetalFill
+    /// Writing: this petal's size against full (`writingGrowth`); nil
+    /// otherwise.
+    let growth: CGFloat?
     let width: CGFloat
     let baseLength: CGFloat
     let maxLength: CGFloat
@@ -788,7 +907,8 @@ private struct Petal: View, Equatable {
     let reduceMotion: Bool
 
     var body: some View {
-        let length = baseLength + (maxLength - baseLength) * CGFloat(amplitude)
+        let length = growth.map { maxLength * $0 } ?? baseLength + (maxLength - baseLength) * CGFloat(amplitude)
+        let petalWidth = growth.map { width * $0 } ?? width
         let offsetY = -(centerSize / 2 + length / 2 + gap)
 
         // Shorten along the radial axis, anchored at the base. No local tilt.
@@ -796,12 +916,26 @@ private struct Petal: View, Equatable {
         // curvature change together (recording ↔ stopping), the inner
         // modifier wins, and the A↔B morph must keep its 0.20 s ease.
         DaisyPetalShape(curvature: curvature)
-            .fill(color)
+            .fill(style)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.20), value: curvature)
-            .frame(width: width, height: length)
+            .frame(width: petalWidth, height: length)
             .offset(y: offsetY)
             .rotationEffect(.degrees(angleDegrees))
             .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: amplitude)
+            // Into and out of writing the size changes at once; ease it.
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: growth == nil)
+    }
+
+    /// In the petal's own frame, before it is turned into place: the base
+    /// (next to the centre) is at the bottom, the tip at the top.
+    private var style: AnyShapeStyle {
+        switch fill {
+        case .solid(let color):
+            AnyShapeStyle(color)
+        case .daisy:
+            AnyShapeStyle(LinearGradient(colors: [Color.daisyMarkDaisyPetalFrom, Color.daisyMarkDaisyPetalTo],
+                                         startPoint: .bottom, endPoint: .top))
+        }
     }
 }
 

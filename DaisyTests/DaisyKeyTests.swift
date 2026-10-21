@@ -309,3 +309,37 @@ struct DaisyKeyMeetingTests {
         #expect(kept.first?.commentStart == marker.commentStart)
     }
 }
+
+/// The widget while the Daisy key works (state language, Egor 21.10).
+struct DaisyKeyWidgetTests {
+    @Test func writingPetalsGrowOneByOneThenStartOver() {
+        let growth = { (petal: Int, t: Double) in DaisyWidget.writingGrowth(petal: petal, count: 8, elapsed: t) }
+        // All small at the start; the first petal goes first.
+        #expect(growth(0, 0) == 0.25)
+        #expect(growth(0, 0.15) > growth(1, 0.15))
+        #expect(growth(1, 0.15) == 0.25)
+        // A slight overshoot on the way to full, never past 1.06.
+        let peak = stride(from: 0.0, through: 0.3, by: 0.01).map { growth(0, $0) }.max() ?? 0
+        #expect(peak > 1 && peak <= 1.06)
+        // Clockwise order: petal 4 is still growing when petal 3 is full.
+        #expect(growth(3, 0.22 * 3 + 0.3) == 1)
+        #expect(growth(4, 0.22 * 3 + 0.3) < 1)
+        // Every petal full before they go small together…
+        let lastFull = 0.22 * 7 + 0.3
+        #expect((0..<8).allSatisfy { growth($0, lastFull + 0.1) == 1 })
+        // …and the next cycle begins small again.
+        let cycle = 0.22 * 7 + 0.3 + 0.5 + 0.35
+        #expect(abs(growth(0, cycle - 0.001) - 0.25) < 0.01)
+        #expect(growth(5, cycle) == 0.25)
+    }
+
+    @Test func everyStageEndsOnItsOwn() {
+        #expect(DaisyKeyIndicator.lasts(.none) == nil)
+        #expect(DaisyKeyIndicator.lasts(.done) == 1)
+        for stage: DaisyKeyIndicator.Stage in [.understanding, .writing, .done, .savedAsNote, .failed] {
+            #expect(DaisyKeyIndicator.lasts(stage) != nil)
+        }
+        // Writing outlasts the command's own stop.
+        #expect((DaisyKeyIndicator.lasts(.writing) ?? 0) > DaisyKeyController.giveUpAfter)
+    }
+}

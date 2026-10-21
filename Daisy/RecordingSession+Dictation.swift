@@ -57,6 +57,10 @@ extension RecordingSession {
             return
         }
         let isDaisyHold: Bool = { if case .daisyKeyHold = purpose { return true }; return false }()
+        // The flower turned at the key-up; a hold that ends here without
+        // reaching the controller (a screenshot's context, a discarded
+        // note) must not leave it turning.
+        defer { if isDaisyHold { DaisyKeyIndicator.shared.settle() } }
 
         // Fast-engine attempt (Parakeet or Apple SpeechAnalyzer) — both
         // transcribe the captured mic buffer directly, skipping the Whisper

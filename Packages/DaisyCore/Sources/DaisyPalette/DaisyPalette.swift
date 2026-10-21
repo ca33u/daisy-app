@@ -145,6 +145,16 @@ public nonisolated enum DaisyPalette {
     public static let markPetal = DaisyColorPair(light: 0xF5F1E7, dark: 0xF5F1E7)
     public static let markPausedPetal = DaisyColorPair(light: 0x979591, dark: 0x979591)
 
+    // The Daisy key working (backlog 34, Egor 21.10): the petals go from
+    // white at the centre to lavender at the tip — cream petals mean you
+    // are working, these mean Daisy is — and the centre is one lavender
+    // through every stage. The stage is told by motion alone, never by
+    // recolouring. If the centre runs into the tips in the beta, the
+    // deeper lavender is 0x8E6CF2.
+    public static let markDaisyPetalFrom = DaisyColorPair(light: 0xFFFFFF, dark: 0xFFFFFF)
+    public static let markDaisyPetalTo = DaisyColorPair(light: 0xB79BFF, dark: 0xB79BFF)
+    public static let markDaisyCenter = DaisyColorPair(light: 0xBDA0FF, dark: 0xBDA0FF)
+
     // ─── Text ─────────────────────────────────────────────────────────
 
     public static let textPrimary = DaisyColorPair(light: 0x282824, dark: 0xF4F5EF)

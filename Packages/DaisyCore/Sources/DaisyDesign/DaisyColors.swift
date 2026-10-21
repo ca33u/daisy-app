@@ -104,6 +104,9 @@ extension Color {
     public static let daisyMarkError = Color(DaisyPalette.markError)
     public static let daisyMarkPetal = Color(DaisyPalette.markPetal)
     public static let daisyMarkPausedPetal = Color(DaisyPalette.markPausedPetal)
+    public static let daisyMarkDaisyPetalFrom = Color(DaisyPalette.markDaisyPetalFrom)
+    public static let daisyMarkDaisyPetalTo = Color(DaisyPalette.markDaisyPetalTo)
+    public static let daisyMarkDaisyCenter = Color(DaisyPalette.markDaisyCenter)
 
     // Text
     public static let daisyTextPrimary = Color(DaisyPalette.textPrimary)
