@@ -34,6 +34,12 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
     public var templated: TemplatedSummary?
     /// Backlog 35 Ш-1: the follow-up template the letter was rewritten by.
     public var followUpTemplate: TemplateReference?
+    /// Backlog 35: the person chose «standard summary only» for this
+    /// meeting — a new summary doesn't bring a template back.
+    public var standardByHand: Bool?
+    /// Backlog 35: a language picked for the follow-up in the card; nil =
+    /// the meeting's own.
+    public var followUpLanguage: String?
 
     public init(summary: String, sections: [SummarySection] = [], actionItems: [String], clientFollowUp: String,
                 actions: [ActionItem]? = nil, title: String? = nil) {
@@ -57,6 +63,8 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
         // A file this reader can't make sense of here still opens.
         templated = (try? c.decodeIfPresent(TemplatedSummary.self, forKey: .templated)) ?? nil
         followUpTemplate = (try? c.decodeIfPresent(TemplateReference.self, forKey: .followUpTemplate)) ?? nil
+        standardByHand = (try? c.decodeIfPresent(Bool.self, forKey: .standardByHand)) ?? nil
+        followUpLanguage = (try? c.decodeIfPresent(String.self, forKey: .followUpLanguage)) ?? nil
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -69,6 +77,8 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
         try c.encodeIfPresent(title, forKey: .title)
         try c.encodeIfPresent(templated, forKey: .templated)
         try c.encodeIfPresent(followUpTemplate, forKey: .followUpTemplate)
+        try c.encodeIfPresent(standardByHand, forKey: .standardByHand)
+        try c.encodeIfPresent(followUpLanguage, forKey: .followUpLanguage)
     }
 
     /// The same summary with one action's status changed.
@@ -113,7 +123,7 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case summary, sections, actionItems, clientFollowUp, actions, title, templated, followUpTemplate
+        case summary, sections, actionItems, clientFollowUp, actions, title, templated, followUpTemplate, standardByHand, followUpLanguage
     }
 }
 
@@ -130,14 +140,18 @@ public nonisolated struct TemplatedSummary: Codable, Sendable, Equatable {
     /// Picked by hand in the meeting card — a new summary keeps it.
     public var pickedByHand: Bool?
     public var sections: [SummarySection]
+    /// A language picked for it in the card («ru», «en»…); nil = the
+    /// meeting's own.
+    public var language: String?
 
     public init(template: String, templateID: String? = nil, reason: String? = nil,
-                pickedByHand: Bool? = nil, sections: [SummarySection]) {
+                pickedByHand: Bool? = nil, sections: [SummarySection], language: String? = nil) {
         self.template = template
         self.templateID = templateID
         self.reason = reason
         self.pickedByHand = pickedByHand
         self.sections = sections
+        self.language = language
     }
 }
 

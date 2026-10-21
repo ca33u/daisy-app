@@ -1728,7 +1728,7 @@ extension RecordingSession {
     /// a short letter, so it passes less (backlog 35) — the upper bound,
     /// the guard against an invented letter, stays.
     nonisolated static func polishWithDeadline(text: String, instruction: String, seconds: Double,
-                                               minShare: Double = 0.4) async -> String? {
+                                               minShare: Double = 0.4, maxShare: Double = 2.5) async -> String? {
         await withTaskGroup(of: String?.self) { group in
             group.addTask {
                 let summary = try? await Summarizer.shared.runProbe(
@@ -1751,8 +1751,8 @@ extension RecordingSession {
                 // very short dictations from tripping the upper bound.
                 let inCount = text.count
                 let outCount = polished.count
-                guard Double(outCount) >= Double(inCount) * minShare,   // ≥ 40% of input by default
-                      outCount <= (inCount * 5) / 2 + 40    // ≤ 250% + slack
+                guard Double(outCount) >= Double(inCount) * minShare,      // ≥ 40% of input by default
+                      Double(outCount) <= Double(inCount) * maxShare + 40  // ≤ 250% + slack by default
                 else { return nil }
                 // …and never paste a privacy placeholder. If the cloud
                 // filter's pseudonym came back in a shape `restore`

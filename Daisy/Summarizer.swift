@@ -71,6 +71,12 @@ nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
     var templated: TemplatedSummary? = nil
     /// Backlog 35 Ш-1: the template the follow-up was written by.
     var followUpTemplate: TemplateReference? = nil
+    /// Backlog 35: «standard summary only» chosen for this meeting — a new
+    /// summary doesn't bring a template back by the rule.
+    var standardByHand: Bool? = nil
+    /// Backlog 35: a language picked for the follow-up in the card — kept by
+    /// the next summary; nil = the meeting's own.
+    var followUpLanguage: String? = nil
 
     // MARK: - Init
 
@@ -119,6 +125,8 @@ nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
         // readable.
         self.templated = (try? c.decodeIfPresent(TemplatedSummary.self, forKey: .templated)) ?? nil
         self.followUpTemplate = (try? c.decodeIfPresent(TemplateReference.self, forKey: .followUpTemplate)) ?? nil
+        self.standardByHand = (try? c.decodeIfPresent(Bool.self, forKey: .standardByHand)) ?? nil
+        self.followUpLanguage = (try? c.decodeIfPresent(String.self, forKey: .followUpLanguage)) ?? nil
     }
 
     func encode(to encoder: Encoder) throws {
@@ -130,10 +138,12 @@ nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
         try c.encodeIfPresent(title, forKey: .title)
         try c.encodeIfPresent(templated, forKey: .templated)
         try c.encodeIfPresent(followUpTemplate, forKey: .followUpTemplate)
+        try c.encodeIfPresent(standardByHand, forKey: .standardByHand)
+        try c.encodeIfPresent(followUpLanguage, forKey: .followUpLanguage)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case summary, sections, actionItems, clientFollowUp, title, templated, followUpTemplate
+        case summary, sections, actionItems, clientFollowUp, title, templated, followUpTemplate, standardByHand, followUpLanguage
     }
 }
 

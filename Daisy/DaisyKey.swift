@@ -1330,6 +1330,17 @@ final class DaisyKeyController {
         UserDefaults.standard.set(true, forKey: "daisy.daisyKey.cloudAllowed.\(kind.rawValue)")
     }
 
+    /// Takes a yes back (Settings → Summary): the next command for this
+    /// provider asks again.
+    static func revokeCloud(_ kind: SummaryProviderKind) {
+        UserDefaults.standard.removeObject(forKey: "daisy.daisyKey.cloudAllowed.\(kind.rawValue)")
+    }
+
+    /// The cloud providers commands have a yes for.
+    static var cloudAllowedProviders: [SummaryProviderKind] {
+        SummaryProviderKind.allCases.filter(cloudAllowed)
+    }
+
     /// The words as a note in the default notes folder — the end of every
     /// path that doesn't work out. `offerToRun`: the note's message carries
     /// «Это команда — выполнить».

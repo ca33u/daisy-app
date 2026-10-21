@@ -70,6 +70,11 @@ nonisolated struct MeetingTemplate: Codable, Sendable, Hashable, Identifiable {
     var lastUsedAt: Date? = nil
     var useCount = 0
     var archived = false
+    /// Learning from edits (backlog 35, P2): how often a line was added
+    /// («+…») or removed («-…») by hand in letters from this template.
+    var editCounts: [String: Int] = [:]
+    /// Changes already offered as a template edit — offered once.
+    var offeredEdits: [String] = []
 
     init(kind: MeetingTemplateKind, name: String, sections: [MeetingTemplateSection] = [], structure: String = "",
          folderSlugs: [String] = [], titleWords: [String] = [], builtIn: String? = nil) {
@@ -99,6 +104,8 @@ nonisolated struct MeetingTemplate: Codable, Sendable, Hashable, Identifiable {
         lastUsedAt = try c.decodeIfPresent(Date.self, forKey: .lastUsedAt)
         useCount = try c.decodeIfPresent(Int.self, forKey: .useCount) ?? 0
         archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+        editCounts = try c.decodeIfPresent([String: Int].self, forKey: .editCounts) ?? [:]
+        offeredEdits = try c.decodeIfPresent([String].self, forKey: .offeredEdits) ?? []
     }
 
     /// Unused this long, the list offers to archive it (against a pile of
@@ -118,6 +125,8 @@ nonisolated struct TemplatedSummary: Codable, Sendable, Equatable {
     var reason: String?
     var pickedByHand: Bool?
     var sections: [SummarySection]
+    /// A language picked in the card; nil = the meeting's own.
+    var language: String? = nil
 }
 
 /// `summary.json` → `followUpTemplate`.
@@ -272,6 +281,26 @@ final class MeetingTemplateStore {
                                      title: title)
     }
 
+    /// The person edited a letter written by this template. Lines they
+    /// keep adding or removing are counted; at three, the change is offered
+    /// as a template edit — once, and never made by itself (research 21.10).
+    /// Returns the change to offer, if one just reached three.
+    @discardableResult
+    func noteEdit(of id: String?, from before: String, to after: String) -> MeetingTemplateEdits.Change? {
+        guard let index = templates.firstIndex(where: { $0.id.uuidString == id }) else { return nil }
+        var offer: MeetingTemplateEdits.Change?
+        for change in MeetingTemplateEdits.changes(from: before, to: after) {
+            templates[index].editCounts[change.key, default: 0] += 1
+            if templates[index].editCounts[change.key, default: 0] >= MeetingTemplateEdits.threshold,
+               !templates[index].offeredEdits.contains(change.key), offer == nil {
+                templates[index].offeredEdits.append(change.key)
+                offer = change
+            }
+        }
+        persist()
+        return offer
+    }
+
     /// The follow-up template a Daisy-key request names: «…по шаблону
     /// продажи», «…using the sales template» — a word of the template's
     /// name, after «шаблон» / «template».
@@ -322,6 +351,62 @@ final class MeetingTemplateStore {
                 log.error("templates.json not written: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+}
+
+// MARK: - Learning from edits
+
+nonisolated enum MeetingTemplateEdits {
+    /// The same change this many times is worth offering.
+    static let threshold = 3
+
+    /// One line added or removed by hand. `key` is what is counted and
+    /// kept in templates.json — a hash, so the letters' text (names,
+    /// amounts) isn't stored there; `line` is the line as written, for the
+    /// offer.
+    struct Change: Sendable, Equatable {
+        let key: String
+        let added: Bool
+        let line: String
+    }
+
+    /// The lines added and removed between two versions of a letter,
+    /// compared normalized (case, spaces) so «Best regards,» and «best
+    /// regards,» are one change. Short lines (a lone name, «Hi,») are left
+    /// out: they change with every letter.
+    static func changes(from before: String, to after: String) -> [Change] {
+        func normalized(_ line: Substring) -> String {
+            line.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+        func lines(_ text: String) -> [String: String] {
+            var result: [String: String] = [:]
+            for line in text.split(separator: "\n") {
+                let key = normalized(line)
+                if key.count >= 8, result[key] == nil { result[key] = line.trimmingCharacters(in: .whitespaces) }
+            }
+            return result
+        }
+        let old = lines(before)
+        let new = lines(after)
+        let removed = old.keys.filter { new[$0] == nil }.map { Change(key: "-" + hash($0), added: false, line: old[$0]!) }
+        let added = new.keys.filter { old[$0] == nil }.map { Change(key: "+" + hash($0), added: true, line: new[$0]!) }
+        return (removed + added).sorted { $0.key < $1.key }
+    }
+
+    /// A stable short hash (FNV-1a, 64-bit) — the same line gives the same
+    /// key across launches, unlike `hashValue`.
+    static func hash(_ text: String) -> String {
+        var value: UInt64 = 0xcbf29ce484222325
+        for byte in text.utf8 {
+            value ^= UInt64(byte)
+            value = value &* 0x100000001b3
+        }
+        return String(value, radix: 16)
+    }
+
+    /// How a change reads in the offer.
+    static func describe(_ change: Change) -> String {
+        change.added ? String(localized: "you add “\(change.line)”") : String(localized: "you remove “\(change.line)”")
     }
 }
 
@@ -569,12 +654,25 @@ nonisolated enum MeetingTemplatePass {
         Set(lines.split(separator: "\n").compactMap { leadingTimecode(String($0)) })
     }
 
-    /// How long the pass may take before the standard summary is the answer.
+    /// How long one part of the pass may take before the standard summary
+    /// is the answer.
     static let deadlineSeconds: Double = 120
+    /// A part of a long meeting: about 10k tokens, well under what the
+    /// standard summary already sends whole, so a model that summarized the
+    /// meeting can lay out each part.
+    static let chunkCharacters = 40_000
+    /// Past this many parts (three-odd hours) the pass doesn't run: they
+    /// couldn't all fit the time budget.
+    static let maxChunks = 5
+    /// The whole pass, all parts together: past it, the standard summary.
+    static let totalBudgetSeconds: Double = 300
 
     /// Lays the meeting out under `template`. nil when there's no
     /// transcript, the provider fails, or nothing usable comes back — the
-    /// standard summary is what the person then sees.
+    /// standard summary is what the person then sees. A long meeting goes
+    /// in parts, each checked the same way, and their sections are put
+    /// together; one part failing means no template view, not a partial
+    /// one passed off as whole.
     static func run(_ template: MeetingTemplate, transcriptMarkdown: String, title: String, localeHint: String?,
                     durationSec: Int, reason: String?, pickedByHand: Bool) async -> TemplatedSummary? {
         let lines = transcriptLines(fromMarkdown: transcriptMarkdown)
@@ -582,17 +680,43 @@ nonisolated enum MeetingTemplatePass {
         let language = localeHint.flatMap { $0 == "auto" ? nil : $0 } ?? LanguageDetector.detect(lines)
         let nd = notDiscussed(language: language)
         let context = TemplatedSummaryContext(sections: template.sections, notDiscussed: nd)
+        let parts = chunks(lines, maxCharacters: chunkCharacters)
+        guard parts.count <= maxChunks else { return nil }
+        var laidOut: [[SummarySection]] = []
+        let started = Date()
+        for part in parts {
+            let remaining = totalBudgetSeconds - Date().timeIntervalSince(started)
+            guard remaining > 10,
+                  let text = await ask(part, title: title, localeHint: localeHint, context: context,
+                                       seconds: min(deadlineSeconds, remaining)),
+                  // Prose or a refusal is a part that failed, not a part
+                  // with nothing in it.
+                  text.split(separator: "\n").contains(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("#") })
+            else { return nil }
+            laidOut.append(parse(text, template: template.sections, notDiscussed: nd,
+                                 knownTimecodes: timecodes(in: part), durationSec: durationSec))
+        }
+        let sections = merge(laidOut, template: template.sections, notDiscussed: nd)
+        // Every section «not discussed» means the pass found nothing it
+        // could tie to the meeting: not a result worth showing over the
+        // standard summary.
+        guard sections.contains(where: { $0.bullets.first?.text != nd }) else { return nil }
+        return TemplatedSummary(template: template.name, templateID: template.id.uuidString, reason: reason,
+                                pickedByHand: pickedByHand ? true : nil, sections: sections)
+    }
+
+    /// One call, bounded: finalize waits for it, and on a local model a
+    /// long meeting must not hold the session in «summarizing» for minutes.
+    private static func ask(_ lines: String, title: String, localeHint: String?,
+                            context: TemplatedSummaryContext, seconds: Double) async -> String? {
         let task = SummaryTask.templatedSummary(context)
-        // Bounded: finalize waits for this, and on a local model a long
-        // meeting must not hold the session in «summarizing» for minutes
-        // (review 21.10). Past it, the standard summary is the answer.
         let text: String? = await withTaskGroup(of: String?.self) { group in
             group.addTask {
                 (try? await Summarizer.shared.runProbe(transcript: lines, title: title, localeHint: localeHint,
                                                        task: task))?.clientFollowUp
             }
             group.addTask {
-                try? await Task.sleep(for: .seconds(deadlineSeconds))
+                try? await Task.sleep(for: .seconds(seconds))
                 return nil
             }
             let first = await group.next() ?? nil
@@ -600,14 +724,44 @@ nonisolated enum MeetingTemplatePass {
             return first
         }
         guard let text, !text.isEmpty else { return nil }
-        let sections = parse(text, template: template.sections, notDiscussed: nd,
-                             knownTimecodes: timecodes(in: lines), durationSec: durationSec)
-        // Every section «not discussed» means the pass found nothing it
-        // could tie to the meeting: not a result worth showing over the
-        // standard summary.
-        guard sections.contains(where: { $0.bullets.first?.text != nd }) else { return nil }
-        return TemplatedSummary(template: template.name, templateID: template.id.uuidString, reason: reason,
-                                pickedByHand: pickedByHand ? true : nil, sections: sections)
+        return text
+    }
+
+    /// The transcript lines in parts of at most `maxCharacters`, split
+    /// between lines (a single longer line is a part of its own).
+    static func chunks(_ lines: String, maxCharacters: Int) -> [String] {
+        var parts: [String] = []
+        var current: [Substring] = []
+        var size = 0
+        for line in lines.split(separator: "\n") {
+            if size + line.count + 1 > maxCharacters, !current.isEmpty {
+                parts.append(current.joined(separator: "\n"))
+                current = []
+                size = 0
+            }
+            current.append(line)
+            size += line.count + 1
+        }
+        if !current.isEmpty { parts.append(current.joined(separator: "\n")) }
+        return parts
+    }
+
+    /// The parts' sections put together: each section's points from every
+    /// part in order, the same point once; «not discussed» only where no
+    /// part had anything. The title is the first part's (it is translated
+    /// into the meeting's language).
+    static func merge(_ parts: [[SummarySection]], template: [MeetingTemplateSection], notDiscussed: String) -> [SummarySection] {
+        template.indices.map { index in
+            var seen = Set<String>()
+            var bullets: [SummaryBullet] = []
+            for part in parts where index < part.count {
+                for bullet in part[index].bullets where bullet.text != notDiscussed && seen.insert(bullet.text).inserted {
+                    bullets.append(bullet)
+                }
+            }
+            let title = parts.first.flatMap { index < $0.count ? $0[index].title : nil } ?? template[index].title
+            return SummarySection(title: title, bullets: bullets.isEmpty ? [SummaryBullet(text: notDiscussed)] : bullets)
+        }
     }
 
     // MARK: Reading examples
@@ -848,14 +1002,94 @@ enum StoredSessionTemplates {
     }
 
     /// The follow-up through `FollowUpVoice`, with the meeting's template.
+    ///
+    /// `language`: a language picked in the card for this letter («en»),
+    /// or "" for the meeting's own again; nil keeps what the meeting had.
+    /// It is remembered on the summary (`followUpLanguage`) only when the
+    /// letter really was rewritten. `languageOnly`: just the language —
+    /// the letter keeps the template it had and no rule picks a new one.
     static func followUp(_ summary: MeetingSummary, previous: MeetingSummary?, session: StoredSession,
-                         template forced: MeetingTemplate? = nil, voice: Bool = true) async -> MeetingSummary {
-        let previousPick = previous?.followUpTemplate?.pickedByHand == true ? previous?.followUpTemplate?.id : nil
-        let choice = forced.map { MeetingTemplateChoice(template: $0, reason: .pickedByHand) }
-            ?? MeetingTemplateStore.shared.choose(.followUp, picked: previousPick, folderSlug: session.folderSlug,
-                                                  title: title(of: session))
-        return await FollowUpVoice.polished(summary, template: choice?.template,
-                                            pickedByHand: choice?.reason == .pickedByHand, voice: voice)
+                         template forced: MeetingTemplate? = nil, voice: Bool = true,
+                         language forcedLanguage: String? = nil, languageOnly: Bool = false) async -> MeetingSummary {
+        let store = MeetingTemplateStore.shared
+        let choice: MeetingTemplateChoice?
+        if let forced {
+            choice = MeetingTemplateChoice(template: forced, reason: .pickedByHand)
+        } else if languageOnly {
+            choice = previous?.followUpTemplate.flatMap { reference in
+                store.template(id: reference.id).map {
+                    MeetingTemplateChoice(template: $0, reason: reference.pickedByHand == true ? .pickedByHand : .byDefault)
+                }
+            }
+        } else {
+            let previousPick = previous?.followUpTemplate?.pickedByHand == true ? previous?.followUpTemplate?.id : nil
+            choice = store.choose(.followUp, picked: previousPick, folderSlug: session.folderSlug, title: title(of: session))
+        }
+        let remembered: String?
+        let writeIn: String?
+        if let forcedLanguage {
+            remembered = forcedLanguage.isEmpty ? nil : forcedLanguage
+            // Back to the meeting's own: written in it once more, since the
+            // letter is in the picked one now.
+            writeIn = remembered ?? localeHint(for: session).flatMap { $0 == "auto" ? nil : $0 }
+        } else {
+            remembered = previous?.followUpLanguage
+            writeIn = remembered
+        }
+        var result = await FollowUpVoice.polished(summary, template: choice?.template,
+                                                  pickedByHand: choice?.reason == .pickedByHand, voice: voice,
+                                                  language: writeIn)
+        // The flag says what language the letter is in. Rewritten: the one
+        // asked for. Not rewritten after a pick: what it was. Not rewritten
+        // on a new summary or draft: the meeting's own.
+        if result.clientFollowUp != summary.clientFollowUp {
+            result.followUpLanguage = remembered
+        } else if summary.clientFollowUp.isEmpty {
+            // No letter this time: the pick waits for the next one.
+            result.followUpLanguage = remembered
+        } else if forcedLanguage == nil {
+            result.followUpLanguage = nil
+        }
+        return result
+    }
+
+    /// The meeting laid out by its summary template, when it has one and
+    /// the pass gives something; otherwise `summary` as it is.
+    /// `keepingPick`: a forced template that keeps the previous view's «by
+    /// hand» and reason (a language change isn't a new pick).
+    static func laidOut(_ summary: MeetingSummary, previous: MeetingSummary?, session: StoredSession,
+                        template forced: MeetingTemplate? = nil, language forcedLanguage: String? = nil,
+                        keepingPick: Bool = false) async -> MeetingSummary {
+        // «Standard summary only» chosen for this meeting: a new summary
+        // keeps it standard until a template is picked by hand.
+        if forced == nil, previous?.standardByHand == true {
+            var kept = summary
+            kept.standardByHand = true
+            return kept
+        }
+        let previousPick = previous?.templated?.pickedByHand == true ? previous?.templated?.templateID : nil
+        let language = forcedLanguage.map { $0.isEmpty ? nil : $0 } ?? previous?.templated?.language
+        let hint = language.map {
+            RecordingSession.resolveSummaryLocaleHint(transcript: session.transcriptText, transcriptLocale: session.locale,
+                                                      summaryLanguageOverride: $0)
+        } ?? localeHint(for: session)
+        guard let choice = forced.map({ MeetingTemplateChoice(template: $0, reason: .pickedByHand) })
+                ?? MeetingTemplateStore.shared.choose(.summary, picked: previousPick, folderSlug: session.folderSlug,
+                                                      title: title(of: session)) else { return summary }
+        let pickedByHand = keepingPick ? previous?.templated?.pickedByHand == true : choice.reason == .pickedByHand
+        let reason = keepingPick ? (previous?.templated?.reason ?? choice.reasonText) : choice.reasonText
+        guard let url = session.transcriptURL,
+              let markdown = try? String(contentsOf: url, encoding: .utf8),
+              var templated = await MeetingTemplatePass.run(
+                  choice.template, transcriptMarkdown: markdown, title: session.title,
+                  localeHint: hint, durationSec: session.durationSec,
+                  reason: reason, pickedByHand: pickedByHand) else { return summary }
+        MeetingTemplateStore.shared.markUsed(choice.template.id.uuidString)
+        templated.language = language
+        var result = summary
+        result.templated = templated
+        result.standardByHand = nil
+        return result
     }
 
     /// Both templates over a summary made where the voice pass is left out
@@ -867,23 +1101,4 @@ enum StoredSessionTemplates {
         return await laidOut(withFollowUp, previous: previous, session: session)
     }
 
-    /// The meeting laid out by its summary template, when it has one and
-    /// the pass gives something; otherwise `summary` as it is.
-    static func laidOut(_ summary: MeetingSummary, previous: MeetingSummary?, session: StoredSession,
-                        template forced: MeetingTemplate? = nil) async -> MeetingSummary {
-        let previousPick = previous?.templated?.pickedByHand == true ? previous?.templated?.templateID : nil
-        guard let choice = forced.map({ MeetingTemplateChoice(template: $0, reason: .pickedByHand) })
-                ?? MeetingTemplateStore.shared.choose(.summary, picked: previousPick, folderSlug: session.folderSlug,
-                                                      title: title(of: session)),
-              let url = session.transcriptURL,
-              let markdown = try? String(contentsOf: url, encoding: .utf8),
-              let templated = await MeetingTemplatePass.run(
-                  choice.template, transcriptMarkdown: markdown, title: session.title,
-                  localeHint: localeHint(for: session), durationSec: session.durationSec,
-                  reason: choice.reasonText, pickedByHand: choice.reason == .pickedByHand) else { return summary }
-        MeetingTemplateStore.shared.markUsed(choice.template.id.uuidString)
-        var result = summary
-        result.templated = templated
-        return result
-    }
 }

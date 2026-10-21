@@ -569,9 +569,11 @@ applies as for any phone session.
                                     "identifier": "string" },
                         "sameAs": "<session id>/<action id>|null" } ],  // phone, 2026-09-28 / 2026-09-29
   "templated":      { "template": "string", "templateID": "string|null", "reason": "string|null",
-                      "pickedByHand": true,
+                      "pickedByHand": true, "language": "ru|en|…|null",
                       "sections": [ /* as "sections" above */ ] },       // optional, Mac 2026-10-21
-  "followUpTemplate": { "name": "string", "id": "string|null", "pickedByHand": true }   // optional, Mac 2026-10-21
+  "followUpTemplate": { "name": "string", "id": "string|null", "pickedByHand": true },   // optional, Mac 2026-10-21
+  "followUpLanguage": "ru|en|…",                                          // optional, Mac 2026-10-21
+  "standardByHand": true                                                  // optional, Mac 2026-10-21
 }
 ```
 
@@ -602,9 +604,14 @@ as always and stay the fallback. A reader that doesn't know it ignores it;
 a reader that shows it may offer «Standard / <template>». A writer that
 rewrites the file for another reason (an action's status) keeps it; a new
 summary drops it until the template is applied again. `followUpTemplate`
-(same date, Ш-1) names the template `clientFollowUp` was rewritten by. Both
-optional: iPhone and Windows must open a file that has them, and one that
-doesn't.
+(same date, Ш-1) names the template `clientFollowUp` was rewritten by.
+`templated.language` and `followUpLanguage` are languages the person picked
+for this meeting's notes and letter in the card (absent: the meeting's own),
+kept by the next summary.
+`standardByHand: true` means the person chose «standard summary only» for
+this meeting, so a new summary doesn't lay it out by a template again until
+one is picked by hand. All optional: iPhone and Windows must open a file
+that has them, and one that doesn't.
 
 Statuses (2026-09-29, backlog 24 М-6): `done` with destination `manual` is
 a step ticked off by hand; `dismissed` is «not mine» — out of the person's

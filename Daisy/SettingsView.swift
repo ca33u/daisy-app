@@ -2788,7 +2788,13 @@ struct SettingsView: View {
                          : "Needs a style profile first — open My style in the sidebar. Rewrites just the follow-up draft, at the cost of one extra request per meeting that has one.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    // Backlog 35: the honest line about the template's call.
+                    Text("A follow-up or notes template (My style) makes its own extra request for the meetings it applies to, even with this off.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+
+                CloudPermissionRows()
 
                 Toggle(isOn: $settings.morningBriefEnabled) {
                     Text("Morning brief")
@@ -4237,3 +4243,53 @@ enum TestResult: Equatable {
 }
 
 
+
+
+/// The cloud yeses given along the way — Daisy-key commands per provider,
+/// reading template examples — each with a way to take it back (backlog 34
+/// research: a consent that can't be withdrawn isn't one). Hidden while
+/// there is none.
+private struct CloudPermissionRows: View {
+    /// UserDefaults isn't observed: a revoke bumps this to redraw.
+    @State private var tick = 0
+
+    var body: some View {
+        let _ = tick
+        let providers = DaisyKeyController.cloudAllowedProviders
+        let reading = UserDefaults.standard.bool(forKey: MeetingTemplatePass.cloudReadingKey)
+        if !providers.isEmpty || reading {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Allowed to send to the cloud")
+                ForEach(providers, id: \.self) { kind in
+                    HStack {
+                        Text("Daisy key commands — \(kind.shortName)")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Revoke") {
+                            DaisyKeyController.revokeCloud(kind)
+                            tick += 1
+                        }
+                        .controlSize(.small)
+                    }
+                }
+                if reading {
+                    HStack {
+                        Text("Reading template examples")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Revoke") {
+                            UserDefaults.standard.removeObject(forKey: MeetingTemplatePass.cloudReadingKey)
+                            tick += 1
+                        }
+                        .controlSize(.small)
+                    }
+                }
+                Text("Revoked, Daisy asks again the next time.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+}

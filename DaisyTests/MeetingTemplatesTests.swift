@@ -298,6 +298,44 @@ struct MeetingTemplatesTests {
         #expect(try TemplateExampleFile.text(of: url) == "Добрый день, Иван")
     }
 
+    // MARK: Long meetings
+
+    @Test func aLongTranscriptGoesInPartsBetweenLines() {
+        let lines = (0..<10).map { "[0:\(String(format: "%02d", $0))] Speaker: line number \($0)" }.joined(separator: "\n")
+        let parts = MeetingTemplatePass.chunks(lines, maxCharacters: 90)
+        #expect(parts.count > 1)
+        #expect(parts.joined(separator: "\n") == lines)
+        #expect(parts.allSatisfy { $0.count <= 90 })
+        #expect(MeetingTemplatePass.chunks("short", maxCharacters: 90) == ["short"])
+    }
+
+    @Test func partsAreMergedPerSection() {
+        let template = [MeetingTemplateSection(title: "Pains"), MeetingTemplateSection(title: "Budget")]
+        let first = [Daisy.SummarySection(title: "Боли", bullets: [Daisy.SummaryBullet(text: "[0:05] slow")]),
+                     Daisy.SummarySection(title: "Бюджет", bullets: [Daisy.SummaryBullet(text: "Not discussed")])]
+        let second = [Daisy.SummarySection(title: "Pains", bullets: [Daisy.SummaryBullet(text: "[50:00] slow again"), Daisy.SummaryBullet(text: "[0:05] slow")]),
+                      Daisy.SummarySection(title: "Budget", bullets: [Daisy.SummaryBullet(text: "Not discussed")])]
+        let merged = MeetingTemplatePass.merge([first, second], template: template, notDiscussed: "Not discussed")
+        #expect(merged.map(\.title) == ["Боли", "Бюджет"])
+        #expect(merged[0].bullets.map(\.text) == ["[0:05] slow", "[50:00] slow again"])
+        #expect(merged[1].bullets.map(\.text) == ["Not discussed"])
+    }
+
+    // MARK: Learning from edits
+
+    @Test func editsCountWholeLinesNotNames() {
+        let before = "Hi Ivan,\nThanks for the call today.\nBest,\nEgor"
+        let after = "Hi Ivan,\nThanks for the call today.\nLooking forward to working together.\nBest regards, Egor"
+        let changes = MeetingTemplateEdits.changes(from: before, to: after)
+        #expect(Set(changes.map(\.line)) == ["Best regards, Egor", "Looking forward to working together."])
+        #expect(changes.allSatisfy { $0.added })
+        // Kept as hashes, not text; the same line is the same key.
+        #expect(changes.allSatisfy { !$0.key.contains("regards") && !$0.key.contains("forward") })
+        #expect(MeetingTemplateEdits.changes(from: "", to: "best   REGARDS, egor").first?.key
+                == changes.first { $0.line == "Best regards, Egor" }?.key)
+        #expect(MeetingTemplateEdits.changes(from: "Same text here", to: "same   text HERE").isEmpty)
+    }
+
     // MARK: summary.json
 
     @Test func templatedSurvivesTheMacsSummaryType() throws {
@@ -306,6 +344,9 @@ struct MeetingTemplatesTests {
                                                    pickedByHand: true,
                                                    sections: [Daisy.SummarySection(title: "Опыт", bullets: [Daisy.SummaryBullet(text: "[0:12] x")])])
         summary.followUpTemplate = Daisy.TemplateReference(name: "Sales", id: "t", pickedByHand: nil)
+        summary.followUpLanguage = "en"
+        summary.templated?.language = "ru"
+        summary.standardByHand = true
         let decoded = try JSONDecoder().decode(Daisy.MeetingSummary.self, from: JSONEncoder().encode(summary))
         #expect(decoded == summary)
 

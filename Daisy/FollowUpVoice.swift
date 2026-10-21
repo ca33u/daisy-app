@@ -52,11 +52,16 @@ enum FollowUpVoice {
     /// `voice: false` — the paths that leave the voice out on purpose (the
     /// evening pass, imports, MCP: nobody is waiting, every call costs) —
     /// apply only a template.
+    ///
+    /// `language`: the language to write the letter in («ru», «en»…) — a
+    /// pick from the meeting card, or the meeting's own when the pick is
+    /// taken back. The caller remembers it; this only writes.
     static func polished(_ summary: MeetingSummary, template: MeetingTemplate? = nil,
-                         pickedByHand: Bool = false, voice: Bool = true) async -> MeetingSummary {
+                         pickedByHand: Bool = false, voice: Bool = true, language: String? = nil) async -> MeetingSummary {
         let structure = template.map(\.structure).flatMap { $0.isEmpty ? nil : $0 }
         let wantsVoice = voice && AppSettings.followUpsInMyVoiceEnabled
-        guard wantsVoice || structure != nil else { return summary }
+        let languageName = SummaryPrompt.explicitLanguageName(for: language)
+        guard wantsVoice || structure != nil || languageName != nil else { return summary }
         let draft = summary.clientFollowUp.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !draft.isEmpty else { return summary }
         // The follow-up's language is the summary language when one is
@@ -64,23 +69,33 @@ enum FollowUpVoice {
         // language, write to the client in another), otherwise whatever
         // the draft turned out to be. No nudge toast from here: this runs
         // after a meeting, with nobody watching for it.
-        let target = VoiceCorpusClassifier.normalized(AppSettings.currentSummaryLanguage)
-            ?? LanguageDetector.detect(draft)
+        let target = languageName != nil ? language
+            : VoiceCorpusClassifier.normalized(AppSettings.currentSummaryLanguage) ?? LanguageDetector.detect(draft)
         // The voice only with the setting on: a template alone rewrites the
         // structure, not the person's tone.
         let style = wantsVoice
             ? VoiceProfileStore.shared.resolveStyle(forTextIn: target).flatMap { $0.instruction.isEmpty ? nil : $0 }
             : nil
-        guard style != nil || structure != nil else { return summary }
+        guard style != nil || structure != nil || languageName != nil else { return summary }
 
         guard let rewritten = await RecordingSession.polishWithDeadline(
             text: draft,
-            instruction: instruction(for: style?.promptInstruction, structure: structure),
+            instruction: instruction(for: style?.promptInstruction, structure: structure, languageName: languageName),
             seconds: deadlineSeconds,
-            // A template can make a long draft a short letter.
-            minShare: structure == nil ? 0.4 : 0.15
+            // A template can make a long draft a short letter; another
+            // language can be far shorter (Chinese) or longer.
+            minShare: structure == nil && languageName == nil ? 0.4 : 0.15,
+            maxShare: languageName == nil ? 2.5 : 5
         )?.trimmingCharacters(in: .whitespacesAndNewlines), !rewritten.isEmpty else {
             log.info("Follow-up left as drafted — the second pass returned nothing usable")
+            return summary
+        }
+        // Asked for another language: a reply still in the old one (the
+        // borrowed polish prompt says to keep the user's language, and a
+        // weak model obeys it) is not the translation it would be shown as.
+        if languageName != nil, let language, let detected = LanguageDetector.detect(rewritten),
+           !detected.hasPrefix(String(language.prefix(2))) {
+            log.info("Follow-up left as it was — the rewrite didn't come back in the language asked for")
             return summary
         }
 
@@ -93,6 +108,10 @@ enum FollowUpVoice {
             result.followUpTemplate = TemplateReference(name: template.name, id: template.id.uuidString,
                                                         pickedByHand: pickedByHand ? true : nil)
             MeetingTemplateStore.shared.markUsed(template.id.uuidString)
+        } else {
+            // Rewritten without a template: a name left from an earlier one
+            // would describe a letter that isn't its any more.
+            result.followUpTemplate = nil
         }
         return result
     }
@@ -113,7 +132,7 @@ enum FollowUpVoice {
     /// English draft rewritten back into Russian by their own style
     /// description. The length gate can't catch that: the character
     /// count barely moves.
-    private static func instruction(for style: String?, structure: String?) -> String {
+    private static func instruction(for style: String?, structure: String?, languageName: String?) -> String {
         var parts: [String] = []
         if let style { parts.append(style) }
         if let structure {
@@ -133,9 +152,8 @@ enum FollowUpVoice {
             it reads as if this person had written it themselves, and keep
             every fact, name, date, number and commitment exactly as it
             stands.
-          - Write in the SAME language as the text you are given, even if
-            the voice description or the structure above is written in
-            another language.
+          - \(languageName.map { "Write the message in \($0), whatever language the text you are given is in; translate it faithfully, keeping every fact." }
+                ?? "Write in the SAME language as the text you are given, even if the voice description or the structure above is written in another language.")
         """)
         return parts.joined(separator: "\n\n")
     }

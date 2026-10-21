@@ -58,6 +58,8 @@ struct SessionDetailView: View {
     @State private var isApplyingTemplate = false
     /// Copy or Insert asked for while the follow-up still has `[?]` in it.
     @State private var unfilledFollowUp: FollowUpUse?
+    /// The follow-up being edited in place; nil when it isn't.
+    @State private var followUpDraft: String?
     @State private var confirmDelete = false
     @State private var confirmDeleteAudio = false
     @State private var showRetranscriptionSheet = false
@@ -679,6 +681,10 @@ struct SessionDetailView: View {
     /// so the user sees explicit feedback instead of a dead-button
     /// no-op.
     private func attemptReSummarize() {
+        if followUpDraft != nil {
+            ToastCenter.shared.show(String(localized: "Save or cancel the letter you’re editing first"), style: .info)
+            return
+        }
         if isRunningAction {
             ToastCenter.shared.show(String(localized: "Already running — wait a moment"), style: .info)
             return
@@ -701,6 +707,10 @@ struct SessionDetailView: View {
     /// CTA because it re-rolled everything, which felt heavy-
     /// handed for one missing field.
     private func attemptDraftFollowUp() {
+        if followUpDraft != nil {
+            ToastCenter.shared.show(String(localized: "Save or cancel the letter you’re editing first"), style: .info)
+            return
+        }
         if isRunningAction {
             ToastCenter.shared.show(String(localized: "Already running — wait a moment"), style: .info)
             return
@@ -803,6 +813,10 @@ struct SessionDetailView: View {
         .onChange(of: session.id) { _, _ in
             tagDraft = session.tag
             titleDraft = session.title
+            // A letter being edited belongs to the meeting it was opened in
+            // (review 21.10): it would otherwise save into this one.
+            followUpDraft = nil
+            unfilledFollowUp = nil
             // The detail pane is presented without an `.id`, so switching
             // sessions in the Library REUSES this view and every @State
             // survives. Screen-navigation state must not: every session
@@ -1384,7 +1398,22 @@ struct SessionDetailView: View {
     /// header button now (no inline copy button here anymore).
     @ViewBuilder
     private func followUpSection(_ summary: MeetingSummary) -> some View {
-        if !summary.clientFollowUp.isEmpty && !isDraftingFollowUp {
+        if let draft = followUpDraft {
+            // Edited in place (backlog 35): what the person changes in
+            // letters from a template is what the template learns from.
+            VStack(alignment: .leading, spacing: 8) {
+                TextEditor(text: Binding(get: { draft }, set: { followUpDraft = $0 }))
+                    .font(.body)
+                    .frame(minHeight: 160)
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.daisyDivider))
+                HStack {
+                    Spacer()
+                    Button("Cancel") { followUpDraft = nil }
+                    Button("Save") { Task { await saveFollowUpEdit() } }
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+        } else if !summary.clientFollowUp.isEmpty && !isDraftingFollowUp {
             // ScrollableTextView (2026-06-25): same macOS-26 mis-measure that
             // clipped the summary clipped long follow-ups under the card. The
             // scrollable variant sizes to content up to a cap, then scrolls
@@ -1674,7 +1703,8 @@ struct SessionDetailView: View {
     @ViewBuilder
     private var summaryTemplateMenu: some View {
         if let summary = session.summary, session.transcriptURL != nil {
-            let templates = MeetingTemplateStore.shared.templates(.summary)
+            let store = MeetingTemplateStore.shared
+            let templates = store.templates(.summary)
             Menu {
                 ForEach(templates) { template in
                     Button {
@@ -1687,8 +1717,28 @@ struct SessionDetailView: View {
                         }
                     }
                 }
-                if summary.templated != nil {
+                if let templated = summary.templated {
                     Divider()
+                    // The meeting's language by default; another, for this
+                    // meeting, here (research 21.10).
+                    Menu(String(localized: "Language of the notes")) {
+                        ForEach(SummaryLanguage.allCases) { language in
+                            Button {
+                                Task {
+                                    await applySummaryTemplate(store.template(id: templated.templateID),
+                                                               language: language == .auto ? "" : language.rawValue,
+                                                               keepingPick: true)
+                                }
+                            } label: {
+                                if (templated.language ?? "auto") == language.rawValue {
+                                    Label(language.displayName, systemImage: "checkmark")
+                                } else {
+                                    Text(language.displayName)
+                                }
+                            }
+                        }
+                    }
+                    .disabled(store.template(id: templated.templateID) == nil)
                     Button(String(localized: "Standard summary only")) { Task { await dropSummaryTemplate() } }
                 }
                 Divider()
@@ -1724,61 +1774,124 @@ struct SessionDetailView: View {
                         }
                     }
                 }
-                if !templates.isEmpty { Divider() }
+                Divider()
+                Button(String(localized: "Edit the letter")) { followUpDraft = summary.clientFollowUp }
+                Menu(String(localized: "Language of the letter")) {
+                    ForEach(SummaryLanguage.allCases) { language in
+                        Button {
+                            Task {
+                                await rewriteFollowUp(by: nil, language: language == .auto ? "" : language.rawValue,
+                                                      languageOnly: true)
+                            }
+                        } label: {
+                            if (summary.followUpLanguage ?? "auto") == language.rawValue {
+                                Label(language.displayName, systemImage: "checkmark")
+                            } else {
+                                Text(language.displayName)
+                            }
+                        }
+                    }
+                }
+                Divider()
                 Button(templates.isEmpty ? String(localized: "Make a follow-up template…") : String(localized: "Manage templates…")) {
                     AppNavigation.shared.pendingStyleTab = .followUps
                     AppNavigation.shared.section = .voice
                 }
             } label: {
-                Image(systemName: "rectangle.split.3x1")
+                Image(systemName: "ellipsis.circle")
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .disabled(isApplyingTemplate || isDraftingFollowUp)
+            .disabled(isApplyingTemplate || isDraftingFollowUp || followUpDraft != nil)
             .help(summary.followUpTemplate.map { String(localized: "Template: \($0.name)") }
-                  ?? String(localized: "Follow-up template"))
+                  ?? String(localized: "Follow-up: template, language, edit"))
         }
     }
 
-    private func applySummaryTemplate(_ template: MeetingTemplate) async {
-        guard let summary = session.summary else { return }
+    /// The edited letter saved; a template it came from counts what changed
+    /// and, at the third time the same change is made, offers it — never
+    /// changes itself.
+    private func saveFollowUpEdit() async {
+        // The meeting this ran for: the card is reused when another one is
+        // selected, and `session` would then be that one (review 21.10).
+        let target = session
+        guard var summary = target.summary, let draft = followUpDraft else { return }
+        let edited = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        followUpDraft = nil
+        guard edited != summary.clientFollowUp, !edited.isEmpty else { return }
+        let before = summary.clientFollowUp
+        summary.clientFollowUp = edited
+        guard await SessionStore.shared.updateSummary(summary, for: target) else {
+            ToastCenter.shared.show(SessionStore.shared.lastError ?? String(localized: "Couldn’t save summary"), style: .error)
+            if session.id == target.id { followUpDraft = draft }
+            return
+        }
+        guard let reference = summary.followUpTemplate,
+              let change = MeetingTemplateStore.shared.noteEdit(of: reference.id, from: before, to: edited) else { return }
+        ToastCenter.shared.showAction(
+            String(localized: "In letters from “\(reference.name)” \(MeetingTemplateEdits.describe(change)) — the third time. Update the template?"),
+            actionLabel: String(localized: "Open the template"),
+            style: .info, duration: .seconds(12)
+        ) {
+            AppNavigation.shared.pendingStyleTab = .followUps
+            AppNavigation.shared.section = .voice
+        }
+    }
+
+    private func applySummaryTemplate(_ template: MeetingTemplate?, language: String? = nil, keepingPick: Bool = false) async {
+        // The meeting this ran for: the card is reused when another one is
+        // selected, and `session` would then be that one (review 21.10).
+        let target = session
+        guard let summary = target.summary, let template else { return }
         isApplyingTemplate = true
         defer { isApplyingTemplate = false }
-        let laid = await StoredSessionTemplates.laidOut(summary, previous: summary, session: session, template: template)
+        let laid = await StoredSessionTemplates.laidOut(summary, previous: summary, session: target, template: template,
+                                                        language: language, keepingPick: keepingPick)
         guard laid.templated?.templateID == template.id.uuidString, laid != summary else {
             ToastCenter.shared.show(String(localized: "Couldn’t lay this meeting out by “\(template.name)”"), style: .warning)
             return
         }
         ImprovementStats.record(.templateSwitched)
-        showsStandardSummary = false
+        if session.id == target.id { showsStandardSummary = false }
         // Not `adopt`: that is the live recording's summary, which
         // auto-send and its transcript read — this is a stored meeting.
-        _ = await SessionStore.shared.updateSummary(laid, for: session)
+        _ = await SessionStore.shared.updateSummary(laid, for: target)
     }
 
     private func dropSummaryTemplate() async {
-        guard var summary = session.summary, summary.templated != nil else { return }
+        // The meeting this ran for: the card is reused when another one is
+        // selected, and `session` would then be that one (review 21.10).
+        let target = session
+        guard var summary = target.summary, summary.templated != nil else { return }
         summary.templated = nil
+        // Remembered: a new summary of this meeting stays standard until a
+        // template is picked here again.
+        summary.standardByHand = true
         ImprovementStats.record(.templateSwitched)
         // Not `adopt`: that is the live recording's summary, which
         // auto-send and its transcript read — this is a stored meeting.
-        _ = await SessionStore.shared.updateSummary(summary, for: session)
+        _ = await SessionStore.shared.updateSummary(summary, for: target)
     }
 
-    private func rewriteFollowUp(by template: MeetingTemplate) async {
-        guard let summary = session.summary else { return }
+    private func rewriteFollowUp(by template: MeetingTemplate?, language: String? = nil, languageOnly: Bool = false) async {
+        // The meeting this ran for: the card is reused when another one is
+        // selected, and `session` would then be that one (review 21.10).
+        let target = session
+        guard let summary = target.summary else { return }
         isApplyingTemplate = true
         defer { isApplyingTemplate = false }
-        let rewritten = await StoredSessionTemplates.followUp(summary, previous: summary, session: session, template: template)
+        let rewritten = await StoredSessionTemplates.followUp(summary, previous: summary, session: target, template: template,
+                                                              language: language, languageOnly: languageOnly)
         guard rewritten.clientFollowUp != summary.clientFollowUp else {
-            ToastCenter.shared.show(String(localized: "Couldn’t rewrite the follow-up by “\(template.name)”"), style: .warning)
+            ToastCenter.shared.show(template.map { String(localized: "Couldn’t rewrite the follow-up by “\($0.name)”") }
+                                    ?? String(localized: "Couldn’t rewrite the follow-up"), style: .warning)
             return
         }
         ImprovementStats.record(.templateSwitched)
         // Not `adopt`: that is the live recording's summary, which
         // auto-send and its transcript read — this is a stored meeting.
-        _ = await SessionStore.shared.updateSummary(rewritten, for: session)
+        _ = await SessionStore.shared.updateSummary(rewritten, for: target)
     }
 
     private func insertStep(_ index: Int, _ step: String) {
@@ -2704,7 +2817,10 @@ struct SessionDetailView: View {
     }
 
     private func reSummarize() async {
-        guard !session.transcriptText.isEmpty else { return }
+        // The meeting this ran for: the card is reused when another one is
+        // selected, and `session` would then be that one (review 21.10).
+        let target = session
+        guard !target.transcriptText.isEmpty else { return }
         isRunningAction = true
         ToastCenter.shared.show(
             String(localized: "Summarizing via \(Summarizer.shared.providerKind.shortName)…"),
@@ -2718,16 +2834,16 @@ struct SessionDetailView: View {
         // first, so a Russian transcript whose frontmatter is
         // "auto" still gets a Russian re-summary.
         let localeHint = RecordingSession.resolveSummaryLocaleHint(
-            transcript: session.transcriptText,
-            transcriptLocale: session.locale,
+            transcript: target.transcriptText,
+            transcriptLocale: target.locale,
             summaryLanguageOverride: AppSettings.currentSummaryLanguage
         )
 
         let result = await Summarizer.shared.summarize(
-            transcript: session.transcriptText,
-            title: session.title,
+            transcript: target.transcriptText,
+            title: target.title,
             localeHint: localeHint,
-            projectContext: ProjectMemoryBridge.block(forSessionAt: session.directoryURL)
+            projectContext: ProjectMemoryBridge.block(forSessionAt: target.directoryURL)
         )
 
         if let summary = result {
@@ -2739,20 +2855,20 @@ struct SessionDetailView: View {
             // Templates too (backlog 35): the follow-up's in the same pass,
             // the notes' after it — a template picked by hand for this
             // meeting stays its template.
-            let previous = session.summary
-            let withFollowUp = await StoredSessionTemplates.followUp(summary, previous: previous, session: session)
-            let voiced = await StoredSessionTemplates.laidOut(withFollowUp, previous: previous, session: session)
+            let previous = target.summary
+            let withFollowUp = await StoredSessionTemplates.followUp(summary, previous: previous, session: target)
+            let voiced = await StoredSessionTemplates.laidOut(withFollowUp, previous: previous, session: target)
             Summarizer.shared.adopt(voiced)
-            let saved = await SessionStore.shared.updateSummary(voiced, for: session)
+            let saved = await SessionStore.shared.updateSummary(voiced, for: target)
             if saved {
-                if let preparation = session.meetingPreparation, !preparation.planItems.isEmpty {
+                if let preparation = target.meetingPreparation, !preparation.planItems.isEmpty {
                     MeetingPlanAnalysisStore.shared.analyzeIfNeeded(
-                        sessionID: session.id,
-                        directory: session.directoryURL,
-                        title: session.title,
+                        sessionID: target.id,
+                        directory: target.directoryURL,
+                        title: target.title,
                         localeHint: localeHint,
                         preparation: preparation,
-                        durationSeconds: Double(session.durationSec),
+                        durationSeconds: Double(target.durationSec),
                         force: true
                     )
                 }
@@ -2766,12 +2882,12 @@ struct SessionDetailView: View {
         } else if let err = Summarizer.shared.lastError {
             ToastCenter.shared.show(err, style: .error)
             // The banner shows the latest reason, not the first one.
-            if session.summary == nil {
+            if target.summary == nil {
                 SummaryFailureNote.write(
                     message: err,
                     provider: Summarizer.shared.providerKind.shortName,
                     cause: Summarizer.shared.lastFailureCause,
-                    in: session.directoryURL
+                    in: target.directoryURL
                 )
             }
         } else {
@@ -2793,8 +2909,11 @@ struct SessionDetailView: View {
     /// pressed the button, model made the same call, here's why
     /// nothing visibly changed.
     private func draftFollowUp() async {
-        guard !session.transcriptText.isEmpty else { return }
-        guard let existing = session.summary else {
+        // The meeting this ran for: the card is reused when another one is
+        // selected, and `session` would then be that one (review 21.10).
+        let target = session
+        guard !target.transcriptText.isEmpty else { return }
+        guard let existing = target.summary else {
             // No summary yet — fall back to a regular re-summarize so
             // the user still gets something. The plaque only renders
             // when summary != nil so this branch is defensive.
@@ -2809,19 +2928,19 @@ struct SessionDetailView: View {
         )
 
         let localeHint = RecordingSession.resolveSummaryLocaleHint(
-            transcript: session.transcriptText,
-            transcriptLocale: session.locale,
+            transcript: target.transcriptText,
+            transcriptLocale: target.locale,
             summaryLanguageOverride: AppSettings.currentSummaryLanguage
         )
 
         // Force the model to draft a follow-up even if it judges the
         // meeting internal — clicking this button IS the explicit request.
         let result = await Summarizer.shared.summarize(
-            transcript: session.transcriptText,
-            title: session.title,
+            transcript: target.transcriptText,
+            title: target.title,
             localeHint: localeHint,
             task: .meeting(forceFollowUp: true),
-            projectContext: ProjectMemoryBridge.block(forSessionAt: session.directoryURL)
+            projectContext: ProjectMemoryBridge.block(forSessionAt: target.directoryURL)
         )
 
         if let fresh = result {
@@ -2840,9 +2959,9 @@ struct SessionDetailView: View {
                 var fresh = existing
                 fresh.clientFollowUp = trimmedFollowUp
                 fresh.followUpTemplate = nil
-                let merged = await StoredSessionTemplates.followUp(fresh, previous: existing, session: session)
+                let merged = await StoredSessionTemplates.followUp(fresh, previous: existing, session: target)
                 Summarizer.shared.adopt(merged)
-                await SessionStore.shared.updateSummary(merged, for: session)
+                await SessionStore.shared.updateSummary(merged, for: target)
                 ToastCenter.shared.show(String(localized: "Follow-up drafted"), style: .success)
             }
         } else if let err = Summarizer.shared.lastError {

@@ -61,6 +61,16 @@
         }
       }
     },
+    "A follow-up or notes template (My style) makes its own extra request for the meetings it applies to, even with this off." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаблон фоллоапа или заметок («Мой стиль») делает свой дополнительный запрос для встреч, к которым применяется, — даже когда этот переключатель выключен."
+          }
+        }
+      }
+    },
     "A hold that says a command — “shorter”, “write a reply…” — runs it, as outside a meeting. The others on the call hear what you say to Daisy" : {
       "localizations" : {
         "ru" : {
@@ -107,6 +117,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Разрешить и выполнить"
+          }
+        }
+      }
+    },
+    "Allowed to send to the cloud" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешено отправлять в облако"
           }
         }
       }
@@ -321,6 +341,16 @@
         }
       }
     },
+    "Couldn’t rewrite the follow-up" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не получилось переписать фоллоап"
+          }
+        }
+      }
+    },
     "Couldn’t rewrite the follow-up by “%@”" : {
       "localizations" : {
         "ru" : {
@@ -367,6 +397,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Клавиша Daisy"
+          }
+        }
+      }
+    },
+    "Daisy key commands — %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Команды клавиши Daisy — %@"
           }
         }
       }
@@ -427,6 +467,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Изменить шаблон"
+          }
+        }
+      }
+    },
+    "Edit the letter" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изменить письмо"
           }
         }
       }
@@ -511,12 +561,12 @@
         }
       }
     },
-    "Follow-up template" : {
+    "Follow-up: template, language, edit" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Шаблон фоллоапа"
+            "value" : "Фоллоап: шаблон, язык, правка"
           }
         }
       }
@@ -601,6 +651,16 @@
         }
       }
     },
+    "In letters from “%@” %@ — the third time. Update the template?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В письмах по шаблону «%@» %@ — уже третий раз. Поправить шаблон?"
+          }
+        }
+      }
+    },
     "Insert" : {
       "localizations" : {
         "ru" : {
@@ -677,6 +737,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сохранено как заметка"
+          }
+        }
+      }
+    },
+    "Language of the letter" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Язык письма"
+          }
+        }
+      }
+    },
+    "Language of the notes" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Язык заметок"
           }
         }
       }
@@ -1723,6 +1803,16 @@
         }
       }
     },
+    "Open the template" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть шаблон"
+          }
+        }
+      }
+    },
     "Optimal" : {
       "localizations" : {
         "ru" : {
@@ -1893,6 +1983,16 @@
         }
       }
     },
+    "Reading template examples" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чтение примеров для шаблонов"
+          }
+        }
+      }
+    },
     "Reading text from the screenshots…" : {
       "localizations" : {
         "ru" : {
@@ -1973,6 +2073,26 @@
         }
       }
     },
+    "Revoke" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отозвать"
+          }
+        }
+      }
+    },
+    "Revoked, Daisy asks again the next time." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Если отозвать, Daisy спросит снова."
+          }
+        }
+      }
+    },
     "Rewrite by “%@”" : {
       "localizations" : {
         "ru" : {
@@ -1989,6 +2109,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Переписано"
+          }
+        }
+      }
+    },
+    "Save or cancel the letter you’re editing first" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сначала сохрани или отмени правку письма"
           }
         }
       }
@@ -2936,6 +3066,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "по умолчанию"
+          }
+        }
+      }
+    },
+    "you add “%@”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ты добавляешь «%@»"
+          }
+        }
+      }
+    },
+    "you remove “%@”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ты убираешь «%@»"
           }
         }
       }
