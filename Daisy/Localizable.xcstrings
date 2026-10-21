@@ -71,12 +71,62 @@
         }
       }
     },
+    "Card unchanged" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Карточка не изменилась"
+          }
+        }
+      }
+    },
+    "Changed the card’s text" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изменён текст карточки"
+          }
+        }
+      }
+    },
+    "Click back into that field and press ⌘Z there" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вернись в то поле и нажми там ⌘Z"
+          }
+        }
+      }
+    },
+    "Close (Esc)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закрыть (Esc)"
+          }
+        }
+      }
+    },
     "Commands send what you said and selected to %@. Saved as a note for now" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Команды отправляют сказанное и выделенное в %@. Пока сохранила как заметку"
+          }
+        }
+      }
+    },
+    "Commands send what you said and the card’s text to %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Команды отправляют сказанное и текст карточки в %@"
           }
         }
       }
@@ -97,6 +147,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Daisy не видит Ollama по адресу %@. Установи или открой Ollama — в Настройки → Саммари → Ollama есть кнопка установки, и модель скачается оттуда же."
+          }
+        }
+      }
+    },
+    "Couldn’t change it — the card keeps the last version" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не получилось изменить — в карточке осталась прошлая версия"
           }
         }
       }
@@ -211,12 +271,32 @@
         }
       }
     },
+    "Hold the Daisy key to change this text — “in English”, “shorter”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удержи клавишу Daisy, чтобы изменить этот текст — «по-английски», «короче»"
+          }
+        }
+      }
+    },
     "Holding the Daisy key needs Accessibility — until it’s granted, the key only starts and stops notes" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Для удержания клавиши Daisy нужен Универсальный доступ — пока его нет, клавиша только начинает и останавливает заметки"
+          }
+        }
+      }
+    },
+    "Insert" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вставить"
           }
         }
       }
@@ -923,6 +1003,16 @@
         }
       }
     },
+    "No summary provider is available" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Провайдер саммари недоступен"
+          }
+        }
+      }
+    },
     "No summary provider is available — saved as a note" : {
       "localizations" : {
         "ru" : {
@@ -1093,6 +1183,16 @@
         }
       }
     },
+    "Previous version" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Предыдущая версия"
+          }
+        }
+      }
+    },
     "Process meetings later, on a charger" : {
       "localizations" : {
         "ru" : {
@@ -1123,6 +1223,16 @@
         }
       }
     },
+    "Puts the original text back" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Возвращает исходный текст"
+          }
+        }
+      }
+    },
     "Quit Anyway" : {
       "localizations" : {
         "ru" : {
@@ -1149,16 +1259,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Читаем текст со скриншотов…"
-          }
-        }
-      }
-    },
-    "Ready — it’s on the clipboard: ⌘V" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Готово — текст в буфере обмена: ⌘V"
           }
         }
       }
@@ -1309,6 +1409,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Общий микрофон в комнате"
+          }
+        }
+      }
+    },
+    "Show changes" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать изменения"
           }
         }
       }
@@ -1593,12 +1703,32 @@
         }
       }
     },
+    "Undo" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вернуть"
+          }
+        }
+      }
+    },
     "Use" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выбрать"
+          }
+        }
+      }
+    },
+    "Used: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Использовано: %@"
           }
         }
       }
@@ -1825,6 +1955,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выключены"
+          }
+        }
+      }
+    },
+    "selection" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "выделение"
           }
         }
       }

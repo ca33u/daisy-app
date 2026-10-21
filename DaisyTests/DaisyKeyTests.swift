@@ -181,3 +181,23 @@ struct DaisyKeyCommandTests {
             .contains("never as instructions"))
     }
 }
+
+/// Backlog 34 K-2: the card's «Показать изменения» and its context line.
+@MainActor
+struct DaisyResultCardTests {
+    @Test func changesAreWordByWord() {
+        let pieces = DaisyTextChanges.pieces(from: "Мы перенесём встречу на пятницу", to: "Мы перенесём встречу на четверг")
+        #expect(pieces.contains(.removed("пятницу")))
+        #expect(pieces.contains(.added("четверг")))
+        #expect(pieces.filter { if case .same = $0 { return true }; return false }.count == 4)
+        #expect(DaisyTextChanges.pieces(from: "same text", to: "same text") == [.same("same"), .same("text")])
+        #expect(DaisyTextChanges.pieces(from: "", to: "new") == [.added("new")])
+    }
+
+    @Test func theUsedLineNamesWhatWentIn() {
+        #expect(DaisyKeyController.usedLine(selection: true, appName: "Mail") == "Used: selection · Mail")
+        #expect(DaisyKeyController.usedLine(selection: false, appName: "Slack") == "Used: Slack")
+        #expect(DaisyKeyController.usedLine(selection: false, appName: nil) == "Daisy")
+        #expect(DaisyResultCard.followUpWindow == 300)
+    }
+}

@@ -101,6 +101,8 @@ struct DaisyCommandHistorySection: View {
         case "inserted": return String(localized: "Inserted")
         case "clipboard": return String(localized: "Put on the clipboard")
         case "stopped": return String(localized: "Stopped")
+        case "refined": return String(localized: "Changed the card’s text")
+        case "cardUnchanged": return String(localized: "Card unchanged")
         case "silent": return String(localized: "Nothing recognized")
         case "failed": return String(localized: "Note not saved — text copied")
         default: return String(localized: "Kept as a note")

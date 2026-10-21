@@ -657,6 +657,7 @@ final class DaisyKeyController {
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "DaisyKey")
     /// A command is being written right now.
     private var isWorking = false
+    var isBusy: Bool { isWorking }
     /// Ends the command being written: Esc, the deadline, or its result.
     private var stopWriting: (() -> Void)?
     private var current: Press?
@@ -791,6 +792,9 @@ final class DaisyKeyController {
                 ? DaisyCommandHistory.shared.record(text: "", samples: samples, appName: hold?.appName, outcome: "silent")
                 : nil
             let context = await hold?.context.value ?? .empty
+            // With the card open a silent hold means nothing: its text is
+            // not a selection to rewrite.
+            if DaisyResultCard.shared.isOpen { return }
             if silentHold(context: context), let entryID {
                 DaisyCommandHistory.shared.setOutcome("rewrite", for: entryID)
             }
@@ -822,12 +826,28 @@ final class DaisyKeyController {
             log.info("Daisy key note saved (\(route.body.count, privacy: .public) chars)")
         case .unclear(let words):
             let context = await hold?.context.value ?? .empty
+            // The card is open: what is said works on its text. Within five
+            // minutes of closing it, an edit said with nothing selected
+            // does too (spec 21.10).
+            let card = DaisyResultCard.shared
+            let saysAnEdit = DaisyKeyCommandParser.kind(of: words, hasSelection: true, selectionEditable: true) == .edit
+            // A new selection is a new subject: the card doesn't take it.
+            let freshSelection = context.hasSelection && context.selection != card.current
+            // Open: anything without a fresh selection. Closed (five
+            // minutes): only an edit said with nothing selected — selecting
+            // the inserted text is an edit of the field, not of the card.
+            let takesCard = card.isOpen ? !freshSelection : (!context.hasSelection && saysAnEdit && card.canRefineLast)
+            if !context.isSecureField, takesCard {
+                ImprovementStats.record(.daisyKeyIntent(saysAnEdit ? .edit : .write))
+                await refineCard(words, entryID: entryID)
+                return
+            }
             // A password field is never read from or written to: what was
             // said there is a note, whatever it sounds like.
             if !context.isSecureField,
                let kind = DaisyKeyCommandParser.kind(of: words, hasSelection: context.hasSelection, selectionEditable: context.isEditable) {
                 ImprovementStats.record(.daisyKeyIntent(kind == .edit ? .edit : .write))
-                await runCommand(kind, request: words, context: context, bundleID: hold?.bundleID,
+                await runCommand(kind, request: words, context: context, bundleID: hold?.bundleID, appName: hold?.appName,
                                  entryID: entryID, samples: samples, durationSec: durationSec, atPress: true)
                 return
             }
@@ -846,7 +866,8 @@ final class DaisyKeyController {
     /// note's button — the result then goes to the clipboard). Anything
     /// that doesn't work out keeps the words as a note.
     private func runCommand(_ kind: DaisyKeyCommandKind, request: String, context: DaisyKeyContext, bundleID: String?,
-                            entryID: UUID, samples: [Float], durationSec: Int, atPress: Bool, noteKept: Bool = false) async {
+                            appName: String? = nil, entryID: UUID, samples: [Float], durationSec: Int, atPress: Bool,
+                            noteKept: Bool = false) async {
         let summarizer = Summarizer.shared
         func fallBack(_ message: String) async {
             if noteKept {
@@ -880,8 +901,8 @@ final class DaisyKeyController {
             tell(String(localized: "Commands send what you said and selected to \(provider). Saved as a note for now"),
                  action: (String(localized: "Allow and run"), { [weak self] in
                      Self.allowCloud(summarizer.providerKind)
-                     Task { await self?.runCommand(kind, request: request, context: context, bundleID: bundleID, entryID: entryID,
-                                                   samples: [], durationSec: 0, atPress: false, noteKept: true) }
+                     Task { await self?.runCommand(kind, request: request, context: context, bundleID: bundleID, appName: appName,
+                                                   entryID: entryID, samples: [], durationSec: 0, atPress: false, noteKept: true) }
                  }))
             return
         }
@@ -910,21 +931,82 @@ final class DaisyKeyController {
         // An edit goes in only over the same selection: a click elsewhere in
         // the same field during the wait would put it beside the original.
         let selectionStill = kind != .edit || context.element.flatMap(DaisyKeyContext.currentSelection(in:)) == context.selection
+        let used = Self.usedLine(selection: role != .none, appName: appName)
         if insertable, selectionStill, let element = context.element, DaisyKeyContext.focusedElement() == element {
             DictationPaste.shared.insert(result)
             DaisyCommandHistory.shared.setOutcome("inserted", for: entryID)
+            // An edit is a proposal: the card keeps the original, with
+            // «Вернуть» and «Показать изменения» (research 21.10).
+            if kind == .edit {
+                DaisyResultCard.shared.show(result, used: used, original: context.selection, insertedInto: element,
+                                            field: field, voice: voice)
+            }
             log.info("Daisy key command inserted (\(result.count, privacy: .public) chars, \(local ? "local" : "cloud", privacy: .public))")
             return
         }
-        if insertable { ImprovementStats.record(.daisyKeyFocusChanged) }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(result, forType: .string)
+        if insertable {
+            ImprovementStats.record(.daisyKeyFocusChanged)
+            tell(String(localized: "Ready — you moved to another field, so it’s on the clipboard: ⌘V"), style: .success)
+        }
+        // Nowhere to put it (or the field moved): the card at the cursor,
+        // and the clipboard.
+        DaisyResultCard.shared.show(result, used: used, original: kind == .edit ? context.selection : nil,
+                                    field: field, voice: voice)
         DaisyCommandHistory.shared.setOutcome("clipboard", for: entryID)
-        tell(insertable
-             ? String(localized: "Ready — you moved to another field, so it’s on the clipboard: ⌘V")
-             : String(localized: "Ready — it’s on the clipboard: ⌘V"),
-             style: .success)
-        log.info("Daisy key command to the clipboard (\(result.count, privacy: .public) chars, kind \(String(describing: kind), privacy: .public))")
+        log.info("Daisy key command to the card (\(result.count, privacy: .public) chars, kind \(String(describing: kind), privacy: .public))")
+    }
+
+    /// «Использовано: выделение · Mail».
+    static func usedLine(selection: Bool, appName: String?) -> String {
+        var parts: [String] = []
+        if selection { parts.append(String(localized: "selection")) }
+        if let appName, !appName.isEmpty { parts.append(appName) }
+        guard !parts.isEmpty else { return "Daisy" }
+        return String(localized: "Used: \(parts.joined(separator: " · "))")
+    }
+
+    /// What was said works on the card's text: a new version on top.
+    private func refineCard(_ request: String, entryID: UUID) async {
+        let card = DaisyResultCard.shared
+        let history = DaisyCommandHistory.shared
+        guard !isWorking else {
+            history.setOutcome("cardUnchanged", for: entryID)
+            return tell(String(localized: "Still working on the last command"))
+        }
+        isWorking = true
+        defer { isWorking = false }
+        let summarizer = Summarizer.shared
+        if summarizer.availability != .available { await summarizer.refreshAvailability() }
+        guard summarizer.availability == .available else {
+            history.setOutcome("cardUnchanged", for: entryID)
+            return tell(String(localized: "No summary provider is available"), style: .warning)
+        }
+        let local = summarizer.providerIsEffectivelyLocal
+        guard local || Self.cloudAllowed(summarizer.providerKind) else {
+            // The provider changed since the card's text was written: the
+            // new one needs its own yes.
+            history.setOutcome("cardUnchanged", for: entryID)
+            let kind = summarizer.providerKind
+            return tell(String(localized: "Commands send what you said and the card’s text to \(kind.shortName)"),
+                        action: (String(localized: "Allow and run"), { [weak self] in
+                            Self.allowCloud(kind)
+                            Task { await self?.refineCard(request, entryID: entryID) }
+                        }))
+        }
+        let base = card.current
+        let payload = SummaryPrompt.voiceCommandPayload(request: request, source: base)
+        switch await write(payload: payload, context: VoiceCommandContext(role: .edit, field: card.field, voice: card.voice)) {
+        case .text(let result):
+            ImprovementStats.record(.daisyKeyGenerated(local: local))
+            card.addVersion(result)
+            history.setOutcome("refined", for: entryID)
+        case .stopped:
+            history.setOutcome("stopped", for: entryID)
+            tell(String(localized: "Stopped — what you said is in the command history"))
+        case .failed:
+            history.setOutcome("cardUnchanged", for: entryID)
+            tell(String(localized: "Couldn’t change it — the card keeps the last version"), style: .warning)
+        }
     }
 
     /// The provider's text, or nil: cancelled with Esc, past 30 s, or
@@ -1110,7 +1192,7 @@ nonisolated private final class Once<Value: Sendable>: @unchecked Sendable {
 /// Esc, anywhere, while a command is being written: in another app (the
 /// global monitor) or in Daisy's own window (the local one).
 @MainActor
-private final class EscapeWatch {
+final class EscapeWatch {
     private var monitors: [Any] = []
 
     init(_ onEscape: @escaping @MainActor () -> Void) {
