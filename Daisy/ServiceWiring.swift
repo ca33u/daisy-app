@@ -55,9 +55,42 @@ enum ServiceWiring {
                 Task { await session?.toggleByHotkey() }
             }
         )
+        // The Daisy key (backlog 34) lives in the voice-note slot — its
+        // tap IS the voice-note toggle. A hold needs key-up events, which
+        // only the event monitor delivers (Accessibility / Input
+        // Monitoring); without them it stays a tap-only key, the voice
+        // note it always was, rather than a dead one. Registered only
+        // after first run, like dictation, so a permission prompt never
+        // lands before onboarding has explained it.
+        if settings.hasShownFirstRun, DaisyKeyController.canHold {
+            HotkeyManager.shared.register(
+                slot: .voiceNote,
+                choice: settings.voiceNoteHotkey,
+                action: .hold(
+                    onPress: { [weak session] in
+                        guard let session else { return }
+                        Task { await DaisyKeyController.shared.press(session: session) }
+                    },
+                    onRelease: { [weak session] in
+                        guard let session else { return }
+                        Task { await DaisyKeyController.shared.release(session: session) }
+                    }
+                )
+            )
+        } else {
+            HotkeyManager.shared.register(
+                slot: .voiceNote,
+                choice: settings.voiceNoteHotkey,
+                action: .toggle { [weak session] in
+                    Task { await session?.toggleVoiceNoteByHotkey() }
+                }
+            )
+        }
+        // «Note only» — the old voice-note toggle on a key of its own, for
+        // anyone who wants it without the Daisy key's hold (K-4).
         HotkeyManager.shared.register(
-            slot: .voiceNote,
-            choice: settings.voiceNoteHotkey,
+            slot: .noteOnly,
+            choice: settings.noteOnlyHotkey,
             action: .toggle { [weak session] in
                 Task { await session?.toggleVoiceNoteByHotkey() }
             }

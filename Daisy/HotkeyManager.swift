@@ -80,6 +80,12 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
         modifiers: UInt32(controlKey | optionKey),
         label: "⌃⌥V"
     )
+    /// «Mark this moment» default on a fresh install (backlog 34 K-4).
+    static let ctrlOptCmdM = HotkeyChoice(
+        keyCode: UInt32(kVK_ANSI_M),
+        modifiers: UInt32(controlKey | optionKey | cmdKey),
+        label: "⌃⌥⌘M"
+    )
     static let f5 = HotkeyChoice(
         keyCode: UInt32(kVK_F5),
         modifiers: 0,
@@ -103,7 +109,7 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
 
     /// Preset list shown in Settings picker. Custom recorder lives
     /// alongside — see `HotkeyRecorder` view.
-    static let allPresets: [HotkeyChoice] = [.none, .ctrlOptCmdR, .ctrlOptCmdD, .ctrlOptSpace, .shiftCmdR, .f5, .fn]
+    static let allPresets: [HotkeyChoice] = [.none, .ctrlOptCmdR, .ctrlOptCmdD, .ctrlOptCmdM, .ctrlOptSpace, .shiftCmdR, .f5, .fn]
 
     /// Paste-flavoured preset list — used by the "Paste my last
     /// dictation" row instead of `allPresets`.
@@ -273,6 +279,7 @@ nonisolated enum HotkeySlot: UInt32, CaseIterable, Sendable {
     case fixLayout = 5   // re-type text in the keyboard layout it belonged to
     case markMoment = 6  // "this bit matters" during a recording
     case repasteLast = 7 // paste the most recent dictation (last hour) at the caret
+    case noteOnly  = 8   // the old voice-note toggle, without the Daisy key's hold
 }
 
 /// How the slot's hotkey reacts to a key press:
@@ -353,6 +360,11 @@ final class HotkeyManager {
     /// alongside refs/actionMap so unregister can tear the right
     /// path down.
     private var fnMonitors: [HotkeySlot: Any] = [:]
+    /// The same hold monitors for events sent to Daisy itself: a global
+    /// monitor never sees keys pressed while Daisy is the front app, and
+    /// a hold key that does nothing over Daisy's own window reads as
+    /// broken (backlog 34 review — the Carbon voice-note key worked there).
+    private var localMonitors: [HotkeySlot: Any] = [:]
 
     /// One shared event handler for all 3 slots — installed lazily
     /// on first `register(...)`, reused thereafter, torn down only
@@ -475,9 +487,7 @@ final class HotkeyManager {
     /// falling edge).
     private func installFnFlagsMonitor(slot: HotkeySlot, isHold: Bool) {
         let state = HoldPressState()
-        let monitor = NSEvent.addGlobalMonitorForEvents(
-            matching: .flagsChanged
-        ) { [weak self, state] event in
+        let handle: @Sendable (NSEvent) -> Void = { [weak self, state] event in
             guard let self else { return }
             // .function covers both legacy Fn and modern 🌐 globe.
             let isDown = event.modifierFlags.contains(.function)
@@ -488,11 +498,16 @@ final class HotkeyManager {
                 self.fireOnRelease(slot: slot)
             }
         }
+        let monitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged, handler: handle)
         guard let monitor else {
             promptForInputMonitoring(label: "Fn / 🌐 key")
             return
         }
         fnMonitors[slot] = monitor
+        localMonitors[slot] = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+            handle(event)
+            return event
+        }
     }
 
     /// NSEvent .keyDown + .keyUp monitor for hold-to-talk bindings
@@ -501,34 +516,41 @@ final class HotkeyManager {
     private func installKeyHoldMonitor(slot: HotkeySlot, keyCode: UInt32, mods: UInt32) {
         let state = HoldPressState()
         let mask: NSEvent.EventTypeMask = [.keyDown, .keyUp]
-        let monitor = NSEvent.addGlobalMonitorForEvents(
-            matching: mask
-        ) { [weak self, state] event in
+        let handle: @Sendable (NSEvent) -> Void = { [weak self, state] event in
             guard let self else { return }
             // Match keyCode + Carbon-equivalent modifier bits. The
             // NSEvent modifierFlags can carry extra OS-level bits
             // (capsLock, deviceIndependentFlagsMask) we don't care
             // about — mask down before comparison.
             guard UInt32(event.keyCode) == keyCode else { return }
-            guard matchesCarbonMods(event.modifierFlags, carbonMods: mods) else { return }
 
             switch event.type {
             case .keyDown:
+                guard matchesCarbonMods(event.modifierFlags, carbonMods: mods) else { return }
                 if event.isARepeat { return }
                 if state.swap(true) { return }  // already-down race
                 self.fireOnPress(slot: slot)
             case .keyUp:
+                // The key going up ends the hold whatever the modifiers
+                // are by then: people let go of ⌃⌥⌘ a beat before the
+                // letter, and that key-up used to be dropped, leaving the
+                // hold running (backlog 34, the Daisy key on ⌃⌥⌘D).
                 if !state.swap(false) { return }  // already-up race
                 self.fireOnRelease(slot: slot)
             default:
                 break
             }
         }
+        let monitor = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: handle)
         guard let monitor else {
             promptForInputMonitoring(label: HotkeyChoice.humanLabel(keyCode: keyCode, modifiers: mods))
             return
         }
         fnMonitors[slot] = monitor
+        localMonitors[slot] = NSEvent.addLocalMonitorForEvents(matching: mask) { event in
+            handle(event)
+            return event
+        }
     }
 
     /// Dispatch the press half of the slot's current action.
@@ -537,9 +559,19 @@ final class HotkeyManager {
         guard let action = actionMap.get(slot: slot) else { return }
         switch action {
         case .toggle(let f):
-            Task { @MainActor in f() }
+            Task { @MainActor in
+                // Only while Daisy is in front: a recorder left listening behind
+                // another app must not mute every shortcut.
+                guard !(KeyCaptureBox.isListening && NSApp.isActive) else { return }
+                f()
+            }
         case .hold(let onPress, _):
-            Task { @MainActor in onPress() }
+            Task { @MainActor in
+                // Only while Daisy is in front: a recorder left listening behind
+                // another app must not mute every shortcut.
+                guard !(KeyCaptureBox.isListening && NSApp.isActive) else { return }
+                onPress()
+            }
         }
     }
 
@@ -578,6 +610,10 @@ final class HotkeyManager {
         if let monitor = fnMonitors[slot] {
             NSEvent.removeMonitor(monitor)
             fnMonitors.removeValue(forKey: slot)
+        }
+        if let monitor = localMonitors[slot] {
+            NSEvent.removeMonitor(monitor)
+            localMonitors.removeValue(forKey: slot)
         }
         actionMap.set(slot: slot, action: nil)
         if refs.isEmpty, let handler = eventHandler {

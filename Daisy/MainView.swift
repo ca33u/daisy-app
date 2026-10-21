@@ -1179,6 +1179,15 @@ private struct HotkeyStopWiring: ViewModifier {
             .onChange(of: settings.repasteLastHotkey) { _, _ in
                 ServiceWiring.applyAllHotkeys(settings: settings, session: session)
             }
+            .onChange(of: settings.noteOnlyHotkey) { _, _ in
+                ServiceWiring.applyAllHotkeys(settings: settings, session: session)
+            }
+            // The Daisy key's hold needs Accessibility; granted later, the
+            // key is registered again with its hold (backlog 34).
+            .onChange(of: SystemPermissions.shared.accessibility) { _, _ in
+                ServiceWiring.applyAllHotkeys(settings: settings, session: session)
+                DaisyKeyController.introduceIfNeeded(settings: settings)
+            }
             // The as-you-type watcher is a keyboard tap, not a hotkey —
             // it starts and stops on its own toggle.
             .onChange(of: settings.layoutFixAuto) { _, _ in
@@ -1197,6 +1206,7 @@ private struct HotkeyStopWiring: ViewModifier {
             // completes (Input Monitoring prompt timing — see
             // ServiceWiring); re-apply the moment onboarding closes so
             // the fresh-install Fn default goes live immediately.
+            .task { DaisyKeyController.introduceIfNeeded(settings: settings) }
             .onChange(of: settings.hasShownFirstRun) { _, _ in
                 ServiceWiring.applyAllHotkeys(settings: settings, session: session)
             }

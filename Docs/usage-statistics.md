@@ -100,9 +100,12 @@ refuses anything else.
 | `daisy_key.focus_changed` | the focus moved while Daisy worked, so the result went to the clipboard |
 | `daisy_key.meeting_command` | a command ran during a meeting ("Commands during meetings" turned on) |
 
-"Ask Daisy" and the Daisy key are not in the app yet. Their counters are listed
-ahead, so the server already accepts them when they arrive; until then Daisy
-never sends them.
+"Ask Daisy" is not in the app yet, and of the Daisy key's counters only
+`daisy_key.tap_note`, `daisy_key.hold`, `daisy_key.intent.note`,
+`daisy_key.intent.unclear`, `daisy_key.rewrite_silent` and
+`daisy_key.screenshot_context` are counted so far (Daisy 1.0.8.35 and later).
+The rest are listed ahead, so the server already accepts them when the
+features that count them arrive; until then Daisy never sends them.
 
 `<provider>` is the kind of summary provider, never the model, key or
 account:

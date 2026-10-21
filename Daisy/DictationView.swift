@@ -180,6 +180,7 @@ struct DictationView: View {
                     }
                 }
             }
+            DaisyCommandHistorySection()
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)

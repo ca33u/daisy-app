@@ -148,7 +148,7 @@ extension RecordingSession {
     /// Starts a `.dictation` session (mic only, ephemeral, no
     /// History entry). On release, the transcript is copied to
     /// the clipboard and a toast prompts ⌘V. Wispr-Flow-lite.
-    func startDictationHotkey() async {
+    func startDictationHotkey(purpose: DictationPurpose = .paste) async {
         // No readiness gate here. `start()` owns that: it refuses an
         // unfinished onboarding, refuses a model that cannot load, and
         // WAITS for one that merely hasn't loaded yet. A gate at this
@@ -159,6 +159,11 @@ extension RecordingSession {
         if let side = sideDictation, side.isDictating || side.pendingMode == .dictation || side.startingMode == .dictation {
             return  // a repeat press of a key already held
         }
+        // Another start is already under way on this session (the other
+        // of the dictation and Daisy keys, pressed within its wait): this
+        // one would overwrite that start's purpose — a Daisy hold pasted,
+        // a dictation kept as a note (review 21.10). The first press wins.
+        if isStarting || startingMode != nil { return }
         // The previous recording is still being finished (final pass,
         // summary). Starting here would reset this session and cancel
         // that; the dictation goes to a session of its own instead.
@@ -168,7 +173,7 @@ extension RecordingSession {
                 let side = sideDictation ?? RecordingSession(settings: settings, isDictationSidecar: true)
                 sideDictation = side
                 log.info("Dictation while the previous recording is still finishing — dictating on a side session")
-                await side.startDictationHotkey()
+                await side.startDictationHotkey(purpose: purpose)
                 return
             case .preparing, .recording, .paused, .stopping:
                 break
@@ -177,6 +182,7 @@ extension RecordingSession {
         switch status {
         case .idle, .finished, .failed:
             pendingMode = .dictation
+            dictationPurpose = purpose
             // Fresh hold, fresh release-flag: a stale one from a
             // previous hold would stop this dictation the instant it
             // started.
@@ -223,7 +229,15 @@ extension RecordingSession {
             if dictationReleasedWhilePreparing {
                 dictationReleasedWhilePreparing = false
                 log.info("Dictation key released while the engine was still loading — stopping the session it just started")
-                await stopDictationHotkey()
+                // The same key's release: a Daisy press stops its own
+                // capture, a dictation key an ordinary one.
+                let token: UUID? = {
+                    switch dictationPurpose {
+                    case .daisyKeyHold(let t), .daisyKeyTap(let t): return t
+                    case .paste: return nil
+                    }
+                }()
+                await stopDictationHotkey(daisyKeyToken: token)
             }
         case .recording, .paused:
             // The dictation key was pressed from ANOTHER app (that's
@@ -247,11 +261,34 @@ extension RecordingSession {
         }
     }
 
+    /// The Daisy key came back up within a tap: the capture its key-down
+    /// started is thrown away when it finishes, and the long note starts.
+    /// Marked on whichever session is capturing — this one, or the side
+    /// dictation while the previous recording finishes.
+    func markDaisyKeyTap(_ token: UUID) {
+        // Only the capture this press started — never an ordinary
+        // dictation that happens to be running.
+        if let side = sideDictation, side.dictationPurpose == .daisyKeyHold(token) {
+            side.dictationPurpose = .daisyKeyTap(token)
+        } else if dictationPurpose == .daisyKeyHold(token) {
+            dictationPurpose = .daisyKeyTap(token)
+        }
+    }
+
     /// Dictation — release. Triggers the stop() path which, when
     /// `currentMode == .dictation`, copies the final transcript
     /// to the clipboard and deletes the session directory before
     /// returning to idle.
-    func stopDictationHotkey() async {
+    /// Whether the capture running here is the one a release is for: the
+    /// dictation key's (no token) stops only an ordinary dictation, the
+    /// Daisy key's only its own press's — so one key let go never ends
+    /// the other's capture (review 21.10).
+    func ownsDictationCapture(_ token: UUID?) -> Bool {
+        guard let token else { return dictationPurpose == .paste }
+        return dictationPurpose == .daisyKeyHold(token) || dictationPurpose == .daisyKeyTap(token)
+    }
+
+    func stopDictationHotkey(daisyKeyToken token: UUID? = nil) async {
         // The press may still be inside `start()`, in which case both
         // guards below would reject this release and leave a microphone
         // open with nobody holding a key. Two shapes of that:
@@ -268,10 +305,12 @@ extension RecordingSession {
         //
         // Record the intent; `startDictationHotkey` acts on it the
         // moment `start()` returns.
-        if let side = sideDictation, side.isDictating || side.pendingMode == .dictation || side.startingMode == .dictation {
-            await side.stopDictationHotkey()
+        if let side = sideDictation, side.isDictating || side.pendingMode == .dictation || side.startingMode == .dictation,
+           side.ownsDictationCapture(token) {
+            await side.stopDictationHotkey(daisyKeyToken: token)
             return
         }
+        guard ownsDictationCapture(token) else { return }
         if status == .preparing || pendingMode == .dictation || startingMode == .dictation {
             dictationReleasedWhilePreparing = true
             return

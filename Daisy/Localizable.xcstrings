@@ -81,6 +81,16 @@
         }
       }
     },
+    "Couldn’t save the note — the text is on the clipboard and in the command history" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось сохранить заметку — текст в буфере обмена и в истории команд"
+          }
+        }
+      }
+    },
     "Daisy calls your local Ollama server over its native `/api/chat` REST. No API key, no network egress — everything stays on your Mac. The model downloads from the list below, from ollama.com, once. Free." : {
       "localizations" : {
         "ru" : {
@@ -91,12 +101,32 @@
         }
       }
     },
+    "Daisy key" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Клавиша Daisy"
+          }
+        }
+      }
+    },
     "Daisy opens ollama.com and installs nothing itself. Ollama is free, open source, and runs the model on this Mac." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Daisy только открывает ollama.com и ничего не устанавливает сама. Ollama бесплатна, с открытым кодом и запускает модель на этом Mac."
+          }
+        }
+      }
+    },
+    "Didn’t hear anything" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ничего не услышала"
           }
         }
       }
@@ -131,12 +161,32 @@
         }
       }
     },
+    "For a quiet marker, use the Mark this moment key" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для тихой метки — клавиша «Отметить момент»"
+          }
+        }
+      }
+    },
     "Headphones as the microphone" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Наушники как микрофон"
+          }
+        }
+      }
+    },
+    "Holding the Daisy key needs Accessibility — until it’s granted, the key only starts and stops notes" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для удержания клавиши Daisy нужен Универсальный доступ — пока его нет, клавиша только начинает и останавливает заметки"
           }
         }
       }
@@ -157,6 +207,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Установлена"
+          }
+        }
+      }
+    },
+    "Kept as a note" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранено как заметка"
           }
         }
       }
@@ -753,6 +813,16 @@
         }
       }
     },
+    "More shortcuts" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Другие сочетания"
+          }
+        }
+      }
+    },
     "Names, terms, who spoke" : {
       "localizations" : {
         "ru" : {
@@ -779,6 +849,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Диктовок пока нет."
+          }
+        }
+      }
+    },
+    "No such project — saved to %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Такого проекта нет — положила в «%@»"
           }
         }
       }
@@ -823,6 +903,46 @@
         }
       }
     },
+    "Note not saved — text copied" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заметка не сохранилась — текст скопирован"
+          }
+        }
+      }
+    },
+    "Note only" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Только заметка"
+          }
+        }
+      }
+    },
+    "Note saved to %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заметка — в «%@»"
+          }
+        }
+      }
+    },
+    "Note — project not found" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заметка — проект не найден"
+          }
+        }
+      }
+    },
     "Nothing in the last 7 days." : {
       "localizations" : {
         "ru" : {
@@ -839,6 +959,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ничего за последние 30 дней."
+          }
+        }
+      }
+    },
+    "Nothing recognized" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ничего не распознано"
+          }
+        }
+      }
+    },
+    "Nothing said on the Daisy key yet — holds are kept here as long as dictations" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На клавише Daisy пока ничего не сказано — удержания хранятся здесь столько же, сколько диктовки"
           }
         }
       }
@@ -983,6 +1123,26 @@
         }
       }
     },
+    "Rewritten" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переписано"
+          }
+        }
+      }
+    },
+    "Saved as a note" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранила как заметку"
+          }
+        }
+      }
+    },
     "Saved. Daisy will finish this meeting when the Mac is on a charger." : {
       "localizations" : {
         "ru" : {
@@ -999,6 +1159,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Скриншоты"
+          }
+        }
+      }
+    },
+    "Select some text first, then try again" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сначала выдели текст, потом попробуй снова"
           }
         }
       }
@@ -1033,12 +1203,42 @@
         }
       }
     },
+    "Several projects match — saved to %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подходит несколько проектов — положила в «%@»"
+          }
+        }
+      }
+    },
     "Shared mic in the room" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Общий микрофон в комнате"
+          }
+        }
+      }
+    },
+    "Show the recording in Finder" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать запись в Finder"
+          }
+        }
+      }
+    },
+    "Stop the note first" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сначала останови заметку"
           }
         }
       }
@@ -1059,6 +1259,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Настройки саммари"
+          }
+        }
+      }
+    },
+    "Tap for a long note, tap again to stop. Hold and say “note …” to save one, or hold without a word over selected text to rewrite it in your voice" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Тап — длинная заметка, ещё тап — стоп. Удержи и скажи «запиши …», чтобы сохранить заметку, или удержи молча над выделенным текстом, чтобы переписать его твоим голосом"
+          }
+        }
+      }
+    },
+    "Tap for a note. Hold and say “note …”, or hold silently over selected text to rewrite it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Тап — заметка. Удержи и скажи «запиши …» или удержи молча над выделенным текстом, чтобы переписать его."
+          }
+        }
+      }
+    },
+    "Tap once to start a note, tap again to stop — the Daisy key’s tap on a key of its own" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Тап — начать заметку, ещё тап — остановить: то же, что тап клавиши Daisy, на отдельной клавише"
+          }
+        }
+      }
+    },
+    "The Daisy key" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Клавиша Daisy"
           }
         }
       }
@@ -1259,6 +1499,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Свои настройки — они во вкладках «Транскрипция» и «Саммари». Выбери план, чтобы сбросить их."
+          }
+        }
+      }
+    },
+    "Your voice-note key %@ is now the Daisy key: tap for a note as before, hold to say what to do" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Твоя клавиша заметок %@ теперь клавиша Daisy: тап — заметка, как раньше, удержание — скажи, что сделать"
+          }
+        }
+      }
+    },
+    "Your voice-note key %@ is now the Daisy key: tap for a note as before, hold to say what to do. Rewriting is on it too — hold without a word over selected text" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Твоя клавиша заметок %@ теперь клавиша Daisy: тап — заметка, как раньше, удержание — скажи, что сделать. Переписывание теперь тоже на ней — удержи без слов над выделенным текстом"
           }
         }
       }

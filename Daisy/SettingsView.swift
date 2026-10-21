@@ -405,12 +405,13 @@ struct SettingsView: View {
     /// off AppSettings — which is what lets `conflictGuarded` compare a
     /// new combo against every OTHER slot without comparing bindings.
     private enum HotkeySlot: CaseIterable {
-        case record, voiceNote, dictation, rewrite, layoutFix, markMoment, repaste
+        case record, voiceNote, dictation, rewrite, layoutFix, markMoment, repaste, noteOnly
 
         var displayName: String {
             switch self {
             case .record: return String(localized: "Record a meeting")
-            case .voiceNote: return String(localized: "Voice note")
+            case .voiceNote: return String(localized: "Daisy key")
+            case .noteOnly: return String(localized: "Note only")
             case .dictation: return String(localized: "Dictation")
             case .rewrite: return String(localized: "Rewrite in my voice")
             case .layoutFix: return String(localized: "Fix the keyboard layout")
@@ -428,6 +429,7 @@ struct SettingsView: View {
             case .layoutFix: return settings.layoutFixHotkey
             case .markMoment: return settings.markMomentHotkey
             case .repaste: return settings.repasteLastHotkey
+            case .noteOnly: return settings.noteOnlyHotkey
             }
         }
     }
@@ -1308,17 +1310,46 @@ struct SettingsView: View {
                     slot: .record
                 )
                 shortcutRow(
-                    title: "Voice note",
-                    caption: "Tap once to start, tap again to stop",
-                    binding: $settings.voiceNoteHotkey,
-                    slot: .voiceNote
-                )
-                shortcutRow(
                     title: "Dictation",
                     caption: "Hold to talk, release to paste",
                     binding: $settings.dictationHotkey,
                     slot: .dictation
                 )
+                shortcutRow(
+                    title: "Daisy key",
+                    caption: "Tap for a long note, tap again to stop. Hold and say “note …” to save one, or hold without a word over selected text to rewrite it in your voice",
+                    binding: $settings.voiceNoteHotkey,
+                    slot: .voiceNote
+                )
+                // Read through the observable permission so the line goes
+                // when Accessibility is granted with Settings open.
+                if settings.voiceNoteHotkey != .none,
+                   SystemPermissions.shared.accessibility != .granted, !CGPreflightListenEventAccess() {
+                    Text("Holding the Daisy key needs Accessibility — until it’s granted, the key only starts and stops notes")
+                        .font(.caption)
+                        .foregroundStyle(Color.daisyWarning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                shortcutRow(
+                    title: "Mark this moment",
+                    caption: "While recording, flag the minute you’re in — it lands in the transcript and leads the summary",
+                    binding: $settings.markMomentHotkey,
+                    slot: .markMoment
+                )
+            } header: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Shortcuts")
+                    Text("Combos must include ⌘ / ⌃ / ⌥, a bare function key (F1–F20), or the globe Fn key.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .textCase(nil)
+                }
+            }
+
+            // ── More shortcuts ────────────────────────────────
+            // Not assigned on a fresh install; whatever someone already
+            // assigned stays (backlog 34 K-4).
+            Section("More shortcuts") {
                 shortcutRow(
                     title: "Rewrite in my voice",
                     caption: "Select text anywhere, tap to rewrite it in your tone (needs a style profile)",
@@ -1337,12 +1368,6 @@ struct SettingsView: View {
                 .disabled(!settings.layoutFixEnabled)
                 .help(settings.layoutFixEnabled ? "" : String(localized: "Turn on the layout fixer in Transcription → Keyboard layout."))
                 shortcutRow(
-                    title: "Mark this moment",
-                    caption: "While recording, flag the minute you’re in — it lands in the transcript and leads the summary",
-                    binding: $settings.markMomentHotkey,
-                    slot: .markMoment
-                )
-                shortcutRow(
                     title: "Paste my last dictation",
                     caption: "Re-inserts your last dictation from the past hour at the cursor — for when it landed in the wrong window or nowhere at all",
                     binding: $settings.repasteLastHotkey,
@@ -1351,14 +1376,12 @@ struct SettingsView: View {
                     // not the record/dictate letters the other rows use.
                     presets: HotkeyChoice.pastePresets
                 )
-            } header: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Shortcuts")
-                    Text("Combos must include ⌘ / ⌃ / ⌥, a bare function key (F1–F20), or the globe Fn key.")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .textCase(nil)
-                }
+                shortcutRow(
+                    title: "Note only",
+                    caption: "Tap once to start a note, tap again to stop — the Daisy key’s tap on a key of its own",
+                    binding: $settings.noteOnlyHotkey,
+                    slot: .noteOnly
+                )
             }
 
             // ── Meetings ──────────────────────────────────────

@@ -78,8 +78,15 @@ final class SelectionRewrite {
         guard let selection = await PasteboardProxy.shared.copySelection(borrow) else {
             PasteboardProxy.shared.giveBack(borrow)
             ToastCenter.shared.show(
-                String(localized: "Select some text first, then press the rewrite shortcut."),
+                // Reached from the rewrite key and from a silent hold on the
+                // Daisy key, so it names neither.
+                String(localized: "Select some text first, then try again"),
                 style: .warning
+            )
+            // Both keys are pressed from other apps: the pill says it there.
+            WidgetBubbleCenter.shared.present(
+                WidgetBubbleContent(text: String(localized: "Select some text first, then try again")),
+                notificationTitle: "Daisy"
             )
             return
         }

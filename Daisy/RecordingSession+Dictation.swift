@@ -36,6 +36,28 @@ extension RecordingSession {
         let transcriptText: String
         let samples = micTranscriber.capturedSamples
 
+        // The Daisy key (backlog 34): a tap throws its half-second away
+        // and starts the long note — before any engine runs on it; a hold
+        // hands its words over instead of pasting them. Read once and
+        // reset, so a later ordinary dictation on this session pastes.
+        let purpose = dictationPurpose
+        dictationPurpose = .paste
+        if case .daisyKeyTap(let token) = purpose {
+            // A screenshot waiting for context isn't answered by a tap:
+            // its window comes back whole.
+            if let pending = pendingScreenshotNote {
+                pendingScreenshotNote = nil
+                ScreenshotNoteCapture.shared.restorePending(pending)
+            }
+            log.info("Daisy key tap — capture discarded, starting the long note")
+            if let dir = sessionDirectory { try? FileManager.default.removeItem(at: dir) }
+            releaseSessionsFolderTicket()
+            reset()
+            DaisyKeyController.shared.tapCaptureFinished(token: token, on: self)
+            return
+        }
+        let isDaisyHold: Bool = { if case .daisyKeyHold = purpose { return true }; return false }()
+
         // Fast-engine attempt (Parakeet or Apple SpeechAnalyzer) — both
         // transcribe the captured mic buffer directly, skipping the Whisper
         // final pass. Any miss (off, error, empty, or — for Apple — pre-26 /
@@ -134,13 +156,16 @@ extension RecordingSession {
 
         // Local usage stats (powers the Home words/min · total words ·
         // activity widgets). Dictation is otherwise ephemeral, so this is
-        // the only record of it — count words + the held duration.
-        UsageStats.shared.record(
-            words: UsageStats.wordCount(transcriptText),
-            seconds: Double(max(0, durSec)),
-            kind: .dictation
-        )
-        if !transcriptText.isEmpty { ImprovementStats.record(.dictation(engine: engineUsed)) }
+        // the only record of it — count words + the held duration. A
+        // Daisy-key hold is a command, not dictated text: not counted.
+        if purpose == .paste {
+            UsageStats.shared.record(
+                words: UsageStats.wordCount(transcriptText),
+                seconds: Double(max(0, durSec)),
+                kind: .dictation
+            )
+            if !transcriptText.isEmpty { ImprovementStats.record(.dictation(engine: engineUsed)) }
+        }
         // A screenshot taken moments ago is waiting for context: this
         // dictation belongs in that note, not in whatever window happens
         // to be in front (see `ScreenshotNoteCapture`). The claim is made
@@ -155,9 +180,12 @@ extension RecordingSession {
             // Routing around `handle` must not mean routing around those:
             // a note is not a second-class destination, and this dictation
             // still counts toward the profile unlock.
-            let prepared = DictationPaste.shared.prepare(transcriptText)
+            let prepared = isDaisyHold
+                ? DaisyKeyController.corrected(transcriptText)
+                : DictationPaste.shared.prepare(transcriptText)
             if ScreenshotNoteCapture.shared.attach(context: prepared, to: pending) {
                 ScreenshotNoteCapture.shared.announceAttached(pending)
+                if isDaisyHold { ImprovementStats.record(.daisyKeyScreenshotContext) }
                 if let dir = sessionDirectory {
                     try? FileManager.default.removeItem(at: dir)
                 }
@@ -200,6 +228,15 @@ extension RecordingSession {
             }
             releaseSessionsFolderTicket()
             reset()
+            return
+        }
+        if case .daisyKeyHold(let token) = purpose {
+            // Torn down first — the words and samples are in hand — so the
+            // key is free for the next press while the note is written.
+            if let dir = sessionDirectory { try? FileManager.default.removeItem(at: dir) }
+            releaseSessionsFolderTicket()
+            reset()
+            await DaisyKeyController.shared.holdFinished(token: token, transcript: transcriptText, samples: samples, durationSec: durSec)
             return
         }
         DictationPaste.shared.handle(transcript: transcriptText)

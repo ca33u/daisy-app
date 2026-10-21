@@ -114,7 +114,7 @@ struct HotkeyRecorder: View {
 /// callbacks. Reference-typed so its identity is stable across view
 /// re-renders, and so the monitor closure can capture `self`
 /// (a class) without struct-value-capture surprises.
-private final class KeyCaptureBox {
+final class KeyCaptureBox {
     /// The box that is currently listening, app-wide. Settings shows
     /// three recorders (Record / Voice note / Dictation), each with
     /// its own box — without this guard two boxes can listen at the
@@ -127,6 +127,10 @@ private final class KeyCaptureBox {
     /// MainActor-confined (file compiles with default MainActor
     /// isolation; monitors fire on the main thread).
     private static weak var activeListener: KeyCaptureBox?
+
+    /// A recorder is waiting for a combination: the global shortcuts hold
+    /// still, so pressing one to record it doesn't also start it.
+    static var isListening: Bool { activeListener != nil }
 
     private var keyToken: Any?
     private var flagsToken: Any?

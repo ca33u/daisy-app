@@ -462,6 +462,16 @@ final class AppSettings {
         }
     }
 
+    /// «Note only» (backlog 34 K-4): the old voice-note toggle on a key of
+    /// its own, without the Daisy key's hold. `.none` (default) disables.
+    var noteOnlyHotkey: HotkeyChoice {
+        didSet {
+            if let data = try? JSONEncoder().encode(noteOnlyHotkey) {
+                defaults.set(data, forKey: Self.k_noteOnlyHotkey)
+            }
+        }
+    }
+
     /// Global hotkey for "mark this moment" — the user's own judgement
     /// about which minute of a recording mattered, stated live. Only
     /// does anything while recording. `.none` (default) disables.
@@ -1382,12 +1392,24 @@ final class AppSettings {
         } else {
             self.recordHotkey = .ctrlOptCmdR
         }
-        // Voice-note + dictation hotkeys default to `.none` so users
-        // who don't know they exist don't get unexpected behaviour.
-        // Users opt in by picking a binding in Settings → Connections.
+        // Existing installs keep `.none` for an unassigned key, so an
+        // update never adds a global shortcut someone didn't ask for; a
+        // fresh install gets the main keys assigned (backlog 34 K-4).
         if let data = defaults.data(forKey: Self.k_voiceNoteHotkey),
            let decoded = try? JSONDecoder().decode(HotkeyChoice.self, from: data) {
             self.voiceNoteHotkey = decoded
+        } else if !defaults.bool(forKey: Self.k_hasShownFirstRun) {
+            // Fresh install (backlog 34 K-4): the voice-note slot is the
+            // Daisy key now, one of the main keys, assigned out of the box
+            // (⌃⌥⌘D — D for Daisy, next to ⌃⌥⌘R for recording). Existing
+            // installs keep their own; theirs becomes the Daisy key.
+            self.voiceNoteHotkey = .ctrlOptCmdD
+            if let encoded = try? JSONEncoder().encode(HotkeyChoice.ctrlOptCmdD) {
+                defaults.set(encoded, forKey: Self.k_voiceNoteHotkey)
+            }
+            // Onboarding introduces the key; the one-time «your voice-note
+            // key is now the Daisy key» is for people who had one before.
+            defaults.set(true, forKey: DaisyKeyController.introducedKey)
         } else {
             self.voiceNoteHotkey = .none
         }
@@ -1444,13 +1466,28 @@ final class AppSettings {
         } else {
             self.repasteLastHotkey = .none
         }
-        // Mark-a-moment — opt-in like every other hotkey. No preset is
-        // safe to claim by default on a machine we don't own.
+        // Mark-a-moment — assigned on a fresh install, as one of the four
+        // main keys (backlog 34 K-4); `.none` stays `.none` on an update.
         if let data = defaults.data(forKey: Self.k_markMomentHotkey),
            let decoded = try? JSONDecoder().decode(HotkeyChoice.self, from: data) {
             self.markMomentHotkey = decoded
+        } else if !defaults.bool(forKey: Self.k_hasShownFirstRun) {
+            // Fresh install (backlog 34 K-4): «Mark this moment» is one of
+            // the four main keys and comes assigned, like dictation's Fn.
+            // Existing installs keep theirs — a new global key in an
+            // update would be a surprise. Written at once, as below.
+            self.markMomentHotkey = .ctrlOptCmdM
+            if let encoded = try? JSONEncoder().encode(HotkeyChoice.ctrlOptCmdM) {
+                defaults.set(encoded, forKey: Self.k_markMomentHotkey)
+            }
         } else {
             self.markMomentHotkey = .none
+        }
+        if let data = defaults.data(forKey: Self.k_noteOnlyHotkey),
+           let decoded = try? JSONDecoder().decode(HotkeyChoice.self, from: data) {
+            self.noteOnlyHotkey = decoded
+        } else {
+            self.noteOnlyHotkey = .none
         }
         self.layoutFixAuto = defaults.bool(forKey: Self.k_layoutFixAuto)
         self.deferProcessingOnBattery = defaults.bool(forKey: Self.k_deferProcessingOnBattery)
@@ -1821,6 +1858,7 @@ final class AppSettings {
     private static let k_layoutFixHotkey = "daisy.layoutFixHotkey"
     private static let k_markMomentHotkey = "daisy.markMomentHotkey"
     private static let k_repasteLastHotkey = "daisy.repasteLastHotkey"
+    private static let k_noteOnlyHotkey = "daisy.noteOnlyHotkey"
     /// Read straight from UserDefaults by `DictationPaste`, which holds no
     /// AppSettings reference — same arrangement as `BrandCorrections.defaultsKey`.
     static let k_dictationPastesViaClipboard = "daisy.dictationPastesViaClipboard"

@@ -726,6 +726,10 @@ final class RecordingSession {
     /// a minute later). Made on first need, kept for the next one.
     /// The floating widget shows it while it dictates.
     var sideDictation: RecordingSession?
+    /// What this dictation's text is for: pasted (an ordinary dictation)
+    /// or handed to the Daisy key (backlog 34). Set by every dictation
+    /// start before `start()`, read and reset by `finishDictation`.
+    var dictationPurpose: DictationPurpose = .paste
     /// This session IS such a side dictation: no auto-start/auto-stop
     /// listeners, no startup chores — the main session owns those.
     let isDictationSidecar: Bool

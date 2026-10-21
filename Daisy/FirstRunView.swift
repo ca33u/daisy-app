@@ -717,8 +717,8 @@ struct FirstRunView: View {
                         binding: $settings.recordHotkey
                     )
                     hotkeyRow(
-                        title: String(localized: "Voice notes"),
-                        description: String(localized: "Quick one-off thought, mic only."),
+                        title: String(localized: "Daisy key"),
+                        description: String(localized: "Tap for a note. Hold and say “note …”, or hold silently over selected text to rewrite it."),
                         color: .daisyVoiceNote,
                         binding: $settings.voiceNoteHotkey
                     )
