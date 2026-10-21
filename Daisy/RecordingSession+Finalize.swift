@@ -509,9 +509,15 @@ extension RecordingSession {
             // a session that looks finished because transcript.md is
             // final and the recording marker is gone. This way the worst
             // case is losing the polish, not the summary.
+            //
+            // A follow-up template the meeting gets (folder, a word in its
+            // title, the default — backlog 35 Ш-1) rides in the same pass,
+            // and turns it on for this meeting even with the voice off.
+            let templateTitle = boundMeeting?.title ?? title
             if let draft = summary {
-                let voiced = await FollowUpVoice.polished(draft)
-                if voiced.clientFollowUp != draft.clientFollowUp {
+                let followUpChoice = MeetingTemplateStore.shared.choose(.followUp, folderSlug: folder.slug, title: templateTitle)
+                let voiced = await FollowUpVoice.polished(draft, template: followUpChoice?.template)
+                if voiced != draft {
                     summary = voiced
                     // The UI and the auto-send stage below read
                     // `lastSummary`, so it has to move too.
@@ -523,6 +529,30 @@ extension RecordingSession {
                         log.error("Failed to rewrite summary.json after voice polish: \(error.localizedDescription, privacy: .public)")
                     }
                 }
+            }
+
+            // A summary template (backlog 35 Ш-2): one more pass that lays
+            // the meeting out under its sections, from the transcript.md
+            // just written, timecodes and all. After the standard summary
+            // is on disk, for the same reason as the voice pass; the
+            // standard summary stays as it is either way.
+            if summaryPersisted, let current = summary,
+               let choice = MeetingTemplateStore.shared.choose(.summary, folderSlug: folder.slug, title: templateTitle),
+               let markdown = try? String(contentsOf: directory.appendingPathComponent("transcript.md"), encoding: .utf8),
+               let templated = await MeetingTemplatePass.run(
+                   choice.template, transcriptMarkdown: markdown, title: title, localeHint: localeHint,
+                   durationSec: Int(elapsed.rounded()), reason: choice.reasonText, pickedByHand: false) {
+                var withTemplate = current
+                withTemplate.templated = templated
+                summary = withTemplate
+                summarizer.adopt(withTemplate)
+                MeetingTemplateStore.shared.markUsed(choice.template.id.uuidString)
+                do {
+                    try SummaryFileWriter.write(withTemplate, to: directory.appendingPathComponent("summary.json"))
+                } catch {
+                    log.error("Failed to write the templated summary: \(error.localizedDescription, privacy: .public)")
+                }
+                log.info("Summary laid out by a template (\(templated.sections.count, privacy: .public) sections)")
             }
 
             // Independent second pass over the saved plan. Fire-and-forget:
@@ -1693,7 +1723,12 @@ extension RecordingSession {
     /// rewritten text, or nil if it failed OR the deadline elapsed first
     /// (caller then keeps the un-polished dictation). Keeps the paste path
     /// bounded regardless of provider latency.
-    nonisolated static func polishWithDeadline(text: String, instruction: String, seconds: Double) async -> String? {
+    /// `minShare`: the shortest a result may be against the input. 0.4 by
+    /// default; a follow-up template may legitimately cut a long draft to
+    /// a short letter, so it passes less (backlog 35) — the upper bound,
+    /// the guard against an invented letter, stays.
+    nonisolated static func polishWithDeadline(text: String, instruction: String, seconds: Double,
+                                               minShare: Double = 0.4) async -> String? {
         await withTaskGroup(of: String?.self) { group in
             group.addTask {
                 let summary = try? await Summarizer.shared.runProbe(
@@ -1716,7 +1751,7 @@ extension RecordingSession {
                 // very short dictations from tripping the upper bound.
                 let inCount = text.count
                 let outCount = polished.count
-                guard outCount * 5 >= inCount * 2,          // ≥ 40% of input
+                guard Double(outCount) >= Double(inCount) * minShare,   // ≥ 40% of input by default
                       outCount <= (inCount * 5) / 2 + 40    // ≤ 250% + slack
                 else { return nil }
                 // …and never paste a privacy placeholder. If the cloud

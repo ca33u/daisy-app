@@ -27,6 +27,13 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
     /// A short name for the meeting, written by the model with the summary
     /// (03.10.2026) — see `MeetingTitle`. nil in older files.
     public var title: String?
+    /// Backlog 35 Ш-2: the meeting laid out under the person's own
+    /// template, made by a second pass on the Mac. Carried through every
+    /// rewrite of the file (an action's status) so it isn't lost; nil when
+    /// no template applied.
+    public var templated: TemplatedSummary?
+    /// Backlog 35 Ш-1: the follow-up template the letter was rewritten by.
+    public var followUpTemplate: TemplateReference?
 
     public init(summary: String, sections: [SummarySection] = [], actionItems: [String], clientFollowUp: String,
                 actions: [ActionItem]? = nil, title: String? = nil) {
@@ -47,6 +54,9 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
         let typed = (try? c.decodeIfPresent([ActionItem].self, forKey: .actions)) ?? nil
         actions = typed ?? actionItems.enumerated().map { ActionItem.legacy($1, index: $0) }
         title = try c.decodeIfPresent(String.self, forKey: .title)
+        // A file this reader can't make sense of here still opens.
+        templated = (try? c.decodeIfPresent(TemplatedSummary.self, forKey: .templated)) ?? nil
+        followUpTemplate = (try? c.decodeIfPresent(TemplateReference.self, forKey: .followUpTemplate)) ?? nil
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -57,6 +67,8 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
         try c.encode(clientFollowUp, forKey: .clientFollowUp)
         try c.encode(actions, forKey: .actions)
         try c.encodeIfPresent(title, forKey: .title)
+        try c.encodeIfPresent(templated, forKey: .templated)
+        try c.encodeIfPresent(followUpTemplate, forKey: .followUpTemplate)
     }
 
     /// The same summary with one action's status changed.
@@ -101,7 +113,45 @@ public nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case summary, sections, actionItems, clientFollowUp, actions, title
+        case summary, sections, actionItems, clientFollowUp, actions, title, templated, followUpTemplate
+    }
+}
+
+/// `summary.json` → `templated` (session-format.md §4, optional): the
+/// meeting under the sections of a template. Every bullet starts with the
+/// `[mm:ss]` of the transcript line it came from; a section the meeting
+/// had nothing for holds one «Not discussed» bullet.
+public nonisolated struct TemplatedSummary: Codable, Sendable, Equatable {
+    /// The template's name when it was applied.
+    public var template: String
+    public var templateID: String?
+    /// Why this template: «folder Sales», «“standup” in the title».
+    public var reason: String?
+    /// Picked by hand in the meeting card — a new summary keeps it.
+    public var pickedByHand: Bool?
+    public var sections: [SummarySection]
+
+    public init(template: String, templateID: String? = nil, reason: String? = nil,
+                pickedByHand: Bool? = nil, sections: [SummarySection]) {
+        self.template = template
+        self.templateID = templateID
+        self.reason = reason
+        self.pickedByHand = pickedByHand
+        self.sections = sections
+    }
+}
+
+/// `summary.json` → `followUpTemplate` (optional): which template the
+/// follow-up was written by.
+public nonisolated struct TemplateReference: Codable, Sendable, Equatable {
+    public var name: String
+    public var id: String?
+    public var pickedByHand: Bool?
+
+    public init(name: String, id: String? = nil, pickedByHand: Bool? = nil) {
+        self.name = name
+        self.id = id
+        self.pickedByHand = pickedByHand
     }
 }
 

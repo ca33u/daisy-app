@@ -100,6 +100,13 @@ nonisolated enum ImprovementStats {
         case daisyKeyFocusChanged
         /// A command ran during a meeting ("Commands during meetings" on).
         case daisyKeyMeetingCommand
+        /// Backlog 35: a template was made / applied to a meeting; a
+        /// meeting's template was switched by hand in its card.
+        case templateFollowUpCreated
+        case templateFollowUpApplied
+        case templateSummaryCreated
+        case templateSummaryApplied
+        case templateSwitched
 
         /// The counter names an occurrence adds to.
         var names: [String] {
@@ -152,6 +159,11 @@ nonisolated enum ImprovementStats {
             case .daisyKeyGenerated(let local): return [local ? "daisy_key.local" : "daisy_key.cloud"]
             case .daisyKeyFocusChanged: return ["daisy_key.focus_changed"]
             case .daisyKeyMeetingCommand: return ["daisy_key.meeting_command"]
+            case .templateFollowUpCreated: return ["template.followup.created"]
+            case .templateFollowUpApplied: return ["template.followup.applied"]
+            case .templateSummaryCreated: return ["template.summary.created"]
+            case .templateSummaryApplied: return ["template.summary.applied"]
+            case .templateSwitched: return ["template.switched"]
             }
         }
 
@@ -201,6 +213,8 @@ nonisolated enum ImprovementStats {
             "daisy_key.tap_note", "daisy_key.hold", "daisy_key.rewrite_silent", "daisy_key.moment",
             "daisy_key.screenshot_context", "daisy_key.undone", "daisy_key.local", "daisy_key.cloud",
             "daisy_key.focus_changed", "daisy_key.meeting_command",
+            "template.followup.created", "template.followup.applied",
+            "template.summary.created", "template.summary.applied", "template.switched",
         ] + providers.map { "summary." + $0 } + providers.map { "summary.failed." + $0 }
           + DaisyKeyIntentName.allCases.map { "daisy_key.intent." + $0.rawValue })
     }()

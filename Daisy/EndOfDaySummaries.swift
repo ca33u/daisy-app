@@ -346,7 +346,9 @@ final class EndOfDaySummaries {
             log.error("End-of-day summary failed for \(session.id, privacy: .public)")
             return false
         }
-        await SessionStore.shared.updateSummary(summary, for: session)
+        // Templates (backlog 35), without the voice pass this path leaves out.
+        let templated = await StoredSessionTemplates.applyWithoutVoice(summary, previous: session.summary, session: session)
+        await SessionStore.shared.updateSummary(templated, for: session)
         return true
     }
 }

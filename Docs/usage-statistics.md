@@ -99,6 +99,9 @@ refuses anything else.
 | `daisy_key.local` / `daisy_key.cloud` | the result was written by a provider on this Mac / in the cloud |
 | `daisy_key.focus_changed` | the focus moved while Daisy worked, so the result went to the clipboard |
 | `daisy_key.meeting_command` | a command ran during a meeting ("Commands during a meeting" turned on) |
+| `template.followup.created` / `template.summary.created` | a follow-up template / a meeting-notes template was saved in My style |
+| `template.followup.applied` / `template.summary.applied` | a meeting's follow-up / notes were written by a template |
+| `template.switched` | a meeting's template was changed by hand in its card |
 
 "Ask Daisy" is not in the app yet, and of the Daisy key's counters
 `daisy_key.intent.ask` and `daisy_key.intent.action` are not counted yet — the

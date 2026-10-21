@@ -90,6 +90,12 @@ public nonisolated struct PseudonymSession: Sendable {
             replacementsByKind: byKind)
     }
 
+    /// What was replaced, for showing the person — a template made from
+    /// example letters lists the names it left out (backlog 35 Ш-1).
+    public var replacedOriginals: [String] {
+        Array(Set(originalsByToken.values)).sorted()
+    }
+
     /// Put the originals back into model output.
     public func restore(_ text: String) -> String {
         PseudonymSession.restore(text, using: originalsByToken)

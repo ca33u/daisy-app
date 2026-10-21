@@ -567,7 +567,11 @@ applies as for any phone session.
                         "confidence": 0.0, "payload": { /* title, attendees, start, durationMinutes, to, subject, points, location, editsCurrentEvent, place */ },
                         "status": { "state": "done|sent|scheduled|dismissed", "at": "ISO 8601", "destination": "string",
                                     "identifier": "string" },
-                        "sameAs": "<session id>/<action id>|null" } ]   // phone, 2026-09-28 / 2026-09-29
+                        "sameAs": "<session id>/<action id>|null" } ],  // phone, 2026-09-28 / 2026-09-29
+  "templated":      { "template": "string", "templateID": "string|null", "reason": "string|null",
+                      "pickedByHand": true,
+                      "sections": [ /* as "sections" above */ ] },       // optional, Mac 2026-10-21
+  "followUpTemplate": { "name": "string", "id": "string|null", "pickedByHand": true }   // optional, Mac 2026-10-21
 }
 ```
 
@@ -584,6 +588,23 @@ strings keeps working. A file without `actions` reads as one `other` item
 per string. A writer that does not know `actions` drops it when it
 rewrites the file — the strings survive, the types and statuses do not.
 (The Mac keeps `actions` while `actionItems` are unchanged — 1.0.8.15.)
+
+`templated` (the Mac, 2026-10-21, backlog 35 Ш-2) is the meeting laid out
+under the person's own notes template by a second pass: the template's name,
+why it applied (`reason`: «folder Sales», «“standup” in the title»; shown as
+is), whether it was picked by hand for this meeting, and its sections in the
+shape of `sections`. Every bullet starts with the `[mm:ss]` (or `[h:mm:ss]`)
+of the transcript line it came from, as transcript.md prints it; a section
+the meeting had nothing for holds one bullet «Not discussed» / «Не
+обсуждалось», in the meeting's language. It never replaces the standard
+fields — `summary`, `sections`, `actionItems`, `clientFollowUp` are written
+as always and stay the fallback. A reader that doesn't know it ignores it;
+a reader that shows it may offer «Standard / <template>». A writer that
+rewrites the file for another reason (an action's status) keeps it; a new
+summary drops it until the template is applied again. `followUpTemplate`
+(same date, Ш-1) names the template `clientFollowUp` was rewritten by. Both
+optional: iPhone and Windows must open a file that has them, and one that
+doesn't.
 
 Statuses (2026-09-29, backlog 24 М-6): `done` with destination `manual` is
 a step ticked off by hand; `dismissed` is «not mine» — out of the person's

@@ -1153,7 +1153,11 @@ final class DaisyKeyController {
         // for an edit, what was said for the rest.
         let voice = VoiceProfileStore.shared.resolveStyle(
             forTextIn: LanguageDetector.detect(kind == .edit ? (context.selection ?? request) : request))?.promptInstruction
-        let commandContext = VoiceCommandContext(role: role, field: field, voice: voice)
+        // «…по шаблону продажи»: a follow-up template the request names
+        // gives the letter its structure (backlog 35 Ш-1).
+        let named = kind == .write ? MeetingTemplateStore.shared.followUpTemplate(mentionedIn: request) : nil
+        let commandContext = VoiceCommandContext(role: role, field: field, voice: voice, structure: named?.structure)
+
         let payload = SummaryPrompt.voiceCommandPayload(request: request, source: role == .none ? nil : context.selection)
         let written = await write(payload: payload, context: commandContext)
         if case .stopped = written {
@@ -1167,6 +1171,7 @@ final class DaisyKeyController {
             return await fallBack(String(localized: "Couldn’t do that — saved as a note"))
         }
         ImprovementStats.record(.daisyKeyGenerated(local: local))
+        if let named { MeetingTemplateStore.shared.markUsed(named.id.uuidString) }
         let insertable = atPress && (kind == .edit || (kind == .write && role == .none))
             && context.isEditable && !context.isSecureField
         // An edit goes in only over the same selection: a click elsewhere in

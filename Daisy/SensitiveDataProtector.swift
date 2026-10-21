@@ -181,7 +181,20 @@ nonisolated enum SensitiveDataProtector {
                 return .dictationPolish(instruction: protect(instruction))
             case .voiceCommand(var context):
                 context.voice = context.voice.map { protect($0) }
+                context.structure = context.structure.map { protect($0) }
                 return .voiceCommand(context)
+            case .templatedSummary(var context):
+                // The person's own section titles and hints can name a
+                // client too («Боли Acme»).
+                context.sections = context.sections.map { section in
+                    var s = section
+                    s.title = protect(s.title)
+                    s.hint = protect(s.hint)
+                    return s
+                }
+                return .templatedSummary(context)
+            case .templateStructure:
+                return task
             case .transcriptPolish(let context):
                 return .transcriptPolish(
                     TranscriptPolisher.PromptContext(

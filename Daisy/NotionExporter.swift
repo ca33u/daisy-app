@@ -183,6 +183,15 @@ actor NotionExporter {
             children.append(heading2(labels.meeting))
             children.append(paragraph(summary.summary))
 
+            // A summary template's sections (backlog 35), each point with
+            // its timecode — the page gets the view the card shows.
+            for section in summary.templated?.sections ?? [] {
+                children.append(heading2(section.title))
+                for bullet in section.bullets {
+                    children.append(paragraph("• \(bullet.text)"))
+                }
+            }
+
             if !summary.actionItems.isEmpty {
                 children.append(heading2(labels.nextActions))
                 for item in summary.actionItems {

@@ -29,6 +29,7 @@ struct VoiceView: View {
     @Bindable private var store = VoiceProfileStore.shared
     @State private var showingImport = false
     @State private var showingEdit = false
+    @State private var tab: MyStyleTab = .voice
     /// nil = "whatever the store thinks is primary" — so the screen
     /// follows the corpus until the user picks a chip themselves.
     @State private var selectedLanguage: String?
@@ -56,24 +57,17 @@ struct VoiceView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 header
-                // Above the profile, not under it (Egor, 2026-07-30): the
-                // profile text is the long block on this page — anything
-                // parked below it is below the fold, and this switch is
-                // the answer to "why does this say 0 of 300 when I have 76
-                // recordings", which is a question you have BEFORE you
-                // read the profile.
-                includeMeetingsCard
-                if !store.languages.isEmpty {
-                    languageStrip
+                // Backlog 35: «Голос» / «Фоллоапы» / «Заметки встреч».
+                Picker("", selection: $tab) {
+                    ForEach(MyStyleTab.allCases) { Text($0.title).tag($0) }
                 }
-                stateCard
-                if store.undeterminedWords > 0 {
-                    // A footnote, never a chip: text we couldn't place is
-                    // real and worth admitting to, but it will never
-                    // produce a profile.
-                    Text("Plus \(store.undeterminedWords) words in a language Daisy couldn’t place.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                switch tab {
+                case .voice: voiceTab
+                case .followUps: MeetingTemplatesPane(kind: .followUp)
+                case .meetingNotes: MeetingTemplatesPane(kind: .summary)
                 }
                 Spacer(minLength: 0)
             }
@@ -81,6 +75,8 @@ struct VoiceView: View {
             .frame(maxWidth: .infinity, alignment: .top)
             .padding(24)
         }
+        .onAppear { takePendingTab() }
+        .onChange(of: AppNavigation.shared.pendingStyleTab) { _, _ in takePendingTab() }
         .task {
             // Covers the switch being flipped on in an earlier launch
             // before the Library had loaded. No-op once seeded.
@@ -99,7 +95,7 @@ struct VoiceView: View {
         // 2026-09-12). The style goes where the text is not already the
         // person's own: follow-ups, and the rewrite hotkey on a selection.
         .toolbar {
-            if store.hasProfile {
+            if store.hasProfile, tab == .voice {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showingEdit = true
@@ -141,17 +137,48 @@ struct VoiceView: View {
         }
     }
 
+    private func takePendingTab() {
+        guard let pending = AppNavigation.shared.pendingStyleTab else { return }
+        tab = pending
+        AppNavigation.shared.pendingStyleTab = nil
+    }
+
+    /// The Voice Profile, as this screen was before the tabs.
+    @ViewBuilder
+    private var voiceTab: some View {
+        // Above the profile, not under it (Egor, 2026-07-30): the
+        // profile text is the long block on this page — anything
+        // parked below it is below the fold, and this switch is
+        // the answer to "why does this say 0 of 300 when I have 76
+        // recordings", which is a question you have BEFORE you
+        // read the profile.
+        includeMeetingsCard
+        if !store.languages.isEmpty {
+            languageStrip
+        }
+        stateCard
+        if store.undeterminedWords > 0 {
+            // A footnote, never a chip: text we couldn't place is
+            // real and worth admitting to, but it will never
+            // produce a profile.
+            Text("Plus \(store.undeterminedWords) words in a language Daisy couldn’t place.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("My style")
                 // Rounded display title, matching the Home greeting.
                 .font(.system(.largeTitle, design: .rounded).weight(.medium))
                 .foregroundStyle(.primary)
-            Text("A profile of how you write, built from your dictations")
+            Text(tab == .voice ? String(localized: "A profile of how you write, built from your dictations")
+                               : String(localized: "Your voice, and the templates your letters and notes follow"))
                 .font(.callout)
                 .foregroundStyle(.secondary)
             // "Built from N words · date" moved up here, under the title.
-            if let profile = shownProfile {
+            if tab == .voice, let profile = shownProfile {
                 Text("Built from \(profile.sampleWords.formatted(.number)) words · \(profile.generatedAt.formatted(date: .abbreviated, time: .shortened))")
                     .font(.caption)
                     .foregroundStyle(.tertiary)

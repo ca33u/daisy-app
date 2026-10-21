@@ -164,6 +164,9 @@ final class AppNavigation {
     /// SettingsView reads + clears it on appear. nil means "use the
     /// default tab".
     var pendingSettingsTab: SettingsTab?
+    /// One-shot «My style» tab request (the meeting card's «Manage
+    /// templates…»). VoiceView reads + clears it.
+    var pendingStyleTab: MyStyleTab?
     /// One-shot Connections deep-link. Same pattern as
     /// `pendingSettingsTab` but for the new Connections sidebar
     /// destination. ConnectionsView reads + clears on appear; the

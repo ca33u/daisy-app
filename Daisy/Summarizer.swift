@@ -58,13 +58,19 @@ nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
     /// Kept as a Daisy-specific field on top of the Granola-style
     /// outline; useful for SMB workflows where the host hands the
     /// summary to a counterpart right after the call.
-    let clientFollowUp: String
+    var clientFollowUp: String
 
     /// A short name for the meeting, written by the model with the
     /// summary (03.10.2026). Replaces the session's title only while that
     /// title is still the app's own placeholder — see `MeetingTitle`.
     /// nil in files written before, and from providers that do not send it.
     var title: String? = nil
+
+    /// Backlog 35 Ш-2: the meeting under a summary template's sections,
+    /// from a second pass (`MeetingTemplatePass`). nil without a template.
+    var templated: TemplatedSummary? = nil
+    /// Backlog 35 Ш-1: the template the follow-up was written by.
+    var followUpTemplate: TemplateReference? = nil
 
     // MARK: - Init
 
@@ -109,6 +115,10 @@ nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
         self.actionItems = try c.decodeIfPresent([String].self, forKey: .actionItems) ?? []
         self.clientFollowUp = try c.decodeIfPresent(String.self, forKey: .clientFollowUp) ?? ""
         self.title = try c.decodeIfPresent(String.self, forKey: .title)
+        // Optional extras: one this version can't read leaves the summary
+        // readable.
+        self.templated = (try? c.decodeIfPresent(TemplatedSummary.self, forKey: .templated)) ?? nil
+        self.followUpTemplate = (try? c.decodeIfPresent(TemplateReference.self, forKey: .followUpTemplate)) ?? nil
     }
 
     func encode(to encoder: Encoder) throws {
@@ -118,10 +128,12 @@ nonisolated struct MeetingSummary: Codable, Sendable, Equatable {
         try c.encode(actionItems, forKey: .actionItems)
         try c.encode(clientFollowUp, forKey: .clientFollowUp)
         try c.encodeIfPresent(title, forKey: .title)
+        try c.encodeIfPresent(templated, forKey: .templated)
+        try c.encodeIfPresent(followUpTemplate, forKey: .followUpTemplate)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case summary, sections, actionItems, clientFollowUp, title
+        case summary, sections, actionItems, clientFollowUp, title, templated, followUpTemplate
     }
 }
 

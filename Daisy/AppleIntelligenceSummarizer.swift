@@ -194,6 +194,18 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
             let response = try await session.respond(to: SummaryPrompt.voiceCommandUserPrompt(payload: trimmed))
             let text = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
             return MeetingSummary(summary: "", sections: [], actionItems: [], clientFollowUp: text)
+        case .templatedSummary(let context):
+            // Freeform: the guided schema is meeting-shaped; the template's
+            // Markdown is parsed and checked by `MeetingTemplatePass`.
+            let session = LanguageModelSession(instructions: SummaryPrompt.templatedSummaryRules(context, localeHint: localeHint))
+            let response = try await session.respond(to: SummaryPrompt.userPrompt(title: title, transcript: trimmed, task: task))
+            return MeetingSummary(summary: "", sections: [], actionItems: [],
+                                  clientFollowUp: response.content.trimmingCharacters(in: .whitespacesAndNewlines))
+        case .templateStructure(let target):
+            let session = LanguageModelSession(instructions: SummaryPrompt.templateStructureRules(target))
+            let response = try await session.respond(to: SummaryPrompt.templateStructureUserPrompt(examples: trimmed))
+            return MeetingSummary(summary: "", sections: [], actionItems: [],
+                                  clientFollowUp: response.content.trimmingCharacters(in: .whitespacesAndNewlines))
         case .transcriptPolish(let context):
             return try await polishTranscript(payload: trimmed, context: context)
         case .speakerNames(let context):

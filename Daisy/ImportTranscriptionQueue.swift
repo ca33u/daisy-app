@@ -672,7 +672,8 @@ final class ImportTranscriptionQueue {
             )
             return
         }
-        await SessionStore.shared.updateSummary(summary, for: session)
+        let templated = await StoredSessionTemplates.applyWithoutVoice(summary, previous: session.summary, session: session)
+        await SessionStore.shared.updateSummary(templated, for: session)
         log.notice("Finished recording \(sessionID, privacy: .public): summary written")
     }
 

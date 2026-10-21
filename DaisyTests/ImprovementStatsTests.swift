@@ -21,6 +21,8 @@ struct ImprovementStatsTests {
             .daisyKeyTapNote, .daisyKeyHold, .daisyKeyRewriteSilent, .daisyKeyMoment, .daisyKeyScreenshotContext,
             .daisyKeyUndone, .daisyKeyGenerated(local: true), .daisyKeyGenerated(local: false),
             .daisyKeyFocusChanged, .daisyKeyMeetingCommand,
+            .templateFollowUpCreated, .templateFollowUpApplied, .templateSummaryCreated, .templateSummaryApplied,
+            .templateSwitched,
         ]
         events += ImprovementStats.DaisyKeyIntentName.allCases.map { .daisyKeyIntent($0) }
         for kind in SummaryProviderKind.allCases {

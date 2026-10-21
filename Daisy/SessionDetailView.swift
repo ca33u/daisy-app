@@ -52,6 +52,12 @@ struct SessionDetailView: View {
     /// show a "Drafting follow-up…" spinner without firing the summary-
     /// level re-summarize banner.
     @State private var isDraftingFollowUp = false
+    /// Backlog 35: the summary's standard view instead of its template's.
+    @State private var showsStandardSummary = false
+    /// A template pass the card started is running.
+    @State private var isApplyingTemplate = false
+    /// Copy or Insert asked for while the follow-up still has `[?]` in it.
+    @State private var unfilledFollowUp: FollowUpUse?
     @State private var confirmDelete = false
     @State private var confirmDeleteAudio = false
     @State private var showRetranscriptionSheet = false
@@ -189,6 +195,7 @@ struct SessionDetailView: View {
                         showsCopy: session.summary != nil,
                         accessory: {
                             HStack(spacing: 12) {
+                                summaryTemplateMenu
                                 recapButtons
                                 stepsSendMenu
                                 stepsInsertMenu
@@ -253,15 +260,35 @@ struct SessionDetailView: View {
                 // a summary with real content; empty → plaque + Draft CTA,
                 // drafting → spinner.
                 if let summary = session.summary, showFollowUpBlock(summary) {
+                    // Copy is the accessory's own here, so it can ask while
+                    // the letter still has a [?] in it (backlog 35).
                     CollapsibleBlock(
                         title: String(localized: "Follow-up"),
                         storageKey: "daisy.session.detail.followUpExpanded",
                         copyLabel: String(localized: "Copy follow-up"),
                         copyText: { session.summary?.clientFollowUp ?? "" },
-                        showsCopy: !(session.summary?.clientFollowUp.isEmpty ?? true),
-                        accessory: { followUpInsertButton }
+                        showsCopy: false,
+                        accessory: {
+                            HStack(spacing: 12) {
+                                followUpTemplateMenu
+                                followUpInsertButton
+                                followUpCopyButton
+                            }
+                        }
                     ) {
                         followUpSection(summary)
+                    }
+                    .confirmationDialog(
+                        String(localized: "The letter still has [?] in it"),
+                        isPresented: Binding(get: { unfilledFollowUp != nil }, set: { if !$0 { unfilledFollowUp = nil } }),
+                        presenting: unfilledFollowUp
+                    ) { use in
+                        Button(use == .copy ? String(localized: "Copy anyway") : String(localized: "Insert anyway")) {
+                            useFollowUp(use, checked: true)
+                        }
+                        Button(String(localized: "Cancel"), role: .cancel) {}
+                    } message: { _ in
+                        Text("Daisy couldn’t tell what goes there from the meeting. Fill them in before sending.")
                     }
                 }
                 if !(session.meetingPreparation?.planItems.isEmpty ?? true) {
@@ -1322,7 +1349,7 @@ struct SessionDetailView: View {
         // draft is its OWN accordion now (Egor 2026-06-16), so strip it here.
         let bodySummary = MeetingSummary(
             summary: summary.summary,
-            sections: summary.sections,
+            sections: shownSections(summary),
             actionItems: summary.actionItems,
             clientFollowUp: ""
         )
@@ -1333,6 +1360,9 @@ struct SessionDetailView: View {
         // it (Egor). The scrollable variant lays the document out to full
         // height internally and caps the visible pane — short summaries sit
         // flush, long ones scroll inside the card. Same approach as Transcript.
+        if let templated = summary.templated {
+            templatedSwitch(templated)
+        }
         ScrollableTextView(
             attributed: summaryAttributedString(bodySummary, compact: false),
             maxHeight: 720
@@ -1394,7 +1424,11 @@ struct SessionDetailView: View {
                 .foregroundStyle(.tertiary)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 8) {
-                Text("No follow-up was drafted — the model treated this conversation as internal (no external party identified).")
+                // No next steps: no letter is the answer, not an empty
+                // draft (research 21.10).
+                Text(session.summary?.actionItems.isEmpty == true
+                     ? String(localized: "No email needed — no next steps came up in this meeting.")
+                     : String(localized: "No follow-up was drafted — the model treated this conversation as internal (no external party identified)."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1410,7 +1444,8 @@ struct SessionDetailView: View {
                 // judged the conversation as internal on the second
                 // pass, so the empty result reads as a deliberate
                 // model decision rather than a silent no-op.
-                Button("Draft follow-up") {
+                Button(session.summary?.actionItems.isEmpty == true
+                       ? String(localized: "Draft one anyway") : String(localized: "Draft follow-up")) {
                     attemptDraftFollowUp()
                 }
                 .buttonStyle(.bordered)
@@ -1555,7 +1590,7 @@ struct SessionDetailView: View {
     private var followUpInsertButton: some View {
         if let followUp = session.summary?.clientFollowUp, !followUp.isEmpty {
             Button {
-                Task { await CursorInsert.insert(followUp) }
+                useFollowUp(.insert)
             } label: {
                 Label(insertTitle, systemImage: "text.cursor")
             }
@@ -1564,6 +1599,186 @@ struct SessionDetailView: View {
             .disabled(PreviousAppTracker.shared.name == nil)
             .help(insertHelp)
         }
+    }
+
+    // MARK: Templates (backlog 35)
+
+    enum FollowUpUse: Equatable { case copy, insert }
+
+    /// The follow-up's own copy button: asks first while a [?] is left.
+    @ViewBuilder
+    private var followUpCopyButton: some View {
+        if let followUp = session.summary?.clientFollowUp, !followUp.isEmpty {
+            Button {
+                useFollowUp(.copy)
+            } label: {
+                Image(systemName: "doc.on.doc")
+                    .font(.callout)
+                    .padding(4)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .daisyHover(RoundedRectangle(cornerRadius: 5, style: .continuous), overContent: false)
+            .help(String(localized: "Copy follow-up"))
+        }
+    }
+
+    /// Copy or insert the follow-up; while it has a [?] the person is asked
+    /// first (research 21.10: «Скопировать»/«Вставить» спрашивают).
+    private func useFollowUp(_ use: FollowUpUse, checked: Bool = false) {
+        guard let followUp = session.summary?.clientFollowUp, !followUp.isEmpty else { return }
+        if !checked, followUp.contains("[?]") {
+            unfilledFollowUp = use
+            return
+        }
+        switch use {
+        case .copy:
+            RichClipboard.copy(markdown: followUp)
+            ToastCenter.shared.show(String(localized: "Follow-up copied"), style: .success)
+        case .insert:
+            Task { await CursorInsert.insert(followUp) }
+        }
+    }
+
+    /// The sections the card shows: the template's, unless the person
+    /// switched to the standard view.
+    private func shownSections(_ summary: MeetingSummary) -> [SummarySection] {
+        if let templated = summary.templated, !showsStandardSummary { return templated.sections }
+        return summary.sections
+    }
+
+    /// «Standard / <template>» and which template, and why.
+    @ViewBuilder
+    private func templatedSwitch(_ templated: TemplatedSummary) -> some View {
+        HStack(spacing: 10) {
+            Picker("", selection: $showsStandardSummary) {
+                Text(templated.template).tag(false)
+                Text("Standard").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            if let reason = templated.reason, !reason.isEmpty {
+                Text("Template: \(templated.template) · \(reason)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            if isApplyingTemplate { ProgressView().controlSize(.small) }
+        }
+    }
+
+    /// Lay this meeting out by another template, or go back to the
+    /// standard summary only.
+    @ViewBuilder
+    private var summaryTemplateMenu: some View {
+        if let summary = session.summary, session.transcriptURL != nil {
+            let templates = MeetingTemplateStore.shared.templates(.summary)
+            Menu {
+                ForEach(templates) { template in
+                    Button {
+                        Task { await applySummaryTemplate(template) }
+                    } label: {
+                        if summary.templated?.templateID == template.id.uuidString {
+                            Label(String(localized: "Rewrite by “\(template.name)”"), systemImage: "checkmark")
+                        } else {
+                            Text("Rewrite by “\(template.name)”")
+                        }
+                    }
+                }
+                if summary.templated != nil {
+                    Divider()
+                    Button(String(localized: "Standard summary only")) { Task { await dropSummaryTemplate() } }
+                }
+                Divider()
+                Button(templates.isEmpty ? String(localized: "Make a notes template…") : String(localized: "Manage templates…")) {
+                    AppNavigation.shared.pendingStyleTab = .meetingNotes
+                    AppNavigation.shared.section = .voice
+                }
+            } label: {
+                Image(systemName: "rectangle.split.3x1")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .disabled(isApplyingTemplate || isSummaryGenerating)
+            .help(String(localized: "Notes template"))
+        }
+    }
+
+    /// Rewrite the follow-up by a template, in the same pass as the voice.
+    @ViewBuilder
+    private var followUpTemplateMenu: some View {
+        if let summary = session.summary, !summary.clientFollowUp.isEmpty {
+            let templates = MeetingTemplateStore.shared.templates(.followUp)
+            Menu {
+                ForEach(templates) { template in
+                    Button {
+                        Task { await rewriteFollowUp(by: template) }
+                    } label: {
+                        if summary.followUpTemplate?.id == template.id.uuidString {
+                            Label(String(localized: "Rewrite by “\(template.name)”"), systemImage: "checkmark")
+                        } else {
+                            Text("Rewrite by “\(template.name)”")
+                        }
+                    }
+                }
+                if !templates.isEmpty { Divider() }
+                Button(templates.isEmpty ? String(localized: "Make a follow-up template…") : String(localized: "Manage templates…")) {
+                    AppNavigation.shared.pendingStyleTab = .followUps
+                    AppNavigation.shared.section = .voice
+                }
+            } label: {
+                Image(systemName: "rectangle.split.3x1")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .disabled(isApplyingTemplate || isDraftingFollowUp)
+            .help(summary.followUpTemplate.map { String(localized: "Template: \($0.name)") }
+                  ?? String(localized: "Follow-up template"))
+        }
+    }
+
+    private func applySummaryTemplate(_ template: MeetingTemplate) async {
+        guard let summary = session.summary else { return }
+        isApplyingTemplate = true
+        defer { isApplyingTemplate = false }
+        let laid = await StoredSessionTemplates.laidOut(summary, previous: summary, session: session, template: template)
+        guard laid.templated?.templateID == template.id.uuidString, laid != summary else {
+            ToastCenter.shared.show(String(localized: "Couldn’t lay this meeting out by “\(template.name)”"), style: .warning)
+            return
+        }
+        ImprovementStats.record(.templateSwitched)
+        showsStandardSummary = false
+        // Not `adopt`: that is the live recording's summary, which
+        // auto-send and its transcript read — this is a stored meeting.
+        _ = await SessionStore.shared.updateSummary(laid, for: session)
+    }
+
+    private func dropSummaryTemplate() async {
+        guard var summary = session.summary, summary.templated != nil else { return }
+        summary.templated = nil
+        ImprovementStats.record(.templateSwitched)
+        // Not `adopt`: that is the live recording's summary, which
+        // auto-send and its transcript read — this is a stored meeting.
+        _ = await SessionStore.shared.updateSummary(summary, for: session)
+    }
+
+    private func rewriteFollowUp(by template: MeetingTemplate) async {
+        guard let summary = session.summary else { return }
+        isApplyingTemplate = true
+        defer { isApplyingTemplate = false }
+        let rewritten = await StoredSessionTemplates.followUp(summary, previous: summary, session: session, template: template)
+        guard rewritten.clientFollowUp != summary.clientFollowUp else {
+            ToastCenter.shared.show(String(localized: "Couldn’t rewrite the follow-up by “\(template.name)”"), style: .warning)
+            return
+        }
+        ImprovementStats.record(.templateSwitched)
+        // Not `adopt`: that is the live recording's summary, which
+        // auto-send and its transcript read — this is a stored meeting.
+        _ = await SessionStore.shared.updateSummary(rewritten, for: session)
     }
 
     private func insertStep(_ index: Int, _ step: String) {
@@ -2520,7 +2735,13 @@ struct SessionDetailView: View {
             // the follow-up is honest latency here, unlike in the
             // scheduled evening pass or an MCP call where nobody is
             // watching and both are deliberately left out.
-            let voiced = await FollowUpVoice.polished(summary)
+            //
+            // Templates too (backlog 35): the follow-up's in the same pass,
+            // the notes' after it — a template picked by hand for this
+            // meeting stays its template.
+            let previous = session.summary
+            let withFollowUp = await StoredSessionTemplates.followUp(summary, previous: previous, session: session)
+            let voiced = await StoredSessionTemplates.laidOut(withFollowUp, previous: previous, session: session)
             Summarizer.shared.adopt(voiced)
             let saved = await SessionStore.shared.updateSummary(voiced, for: session)
             if saved {
@@ -2614,14 +2835,12 @@ struct SessionDetailView: View {
                     style: .warning
                 )
             } else {
-                let merged = await FollowUpVoice.polished(
-                    MeetingSummary(
-                        summary: existing.summary,
-                        sections: existing.sections,
-                        actionItems: existing.actionItems,
-                        clientFollowUp: trimmedFollowUp
-                    )
-                )
+                // A copy of the existing summary with the new draft — its
+                // title and template notes stay.
+                var fresh = existing
+                fresh.clientFollowUp = trimmedFollowUp
+                fresh.followUpTemplate = nil
+                let merged = await StoredSessionTemplates.followUp(fresh, previous: existing, session: session)
                 Summarizer.shared.adopt(merged)
                 await SessionStore.shared.updateSummary(merged, for: session)
                 ToastCenter.shared.show(String(localized: "Follow-up drafted"), style: .success)
@@ -2878,7 +3097,7 @@ struct SessionDetailView: View {
             // Body only — the Follow-up accordion copies the draft itself.
             let body = MeetingSummary(
                 summary: s.summary,
-                sections: s.sections,
+                sections: shownSections(s),
                 actionItems: s.actionItems,
                 clientFollowUp: ""
             )

@@ -623,8 +623,11 @@ enum MCPTools {
             let err = Summarizer.shared.lastError ?? "the provider returned no summary"
             return .error("Re-summarize failed: \(err)")
         }
-        // Same persistence the UI uses — writes summary.json + reloads.
-        await SessionStore.shared.updateSummary(summary, for: session)
+        // Templates (backlog 35) — a hand-picked one survives an agent's
+        // re-summarize — without the voice pass MCP leaves out. Same
+        // persistence the UI uses — writes summary.json + reloads.
+        let templated = await StoredSessionTemplates.applyWithoutVoice(summary, previous: session.summary, session: session)
+        await SessionStore.shared.updateSummary(templated, for: session)
         return ack([
             "ok": .bool(true),
             "id": .string(session.id),
@@ -888,11 +891,28 @@ enum MCPTools {
         let meeting: String
         let next_actions: [String]
         let client_follow_up: String
+        /// Backlog 35: the meeting under the person's notes template, when
+        /// it has one — every point starts with its [mm:ss].
+        let templated: TemplatedDTO?
+
+        struct TemplatedDTO: Encodable {
+            let template: String
+            let sections: [SectionDTO]
+        }
+
+        struct SectionDTO: Encodable {
+            let title: String
+            let points: [String]
+        }
 
         init(_ m: MeetingSummary) {
             self.meeting = m.summary
             self.next_actions = m.actionItems
             self.client_follow_up = m.clientFollowUp
+            self.templated = m.templated.map { t in
+                TemplatedDTO(template: t.template,
+                             sections: t.sections.map { SectionDTO(title: $0.title, points: $0.bullets.map(\.text)) })
+            }
         }
     }
 

@@ -41,13 +41,22 @@ enum FollowUpVoice {
 
     private static let log = Logger(subsystem: "app.essazanov.Daisy", category: "FollowUpVoice")
 
-    /// Return `summary` with its follow-up rewritten in the user's voice,
-    /// or unchanged — which is the answer whenever anything at all is
-    /// missing: the setting, a profile, a follow-up, or a usable reply.
-    /// Never fails loudly: a follow-up in the model's voice is a small
-    /// disappointment, an empty one is a bug.
-    static func polished(_ summary: MeetingSummary) async -> MeetingSummary {
-        guard AppSettings.followUpsInMyVoiceEnabled else { return summary }
+    /// Return `summary` with its follow-up rewritten in the user's voice —
+    /// and, with a follow-up template, in its structure, in the same call
+    /// (backlog 35 Ш-1) — or unchanged, which is the answer whenever
+    /// anything at all is missing: the setting (a template turns the pass
+    /// on by itself), a profile or a template, a follow-up, or a usable
+    /// reply. Never fails loudly: a follow-up in the model's voice is a
+    /// small disappointment, an empty one is a bug.
+    ///
+    /// `voice: false` — the paths that leave the voice out on purpose (the
+    /// evening pass, imports, MCP: nobody is waiting, every call costs) —
+    /// apply only a template.
+    static func polished(_ summary: MeetingSummary, template: MeetingTemplate? = nil,
+                         pickedByHand: Bool = false, voice: Bool = true) async -> MeetingSummary {
+        let structure = template.map(\.structure).flatMap { $0.isEmpty ? nil : $0 }
+        let wantsVoice = voice && AppSettings.followUpsInMyVoiceEnabled
+        guard wantsVoice || structure != nil else { return summary }
         let draft = summary.clientFollowUp.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !draft.isEmpty else { return summary }
         // The follow-up's language is the summary language when one is
@@ -57,25 +66,35 @@ enum FollowUpVoice {
         // after a meeting, with nobody watching for it.
         let target = VoiceCorpusClassifier.normalized(AppSettings.currentSummaryLanguage)
             ?? LanguageDetector.detect(draft)
-        guard let style = VoiceProfileStore.shared.resolveStyle(forTextIn: target),
-              !style.instruction.isEmpty else { return summary }
+        // The voice only with the setting on: a template alone rewrites the
+        // structure, not the person's tone.
+        let style = wantsVoice
+            ? VoiceProfileStore.shared.resolveStyle(forTextIn: target).flatMap { $0.instruction.isEmpty ? nil : $0 }
+            : nil
+        guard style != nil || structure != nil else { return summary }
 
         guard let rewritten = await RecordingSession.polishWithDeadline(
             text: draft,
-            instruction: instruction(for: style.promptInstruction),
-            seconds: deadlineSeconds
+            instruction: instruction(for: style?.promptInstruction, structure: structure),
+            seconds: deadlineSeconds,
+            // A template can make a long draft a short letter.
+            minShare: structure == nil ? 0.4 : 0.15
         )?.trimmingCharacters(in: .whitespacesAndNewlines), !rewritten.isEmpty else {
-            log.info("Follow-up left as drafted — voice polish returned nothing usable")
+            log.info("Follow-up left as drafted — the second pass returned nothing usable")
             return summary
         }
 
-        log.info("Follow-up rewritten in the user's voice")
-        return MeetingSummary(
-            summary: summary.summary,
-            sections: summary.sections,
-            actionItems: summary.actionItems,
-            clientFollowUp: rewritten
-        )
+        log.info("Follow-up rewritten (voice: \(style != nil, privacy: .public), template: \(structure != nil, privacy: .public))")
+        // A copy, not a rebuilt summary: the title and a template's notes
+        // stay with it.
+        var result = summary
+        result.clientFollowUp = rewritten
+        if let template, structure != nil {
+            result.followUpTemplate = TemplateReference(name: template.name, id: template.id.uuidString,
+                                                        pickedByHand: pickedByHand ? true : nil)
+            MeetingTemplateStore.shared.markUsed(template.id.uuidString)
+        }
+        return result
     }
 
     /// The style profile plus two corrections, because this borrows the
@@ -94,10 +113,20 @@ enum FollowUpVoice {
     /// English draft rewritten back into Russian by their own style
     /// description. The length gate can't catch that: the character
     /// count barely moves.
-    private static func instruction(for style: String) -> String {
-        """
-        \(style)
-
+    private static func instruction(for style: String?, structure: String?) -> String {
+        var parts: [String] = []
+        if let style { parts.append(style) }
+        if let structure {
+            // Research 21.10: a follow-up that doesn't read like a model's —
+            // about THIS meeting from the first line, no transcript bullets,
+            // nothing invented, unknowns marked for the person to fill.
+            parts.append("""
+            Lay the message out by this structure the user set for such letters — its parts, their order and its length:
+            \(structure)
+            Take every fact from the text you are given and nothing else: a part of the structure the text gives nothing for is left out, not filled. The first line is about this meeting specifically. Don't turn it into a list of everything that was said. Where the structure needs something the text doesn't say (a date, a name), write [?] in its place.
+            """)
+        }
+        parts.append("""
         Two things about THIS text specifically:
           - It is a WRITTEN follow-up message, not dictation. There are no
             disfluencies or speech-to-text errors to repair. Rewrite it so
@@ -105,7 +134,9 @@ enum FollowUpVoice {
             every fact, name, date, number and commitment exactly as it
             stands.
           - Write in the SAME language as the text you are given, even if
-            the voice description above is written in another language.
-        """
+            the voice description or the structure above is written in
+            another language.
+        """)
+        return parts.joined(separator: "\n\n")
     }
 }

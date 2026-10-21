@@ -71,6 +71,16 @@
         }
       }
     },
+    "A section the meeting didn’t touch says “Not discussed” — nothing is made up to fill it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Раздел, которого встреча не коснулась, получит «Не обсуждалось» — ничего не выдумывается, чтобы его заполнить."
+          }
+        }
+      }
+    },
     "A side note’s lines move out of the meeting’s transcript instead of being copied" : {
       "localizations" : {
         "ru" : {
@@ -81,12 +91,62 @@
         }
       }
     },
+    "Add a section" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавить раздел"
+          }
+        }
+      }
+    },
     "Allow and run" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Разрешить и выполнить"
+          }
+        }
+      }
+    },
+    "Archive" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В архив"
+          }
+        }
+      }
+    },
+    "Archived (%lld)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В архиве (%lld)"
+          }
+        }
+      }
+    },
+    "By folder or title it would apply to none of your recent meetings (%lld checked)." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "По папке или названию не сработал бы ни на одной из недавних встреч (проверено: %lld)."
+          }
+        }
+      }
+    },
+    "By this template" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "По этому шаблону"
           }
         }
       }
@@ -107,6 +167,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Изменён текст карточки"
+          }
+        }
+      }
+    },
+    "Choose files…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбрать файлы…"
           }
         }
       }
@@ -161,6 +231,16 @@
         }
       }
     },
+    "Copy anyway" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Всё равно скопировать"
+          }
+        }
+      }
+    },
     "Couldn't download “%@”: %@" : {
       "localizations" : {
         "ru" : {
@@ -201,6 +281,56 @@
         }
       }
     },
+    "Couldn’t lay that meeting out by this template" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не получилось разложить ту встречу по этому шаблону"
+          }
+        }
+      }
+    },
+    "Couldn’t lay this meeting out by “%@”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не получилось разложить встречу по шаблону «%@»"
+          }
+        }
+      }
+    },
+    "Couldn’t read a structure — write it below yourself." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не получилось прочитать структуру — опиши её ниже вручную."
+          }
+        }
+      }
+    },
+    "Couldn’t read the sections — add them below." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не получилось прочитать разделы — добавь их ниже."
+          }
+        }
+      }
+    },
+    "Couldn’t rewrite the follow-up by “%@”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не получилось переписать фоллоап по шаблону «%@»"
+          }
+        }
+      }
+    },
     "Couldn’t save the note — the text is on the clipboard and in the command history" : {
       "localizations" : {
         "ru" : {
@@ -217,6 +347,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Daisy обращается к локальному серверу Ollama по его REST `/api/chat`. Без API-ключа и без выхода в сеть — всё остаётся на твоём Mac. Модель скачивается из списка ниже, с ollama.com, один раз. Бесплатно."
+          }
+        }
+      }
+    },
+    "Daisy couldn’t tell what goes there from the meeting. Fill them in before sending." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не поняла из встречи, что там должно быть. Заполни перед отправкой."
           }
         }
       }
@@ -241,6 +381,16 @@
         }
       }
     },
+    "Default" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "По умолчанию"
+          }
+        }
+      }
+    },
     "Didn’t hear anything" : {
       "localizations" : {
         "ru" : {
@@ -257,6 +407,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Скачать (%@)"
+          }
+        }
+      }
+    },
+    "Draft one anyway" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Всё равно написать"
+          }
+        }
+      }
+    },
+    "Edit template" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изменить шаблон"
+          }
+        }
+      }
+    },
+    "Every meeting without another template" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Каждая встреча без другого шаблона"
+          }
+        }
+      }
+    },
+    "Examples — one to three of your best letters" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Примеры — одно-три твоих лучших письма"
           }
         }
       }
@@ -291,6 +481,56 @@
         }
       }
     },
+    "Folders" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Папки"
+          }
+        }
+      }
+    },
+    "Folders: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Папки: %@"
+          }
+        }
+      }
+    },
+    "Follow-up copied" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Фоллоап скопирован"
+          }
+        }
+      }
+    },
+    "Follow-up template" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаблон фоллоапа"
+          }
+        }
+      }
+    },
+    "Follow-ups" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Фоллоапы"
+          }
+        }
+      }
+    },
     "For a quiet marker, use the Mark this moment key" : {
       "localizations" : {
         "ru" : {
@@ -301,12 +541,42 @@
         }
       }
     },
+    "From a note you like…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Из удачной заметки…"
+          }
+        }
+      }
+    },
+    "From the built-ins" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Из готовых"
+          }
+        }
+      }
+    },
     "Headphones as the microphone" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Наушники как микрофон"
+          }
+        }
+      }
+    },
+    "Hide" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скрыть"
           }
         }
       }
@@ -337,6 +607,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Вставить"
+          }
+        }
+      }
+    },
+    "Insert anyway" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Всё равно вставить"
           }
         }
       }
@@ -401,12 +681,62 @@
         }
       }
     },
+    "Left out of the template: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В шаблон не попало: %@"
+          }
+        }
+      }
+    },
+    "Make a follow-up template…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сделать шаблон фоллоапа…"
+          }
+        }
+      }
+    },
+    "Make a notes template…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сделать шаблон заметок…"
+          }
+        }
+      }
+    },
+    "Manage templates…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаблоны…"
+          }
+        }
+      }
+    },
     "Marking a side note… press the Daisy key again to end it." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Побочная заметка… нажми клавишу Daisy ещё раз, чтобы закончить."
+          }
+        }
+      }
+    },
+    "Meeting notes" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заметки встреч"
           }
         }
       }
@@ -1023,6 +1353,36 @@
         }
       }
     },
+    "Name — “Candidate interview”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Название — «Интервью кандидата»"
+          }
+        }
+      }
+    },
+    "Name — “Client after a sale”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Название — «Клиенту после продажи»"
+          }
+        }
+      }
+    },
+    "Names, companies and contacts are taken out on this Mac first. The examples go to the provider once, to read their structure; templates themselves stay here." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Имена, компании и контакты сначала убираются на этом Mac. Примеры один раз уйдут провайдеру, чтобы прочитать их структуру; сами шаблоны остаются здесь."
+          }
+        }
+      }
+    },
     "Names, terms, who spoke" : {
       "localizations" : {
         "ru" : {
@@ -1043,12 +1403,82 @@
         }
       }
     },
+    "New follow-up template" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новый шаблон фоллоапа"
+          }
+        }
+      }
+    },
+    "New notes template" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новый шаблон заметок"
+          }
+        }
+      }
+    },
+    "New template" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новый шаблон"
+          }
+        }
+      }
+    },
     "No dictations yet." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Диктовок пока нет."
+          }
+        }
+      }
+    },
+    "No email needed — no next steps came up in this meeting." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Письмо не нужно — на встрече не было следующих шагов."
+          }
+        }
+      }
+    },
+    "No follow-up templates yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаблонов фоллоапов пока нет."
+          }
+        }
+      }
+    },
+    "No notes templates yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаблонов заметок пока нет."
+          }
+        }
+      }
+    },
+    "No recent meeting with a summary to preview on" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нет недавней встречи с саммари для предпросмотра"
           }
         }
       }
@@ -1123,6 +1553,36 @@
         }
       }
     },
+    "Not the default" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не по умолчанию"
+          }
+        }
+      }
+    },
+    "Not used for 30 days." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не использовался 30 дней."
+          }
+        }
+      }
+    },
+    "Not used yet" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ещё не использовался"
+          }
+        }
+      }
+    },
     "Note not saved — text copied" : {
       "localizations" : {
         "ru" : {
@@ -1159,6 +1619,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Заметка — проект не найден"
+          }
+        }
+      }
+    },
+    "Notes template" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаблон заметок"
           }
         }
       }
@@ -1233,6 +1703,16 @@
         }
       }
     },
+    "Only when picked in a meeting’s card" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Только если выбран в карточке встречи"
+          }
+        }
+      }
+    },
     "Open System Settings" : {
       "localizations" : {
         "ru" : {
@@ -1249,6 +1729,66 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Оптимальная"
+          }
+        }
+      }
+    },
+    "Parts and their order, length, greeting and sign-off. Edit it freely — this is what letters follow." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Части и их порядок, длина, приветствие и подпись. Правь как угодно — письма будут следовать этому."
+          }
+        }
+      }
+    },
+    "Paste a meeting note you like; Daisy lists its sections for you to edit." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вставь удачную заметку встречи — Daisy выпишет её разделы, а ты их поправишь."
+          }
+        }
+      }
+    },
+    "Paste them or drop files (.txt, .md, .eml, .docx). Daisy reads their structure once; the letters themselves aren’t kept." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вставь их или перетащи файлы (.txt, .md, .eml, .docx). Daisy один раз прочитает их структуру; сами письма не сохраняются."
+          }
+        }
+      }
+    },
+    "Picked in the meeting’s card wins; then its folder, then a word in its title, then the default." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбранный в карточке встречи важнее всего; потом папка, потом слово в названии, потом шаблон по умолчанию."
+          }
+        }
+      }
+    },
+    "Preview on a recent meeting" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Посмотреть на недавней встрече"
+          }
+        }
+      }
+    },
+    "Preview — “%@”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Предпросмотр — «%@»"
           }
         }
       }
@@ -1323,6 +1863,36 @@
         }
       }
     },
+    "Read the examples with %@?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Прочитать примеры с помощью %@?"
+          }
+        }
+      }
+    },
+    "Read the sections" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Прочитать разделы"
+          }
+        }
+      }
+    },
+    "Read the structure" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Прочитать структуру"
+          }
+        }
+      }
+    },
     "Reading text from the screenshots…" : {
       "localizations" : {
         "ru" : {
@@ -1339,6 +1909,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Готово — поле сменилось, поэтому текст в буфере обмена: ⌘V"
+          }
+        }
+      }
+    },
+    "Recent meetings it would apply to: %lld of %lld — %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Недавние встречи, где он сработал бы: %lld из %lld — %@"
           }
         }
       }
@@ -1383,6 +1963,26 @@
         }
       }
     },
+    "Restore" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вернуть"
+          }
+        }
+      }
+    },
+    "Rewrite by “%@”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переписать по шаблону «%@»"
+          }
+        }
+      }
+    },
     "Rewritten" : {
       "localizations" : {
         "ru" : {
@@ -1419,6 +2019,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Скриншоты"
+          }
+        }
+      }
+    },
+    "Section — “Budget and timeline”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Раздел — «Бюджет и сроки»"
+          }
+        }
+      }
+    },
+    "Sections" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разделы"
           }
         }
       }
@@ -1543,6 +2163,16 @@
         }
       }
     },
+    "Standard summary only" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Только стандартное саммари"
+          }
+        }
+      }
+    },
     "Still working on the last command" : {
       "localizations" : {
         "ru" : {
@@ -1613,6 +2243,16 @@
         }
       }
     },
+    "Structure" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Структура"
+          }
+        }
+      }
+    },
     "Summary settings" : {
       "localizations" : {
         "ru" : {
@@ -1659,6 +2299,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Тап — начать заметку, ещё тап — остановить: то же, что тап клавиши Daisy, на отдельной клавише"
+          }
+        }
+      }
+    },
+    "Template: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаблон: %@"
+          }
+        }
+      }
+    },
+    "Template: %@ · %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаблон: %@ · %@"
+          }
+        }
+      }
+    },
+    "Templates stay on this Mac. With a cloud summary provider, a template’s structure is sent with the transcript — never the example letters it was made from." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаблоны хранятся на этом Mac. С облачным провайдером саммари вместе с транскриптом уходит структура шаблона — но никогда не письма-примеры, из которых он сделан."
           }
         }
       }
@@ -1713,6 +2383,16 @@
         }
       }
     },
+    "The letter still has [?] in it" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В письме остались [?]"
+          }
+        }
+      }
+    },
     "The provider returned no summary." : {
       "localizations" : {
         "ru" : {
@@ -1739,6 +2419,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Запись остановила новую расшифровку «%@» — запусти её снова после."
+          }
+        }
+      }
+    },
+    "The sections of your meeting notes — a sales call, an interview, a standup. The standard summary stays; the card shows the template’s view beside it, every point with its timecode." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разделы твоих заметок встреч — продажа, интервью, планёрка. Стандартное саммари остаётся; в карточке рядом виден вид по шаблону, у каждого пункта — таймкод."
           }
         }
       }
@@ -1779,6 +2469,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Это облачная модель Ollama — она работает на ollama.com, а не на этом Mac."
+          }
+        }
+      }
+    },
+    "Title words: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Слова в названии: %@"
           }
         }
       }
@@ -1863,6 +2563,26 @@
         }
       }
     },
+    "Use by default" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Использовать по умолчанию"
+          }
+        }
+      }
+    },
+    "Used %lld times · last %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Применений: %lld · последнее %@"
+          }
+        }
+      }
+    },
     "Used: %@" : {
       "localizations" : {
         "ru" : {
@@ -1893,6 +2613,46 @@
         }
       }
     },
+    "What goes there (optional) — “numbers and dates as said”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Что туда входит (необязательно) — «цифры и даты, как прозвучали»"
+          }
+        }
+      }
+    },
+    "What your follow-up letters say and in what order — your voice is how they sound. A meeting gets a template by its folder, a word in its title, or the default." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "О чём и в каком порядке твои письма после встреч, — а голос задаёт, как они звучат. Встреча получает шаблон по папке, по слову в названии или по умолчанию."
+          }
+        }
+      }
+    },
+    "When a meeting gets it" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Когда встреча его получает"
+          }
+        }
+      }
+    },
+    "Words in the title" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Слова в названии"
+          }
+        }
+      }
+    },
     "Writing…" : {
       "localizations" : {
         "ru" : {
@@ -1919,6 +2679,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Свои настройки — они во вкладках «Транскрипция» и «Саммари». Выбери план, чтобы сбросить их."
+          }
+        }
+      }
+    },
+    "Your voice, and the templates your letters and notes follow" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Твой голос и шаблоны, по которым пишутся письма и заметки"
           }
         }
       }
@@ -1955,6 +2725,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Подключён"
+          }
+        }
+      }
+    },
+    "folder “%@”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "папка «%@»"
+          }
+        }
+      }
+    },
+    "interview, demo, standup, 1:1" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "интервью, демо, планёрка, 1:1"
           }
         }
       }
@@ -2051,6 +2841,26 @@
         }
       }
     },
+    "or drop them here" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "или перетащи их сюда"
+          }
+        }
+      }
+    },
+    "picked by hand" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "выбран вручную"
+          }
+        }
+      }
+    },
     "preset.live.full" : {
       "localizations" : {
         "en" : {
@@ -2120,6 +2930,16 @@
         }
       }
     },
+    "the default" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "по умолчанию"
+          }
+        }
+      }
+    },
     "—" : {
       "comment" : "A placeholder text that appears when a value is not available.",
       "extractionState" : "stale",
@@ -2133,12 +2953,32 @@
         }
       }
     },
+    "“%@” in the title" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@» в названии"
+          }
+        }
+      }
+    },
     "“%@” is downloaded and selected for summaries." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "«%@» скачана и выбрана для саммари."
+          }
+        }
+      }
+    },
+    "• %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "• %@"
           }
         }
       }

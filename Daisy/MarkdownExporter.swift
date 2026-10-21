@@ -228,7 +228,9 @@ enum MarkdownExporter {
                 lines.append(summary.summary)
                 lines.append("")
             }
-            for section in summary.sections {
+            // A summary template's view, when the meeting has one (backlog
+            // 35): the export is what the card shows.
+            for section in summary.templated?.sections ?? summary.sections {
                 lines.append("### \(section.title)")
                 lines.append("")
                 appendBullets(section.bullets, level: 0, into: &lines)
