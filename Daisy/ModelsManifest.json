@@ -1,0 +1,895 @@
+{
+  "schemaVersion": 1,
+  "repositories": [
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "required": [
+        "openai_whisper-large-v3-v20240930_626MB",
+        "openai_whisper-large-v3-v20240930"
+      ],
+      "purpose": "Whisper large-v3 Core ML \u2014 the default 626 MB model and the full 1.5 GB one (Mac); the 626 MB one also for iOS",
+      "license": "MIT (OpenAI / Argmax)",
+      "authors": "OpenAI; Argmax"
+    },
+    {
+      "repo": "openai/whisper-large-v3",
+      "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1",
+      "required": [
+        "config.json",
+        "tokenizer.json",
+        "tokenizer_config.json"
+      ],
+      "purpose": "Whisper tokenizer and configuration (Mac, iOS)",
+      "license": "Apache-2.0 (HF repository metadata); Whisper model MIT",
+      "authors": "OpenAI; Hugging Face contributors"
+    },
+    {
+      "repo": "FluidInference/speaker-diarization-coreml",
+      "revision": "7eab74f3463c736418d0eb10296261ae581146c9",
+      "required": [
+        "pyannote_segmentation.mlmodelc",
+        "wespeaker_v2.mlmodelc"
+      ],
+      "purpose": "Speaker segmentation and embeddings (Mac, iOS)",
+      "license": "Segmentation MIT (CNRS); WeSpeaker CC BY 4.0; Core ML conversions by Fluid Inference",
+      "authors": "CNRS / pyannote; WeSpeaker; Fluid Inference"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "required": [
+        "Preprocessor.mlmodelc",
+        "Encoder.mlmodelc",
+        "Decoder.mlmodelc",
+        "JointDecisionv3.mlmodelc",
+        "parakeet_vocab.json"
+      ],
+      "purpose": "Parakeet TDT 0.6B v3 \u2014 the fast dictation engine (Mac)",
+      "license": "CC BY 4.0 (NVIDIA); Core ML conversion by Fluid Inference",
+      "authors": "NVIDIA; Fluid Inference"
+    },
+    {
+      "repo": "FluidInference/silero-vad-coreml",
+      "revision": "b419383c55c110e2c9271fa6ee0ea83d03c70d96",
+      "required": [
+        "silero-vad-unified-256ms-v6.2.1.mlmodelc"
+      ],
+      "purpose": "Silero VAD \u2014 speech detection before transcription (Mac)",
+      "license": "MIT (Silero Team); Core ML conversion by Fluid Inference",
+      "authors": "Silero Team; Fluid Inference"
+    }
+  ],
+  "files": [
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "README.md",
+      "size": 563,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "5e21c23307cc91b1bd821bd3ae2d34d4daa651fb",
+      "runtime": false,
+      "sha256": "71a4d9b93f85b3cf28afc44d271f78405a23e922b177c68b2ecdd18da6d80a7c"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/AudioEncoder.mlmodelc/analytics/coremldata.bin",
+      "size": 243,
+      "upstreamSHA256": "742c7bd747be2f2a27116a6ebe8ab4675babda518d2123f3efd774a890bc8304",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "742c7bd747be2f2a27116a6ebe8ab4675babda518d2123f3efd774a890bc8304"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/AudioEncoder.mlmodelc/coremldata.bin",
+      "size": 348,
+      "upstreamSHA256": "6345ee37d7bf7e45d4766046fa04822eb9e13bf144469541e9c1a3e0b911d2fe",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "6345ee37d7bf7e45d4766046fa04822eb9e13bf144469541e9c1a3e0b911d2fe"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/AudioEncoder.mlmodelc/metadata.json",
+      "size": 1772,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "084220a2dfc36f36f28c07505ccfc644b7b54334",
+      "runtime": true,
+      "sha256": "e19aca840928a858a38642cdbea6d05daec3345736f0eb4f7d76a1b39fb9a8f4"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/AudioEncoder.mlmodelc/model.mil",
+      "size": 527644,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "788e8689747adf06f08962137070251a019b7012",
+      "runtime": true,
+      "sha256": "8dd9ca64f4eda167a9792316e0a40b3cfafff74d58fd07d5cf5ca08a4af79b4e"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/AudioEncoder.mlmodelc/model.mlmodel",
+      "size": 441653,
+      "upstreamSHA256": "c5eb570c19871d7b0c59e0a84718cc9c8cde77a94273886de87e866961262e2c",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "c5eb570c19871d7b0c59e0a84718cc9c8cde77a94273886de87e866961262e2c"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/AudioEncoder.mlmodelc/weights/weight.bin",
+      "size": 1273974400,
+      "upstreamSHA256": "98daf651a919978e28fe185daf55ce2f70085a8e59fa07fe8a4d08c87d368ae4",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "98daf651a919978e28fe185daf55ce2f70085a8e59fa07fe8a4d08c87d368ae4"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/MelSpectrogram.mlmodelc/analytics/coremldata.bin",
+      "size": 243,
+      "upstreamSHA256": "7f478e6afa8fdee3711d97b00728f82ee4dcdf2912f7ff033ee0dfcf57bf28bb",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "7f478e6afa8fdee3711d97b00728f82ee4dcdf2912f7ff033ee0dfcf57bf28bb"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/MelSpectrogram.mlmodelc/coremldata.bin",
+      "size": 329,
+      "upstreamSHA256": "a888718e98af679eee42db9e3609627472c32f77e4fdda28f3735960cbf526b3",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "a888718e98af679eee42db9e3609627472c32f77e4fdda28f3735960cbf526b3"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/MelSpectrogram.mlmodelc/metadata.json",
+      "size": 1878,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "ac5ea81913db74d9a773c3125ccab137629101d4",
+      "runtime": true,
+      "sha256": "dcb839ca16e598dfb1720af0294a8e21ab18b3e5afab136093aa2fd5f5cfc923"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/MelSpectrogram.mlmodelc/model.mil",
+      "size": 10166,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "13508737cd7987749b5796de7df6a695dc62de93",
+      "runtime": true,
+      "sha256": "6e0c6fc2cb23de4e5b6c25897047c12402da201b5a8717fa5ee9f3108b1cb702"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/MelSpectrogram.mlmodelc/model.mlmodel",
+      "size": 8962,
+      "upstreamSHA256": "5ce7a6b789891f4dc233cc67334db87d2097b6bddf07dd8ea2cd16efea3f9407",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "5ce7a6b789891f4dc233cc67334db87d2097b6bddf07dd8ea2cd16efea3f9407"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/MelSpectrogram.mlmodelc/weights/weight.bin",
+      "size": 373376,
+      "upstreamSHA256": "81275398516781f9755514a5ab85db4687374dd611013625f3d4493588783968",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "81275398516781f9755514a5ab85db4687374dd611013625f3d4493588783968"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/TextDecoder.mlmodelc/analytics/coremldata.bin",
+      "size": 243,
+      "upstreamSHA256": "931efc5180111dbab2542c200f10b326d760c65a42dcf6c5edef73d803b93255",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "931efc5180111dbab2542c200f10b326d760c65a42dcf6c5edef73d803b93255"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/TextDecoder.mlmodelc/coremldata.bin",
+      "size": 633,
+      "upstreamSHA256": "3faabaf66930e66956d8291d0ff485fb382496e30a91a7185548b9b898ce90a9",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "3faabaf66930e66956d8291d0ff485fb382496e30a91a7185548b9b898ce90a9"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/TextDecoder.mlmodelc/metadata.json",
+      "size": 4756,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "709866651649dc49d2c080f9b60e7f1924e608fd",
+      "runtime": true,
+      "sha256": "cc079b745229cd8ce5da1ab10a0d6058957e86fc5213987fe84f79aaabf268a6"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/TextDecoder.mlmodelc/model.mil",
+      "size": 132679,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "f78c77f2080261d7eaffdc835c291c6689feb305",
+      "runtime": true,
+      "sha256": "f7e04029e11733186b62f47bf45b6ef0ef1fa94739fc0d9ddf48c9faca7df2a3"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/TextDecoder.mlmodelc/model.mlmodel",
+      "size": 113164,
+      "upstreamSHA256": "47eb67da32c2abb086633509dad1a92bf239ab461367f286f79db8f0ba888bf1",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "47eb67da32c2abb086633509dad1a92bf239ab461367f286f79db8f0ba888bf1"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/TextDecoder.mlmodelc/weights/weight.bin",
+      "size": 343933748,
+      "upstreamSHA256": "47b2703aa37448e09cf2f06e45984fabd5ded4c34ba3400cec38a5294af39dc1",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "47b2703aa37448e09cf2f06e45984fabd5ded4c34ba3400cec38a5294af39dc1"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/config.json",
+      "size": 1255,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "17db874944dd362bb613d00887fc1f5850e39cf9",
+      "runtime": true,
+      "sha256": "c8a115f749498ee22ceb60285aa86f1eb1959f654741641aec275fb10b24e376"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930/generation_config.json",
+      "size": 3771,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "5f8be143c2f3f9292c0a9ccd84d5be3a2aeee92a",
+      "runtime": true,
+      "sha256": "1db97f5ab6a3ade6f82ef9a0de9613a98e2f5f525aaee053bc2f5e71c397323f"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/AudioEncoder.mlmodelc/analytics/coremldata.bin",
+      "size": 243,
+      "upstreamSHA256": "56793886ab1adb9ca8a4e335efbe8af6640f40d958ab2d29c3ad2d7d6f712e95",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "56793886ab1adb9ca8a4e335efbe8af6640f40d958ab2d29c3ad2d7d6f712e95"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/AudioEncoder.mlmodelc/coremldata.bin",
+      "size": 348,
+      "upstreamSHA256": "ffa9eb76e8e9d9be75a4d527e5249e61d67fd43081c5aa110fd24efa6c8c5ea3",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "ffa9eb76e8e9d9be75a4d527e5249e61d67fd43081c5aa110fd24efa6c8c5ea3"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/AudioEncoder.mlmodelc/metadata.json",
+      "size": 1922,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "7ecaaec9b1af60d12a5b4701f6a14ba2396ace53",
+      "runtime": true,
+      "sha256": "a87a3375afe79e88e27af30247e234e706b98679dedfd1b021a74f7ee108c669"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/AudioEncoder.mlmodelc/model.mil",
+      "size": 934263,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "0201c413869fdb60610817722f392dc064986105",
+      "runtime": true,
+      "sha256": "3cec2580fb07b12a88087f0e1586c6ba2982980eb36499561e1ffca2b0950442"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/AudioEncoder.mlmodelc/weights/weight.bin",
+      "size": 421968768,
+      "upstreamSHA256": "e4740fa28ed65907af754af893dfce98473fafb84dd8d718ad346985fe7678c1",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "e4740fa28ed65907af754af893dfce98473fafb84dd8d718ad346985fe7678c1"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/MelSpectrogram.mlmodelc/analytics/coremldata.bin",
+      "size": 243,
+      "upstreamSHA256": "c5be419f8622083ac7046306400643539f0e7577c843448c36defc090d41e7ce",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "c5be419f8622083ac7046306400643539f0e7577c843448c36defc090d41e7ce"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/MelSpectrogram.mlmodelc/coremldata.bin",
+      "size": 329,
+      "upstreamSHA256": "2bfc12cffc2e45e039c7a18f384f09adffb72c182fcd93f9413d405d1a6c1130",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "2bfc12cffc2e45e039c7a18f384f09adffb72c182fcd93f9413d405d1a6c1130"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/MelSpectrogram.mlmodelc/metadata.json",
+      "size": 1850,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "fa0c2e5993006c311ba50d307cf563ae10a16b5f",
+      "runtime": true,
+      "sha256": "2bc552e09a6f124d9e6c178dd1a6979e010206acb26308b2224887c9dcbeb35f"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/MelSpectrogram.mlmodelc/model.mil",
+      "size": 10143,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "16b67b0978ac178a7540e8520915d2473d4bae03",
+      "runtime": true,
+      "sha256": "c270b95b5f81d7f7d0b8a3e8f991d4e5812a37cad29349868a35b91f3a6a4463"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/MelSpectrogram.mlmodelc/weights/weight.bin",
+      "size": 373376,
+      "upstreamSHA256": "009d9fb8f6b589accfa08cebf1c712ef07c3405229ce3cfb3a57ee033c9d8a49",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "009d9fb8f6b589accfa08cebf1c712ef07c3405229ce3cfb3a57ee033c9d8a49"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/TextDecoder.mlmodelc/analytics/coremldata.bin",
+      "size": 243,
+      "upstreamSHA256": "3913b8c9716b284a917cf3744f4d415f2a05e2b910594a14c6cc10092284d3f8",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "3913b8c9716b284a917cf3744f4d415f2a05e2b910594a14c6cc10092284d3f8"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/TextDecoder.mlmodelc/coremldata.bin",
+      "size": 633,
+      "upstreamSHA256": "3faabaf66930e66956d8291d0ff485fb382496e30a91a7185548b9b898ce90a9",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "3faabaf66930e66956d8291d0ff485fb382496e30a91a7185548b9b898ce90a9"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/TextDecoder.mlmodelc/metadata.json",
+      "size": 4924,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "457b227f0ab00cd435c8dfbceb229af8559796af",
+      "runtime": true,
+      "sha256": "994f6030d7b1a8be999940444c3cf5d6a57d40ddd4423cf1d1fc93520aa1b052"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/TextDecoder.mlmodelc/model.mil",
+      "size": 217177,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "1f1a12d6391f6d2d4e98ebaedc88da513460296c",
+      "runtime": true,
+      "sha256": "dbe833be9e64348c95b7fa598d0ae4309a91aedce4e82fa500a714b0e4b5d754"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/TextDecoder.mlmodelc/weights/weight.bin",
+      "size": 203199860,
+      "upstreamSHA256": "d69700903d518ada33170ab77faaaf464496fb9ff65752c6d5a6109aa2fb02db",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "d69700903d518ada33170ab77faaaf464496fb9ff65752c6d5a6109aa2fb02db"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/config.json",
+      "size": 1149,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "f6c3db01a3124f90b3bfbf3d58e47ba5de1f5ccd",
+      "runtime": true,
+      "sha256": "f01d83dd891791d6f12421c05d3ed8ebbe70866f10d6c9a7a7e80b558ce5a0f1"
+    },
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "path": "openai_whisper-large-v3-v20240930_626MB/generation_config.json",
+      "size": 2767,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "a023f6f947b0fc4ab7a2986a1c23b014836ec720",
+      "runtime": true,
+      "sha256": "7fbb053a023be11fbeccd8421811610308143daa93d9617c52aab4a0fa1491c6"
+    },
+    {
+      "repo": "openai/whisper-large-v3",
+      "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1",
+      "path": "README.md",
+      "size": 21829,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "f98e6afab120b2c8cc504933527659c5adcc6d30",
+      "runtime": false,
+      "sha256": "b05416eb578e9fc65ce137f3401bafdf3bc2feac7448e7dd180dcd367b8cfb52"
+    },
+    {
+      "repo": "openai/whisper-large-v3",
+      "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1",
+      "path": "config.json",
+      "size": 1272,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "14c6c8cf48b64ebb1cb8b637e2b0fab3a9774972",
+      "runtime": true,
+      "sha256": "ad0e8d1e46f4d01f7861a21509e5d0f977d6cc1f367a370603c92541d819807b"
+    },
+    {
+      "repo": "openai/whisper-large-v3",
+      "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1",
+      "path": "tokenizer.json",
+      "size": 2480617,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "3a5e2ba63acdcac9a19ba56cf9bd27f185bfff61",
+      "runtime": true,
+      "sha256": "6d8cbd7cd0d8d5815e478dac67b85a26bbe77c1f5e0c6d76d1ce2abc0e5f21ca"
+    },
+    {
+      "repo": "openai/whisper-large-v3",
+      "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1",
+      "path": "tokenizer_config.json",
+      "size": 282843,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "06ffdc8308eae6bb7bd1fdd81e94b0a881a539ab",
+      "runtime": true,
+      "sha256": "844b642c73a91359722f47b35705f7174686df33d252695d8572cf9ac03a6389"
+    },
+    {
+      "repo": "FluidInference/speaker-diarization-coreml",
+      "revision": "7eab74f3463c736418d0eb10296261ae581146c9",
+      "path": "LICENSE",
+      "size": 19759,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "176bb6930255c9859428728b4b5bdeb2ee40ae21",
+      "runtime": false,
+      "sha256": "736763bf08829e36266b8a3bebcc041ac68575424e976490671a7e6b43a525cf"
+    },
+    {
+      "repo": "FluidInference/speaker-diarization-coreml",
+      "revision": "7eab74f3463c736418d0eb10296261ae581146c9",
+      "path": "NOTICE.md",
+      "size": 4247,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "1b6d5baabf814d90eec34902dee3ab512e522f6f",
+      "runtime": false,
+      "sha256": "d8e53d399c5345cabc4763732ba096e7e18ff42c861d57b73edb73b0c9ce9356"
+    },
+    {
+      "repo": "FluidInference/speaker-diarization-coreml",
+      "revision": "7eab74f3463c736418d0eb10296261ae581146c9",
+      "path": "README.md",
+      "size": 5058,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "b0dca6ad68be50573ec71da2ee8e83da9e255b97",
+      "runtime": false,
+      "sha256": "6655513e3fa9c13a9c919e268e1bb67757e7093b49bf5642ceb7b5c9ebcba3d1"
+    },
+    {
+      "repo": "FluidInference/speaker-diarization-coreml",
+      "revision": "7eab74f3463c736418d0eb10296261ae581146c9",
+      "path": "pyannote_segmentation.mlmodelc/analytics/coremldata.bin",
+      "size": 243,
+      "upstreamSHA256": "b379db0541b35344a34bb7540783ae704c11599bbed5aa8bbbda11c20ad215ee",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "b379db0541b35344a34bb7540783ae704c11599bbed5aa8bbbda11c20ad215ee"
+    },
+    {
+      "repo": "FluidInference/speaker-diarization-coreml",
+      "revision": "7eab74f3463c736418d0eb10296261ae581146c9",
+      "path": "pyannote_segmentation.mlmodelc/coremldata.bin",
+      "size": 316,
+      "upstreamSHA256": "4a450ea1b053b9eb7eef0cab6971018076600840c7e246d064e7c5387f456c98",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "4a450ea1b053b9eb7eef0cab6971018076600840c7e246d064e7c5387f456c98"
+    },
+    {
+      "repo": "FluidInference/speaker-diarization-coreml",
+      "revision": "7eab74f3463c736418d0eb10296261ae581146c9",
+      "path": "pyannote_segmentation.mlmodelc/metadata.json",
+      "size": 1763,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "027a0a00cd4c1f69b8cc288b02d566b646ac6a52",
+      "runtime": true,
+      "sha256": "44e1fa36d6abafacf688beccad99f7569394248d8bb41545829997c67668c08c"
+    },
+    {
+      "repo": "FluidInference/speaker-diarization-coreml",
+      "revision": "7eab74f3463c736418d0eb10296261ae581146c9",
+      "path": "pyannote_segmentation.mlmodelc/model.mil",
+      "size": 29490,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "99db9c0b600166af69e06079df89f8ec91f527e9",
+      "runtime": true,
+      "sha256": "97f2dec6f83e80bf4247b98e13c2dde19f92c05820ef08068bbf554488d70bdd"
+    },
+    {
+      "repo": "FluidInference/speaker-diarization-coreml",
+      "revision": "7eab74f3463c736418d0eb10296261ae581146c9",
+      "path": "pyannote_segmentation.mlmodelc/weights/weight.bin",
+      "size": 5734720,
+      "upstreamSHA256": "0266f4ad4d843ecf31ef9220ad6b80616b3ec64a4404b64f3ea0371554e236ec",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "0266f4ad4d843ecf31ef9220ad6b80616b3ec64a4404b64f3ea0371554e236ec"
+    },
+    {
+      "repo": "FluidInference/speaker-diarization-coreml",
+      "revision": "7eab74f3463c736418d0eb10296261ae581146c9",
+      "path": "wespeaker_v2.mlmodelc/analytics/coremldata.bin",
+      "size": 243,
+      "upstreamSHA256": "d2b1fcde6121aea3ff0e14c1dc50d09dacb0314a2e89156353c31804230a422f",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "d2b1fcde6121aea3ff0e14c1dc50d09dacb0314a2e89156353c31804230a422f"
+    },
+    {
+      "repo": "FluidInference/speaker-diarization-coreml",
+      "revision": "7eab74f3463c736418d0eb10296261ae581146c9",
+      "path": "wespeaker_v2.mlmodelc/coremldata.bin",
+      "size": 359,
+      "upstreamSHA256": "6feb2472a71fa9d8a84020c85206138a4f6261c565c9884bf518d59dd5838da7",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "6feb2472a71fa9d8a84020c85206138a4f6261c565c9884bf518d59dd5838da7"
+    },
+    {
+      "repo": "FluidInference/speaker-diarization-coreml",
+      "revision": "7eab74f3463c736418d0eb10296261ae581146c9",
+      "path": "wespeaker_v2.mlmodelc/metadata.json",
+      "size": 2738,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "5cda8cc14897fb37b01552a0fb9fefca31a6c00f",
+      "runtime": true,
+      "sha256": "ddc4858b4051254098015cd0b97080149839d697faf7b036f933190e70b26758"
+    },
+    {
+      "repo": "FluidInference/speaker-diarization-coreml",
+      "revision": "7eab74f3463c736418d0eb10296261ae581146c9",
+      "path": "wespeaker_v2.mlmodelc/model.mil",
+      "size": 706900,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "977dcf031d18b18fb5096d3e943ff8aa18754e21",
+      "runtime": true,
+      "sha256": "2850f775d6ba659f01f616fed77ce6a45a25de3eb7e4bf3a4b07b658be4e13dd"
+    },
+    {
+      "repo": "FluidInference/speaker-diarization-coreml",
+      "revision": "7eab74f3463c736418d0eb10296261ae581146c9",
+      "path": "wespeaker_v2.mlmodelc/weights/weight.bin",
+      "size": 7243904,
+      "upstreamSHA256": "34004f6798d35cad7071e2fdc67e63faaa782f53697e1cb49bcb452cf81ae151",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "34004f6798d35cad7071e2fdc67e63faaa782f53697e1cb49bcb452cf81ae151"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "Decoder.mlmodelc/analytics/coremldata.bin",
+      "size": 243,
+      "upstreamSHA256": "4238c4e81ecd0dc94bd7dfbb60f7e2cc824107c1ffe0387b8607b72833dba350",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "4238c4e81ecd0dc94bd7dfbb60f7e2cc824107c1ffe0387b8607b72833dba350"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "Decoder.mlmodelc/coremldata.bin",
+      "size": 554,
+      "upstreamSHA256": "18647af085d87bd8f3121c8a9b4d4564c1ede038dab63d295b4e745cf2d7fb99",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "18647af085d87bd8f3121c8a9b4d4564c1ede038dab63d295b4e745cf2d7fb99"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "Decoder.mlmodelc/metadata.json",
+      "size": 3427,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "781350d40ed83511afc3bc31a804e6a543e69d04",
+      "runtime": true,
+      "sha256": "a39e93cd8371b8ded92635c7804fcd0590f0d1dd9415c6d19a0484be073077d9"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "Decoder.mlmodelc/model.mil",
+      "size": 13110,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "95328ba81ca8dceb16c039e62f1a7d447ede43c2",
+      "runtime": true,
+      "sha256": "ef2a0a281695398a62fde86ac269c68f73d5b578d7ed3b31f2ba91a2d1ea1f35"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "Decoder.mlmodelc/weights/weight.bin",
+      "size": 23604992,
+      "upstreamSHA256": "48adf0f0d47c406c8253d4f7fef967436a39da14f5a65e66d5a4b407be355d41",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "48adf0f0d47c406c8253d4f7fef967436a39da14f5a65e66d5a4b407be355d41"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "Encoder.mlmodelc/analytics/coremldata.bin",
+      "size": 243,
+      "upstreamSHA256": "42e638870d73f26b332918a3496ce36793fbb413a81cbd3d16ba01328637a105",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "42e638870d73f26b332918a3496ce36793fbb413a81cbd3d16ba01328637a105"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "Encoder.mlmodelc/coremldata.bin",
+      "size": 485,
+      "upstreamSHA256": "d48034a167a82e88fc3df64f60af963ab3983538271175b8319e7d5720a0fb86",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "d48034a167a82e88fc3df64f60af963ab3983538271175b8319e7d5720a0fb86"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "Encoder.mlmodelc/metadata.json",
+      "size": 2921,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "aecde9a8c4ff70c5b5d227a079650fcf5033caee",
+      "runtime": true,
+      "sha256": "da24da9cca943fb29d7fa8e376d57fca7cb3aa08ca51b956b0b0e56813f087e9"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "Encoder.mlmodelc/model.mil",
+      "size": 959769,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "93d1301ccde7c2ca447af6c01ab05bfda5a5dd2c",
+      "runtime": true,
+      "sha256": "ed7b19156ca29fa7dfd6891deb9fda4b0e8893f68597c985d135736546a43808"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "Encoder.mlmodelc/weights/weight.bin",
+      "size": 445187200,
+      "upstreamSHA256": "e2020f323703477a5b21d7c2d282c403e371afb5962e79877e3033e73ba6f421",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "e2020f323703477a5b21d7c2d282c403e371afb5962e79877e3033e73ba6f421"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "JointDecisionv3.mlmodelc/analytics/coremldata.bin",
+      "size": 243,
+      "upstreamSHA256": "26def4bf73dd56d29dee21c8ef97cb8969e62f6120ed1adc91e46828e2737b6c",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "26def4bf73dd56d29dee21c8ef97cb8969e62f6120ed1adc91e46828e2737b6c"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "JointDecisionv3.mlmodelc/coremldata.bin",
+      "size": 521,
+      "upstreamSHA256": "f5fc08b741400f0088492c9e839418b1e18522f19cba28d361dd030c5f398342",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "f5fc08b741400f0088492c9e839418b1e18522f19cba28d361dd030c5f398342"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "JointDecisionv3.mlmodelc/metadata.json",
+      "size": 3453,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "0461ef9e55ba8e8ba0d2cb33b6e1a031b0d481d7",
+      "runtime": true,
+      "sha256": "d9307211b9a37e0f0ac260c7660b1571a3de25841035cfdf9b58fd40425f890f"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "JointDecisionv3.mlmodelc/model.mil",
+      "size": 11775,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "0a80fde4b1ec61093a03fc0fc3431172db34a4d2",
+      "runtime": true,
+      "sha256": "be60732943389a047175111a83f8839f3eb39d4803adafa828a0871b2f39818d"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "JointDecisionv3.mlmodelc/weights/weight.bin",
+      "size": 12642764,
+      "upstreamSHA256": "4e0e63d840032f7f07ddb1d64446051166281e5491bf22da8a945c41f6eedb3e",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "4e0e63d840032f7f07ddb1d64446051166281e5491bf22da8a945c41f6eedb3e"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "Preprocessor.mlmodelc/analytics/coremldata.bin",
+      "size": 243,
+      "upstreamSHA256": "c9beeb989c8d66f8be11df59bc6df277ec76cee404f6865b46243835ef562f6d",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "c9beeb989c8d66f8be11df59bc6df277ec76cee404f6865b46243835ef562f6d"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "Preprocessor.mlmodelc/coremldata.bin",
+      "size": 486,
+      "upstreamSHA256": "dbde3f2300842c1fd51ef3ff948a0bcffe65ffd2dca10707f2509f32c1d65b1d",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "dbde3f2300842c1fd51ef3ff948a0bcffe65ffd2dca10707f2509f32c1d65b1d"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "Preprocessor.mlmodelc/metadata.json",
+      "size": 2841,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "06162c58cf2f5343a0e60f36f843bcdf3cc58527",
+      "runtime": true,
+      "sha256": "2a98699e22d279dd37fa1d238aeb1c6db1df0d6fad687775324157689d8f3acf"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "Preprocessor.mlmodelc/model.mil",
+      "size": 28181,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "f987e2479228436c49189aa47edb376db74dcff5",
+      "runtime": true,
+      "sha256": "4b8518a956450fec57f06c2a21bdffc26973f7f1fa6842fb38fe917f896b6b93"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "Preprocessor.mlmodelc/weights/weight.bin",
+      "size": 491072,
+      "upstreamSHA256": "129b76e3aeafa8afa3ea76d995b964b145fe83700d579f6ff42c4c38fa0968ea",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "129b76e3aeafa8afa3ea76d995b964b145fe83700d579f6ff42c4c38fa0968ea"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "README.md",
+      "size": 4285,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "b58d9906904932522ce131ce30f5fa9701230384",
+      "runtime": false,
+      "sha256": "4155baa7d7d6f0ada748e1db3c1b91d18c9f7eb7155efc1abfbbe9d4a6507712"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "path": "parakeet_vocab.json",
+      "size": 151122,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "c684822ec3b671ebc449c433a7012398d39b8bb0",
+      "runtime": true,
+      "sha256": "7ec60e05f1b24480736ec0eed40900f4626bce1fa9a60fd700ec7e2a59198735"
+    },
+    {
+      "repo": "FluidInference/silero-vad-coreml",
+      "revision": "b419383c55c110e2c9271fa6ee0ea83d03c70d96",
+      "path": "README.md",
+      "size": 2472,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "5ec7d5134b6a4153184e2956007266e22b8b119b",
+      "runtime": false,
+      "sha256": "c31dbec3e24a014a51fc06c645b3cb04897c97ecdbad9a90645466019c933ef4"
+    },
+    {
+      "repo": "FluidInference/silero-vad-coreml",
+      "revision": "b419383c55c110e2c9271fa6ee0ea83d03c70d96",
+      "path": "silero-vad-unified-256ms-v6.2.1.mlmodelc/analytics/coremldata.bin",
+      "size": 243,
+      "upstreamSHA256": "8067594eb3126ab8318af507f0c00cabfed40d5fedb8a0ee5075dd02e903d909",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "8067594eb3126ab8318af507f0c00cabfed40d5fedb8a0ee5075dd02e903d909"
+    },
+    {
+      "repo": "FluidInference/silero-vad-coreml",
+      "revision": "b419383c55c110e2c9271fa6ee0ea83d03c70d96",
+      "path": "silero-vad-unified-256ms-v6.2.1.mlmodelc/coremldata.bin",
+      "size": 625,
+      "upstreamSHA256": "7db35a4fd995222a7fb0129713473b15d1462572ab4a2e5e4d56bcaad9e40f41",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "7db35a4fd995222a7fb0129713473b15d1462572ab4a2e5e4d56bcaad9e40f41"
+    },
+    {
+      "repo": "FluidInference/silero-vad-coreml",
+      "revision": "b419383c55c110e2c9271fa6ee0ea83d03c70d96",
+      "path": "silero-vad-unified-256ms-v6.2.1.mlmodelc/metadata.json",
+      "size": 3335,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "8ecdc26edff98896279d325d0dfffc46a65f5f53",
+      "runtime": true,
+      "sha256": "2740be542c611e1ba358e1849b4e265c65cdf0b17192767e1e5de86a31ac94d6"
+    },
+    {
+      "repo": "FluidInference/silero-vad-coreml",
+      "revision": "b419383c55c110e2c9271fa6ee0ea83d03c70d96",
+      "path": "silero-vad-unified-256ms-v6.2.1.mlmodelc/model.mil",
+      "size": 176918,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "adf9d2a7d9a4c02164644ff7c5d864d08eb409a9",
+      "runtime": true,
+      "sha256": "c6a9d1bf22d413265da0a07a1d14151c3ea2fad296b3aa5859275b33ef1c3270"
+    },
+    {
+      "repo": "FluidInference/silero-vad-coreml",
+      "revision": "b419383c55c110e2c9271fa6ee0ea83d03c70d96",
+      "path": "silero-vad-unified-256ms-v6.2.1.mlmodelc/weights/weight.bin",
+      "size": 882304,
+      "upstreamSHA256": "53ecc8b5081146140ab654c89109cf001f2183abddd7a2411c5081feeffff063",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "53ecc8b5081146140ab654c89109cf001f2183abddd7a2411c5081feeffff063"
+    }
+  ]
+}

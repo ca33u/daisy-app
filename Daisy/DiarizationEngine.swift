@@ -152,8 +152,15 @@ final class DiarizationEngine {
             do {
                 models = try await DiarizerModels.downloadIfNeeded()
             } catch let error where FluidAudioNetworkGuard.isOfflineRejection(error) {
-                models = try await FluidAudioNetworkGuard.withDownloadsAllowed("diarizer models") {
-                    try await DiarizerModels.downloadIfNeeded()
+                // Our mirror first, pinned and verified (backlog 31); then
+                // FluidAudio's own Hugging Face download.
+                if try await MacModelHosting.prefetchBeforeLibraryDownload(.diarizer),
+                   let fetched = try? await DiarizerModels.downloadIfNeeded() {
+                    models = fetched
+                } else {
+                    models = try await FluidAudioNetworkGuard.withDownloadsAllowed("diarizer models") {
+                        try await DiarizerModels.downloadIfNeeded()
+                    }
                 }
             }
             self.models = models   // cache for the optional speaker-count-hint path

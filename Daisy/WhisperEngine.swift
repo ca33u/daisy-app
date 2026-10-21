@@ -527,8 +527,15 @@ final class WhisperEngine {
                 do {
                     vad = try await VadManager(config: cfg)
                 } catch let error where FluidAudioNetworkGuard.isOfflineRejection(error) {
-                    vad = try await FluidAudioNetworkGuard.withDownloadsAllowed("Silero VAD") {
-                        try await VadManager(config: cfg)
+                    // Our mirror first (backlog 31), then FluidAudio's own
+                    // Hugging Face download.
+                    if try await MacModelHosting.prefetchBeforeLibraryDownload(.sileroVAD),
+                       let fetched = try? await VadManager(config: cfg) {
+                        vad = fetched
+                    } else {
+                        vad = try await FluidAudioNetworkGuard.withDownloadsAllowed("Silero VAD") {
+                            try await VadManager(config: cfg)
+                        }
                     }
                 }
                 self.vadBox = VadManagerBox(vad)
@@ -557,7 +564,7 @@ final class WhisperEngine {
         return values?.volumeAvailableCapacityForImportantUsage
     }
 
-    /// Off-main download — returns the folder containing the unpacked
+    /// Download — returns the folder containing the unpacked
     /// CoreML files. Progress is reported via the callback on the main
     /// actor (we hop back).
     nonisolated private static func download(
@@ -565,10 +572,20 @@ final class WhisperEngine {
         repo: String,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> URL {
+        // Our mirror first, pinned and verified, with the tokenizer inside
+        // the folder (backlog 31); WhisperKit's own Hugging Face download
+        // is the fallback.
+        if repo == MacModelHosting.whisperRepo, let base = modelsDownloadBase() {
+            let root = whisperKitModelsRoot(under: base)
+            if try await MacModelHosting.prefetchBeforeLibraryDownload(.whisper(variant: variant), whisperRoot: root,
+                                                                    progress: progress) {
+                return root.appendingPathComponent("openai_whisper-\(variant)", isDirectory: true)
+            }
+        }
         // Explicit downloadBase keeps models OUT of ~/Documents —
         // WhisperKit's default lands there, which iCloud "Desktop &
         // Documents" sync then uploads and evicts (see modelsDownloadBase).
-        try await WhisperKit.download(
+        return try await WhisperKit.download(
             variant: variant,
             downloadBase: modelsDownloadBase(),
             from: repo,

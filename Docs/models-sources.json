@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "repositories": [
+    {
+      "repo": "argmaxinc/whisperkit-coreml",
+      "revision": "97a5bf9bbc74c7d9c12c755d04dea59e672e3808",
+      "required": ["openai_whisper-large-v3-v20240930_626MB", "openai_whisper-large-v3-v20240930"],
+      "purpose": "Whisper large-v3 Core ML — the default 626 MB model and the full 1.5 GB one (Mac); the 626 MB one also for iOS",
+      "license": "MIT (OpenAI / Argmax)",
+      "authors": "OpenAI; Argmax"
+    },
+    {
+      "repo": "openai/whisper-large-v3",
+      "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1",
+      "required": ["config.json", "tokenizer.json", "tokenizer_config.json"],
+      "purpose": "Whisper tokenizer and configuration (Mac, iOS)",
+      "license": "Apache-2.0 (HF repository metadata); Whisper model MIT",
+      "authors": "OpenAI; Hugging Face contributors"
+    },
+    {
+      "repo": "FluidInference/speaker-diarization-coreml",
+      "revision": "7eab74f3463c736418d0eb10296261ae581146c9",
+      "required": ["pyannote_segmentation.mlmodelc", "wespeaker_v2.mlmodelc"],
+      "purpose": "Speaker segmentation and embeddings (Mac, iOS)",
+      "license": "Segmentation MIT (CNRS); WeSpeaker CC BY 4.0; Core ML conversions by Fluid Inference",
+      "authors": "CNRS / pyannote; WeSpeaker; Fluid Inference"
+    },
+    {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe",
+      "required": ["Preprocessor.mlmodelc", "Encoder.mlmodelc", "Decoder.mlmodelc", "JointDecisionv3.mlmodelc", "parakeet_vocab.json"],
+      "purpose": "Parakeet TDT 0.6B v3 — the fast dictation engine (Mac)",
+      "license": "CC BY 4.0 (NVIDIA); Core ML conversion by Fluid Inference",
+      "authors": "NVIDIA; Fluid Inference"
+    },
+    {
+      "repo": "FluidInference/silero-vad-coreml",
+      "revision": "b419383c55c110e2c9271fa6ee0ea83d03c70d96",
+      "required": ["silero-vad-unified-256ms-v6.2.1.mlmodelc"],
+      "purpose": "Silero VAD — speech detection before transcription (Mac)",
+      "license": "MIT (Silero Team); Core ML conversion by Fluid Inference",
+      "authors": "Silero Team; Fluid Inference"
+    }
+  ]
+}

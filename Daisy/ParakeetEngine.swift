@@ -104,6 +104,9 @@ final class ParakeetEngine {
         // models…") when the model is already on disk — only a real first
         // download should show download UI. A cached load shows `.loading`.
         let alreadyCached = Self.cachedModelCount() > 0
+        // Set once our own fetch has put the files in place: what FluidAudio
+        // reports after that is compiling, not downloading.
+        let fetchedByUs = Flag()
         state = alreadyCached ? .loading : .downloading(progress: 0)
         log.info("Parakeet: \(alreadyCached ? "loading" : "downloading") v3 (int8)…")
         do {
@@ -129,7 +132,7 @@ final class ParakeetEngine {
                             if case .ready = self.state { return }
                             // Cached → stay on `.loading` (compile progress
                             // isn't a download); only a real fetch shows %.
-                            self.state = alreadyCached ? .loading : .downloading(progress: fraction)
+                            self.state = alreadyCached || fetchedByUs.value ? .loading : .downloading(progress: fraction)
                         }
                     }
                 )
@@ -141,8 +144,21 @@ final class ParakeetEngine {
             do {
                 models = try await load()
             } catch let error where FluidAudioNetworkGuard.isOfflineRejection(error) {
-                models = try await FluidAudioNetworkGuard.withDownloadsAllowed("Parakeet v3 ASR") {
-                    try await load()
+                // Our mirror first, pinned and verified (backlog 31); then
+                // FluidAudio's own Hugging Face download.
+                let fetched = try await MacModelHosting.prefetchBeforeLibraryDownload(.parakeetV3) { fraction in
+                    Task { @MainActor in
+                        if case .ready = self.state { return }
+                        self.state = .downloading(progress: fraction)
+                    }
+                }
+                if fetched { fetchedByUs.value = true; state = .loading }
+                if fetched, let loaded = try? await load() {
+                    models = loaded
+                } else {
+                    models = try await FluidAudioNetworkGuard.withDownloadsAllowed("Parakeet v3 ASR") {
+                        try await load()
+                    }
                 }
             }
             state = .loading
@@ -302,5 +318,16 @@ nonisolated enum ParakeetEngineError: LocalizedError {
         switch self {
         case .notReady: return String(localized: "Parakeet ASR isn’t available yet.")
         }
+    }
+}
+
+
+/// A Sendable yes/no shared with a progress callback.
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored = false
+    var value: Bool {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
     }
 }
