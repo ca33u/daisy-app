@@ -272,20 +272,12 @@ struct MainView: View {
                 ProcessTapPermission.recheckIfDenied()
             }
         }
-        // "Help make Daisy better" (2026-10-18): asked once, a couple of
-        // minutes after a launch past first run, never over a recording or
-        // another sheet; then yesterday's counts go out, hourly retries.
+        // "Help make Daisy better" (2026-10-18): yesterday's counts go out,
+        // hourly retries. The question itself is a row on Home and in
+        // onboarding since 21.10 (`ImprovementConsentRow`), not a popup.
         .task(id: settings.hasShownFirstRun) {
             guard settings.hasShownFirstRun else { return }
             try? await Task.sleep(for: .seconds(120))
-            while !Task.isCancelled, ImprovementStats.mode == .unasked {
-                let idle = session.status == .idle || session.status == .finished
-                if idle && !showsTapPermission {
-                    ImprovementStats.askIfNeeded()
-                    break
-                }
-                try? await Task.sleep(for: .seconds(300))
-            }
             while !Task.isCancelled {
                 await ImprovementStats.sendDue()
                 try? await Task.sleep(for: .seconds(3600))

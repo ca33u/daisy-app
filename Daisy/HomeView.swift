@@ -47,6 +47,11 @@ struct HomeView: View {
     /// the dismiss button, which only appears once the required permissions
     /// are granted. Hides the block for good on Home.
     @AppStorage("daisy.onboardingDismissed") private var onboardingDismissed = false
+    // The consent row's inputs, so the card re-evaluates when it's answered.
+    @AppStorage(ImprovementStats.modeKey) private var improvementModeRaw = ImprovementStats.Mode.unasked.rawValue
+    @AppStorage(ImprovementStats.notNowCountKey) private var improvementNotNowCount = 0
+    @AppStorage(ImprovementStats.offByChoiceKey) private var improvementOffByChoice = false
+    @AppStorage(ImprovementStats.notNowAtKey) private var improvementNotNowAt = 0.0
     // Historical key retained so the old meeting-card selection migrates
     // into the new dashboard-wide selector instead of resetting.
     @AppStorage("daisy.home.meetingSummaryRange")
@@ -275,9 +280,17 @@ struct HomeView: View {
         return freeDiskBytes
     }
 
-    /// The card shows for either reason.
+    /// «Help make Daisy better» (Egor, 21.10): not gated on the checklist's
+    /// «Don't show again» — it has its own «Not Now».
+    private var showsConsentRow: Bool {
+        ImprovementStats.offersRow(mode: ImprovementStats.Mode(rawValue: improvementModeRaw) ?? .unasked,
+                                   notNowCount: improvementNotNowCount, offByChoice: improvementOffByChoice,
+                                   notNowAt: improvementNotNowAt)
+    }
+
+    /// The card shows for any of the reasons.
     private var shouldShowOnboarding: Bool {
-        lowDiskBytes != nil || showsSetupRows
+        lowDiskBytes != nil || showsSetupRows || showsConsentRow
     }
 
     /// Both REQUIRED permissions granted — the point at which we let the
@@ -292,7 +305,7 @@ struct HomeView: View {
             HStack(spacing: 8) {
                 // "Finish setting up" would be a lie on a card that's
                 // showing only a disk warning to a fully-configured user.
-                Text(showsSetupRows
+                Text(showsSetupRows || (showsConsentRow && lowDiskBytes == nil)
                      ? String(localized: "Finish setting up Daisy")
                      : String(localized: "Needs your attention"))
                     .font(.caption.weight(.semibold))
@@ -348,6 +361,8 @@ struct HomeView: View {
                     openSettings: permissions.openCalendarSettings
                 )
             }
+
+            if showsConsentRow { ImprovementConsentRow() }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

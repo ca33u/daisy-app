@@ -158,5 +158,16 @@ Release notes for each version go in `scripts/release-notes/<shortVersion>.md` a
 
 - [Sparkle](https://sparkle-project.org) — in-app auto-updates
 - [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) by Argmax — Apple Silicon Whisper inference (part of the Argmax OSS SDK)
-- [FluidAudio](https://github.com/FluidInference/FluidAudio) — Parakeet ASR + speaker diarization
+- [FluidAudio](https://github.com/FluidInference/FluidAudio) by Fluid Inference — Parakeet ASR + speaker diarization (Apache 2.0)
 - [FoundationModels](https://developer.apple.com/documentation/foundationmodels) — on-device summarization via Apple Intelligence (macOS 26+)
+
+### Models
+
+Downloaded when first needed — none of them ships in the installer. Their authors keep their rights; the credit doesn't imply endorsement. Full list with sources: [mydaisy.io/licenses](https://mydaisy.io/licenses).
+
+- **Whisper** — OpenAI, [MIT](https://github.com/openai/whisper/blob/main/LICENSE). Core ML conversion by Argmax ([argmaxinc/whisperkit-coreml](https://huggingface.co/argmaxinc/whisperkit-coreml), MIT).
+- **Parakeet TDT 0.6B v3** — NVIDIA, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) ([nvidia/parakeet-tdt-0.6b-v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3)). Core ML conversion by Fluid Inference with palettized encoder weights ([FluidInference/parakeet-tdt-0.6b-v3-coreml](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml)).
+- **Nemotron 3.5 ASR Streaming 0.6B** — NVIDIA, [OpenMDW 1.1](https://openmdw.ai/license/1-1/) ([nvidia/nemotron-3.5-asr-streaming-0.6b](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b)). Core ML conversion by Fluid Inference. Downloaded only when *Live preview while dictating* is on.
+- **pyannote segmentation-3.0** — CNRS / pyannote, MIT ([pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)). Core ML conversion by Fluid Inference with fixed input shapes.
+- **WeSpeaker wespeaker-voxceleb-resnet34-LM** — WeSpeaker / pyannote, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) ([pyannote/wespeaker-voxceleb-resnet34-LM](https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM)). Modified by Fluid Inference (`wespeaker_v2`): fixed input shapes, a fused filter-bank front end, 8-bit palettized weights. Both speaker models: [FluidInference/speaker-diarization-coreml](https://huggingface.co/FluidInference/speaker-diarization-coreml) (see its NOTICE.md).
+- **Silero VAD** — Silero Team, [MIT](https://github.com/snakers4/silero-vad/blob/master/LICENSE). Core ML conversion by Fluid Inference.

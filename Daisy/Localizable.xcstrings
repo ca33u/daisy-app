@@ -1,6 +1,16 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "\nModels: Whisper (OpenAI, MIT), Parakeet (NVIDIA, CC BY 4.0), Nemotron (NVIDIA, OpenMDW 1.1), pyannote segmentation (CNRS, MIT), WeSpeaker (CC BY 4.0), Silero VAD (MIT) — Core ML conversions by Argmax and Fluid Inference\n" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "\nМодели: Whisper (OpenAI, MIT), Parakeet (NVIDIA, CC BY 4.0), Nemotron (NVIDIA, OpenMDW 1.1), pyannote segmentation (CNRS, MIT), WeSpeaker (CC BY 4.0), Silero VAD (MIT) — версии для Core ML от Argmax и Fluid Inference\n"
+          }
+        }
+      }
+    },
     "%@ doesn't write in Russian yet." : {
       "localizations" : {
         "ru" : {
@@ -61,6 +71,16 @@
         }
       }
     },
+    "%@ · Core ML conversion: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · версия для Core ML: %@"
+          }
+        }
+      }
+    },
     "A follow-up or notes template (My style) makes its own extra request for the meetings it applies to, even with this off." : {
       "localizations" : {
         "ru" : {
@@ -111,6 +131,16 @@
         }
       }
     },
+    "All licenses" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Все лицензии"
+          }
+        }
+      }
+    },
     "Allow and run" : {
       "localizations" : {
         "ru" : {
@@ -147,6 +177,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "В архиве (%lld)"
+          }
+        }
+      }
+    },
+    "Buy me a coffee" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Угостить кофе"
           }
         }
       }
@@ -247,6 +287,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Команды отправляют сказанное и текст карточки в %@"
+          }
+        }
+      }
+    },
+    "Community" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сообщество"
           }
         }
       }
@@ -497,6 +547,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Примеры — одно-три твоих лучших письма"
+          }
+        }
+      }
+    },
+    "Fast dictation engine. Fluid Inference converted it to Core ML with compressed (palettized) encoder weights — FluidInference/parakeet-tdt-0.6b-v3-coreml." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Быстрый движок диктовки. Fluid Inference перевела модель в Core ML со сжатыми (палетизированными) весами энкодера — FluidInference/parakeet-tdt-0.6b-v3-coreml."
+          }
+        }
+      }
+    },
+    "Finding where speech is, before transcription." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поиск речи в звуке перед расшифровкой."
           }
         }
       }
@@ -767,6 +837,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "В шаблон не попало: %@"
+          }
+        }
+      }
+    },
+    "License" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лицензия"
+          }
+        }
+      }
+    },
+    "Live preview while dictating — downloaded only when that setting is on. Fluid Inference converted it to Core ML." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Живой предпросмотр при диктовке — скачивается, только если эта настройка включена. Fluid Inference перевела модель в Core ML."
+          }
+        }
+      }
+    },
+    "Made by" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сделано в"
           }
         }
       }
@@ -1403,6 +1503,16 @@
         }
       }
     },
+    "Models and licenses" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Модели и лицензии"
+          }
+        }
+      }
+    },
     "Models download from ollama.com (the size is on the button) and stay on this Mac. Closing this window doesn't stop a download; quitting Daisy does, and the next Download picks up where it left off." : {
       "localizations" : {
         "ru" : {
@@ -1779,6 +1889,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "На батарее или в режиме энергосбережения у встречи остаётся живой транскрипт, а итоговый транскрипт, спикеры и саммари появятся, когда Mac подключат к зарядке. «Обработать сейчас» на встрече сделает это сразу."
+          }
+        }
+      }
+    },
+    "Once a day, a short summary: how often recording, dictation and summaries ran, and where something went wrong. No text, titles, names or identifier — we won't know who you are." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Раз в день — короткая сводка: сколько раз запускались запись, диктовка и саммари и где что-то сломалось. Без текста, названий, имён и идентификатора — мы не узнаем, кто ты."
           }
         }
       }
@@ -2293,6 +2413,26 @@
         }
       }
     },
+    "Source code" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Исходный код"
+          }
+        }
+      }
+    },
+    "Speech recognition for recordings and dictation." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Распознавание речи в записях и диктовке."
+          }
+        }
+      }
+    },
     "Standard summary only" : {
       "localizations" : {
         "ru" : {
@@ -2433,6 +2573,16 @@
         }
       }
     },
+    "Telling speakers apart. Fluid Inference converted it to Core ML with fixed input shapes." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разделение говорящих. Fluid Inference перевела модель в Core ML с фиксированными размерами входа."
+          }
+        }
+      }
+    },
     "Template: %@" : {
       "localizations" : {
         "ru" : {
@@ -2519,6 +2669,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "В письме остались [?]"
+          }
+        }
+      }
+    },
+    "The model could not be downloaded intact. Check the connection and try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Модель не удалось скачать целиком. Проверь подключение и попробуй ещё раз."
+          }
+        }
+      }
+    },
+    "The models are downloaded when first needed and aren’t part of the installer. Their authors keep their rights; the credit doesn’t mean they endorse Daisy." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Модели скачиваются, когда впервые нужны, и не входят в установщик. Авторы сохраняют права на свои работы; упоминание не означает, что они одобряют Daisy."
           }
         }
       }
@@ -2683,6 +2853,16 @@
         }
       }
     },
+    "Upstream project" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Исходный проект"
+          }
+        }
+      }
+    },
     "Use" : {
       "localizations" : {
         "ru" : {
@@ -2733,12 +2913,32 @@
         }
       }
     },
+    "Voice fingerprints for recognising speakers. Modified by Fluid Inference: fixed input shapes, a fused filter-bank front end and 8-bit palettized weights." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Голосовые отпечатки для узнавания говорящих. Изменения Fluid Inference: фиксированные размеры входа, встроенный банк фильтров и 8-битная палетизация весов."
+          }
+        }
+      }
+    },
     "Waiting for Ollama…" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ждём Ollama…"
+          }
+        }
+      }
+    },
+    "Website" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сайт"
           }
         }
       }
@@ -23982,16 +24182,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Помоги сделать Daisy лучше"
-          }
-        }
-      }
-    },
-    "We'd like to know which features people use, and what breaks or goes unnoticed — so we fix and improve what matters to you.\n\nOnce a day, Daisy can send us a short summary: how often recording, dictation and summaries ran, and where something went wrong. No text, titles, names or identifier — we won't know who you are." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Мы хотим понимать, какими функциями пользуются, а что ломается или остаётся незамеченным, — чтобы чинить и улучшать то, что важно тебе.\n\nРаз в день Daisy может отправлять нам короткую сводку: сколько раз запускалась запись, диктовка, саммари и где что-то пошло не так. Без текста, названий, имён и без идентификатора — мы не узнаем, кто ты."
           }
         }
       }

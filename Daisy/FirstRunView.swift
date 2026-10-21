@@ -480,8 +480,13 @@ struct FirstRunView: View {
             case .processing: processingStep
             case .model: modelStep
             case .preparation:
-                ModelPreparationView(settings: settings, preparation: preparation,
-                                     includeSpeakers: setupPath == .full)
+                VStack(alignment: .leading, spacing: 20) {
+                    ModelPreparationView(settings: settings, preparation: preparation,
+                                         includeSpeakers: setupPath == .full)
+                    // Asked here, while the models download (Egor, 21.10),
+                    // instead of a popup two minutes after launch.
+                    ImprovementConsentRow()
+                }
             }
         }
         .padding(.horizontal, 32)

@@ -1,10 +1,13 @@
 # Feature counts ("Help make Daisy better")
 
 Daisy for Mac can send the developer a day's count of which features ran and
-where they failed. It does so only if you agree: Daisy asks once, a couple of
-minutes after a launch past first run, and the switch is in
-**Settings → About → Help improve Daisy**. Until you answer, nothing is
-counted. Turning it off deletes whatever was counted and not yet sent.
+where they failed. It does so only if you agree: Daisy asks with a row on the
+last step of the first-run setup and, until you answer, on Home's «Finish
+setting up Daisy» card — «Not Now» there asks once more later, then never
+(from 1.0.8.35; earlier versions asked in a window a couple of minutes after
+launch). The switch is in **Settings → About → Help improve Daisy**; turning
+it off there is a «no» that is never asked again. Until you say yes, nothing
+is counted. Turning it off deletes whatever was counted and not yet sent.
 
 ## What a report looks like
 

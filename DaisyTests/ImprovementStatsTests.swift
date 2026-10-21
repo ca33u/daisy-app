@@ -65,3 +65,34 @@ struct ImprovementStatsTests {
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 }
+
+/// Egor's four choices for the «Help make Daisy better» row (21.10).
+struct ImprovementConsentRowTests {
+    private let now = Date(timeIntervalSince1970: 2_000_000_000)
+
+    private func offers(_ mode: ImprovementStats.Mode, notNow: Int = 0, offByChoice: Bool = false,
+                        daysSinceNotNow: Double = 99) -> Bool {
+        ImprovementStats.offersRow(mode: mode, notNowCount: notNow, offByChoice: offByChoice,
+                                   notNowAt: now.timeIntervalSince1970 - daysSinceNotNow * 86_400, now: now)
+    }
+
+    @Test func notNowHidesTheRowThenAsksOnceMoreDaysLater() {
+        #expect(offers(.unasked))
+        // Gone at once, back after a few days, once.
+        #expect(!offers(.notNow, notNow: 1, daysSinceNotNow: 0))
+        #expect(!offers(.notNow, notNow: 1, daysSinceNotNow: 2))
+        #expect(offers(.notNow, notNow: 1, daysSinceNotNow: 3))
+        #expect(!offers(.notNow, notNow: 2, daysSinceNotNow: 30))
+    }
+
+    @Test func aNoInAboutIsNeverAskedAgain() {
+        #expect(!offers(.off, offByChoice: true))
+        #expect(!offers(.on))
+    }
+
+    @Test func anOldOffFromBeforeIsAskedOnce() {
+        // «Not Now» and «no» were one `off` before 21.10.
+        #expect(offers(.off))
+        #expect(!offers(.off, notNow: 1))
+    }
+}

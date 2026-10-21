@@ -82,6 +82,13 @@ enum AboutPanel {
             url: "mailto:hello@mydaisy.io",
             base: base
         ))
+        // The models' authors (backlog 30 Л-2): CC BY 4.0 wants the credit
+        // where the app is, not only on the website.
+        result.append(.init(
+            string: String(localized: "\nModels: Whisper (OpenAI, MIT), Parakeet (NVIDIA, CC BY 4.0), Nemotron (NVIDIA, OpenMDW 1.1), pyannote segmentation (CNRS, MIT), WeSpeaker (CC BY 4.0), Silero VAD (MIT) — Core ML conversions by Argmax and Fluid Inference\n"),
+            attributes: base
+        ))
+        result.append(link("mydaisy.io/licenses", url: "https://mydaisy.io/licenses", base: base))
         // Donation link (2026-08-31) — same low-key styling as the
         // other links; the in-app About view carries the prominent
         // "Support Daisy" section, this is just parity.

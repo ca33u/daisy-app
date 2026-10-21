@@ -27,10 +27,58 @@ nonisolated enum ImprovementStats {
         /// Not asked yet: nothing is counted.
         case unasked
         case on
+        /// Switched off in Settings → About — a «no». Also every answer
+        /// from before 21.10, when «Not Now» was stored as this too (see
+        /// `offByChoiceKey`).
         case off
+        /// «Not Now» on the Home row or in onboarding: nothing is counted,
+        /// and the row may ask once more (Egor, 21.10).
+        case notNow
     }
 
     static let modeKey = "daisy.improvementStats.mode"
+    /// Set when the person switched it off in About: a «no», never asked
+    /// again. An `off` without it is an old «Not Now».
+    static let offByChoiceKey = "daisy.improvementStats.offByChoice"
+    /// How many times «Not Now» was pressed on the row.
+    static let notNowCountKey = "daisy.improvementStats.notNowCount"
+    /// When the last «Not Now» was pressed (seconds since 1970).
+    static let notNowAtKey = "daisy.improvementStats.notNowAt"
+    /// «Later» means later: the row comes back this long after a «Not Now».
+    static let askAgainAfter: TimeInterval = 3 * 24 * 3600
+
+    /// Whether the «Help make Daisy better» row is offered (Home's
+    /// checklist, onboarding) — decided by Egor 21.10: not to someone who
+    /// said no in About; to someone who hasn't answered or said «Not
+    /// Now», until a second «Not Now»; an old «off» from before (when
+    /// «Not Now» and «no» were one) once.
+    /// A «Not Now» hides the row at once; it comes back once,
+    /// `askAgainAfter` later (review 21.10: back the same second, the
+    /// button looked broken and the second press meant «never»).
+    static func offersRow(mode: Mode, notNowCount: Int, offByChoice: Bool,
+                          notNowAt: TimeInterval, now: Date = Date()) -> Bool {
+        let waited = now.timeIntervalSince1970 - notNowAt >= askAgainAfter
+        switch mode {
+        case .on: return false
+        case .unasked: return notNowCount == 0 || (notNowCount == 1 && waited)
+        case .notNow: return notNowCount == 1 && waited
+        case .off: return !offByChoice && notNowCount == 0
+        }
+    }
+
+    /// The row's «Not Now».
+    static func answerNotNow() {
+        let defaults = UserDefaults.standard
+        defaults.set(defaults.integer(forKey: notNowCountKey) + 1, forKey: notNowCountKey)
+        defaults.set(Date().timeIntervalSince1970, forKey: notNowAtKey)
+        if mode != .off { mode = .notNow }
+    }
+
+    /// The switch in About: on, or a «no» that is never asked again.
+    static func setFromAbout(_ on: Bool) {
+        mode = on ? .on : .off
+        if !on { UserDefaults.standard.set(true, forKey: offByChoiceKey) }
+    }
     static let endpoint = URL(string: "https://api.mydaisy.io/api/usage")!
 
     static var mode: Mode {
@@ -296,31 +344,10 @@ nonisolated enum ImprovementStats {
 
     // MARK: - Asking
 
-    /// Once, after first run, when nothing is going on. The answer is kept;
-    /// Settings → About changes it.
-    @MainActor
-    static func askIfNeeded() {
-        guard mode == .unasked else { return }
-        while true {
-            let alert = NSAlert()
-            alert.messageText = String(localized: "Help make Daisy better")
-            alert.informativeText = String(localized: "We'd like to know which features people use, and what breaks or goes unnoticed — so we fix and improve what matters to you.\n\nOnce a day, Daisy can send us a short summary: how often recording, dictation and summaries ran, and where something went wrong. No text, titles, names or identifier — we won't know who you are.")
-            alert.addButton(withTitle: String(localized: "Help"))
-            alert.addButton(withTitle: String(localized: "Not Now"))
-            alert.addButton(withTitle: String(localized: "See What's Sent"))
-            NSApp.activate()
-            switch alert.runModal() {
-            case .alertFirstButtonReturn:
-                mode = .on
-                return
-            case .alertSecondButtonReturn:
-                mode = .off
-                return
-            default:
-                showPreview()
-            }
-        }
-    }
+    // Asked by a row, not a popup (Egor, 21.10): onboarding's last step
+    // for a new person, Home's «Finish setting up» card for everyone else
+    // — see `ImprovementConsentRow`. The modal question two minutes after
+    // launch is gone; Settings → About still switches it.
 
     /// The report as it goes out, word for word.
     @MainActor
