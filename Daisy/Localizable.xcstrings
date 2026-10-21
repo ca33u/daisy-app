@@ -61,6 +61,26 @@
         }
       }
     },
+    "A hold that says a command — “shorter”, “write a reply…” — runs it, as outside a meeting. The others on the call hear what you say to Daisy" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удержание с командой — «короче», «напиши ответ…» — выполняет её, как вне встречи. Собеседники слышат то, что ты говоришь Daisy"
+          }
+        }
+      }
+    },
+    "A side note’s lines move out of the meeting’s transcript instead of being copied" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Строки побочной заметки переносятся из транскрипта встречи, а не копируются"
+          }
+        }
+      }
+    },
     "Allow and run" : {
       "localizations" : {
         "ru" : {
@@ -107,6 +127,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Закрыть (Esc)"
+          }
+        }
+      }
+    },
+    "Commands during a meeting" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Команды во время встречи"
           }
         }
       }
@@ -231,6 +261,16 @@
         }
       }
     },
+    "Finish" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закончить"
+          }
+        }
+      }
+    },
     "Finishing…" : {
       "localizations" : {
         "ru" : {
@@ -341,12 +381,32 @@
         }
       }
     },
+    "It’s the Daisy key now — hold %@ to add context" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Теперь это клавиша Daisy — удерживай %@, чтобы добавить контекст"
+          }
+        }
+      }
+    },
     "Kept as a note" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сохранено как заметка"
+          }
+        }
+      }
+    },
+    "Marking a side note… press the Daisy key again to end it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Побочная заметка… нажми клавишу Daisy ещё раз, чтобы закончить."
           }
         }
       }
@@ -943,6 +1003,16 @@
         }
       }
     },
+    "Moment marked at %@, with what you said" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Момент %@ отмечен вместе с твоими словами"
+          }
+        }
+      }
+    },
     "More shortcuts" : {
       "localizations" : {
         "ru" : {
@@ -1433,6 +1503,46 @@
         }
       }
     },
+    "Side note saved after a minute of quiet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Побочная заметка сохранена: минуту было тихо."
+          }
+        }
+      }
+    },
+    "Side note saved — five minutes is the longest one runs." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Побочная заметка сохранена — дольше пяти минут она не идёт."
+          }
+        }
+      }
+    },
+    "Side note · press to finish" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Побочная заметка · нажми, чтобы закончить"
+          }
+        }
+      }
+    },
+    "Side notes leave the meeting" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Побочные заметки уходят из встречи"
+          }
+        }
+      }
+    },
     "Still working on the last command" : {
       "localizations" : {
         "ru" : {
@@ -1533,6 +1643,16 @@
         }
       }
     },
+    "Tap for a side note, tap again to end it — it ends by itself after a minute of quiet. Hold and talk to mark a moment with a comment: the comment goes to the moment, not the transcript" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нажми — побочная заметка, нажми ещё раз — конец; после минуты тишины она закончится сама. Удерживай и говори — момент с комментарием: комментарий попадает в момент, а не в транскрипт"
+          }
+        }
+      }
+    },
     "Tap once to start a note, tap again to stop — the Daisy key’s tap on a key of its own" : {
       "localizations" : {
         "ru" : {
@@ -1549,6 +1669,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Клавиша Daisy"
+          }
+        }
+      }
+    },
+    "The Daisy key in a meeting" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Клавиша Daisy на встрече"
           }
         }
       }
@@ -1589,6 +1719,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Провайдер не вернул саммари."
+          }
+        }
+      }
+    },
+    "The recording ended before the moment was marked — what you said is in its transcript" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запись закончилась до отметки момента — сказанное осталось в её транскрипте"
           }
         }
       }
@@ -13299,18 +13439,6 @@
         }
       }
     },
-    "Marking a side note… press the voice-note key again to end it." : {
-      "comment" : "Text shown in a toast when the user starts a side note.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Создаём быструю заметку… нажми клавишу голосовой заметки ещё раз, чтобы закончить."
-          }
-        }
-      }
-    },
     "MCP" : {
       "localizations" : {
         "ru" : {
@@ -19111,7 +19239,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Быстрая заметка сохранена — она будет выделена отдельно после остановки."
+            "value" : "Побочная заметка сохранена — после остановки она станет отдельной заметкой."
           }
         }
       }

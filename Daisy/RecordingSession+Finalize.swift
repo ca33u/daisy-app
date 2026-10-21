@@ -236,8 +236,9 @@ extension RecordingSession {
         if currentMode == .meeting {
             let vocabState = signposter.beginInterval("meeting_vocabulary", id: signposter.makeSignpostID())
             let t_vocab = Date()
+            // Uncut: a moment's comment gets the same corrections.
             let result = MeetingVocabulary.corrections(
-                for: segments,
+                for: uncutSegments,
                 rules: DictationDictionary.shared.replacements,
                 applyBrandTable: settings.fixBrandNamesInDictation
             )
@@ -248,6 +249,11 @@ extension RecordingSession {
             }
             signposter.endInterval("meeting_vocabulary", vocabState)
             log.info("post-stop meeting_vocabulary: \(ms(t_vocab), privacy: .public)ms")
+            // The Daisy-key moments' words, now at full quality; then the
+            // side notes set to cut and the commands said to Daisy.
+            resolveMomentComments()
+            finishSideNoteCuts()
+            finishDaisyCommandSpans()
         }
 
         // ── Stage 2: Speaker profile matching ────────────────────────
@@ -445,9 +451,8 @@ extension RecordingSession {
             // summarizer's own structure prompt stays in charge; a
             // "these are the most important parts" directive would let
             // four taps rewrite the shape of a sixty-minute meeting.
-            if !momentMarkers.isEmpty {
-                let stamps = momentMarkers.map(\.timecode).joined(separator: ", ")
-                transcriptText += "\n\n[The participant flagged these timecodes as worth remembering while the meeting was happening: \(stamps)]"
+            if let line = MomentMarker.summaryLine(momentMarkers) {
+                transcriptText += "\n\n\(line)"
             }
             let summarizeState = signposter.beginInterval("summarize", id: signposter.makeSignpostID())
             let t_summarize = Date()
@@ -1754,7 +1759,9 @@ extension RecordingSession {
         guard !closed.isEmpty, let meetingDir = sessionDirectory else { return }
         let base = meetingDir.deletingLastPathComponent()   // …/Daisy/Sessions
         let meetingID = meetingDir.lastPathComponent
-        let allSegments = segments
+        // Uncut: when side notes are set to cut, `segments` no longer has
+        // the very lines each note is made of.
+        let allSegments = uncutSegments
         let displayName = settings.userDisplayName
         let stamp = ISO8601DateFormatter()
         stamp.formatOptions = [.withInternetDateTime]
@@ -1780,8 +1787,7 @@ extension RecordingSession {
             // Meeting segments (mic + system) that fall inside the marked
             // span — the note is a COPY of these, snapped to their bounds.
             let covered = allSegments
-                .filter { $0.startedAt >= window.start && $0.startedAt <= end
-                    && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .filter { Self.sideNote(window, covers: $0) }
                 .sorted { $0.startSec < $1.startSec }
             guard !covered.isEmpty else { continue }
 
@@ -1798,12 +1804,7 @@ extension RecordingSession {
                 continue
             }
 
-            // Transcript body: copy each covered segment with its speaker
-            // label, so "Me" vs "Remote" survives in the excerpt.
-            let body = covered.map { seg -> String in
-                let label = seg.speakerLabel(displayName: displayName)
-                return "**[\(label)]** " + seg.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            }.joined(separator: "\n\n")
+            let body = Self.sideNoteBody(covered, displayName: displayName)
             guard !body.isEmpty else { try? fm.removeItem(at: noteDir); continue }
 
             // Audio excerpt: slice [startSec, endSec] (snapped to the
@@ -1821,17 +1822,21 @@ extension RecordingSession {
                 }.value
             }
 
+            let folderSlug = FolderStore.shared.defaultNoteFolderSlug
             let md = Self.renderSideNoteMarkdown(
                 body: body, start: noteStart, end: noteEnd,
                 meetingID: meetingID, hasAudio: hasAudio,
-                folderSlug: FolderStore.shared.defaultNoteFolderSlug
+                folderSlug: folderSlug
             )
+            let transcriptURL = noteDir.appendingPathComponent("transcript.md")
             do {
-                try Data(md.utf8).write(
-                    to: noteDir.appendingPathComponent("transcript.md"),
-                    options: .atomic
-                )
+                try Data(md.utf8).write(to: transcriptURL, options: .atomic)
                 created += 1
+                writtenSideNotes.append(WrittenSideNote(
+                    window: window, transcript: transcriptURL, start: noteStart, end: noteEnd,
+                    meetingID: meetingID, hasAudio: hasAudio, folderSlug: folderSlug,
+                    modified: Self.modificationDate(transcriptURL)
+                ))
             } catch {
                 log.error("Side note write failed: \(error.localizedDescription, privacy: .public)")
                 try? fm.removeItem(at: noteDir)
@@ -1847,6 +1852,65 @@ extension RecordingSession {
                     : String(localized: "Saved \(n) side notes to Notes."),
                 style: .success
             )
+        }
+    }
+
+    /// Each covered segment with its speaker label, so "Me" vs "Remote"
+    /// survives in the excerpt.
+    nonisolated static func sideNoteBody(_ covered: [TranscriptSegment], displayName: String) -> String {
+        covered.map { seg -> String in
+            let label = seg.speakerLabel(displayName: displayName)
+            return "**[\(label)]** " + seg.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.joined(separator: "\n\n")
+    }
+
+    nonisolated static func modificationDate(_ url: URL) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+    }
+
+    /// Side notes set to cut (backlog 34 K-3), after the final pass: each
+    /// note written at Stop from the live lines is rewritten from the
+    /// full-quality ones, and only then is its window cut from the
+    /// meeting — a cut of lines the note doesn't have would lose them. A
+    /// note the person has edited since is left as it is, and its lines
+    /// stay in the meeting too. The audio excerpt is the one Stop sliced.
+    func finishSideNoteCuts() {
+        guard settings.sideNoteCutsFromMeeting, !writtenSideNotes.isEmpty else { return }
+        let lines = uncutSegments
+        let displayName = settings.userDisplayName
+        for note in writtenSideNotes where !cutSideNoteWindows.contains(note.window) {
+            let covered = lines.filter { Self.sideNote(note.window, covers: $0) }.sorted { $0.startSec < $1.startSec }
+            let body = Self.sideNoteBody(covered, displayName: displayName)
+            guard !body.isEmpty, Self.modificationDate(note.transcript) == note.modified else {
+                log.info("Side note not cut: \(body.isEmpty ? "no lines after the final pass" : "edited since Stop", privacy: .public)")
+                continue
+            }
+            let md = Self.renderSideNoteMarkdown(
+                body: body, start: note.start, end: note.end,
+                meetingID: note.meetingID, hasAudio: note.hasAudio, folderSlug: note.folderSlug
+            )
+            do {
+                try Data(md.utf8).write(to: note.transcript, options: .atomic)
+                cutSideNoteWindows.append(note.window)
+            } catch {
+                log.error("Side note rewrite failed, its lines stay in the meeting: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    /// The full-quality words of each command said to Daisy during the
+    /// meeting go to its command-history entry: the span is cut from the
+    /// meeting, and the live words it was run with may have missed some.
+    func finishDaisyCommandSpans() {
+        guard !daisyCommandSpans.isEmpty else { return }
+        let lines = uncutSegments
+        for command in daisyCommandSpans {
+            let words = lines.filter { MomentMarker.isComment($0, from: command.span.start, to: command.span.end) }
+                .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            guard !words.isEmpty else { continue }
+            DaisyCommandHistory.shared.setText(words, for: command.entryID)
         }
     }
 

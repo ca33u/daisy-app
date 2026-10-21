@@ -105,14 +105,12 @@ nonisolated enum ScreenshotDeletion {
     private static func pruneMarkers(_ name: String, in sessionDirectory: URL) {
         let markers = MomentMarkerStore.load(from: sessionDirectory)
         guard markers.contains(where: { $0.screenshot == name }) else { return }
+        // A copy with the frame cleared, not a new marker: a rebuilt one
+        // would drop the moment's spoken note.
         let updated = markers.map { marker in
-            marker.screenshot == name
-                ? MomentMarker(
-                    offsetSec: marker.offsetSec,
-                    screenshot: nil,
-                    createdAt: marker.createdAt
-                )
-                : marker
+            var kept = marker
+            if kept.screenshot == name { kept.screenshot = nil }
+            return kept
         }
         MomentMarkerStore.write(updated, to: sessionDirectory)
     }

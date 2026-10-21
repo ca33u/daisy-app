@@ -1384,6 +1384,28 @@ struct SettingsView: View {
                 )
             }
 
+            // ── The Daisy key in a meeting (backlog 34 K-3) ──────────
+            Section {
+                Toggle(isOn: $settings.daisyKeyMeetingCommands) {
+                    Text("Commands during a meeting")
+                    Text("A hold that says a command — “shorter”, “write a reply…” — runs it, as outside a meeting. The others on the call hear what you say to Daisy")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Toggle(isOn: $settings.sideNoteCutsFromMeeting) {
+                    Text("Side notes leave the meeting")
+                    Text("A side note’s lines move out of the meeting’s transcript instead of being copied")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("The Daisy key in a meeting")
+            } footer: {
+                Text("Tap for a side note, tap again to end it — it ends by itself after a minute of quiet. Hold and talk to mark a moment with a comment: the comment goes to the moment, not the transcript")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             // ── Meetings ──────────────────────────────────────
             Section {
                 Picker("Auto-record", selection: $settings.autoStartPolicy) {

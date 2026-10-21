@@ -79,7 +79,7 @@ sweep).
 | `attachments/<name>.pdf` | Documents attached to the session (phone, 2026-09-28): a deck, a contract, the agenda. Read by the summary and the phone's chat; never synced as files (the text sync carries text only) |
 | `screenshots/index.json` | `{"001.jpg": 12.0}` — filename → seconds into the recording; a value past `duration_sec` means the frame was added after the recording ended (§3.3) |
 | `screenshots/highlights.json` | `["001.jpg", …]` — frames OCR found visually distinct |
-| `markers.json` | Moments the user marked by hotkey, written as they happen |
+| `markers.json` | Moments the user marked by hotkey, written as they happen: `[{"offsetSec": 65.5, "screenshot": "003.jpg", "createdAt": …, "note": "…"}]`. `screenshot` and `note` are optional; `note` is what the user said at that moment (Mac: a Daisy-key hold during a meeting) — those words are not in the transcript. Mac also keeps `commentStart` / `commentEnd` there for itself; readers ignore them |
 | `import.json` | Present iff this session came from a file the user imported. §5 |
 | `script.md` | A rehearsal take's text, as it was when the take was recorded. §3.7 |
 | `words.json` | Word timings: `[{"w": "Привет", "s": 0.32, "e": 0.61}, …]`, seconds into the recording. Written by readers that need them (rehearsal analysis, subtitles); any session may carry it |

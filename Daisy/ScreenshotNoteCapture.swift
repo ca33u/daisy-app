@@ -61,12 +61,12 @@ final class ScreenshotNoteCapture {
         let folderSlug: String
     }
 
-    /// How long dictation keeps being redirected. Long enough to notice
-    /// the toast, read it, and start talking; short enough that a
-    /// dictation two minutes later still goes where the user expects.
-    /// A hold that STARTS inside the window counts even if it finishes
-    /// after it — `claimPending` is checked at press, not at release.
-    private static let pendingWindow: TimeInterval = 12
+    /// How long a hold keeps being redirected, from the hint. Five seconds
+    /// (spec 21.10, was twelve): enough to read the pill and press, short
+    /// enough that a hold meant for something else isn't taken. A hold
+    /// that STARTS inside the window counts however long it runs —
+    /// `claimPending` is checked at press, and the claim freezes the pill.
+    private static let pendingWindow: TimeInterval = 5
 
     private var source: DispatchSourceFileSystemObject?
     private var watchedFD: CInt = -1
@@ -332,7 +332,8 @@ final class ScreenshotNoteCapture {
            session.status == .recording,
            session.currentMode == .dictation,
            session.pendingScreenshotNote == nil,
-           session.elapsed < 10 {
+           session.elapsed < 10,
+           dictationClaims || session.isDaisyKeyHold {
             session.pendingScreenshotNote = claimPending()
             log.info("Live dictation hold adopted the fresh screenshot note (held \(Int(session.elapsed), privacy: .public)s)")
             // No "hold your key" pill — they're already holding it; the
@@ -350,9 +351,8 @@ final class ScreenshotNoteCapture {
     /// key that doesn't exist.
     private func announceHoldHint() {
         guard let note = pending else { return }
-        let key = settings?.dictationHotkey
         let message: String
-        if let key, key != .none {
+        if let key = contextKey {
             message = String(
                 format: String(localized: "Hold %@ to add context"),
                 key.label
@@ -360,7 +360,47 @@ final class ScreenshotNoteCapture {
         } else {
             message = String(localized: "Screenshot saved to Notes")
         }
-        announce(message, discarding: note)
+        announce(message, discarding: note, autoDismiss: Self.pendingWindow)
+    }
+
+    /// Whether the dictation key still takes the window. Since backlog 34
+    /// K-3 the Daisy key's hold does, and dictation pastes where it always
+    /// does; only without a Daisy key that can be held is dictation the
+    /// way to answer the screenshot.
+    var dictationClaims: Bool {
+        guard let settings else { return true }
+        return settings.voiceNoteHotkey == .none || !DaisyKeyController.canHold
+    }
+
+    /// The key the hint names: the Daisy key, or dictation's when that is
+    /// the one that answers.
+    private var contextKey: HotkeyChoice? {
+        guard let settings else { return nil }
+        // During a meeting a Daisy-key hold is a moment of the meeting, so
+        // the hint names no key there.
+        if !dictationClaims, let session = RecordingSession.current, session.currentMode == .meeting,
+           session.status == .recording || session.status == .paused {
+            return nil
+        }
+        let key = dictationClaims ? settings.dictationHotkey : settings.voiceNoteHotkey
+        return key == .none ? nil : key
+    }
+
+    /// The dictation key went down in the window, which it no longer
+    /// answers (K-3): say which key does, with the window started over so
+    /// there's time to use it. Meant for one version, while the habit
+    /// changes.
+    func pointToDaisyKey() {
+        guard let note = pending, let settings, settings.voiceNoteHotkey != .none else { return }
+        expiry?.cancel()
+        expiry = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.pendingWindow))
+            guard !Task.isCancelled else { return }
+            self?.clearPending()
+        }
+        announce(String(format: String(localized: "It’s the Daisy key now — hold %@ to add context"),
+                        settings.voiceNoteHotkey.label),
+                 discarding: note, autoDismiss: Self.pendingWindow)
     }
 
     // MARK: - Dictation hand-off
@@ -562,6 +602,7 @@ final class ScreenshotNoteCapture {
     private func announce(
         _ message: String,
         discarding note: Pending? = nil,
+        autoDismiss: TimeInterval = 12,
         notificationTitle: String = String(localized: "Screenshot saved to Notes")
     ) {
         // Spelled out rather than mapped: the property's type is
@@ -574,6 +615,7 @@ final class ScreenshotNoteCapture {
         WidgetBubbleCenter.shared.present(
             WidgetBubbleContent(
                 text: message,
+                autoDismiss: autoDismiss,
                 tag: Self.bubbleTag,
                 destructiveTitle: note == nil
                     ? nil : String(localized: "Delete this note"),

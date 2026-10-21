@@ -98,11 +98,10 @@ refuses anything else.
 | `daisy_key.undone` | a result the Daisy key inserted was undone |
 | `daisy_key.local` / `daisy_key.cloud` | the result was written by a provider on this Mac / in the cloud |
 | `daisy_key.focus_changed` | the focus moved while Daisy worked, so the result went to the clipboard |
-| `daisy_key.meeting_command` | a command ran during a meeting ("Commands during meetings" turned on) |
+| `daisy_key.meeting_command` | a command ran during a meeting ("Commands during a meeting" turned on) |
 
 "Ask Daisy" is not in the app yet, and of the Daisy key's counters
-`daisy_key.intent.ask`, `daisy_key.intent.action`, `daisy_key.moment`,
-`daisy_key.undone` and `daisy_key.meeting_command` are not counted yet — the
+`daisy_key.intent.ask` and `daisy_key.intent.action` are not counted yet — the
 features that count them come later. They are listed ahead, so the server
 already accepts them when they arrive; until then Daisy never sends them.
 The rest are counted from Daisy 1.0.8.35.

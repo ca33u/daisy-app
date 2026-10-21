@@ -24,6 +24,7 @@ import Testing
 @MainActor
 private final class RecordingBubbleHost: WidgetBubbleHosting {
     var isWidgetVisible = true
+    var isBubbleShown = false
     private(set) var shown: [String?] = []
     private(set) var hidden = 0
     func showBubble(_ content: WidgetBubbleContent) { shown.append(content.tag) }

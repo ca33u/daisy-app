@@ -572,6 +572,8 @@ extension FloatingPanelController: WidgetBubbleHosting {
         }
     }
 
+    var isBubbleShown: Bool { bubblePanel != nil }
+
     func hideBubble() {
         bubbleDismissTimer?.invalidate()
         bubbleDismissTimer = nil

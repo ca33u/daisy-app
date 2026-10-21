@@ -85,6 +85,71 @@ extension RecordingSession {
         log.info("Moment marked at \(Int(offset), privacy: .public)s (frame: \(frame != nil, privacy: .public), \(markers.count, privacy: .public) total)")
     }
 
+    /// A Daisy-key hold during the meeting (backlog 34 K-3): a moment at
+    /// the press with what was said over the hold. The span is stored, not
+    /// the words — `resolveMomentComments` reads them at Stop and again
+    /// after the final pass, and until then `segments` already leaves
+    /// them out of the meeting. `from`/`to` are on the recording's clock.
+    func markMomentWithComment(offset: Double, frame: String?, from start: Date, to end: Date) -> MomentMarker? {
+        guard currentMode == .meeting, status == .recording || status == .paused,
+              let dir = sessionDirectory else { return nil }
+        var marker = MomentMarker(offsetSec: offset, screenshot: frame, createdAt: Date())
+        marker.commentStart = start
+        marker.commentEnd = end
+        var markers = MomentMarkerStore.load(from: dir)
+        markers.append(marker)
+        MomentMarkerStore.write(markers, to: dir)
+        momentMarkers = markers
+        log.info("Moment with a comment at \(Int(offset), privacy: .public)s (frame: \(frame != nil, privacy: .public))")
+        return marker
+    }
+
+    /// The frame for a Daisy-key moment, when screenshots are on and the
+    /// recording isn't paused (the rule `markMomentByHotkey` follows).
+    func captureMomentFrame() async -> String? {
+        guard currentMode == .meeting, settings.screenshotsEnabled, status == .recording,
+              let dir = sessionDirectory else { return nil }
+        return await screenshots.captureForMarker(
+            elapsed: { [weak self] in self?.elapsed ?? 0 },
+            into: dir.appendingPathComponent("screenshots", isDirectory: true)
+        )
+    }
+
+    /// A Daisy-key command said during the meeting: its span is cut from
+    /// the meeting like a comment. On the recording's clock.
+    func cutFromMeeting(from start: Date, to end: Date, entryID: UUID) {
+        guard currentMode == .meeting else { return }
+        daisyCommandSpans.append(DaisyCommandSpan(span: DateInterval(start: start, end: max(start, end)), entryID: entryID))
+    }
+
+    /// Turns each commented moment's span into its words, from the lines
+    /// the transcribers hold now — live at Stop, full quality after the
+    /// final pass. Merged into `markers.json` by marker, so a frame pruned
+    /// meanwhile stays pruned.
+    func resolveMomentComments() {
+        guard momentMarkers.contains(where: { $0.commentStart != nil }), let dir = sessionDirectory else { return }
+        let lines = uncutSegments
+        var notes: [Date: String?] = [:]
+        for marker in momentMarkers where marker.commentStart != nil {
+            let words = lines.filter(marker.owns)
+                .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            notes[marker.createdAt] = words.isEmpty ? nil : words
+        }
+        var onDisk = MomentMarkerStore.load(from: dir)
+        if onDisk.isEmpty { onDisk = momentMarkers }
+        var changed = false
+        for index in onDisk.indices {
+            guard let note = notes[onDisk[index].createdAt], onDisk[index].note != note else { continue }
+            onDisk[index].note = note
+            changed = true
+        }
+        guard changed else { return }
+        MomentMarkerStore.write(onDisk, to: dir)
+        momentMarkers = onDisk
+    }
+
     // MARK: - Hotkey / mode entry points
 
     /// Convenience for global hotkey / widget tap: start if idle/
@@ -130,8 +195,9 @@ extension RecordingSession {
             } else if currentMode == .meeting {
                 // Layer a side note over the live meeting instead of
                 // refusing: mark a window now, close it on the next
-                // press. Finalize splits it into its own Notes session
-                // and cuts it from the meeting transcript.
+                // press. Finalize copies it into its own Notes session
+                // (and cuts it from the meeting when side notes are set
+                // to cut).
                 toggleSideNoteCapture()
             } else {
                 ToastCenter.shared.show(
@@ -192,7 +258,15 @@ extension RecordingSession {
             // screenshot"), and claiming at release would let a long
             // answer time out mid-sentence. Claiming also closes the
             // window, so the next dictation pastes normally.
-            pendingScreenshotNote = ScreenshotNoteCapture.shared.claimPending()
+            // Since K-3 the Daisy key's hold answers a screenshot; the
+            // dictation key pastes and says which key does (unless there's
+            // no Daisy key to hold — then dictation still answers).
+            if purpose == .paste, !ScreenshotNoteCapture.shared.dictationClaims {
+                pendingScreenshotNote = nil
+                ScreenshotNoteCapture.shared.pointToDaisyKey()
+            } else {
+                pendingScreenshotNote = ScreenshotNoteCapture.shared.claimPending()
+            }
             // Warm the selected fast dictation engine during the hold so
             // release→paste isn't blocked on a cold load.
             switch settings.dictationEngine {

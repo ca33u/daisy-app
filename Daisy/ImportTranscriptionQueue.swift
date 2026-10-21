@@ -564,9 +564,8 @@ final class ImportTranscriptionQueue {
         if !screenText.isEmpty, includeScreenText {
             text += "\n\n[Content shared on screen during the meeting — text extracted from slides/documents shown, not spoken:]\n\(screenText)"
         }
-        if !markers.isEmpty {
-            let stamps = markers.map(\.timecode).joined(separator: ", ")
-            text += "\n\n[The participant flagged these timecodes as worth remembering while the meeting was happening: \(stamps)]"
+        if let line = MomentMarker.summaryLine(markers) {
+            text += "\n\n\(line)"
         }
         return text
     }

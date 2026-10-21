@@ -263,18 +263,46 @@ final class RecordingSession {
     // MARK: - Side notes (voice note layered over a live meeting)
 
     /// A wall-clock span the user marked as a side note WHILE a meeting
-    /// was recording, via the voice-note hotkey. On finalize the meeting
-    /// segments overlapping each span are COPIED (never cut) into their
-    /// own note session in the Notes folder, together with a matching
-    /// audio excerpt (mic + system, mixed) sliced from the meeting's own
+    /// was recording, via a tap of the Daisy key. On finalize the meeting
+    /// segments overlapping each span are COPIED into their own note
+    /// session in the Notes folder, together with a matching audio
+    /// excerpt (mic + system, mixed) sliced from the meeting's own
     /// archive — i.e. the note is a clip of the meeting, snapped to the
-    /// covered transcript-segment boundaries. The meeting itself stays
-    /// whole. ("excerpt" model, 2026-07-21.) Meeting-mode only.
+    /// covered transcript-segment boundaries. The meeting stays whole
+    /// ("excerpt" model, 2026-07-21) unless the person set side notes to
+    /// cut (`sideNoteCutsFromMeeting`, backlog 34 K-3): then, once the
+    /// final pass has rewritten a note from its full-quality lines,
+    /// `segments` leaves those lines out (`cutSideNoteWindows`). Never
+    /// before: a cut of lines the note doesn't have would lose them.
+    /// Meeting-mode only.
+    ///
+    /// Both ends are on the recording's clock (`mediaNow`), the clock the
+    /// segments' dates are on; wall-clock ends drifted past every pause
+    /// and copied the wrong lines (found 21.10).
     struct SideNoteWindow: Sendable, Equatable {
         let start: Date
         var end: Date?
     }
     private(set) var sideNoteWindows: [SideNoteWindow] = []
+    /// Side notes whose lines `segments` leaves out: only windows whose
+    /// note was rewritten from the final pass (`finishSideNoteCuts`).
+    var cutSideNoteWindows: [SideNoteWindow] = []
+
+    /// A side note written at Stop, kept so the final pass can rewrite it
+    /// from full-quality lines before its window is cut.
+    struct WrittenSideNote {
+        let window: SideNoteWindow
+        let transcript: URL
+        let start: Date
+        let end: Date
+        let meetingID: String
+        let hasAudio: Bool
+        let folderSlug: String
+        /// The file's modification date as written: a later one means the
+        /// person edited the note, and it is left alone (and not cut).
+        let modified: Date?
+    }
+    var writtenSideNotes: [WrittenSideNote] = []
 
     /// True while a side-note window is open (started, not yet ended).
     /// Drives the recording-capsule / toast indication.
@@ -282,7 +310,7 @@ final class RecordingSession {
         sideNoteWindows.last.map { $0.end == nil } ?? false
     }
 
-    /// Whether a wall-clock instant falls inside any side-note window
+    /// Whether an instant on the recording's clock falls inside any side-note window
     /// (an open window extends to now). Finalize uses it to gather the
     /// meeting segments that belong to each note excerpt.
     func isInSideNoteWindow(_ date: Date) -> Bool {
@@ -302,20 +330,99 @@ final class RecordingSession {
         guard currentMode == .meeting,
               status == .recording || status == .paused else { return }
         if isCapturingSideNote {
-            let idx = sideNoteWindows.count - 1
-            sideNoteWindows[idx].end = Date()
-            ToastCenter.shared.show(
-                String(localized: "Side note saved — it'll be split out when you stop."),
-                style: .success
-            )
+            closeSideNote(String(localized: "Side note saved — it'll be split out when you stop."))
         } else {
-            sideNoteWindows.append(SideNoteWindow(start: Date(), end: nil))
-            ToastCenter.shared.show(
-                String(localized: "Marking a side note… press the voice-note key again to end it."),
-                style: .info
+            sideNoteWindows.append(SideNoteWindow(start: mediaNow, end: nil))
+            // A plaque for as long as the window is open (spec 21.10): the
+            // key is pressed from the meeting app, where an in-window toast
+            // would never be seen.
+            let plaque = WidgetBubbleContent(
+                text: String(localized: "Side note · press to finish"),
+                actionTitle: String(localized: "Finish"),
+                autoDismiss: Self.sideNoteMaxLength,
+                tag: Self.sideNoteTag,
+                action: { [weak self] in
+                    self?.closeSideNote(String(localized: "Side note saved — it'll be split out when you stop."))
+                }
             )
+            sideNotePlaque = plaque
+            if !WidgetBubbleCenter.shared.show(plaque) {
+                ToastCenter.shared.show(
+                    String(localized: "Marking a side note… press the Daisy key again to end it."),
+                    style: .info
+                )
+            }
+            watchSideNote()
         }
     }
+
+    nonisolated static let sideNoteTag = "side-note"
+    /// The longest a side note stays open (spec 21.10).
+    nonisolated static let sideNoteMaxLength: TimeInterval = 5 * 60
+    /// A side note closes on its own after this long without speech.
+    nonisolated static let sideNoteQuietLimit: TimeInterval = 60
+
+    /// Ends the open side-note window and says so on the pill, where the
+    /// plaque was. `message: nil` ends it quietly (Stop).
+    func closeSideNote(_ message: String?) {
+        sideNoteWatch?.cancel()
+        sideNoteWatch = nil
+        sideNotePlaque = nil
+        guard isCapturingSideNote else { return }
+        sideNoteWindows[sideNoteWindows.count - 1].end = mediaNow
+        guard let message else {
+            WidgetBubbleCenter.shared.dismiss(tag: Self.sideNoteTag)
+            return
+        }
+        let shown = WidgetBubbleCenter.shared.show(
+            WidgetBubbleContent(text: message, autoDismiss: 4, tag: Self.sideNoteTag)
+        )
+        if !shown { ToastCenter.shared.show(message, style: .success) }
+    }
+
+    /// Closes a forgotten side note: after a minute without speech, and
+    /// at five minutes in any case. Speech is the microphone's RMS — the
+    /// auto-stop gate's measure — so it works with live transcription
+    /// off too. A pause is not quiet: the window waits it out, up to the
+    /// five minutes.
+    private func watchSideNote() {
+        sideNoteWatch?.cancel()
+        sideNoteWatch = Task { [weak self] in
+            let opened = Date()
+            var lastSpeech = opened
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard let self, !Task.isCancelled, self.isCapturingSideNote else { return }
+                let now = Date()
+                // The pill has one slot: another message replaced the
+                // plaque. Once that one has gone, the plaque comes back,
+                // for the time the window has left.
+                if WidgetBubbleCenter.shared.wasDisplacedAndFree(tag: Self.sideNoteTag), var plaque = self.sideNotePlaque {
+                    plaque.autoDismiss = max(1, Self.sideNoteMaxLength - now.timeIntervalSince(opened))
+                    _ = WidgetBubbleCenter.shared.show(plaque)
+                }
+                if self.status == .paused || self.recorder.lastMicRMSDB > Self.sideNoteSpeechFloorDB {
+                    lastSpeech = now
+                }
+                if now.timeIntervalSince(opened) >= Self.sideNoteMaxLength {
+                    self.closeSideNote(String(localized: "Side note saved — five minutes is the longest one runs."))
+                    return
+                }
+                if now.timeIntervalSince(lastSpeech) >= Self.sideNoteQuietLimit {
+                    self.closeSideNote(String(localized: "Side note saved after a minute of quiet."))
+                    return
+                }
+            }
+        }
+    }
+
+    /// The auto-stop gate's speech floor (`autoStopMicRMSFloorDB`).
+    nonisolated static let sideNoteSpeechFloorDB: Float = -50
+
+    @ObservationIgnored
+    private var sideNoteWatch: Task<Void, Never>?
+    @ObservationIgnored
+    private var sideNotePlaque: WidgetBubbleContent?
 
     /// Auto-matched speaker map produced after the final diarization
     /// pass — Daisy looks up each detected speaker's centroid
@@ -399,8 +506,27 @@ final class RecordingSession {
     /// write it.
     var momentMarkers: [MomentMarker] = []
 
+    /// Spans (recording clock) of Daisy-key commands run during this
+    /// meeting (K-3, «Команды во время встречи»): what was said to Daisy
+    /// there is cut from the meeting like a moment's comment, and after
+    /// the final pass its command-history entry gets the full-quality
+    /// words — the live ones may have missed some.
+    struct DaisyCommandSpan: Hashable {
+        let span: DateInterval
+        let entryID: UUID
+    }
+    var daisyCommandSpans: [DaisyCommandSpan] = []
+
     // Re-exported recorder state.
     var elapsed: TimeInterval { recorder.elapsed }
+    /// The recording's own clock as a date: `startedAt` plus media time.
+    /// Segment dates are on this clock (`startedAt` + audio seconds), so
+    /// spans compared with them are too — a wall-clock `Date()` runs ahead
+    /// of them by every pause.
+    var mediaNow: Date { mediaDate(elapsed) }
+    func mediaDate(_ offset: TimeInterval) -> Date {
+        (startedAt ?? Date()).addingTimeInterval(max(0, offset))
+    }
     var levelDB: Float { recorder.levelDB }
     /// Live audio spectrum (6 voice-tuned bands, 0…1) used by the floating
     /// Daisy widget to animate its petals — the lower 4 drive the 8 petals,
@@ -428,21 +554,75 @@ final class RecordingSession {
     /// captured at last sort. Reading their `segmentsVersion` registers
     /// them in Observable dependency tracking, so when either transcriber
     /// mutates, the current view scope invalidates and re-reads here.
+    ///
+    /// Lines that belong to something else are left out (backlog 34
+    /// K-3): what was said to Daisy over a moment, and a side note's span
+    /// when side notes are set to cut. Everything downstream — the live
+    /// view, transcript.md, the summary, the stored session — reads the
+    /// meeting from here; the side-note writer and the moment captions
+    /// read `uncutSegments`.
     var segments: [TranscriptSegment] {
         let micV = micTranscriber.segmentsVersion
         let sysV = systemTranscriber.segmentsVersion
-        if _segmentsCacheMicVersion == micV && _segmentsCacheSysVersion == sysV {
+        let cuts = transcriptCutsKey
+        if _segmentsCacheMicVersion == micV && _segmentsCacheSysVersion == sysV && _segmentsCacheCuts == cuts {
             return _segmentsCache
         }
-        let merged = (micTranscriber.segments + systemTranscriber.segments)
-            .sorted(by: { $0.startedAt < $1.startedAt })
-        _segmentsCache = merged
+        let merged = uncutSegments
+        _segmentsCache = cuts == nil ? merged : merged.filter { !isCutFromMeeting($0) }
         _segmentsCacheMicVersion = micV
         _segmentsCacheSysVersion = sysV
+        _segmentsCacheCuts = cuts
         return _segmentsCache
     }
     @ObservationIgnored
     private var _segmentsCache: [TranscriptSegment] = []
+    @ObservationIgnored
+    private var _segmentsCacheCuts: Int? = nil
+
+    /// Every line both transcribers hold, in time order, nothing cut.
+    var uncutSegments: [TranscriptSegment] {
+        (micTranscriber.segments + systemTranscriber.segments)
+            .sorted(by: { $0.startedAt < $1.startedAt })
+    }
+
+    /// Identifies the spans currently cut from the meeting; `nil` when
+    /// there are none (the common case: nothing is filtered at all).
+    /// Part of every segment cache's key, so a new moment or a closed
+    /// side note re-derives the transcript.
+    var transcriptCutsKey: Int? {
+        guard currentMode == .meeting else { return nil }
+        let comments = momentMarkers.filter { $0.commentStart != nil }
+        let notes = cutSideNoteWindows
+        guard !comments.isEmpty || !notes.isEmpty || !daisyCommandSpans.isEmpty else { return nil }
+        var hasher = Hasher()
+        for marker in comments {
+            hasher.combine(marker.commentStart)
+            hasher.combine(marker.commentEnd)
+        }
+        for command in daisyCommandSpans {
+            hasher.combine(command.span)
+        }
+        for window in notes {
+            hasher.combine(window.start)
+            hasher.combine(window.end)
+        }
+        return hasher.finalize()
+    }
+
+    /// A moment's comment, a command said to Daisy, or a cut side note's
+    /// line (the same lines the note copied).
+    private func isCutFromMeeting(_ segment: TranscriptSegment) -> Bool {
+        if momentMarkers.contains(where: { $0.owns(segment) }) { return true }
+        if daisyCommandSpans.contains(where: { MomentMarker.isComment(segment, from: $0.span.start, to: $0.span.end) }) { return true }
+        return cutSideNoteWindows.contains { Self.sideNote($0, covers: segment) }
+    }
+
+    /// The lines a side note copies: those that start inside its window.
+    nonisolated static func sideNote(_ window: SideNoteWindow, covers segment: TranscriptSegment) -> Bool {
+        segment.startedAt >= window.start && segment.startedAt <= (window.end ?? .distantFuture)
+            && !segment.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
     @ObservationIgnored
     private var _segmentsCacheMicVersion: Int = -1
     @ObservationIgnored
@@ -462,15 +642,19 @@ final class RecordingSession {
     var displaySegments: [TranscriptSegment] {
         let micV = micTranscriber.segmentsVersion
         let sysV = systemTranscriber.segmentsVersion
-        if _displayCacheMicVersion == micV && _displayCacheSysVersion == sysV {
+        let cuts = transcriptCutsKey
+        if _displayCacheMicVersion == micV && _displayCacheSysVersion == sysV && _displayCacheCuts == cuts {
             return _displayCache
         }
         let filtered = segments.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
         _displayCache = filtered
         _displayCacheMicVersion = micV
         _displayCacheSysVersion = sysV
+        _displayCacheCuts = cuts
         return _displayCache
     }
+    @ObservationIgnored
+    private var _displayCacheCuts: Int? = nil
     @ObservationIgnored
     private var _displayCache: [TranscriptSegment] = []
     /// `segments` with acoustic echo removed — what every LLM consumer
@@ -492,7 +676,8 @@ final class RecordingSession {
         guard currentMode == .meeting, settings.suppressAcousticEcho else { return all }
         let micV = micTranscriber.segmentsVersion
         let sysV = systemTranscriber.segmentsVersion
-        if _dedupCacheMicVersion == micV && _dedupCacheSysVersion == sysV {
+        let cuts = transcriptCutsKey
+        if _dedupCacheMicVersion == micV && _dedupCacheSysVersion == sysV && _dedupCacheCuts == cuts {
             return _dedupCache
         }
         // `filteredQuietly`, not `filter`: `lastFilterWasSystemic` is the
@@ -502,8 +687,11 @@ final class RecordingSession {
         _dedupCache = filtered
         _dedupCacheMicVersion = micV
         _dedupCacheSysVersion = sysV
+        _dedupCacheCuts = cuts
         return filtered
     }
+    @ObservationIgnored
+    private var _dedupCacheCuts: Int? = nil
     @ObservationIgnored
     private var _dedupCache: [TranscriptSegment] = []
     @ObservationIgnored
@@ -730,6 +918,12 @@ final class RecordingSession {
     /// or handed to the Daisy key (backlog 34). Set by every dictation
     /// start before `start()`, read and reset by `finishDictation`.
     var dictationPurpose: DictationPurpose = .paste
+    /// A Daisy-key hold is what's capturing (the screenshot window's late
+    /// hand-over takes only that, since K-3).
+    var isDaisyKeyHold: Bool {
+        if case .daisyKeyHold = dictationPurpose { return true }
+        return false
+    }
     /// This session IS such a side dictation: no auto-start/auto-stop
     /// listeners, no startup chores — the main session owns those.
     let isDictationSidecar: Bool
@@ -2063,6 +2257,7 @@ final class RecordingSession {
         // start only) — a mark made before a pause still points at the
         // same media time afterwards.
         momentMarkers = []
+        daisyCommandSpans = []
 
         // Tell SessionStore which visible folder is live. Refresh can show it,
         // but interrupted-recording recovery and every bulk-delete path must
@@ -2721,9 +2916,7 @@ final class RecordingSession {
         status = .stopping
         // Close any still-open side-note window so its excerpt ends at
         // Stop rather than being dropped.
-        if isCapturingSideNote {
-            sideNoteWindows[sideNoteWindows.count - 1].end = Date()
-        }
+        closeSideNote(nil)
         if wasPaused {
             // Make sure any half-open paused pipelines are fully
             // torn down before the final transcribe.
@@ -3071,6 +3264,9 @@ final class RecordingSession {
             let url = dir.appendingPathComponent("transcript.md")
             let renderState = stopSignposter.beginInterval("render_markdown", id: stopSignposter.makeSignpostID())
             let t_render = Date()
+            // What was said over each Daisy-key moment, from the live
+            // lines; the final pass refines it.
+            resolveMomentComments()
             let md = MarkdownExporter.renderMarkdown(session: self)
             stopSignposter.endInterval("render_markdown", renderState)
             log.info("post-stop render_markdown: \(ms(t_render), privacy: .public)ms, \(md.count, privacy: .public) bytes")
@@ -3400,6 +3596,7 @@ final class RecordingSession {
         removeThermalDowngrade()
         sessionDirectory = nil
         momentMarkers = []
+        daisyCommandSpans = []
         micArchiveURL = nil
         systemArchiveURL = nil
         startedAt = nil
@@ -3515,6 +3712,7 @@ final class RecordingSession {
         summarizer.clear()
         sessionDirectory = nil
         momentMarkers = []
+        daisyCommandSpans = []
         micArchiveURL = nil
         systemArchiveURL = nil
         // `micOnlyCause` is deliberately NOT cleared here — the
@@ -3522,7 +3720,13 @@ final class RecordingSession {
         // `daisy_mic_only:`, and reset() runs before that. It is zeroed
         // at the top of the next `start()` instead.
         startedAt = nil
+        if isCapturingSideNote { WidgetBubbleCenter.shared.dismiss(tag: Self.sideNoteTag) }
+        sideNoteWatch?.cancel()
+        sideNoteWatch = nil
+        sideNotePlaque = nil
         sideNoteWindows = []
+        cutSideNoteWindows = []
+        writtenSideNotes = []
         boundMeeting = nil
         meetingPreparationSnapshot = nil
         // Tester bug 2026-05-25: a calendar-bound meeting (title set

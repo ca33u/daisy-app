@@ -201,3 +201,111 @@ struct DaisyResultCardTests {
         #expect(DaisyResultCard.followUpWindow == 300)
     }
 }
+
+/// Backlog 34 K-3: the Daisy key during a meeting.
+struct DaisyKeyMeetingTests {
+    private let origin = Date(timeIntervalSince1970: 1_000_000)
+
+    private func line(_ text: String, at start: Double, to end: Double, source: SegmentSource = .microphone) -> TranscriptSegment {
+        TranscriptSegment(id: UUID(), startedAt: origin.addingTimeInterval(start), text: text, isFinal: true,
+                          source: source, endSec: end, startSec: start)
+    }
+
+    private func moment(from start: Double, to end: Double, note: String? = nil) -> MomentMarker {
+        var marker = MomentMarker(offsetSec: start, screenshot: nil, createdAt: origin.addingTimeInterval(start))
+        marker.commentStart = origin.addingTimeInterval(start)
+        marker.commentEnd = origin.addingTimeInterval(end)
+        marker.note = note
+        return marker
+    }
+
+    @Test func aHoldOwnsTheOwnVoiceLinesSaidOverIt() {
+        let marker = moment(from: 60, to: 66)
+        #expect(marker.owns(line("отправить Пете договор", at: 60.4, to: 64)))
+        // The tail of a sentence finished as the key came up.
+        #expect(marker.owns(line("до пятницы", at: 66.2, to: 67.4)))
+        // The other side talking over the hold is the meeting's.
+        #expect(!marker.owns(line("а что с бюджетом?", at: 61, to: 63, source: .systemAudio)))
+        // A line that began well before the press is meeting talk.
+        #expect(!marker.owns(line("как я и говорил, сроки сдвинулись", at: 48, to: 61)))
+        #expect(!marker.owns(line("потом", at: 70, to: 72)))
+    }
+
+    @Test func aPlainMarkOwnsNothing() {
+        let plain = MomentMarker(offsetSec: 60, screenshot: nil, createdAt: origin)
+        #expect(!plain.owns(line("что угодно", at: 60, to: 61)))
+    }
+
+    @Test func oldMarkersDecodeAndNewOnesRoundTrip() throws {
+        let old = #"[{"offsetSec": 65, "screenshot": "003.jpg", "createdAt": 1}]"#
+        let decoded = try JSONDecoder().decode([MomentMarker].self, from: Data(old.utf8))
+        #expect(decoded.first?.note == nil)
+        #expect(decoded.first?.commentStart == nil)
+        #expect(decoded.first?.screenshot == "003.jpg")
+
+        let marker = moment(from: 60, to: 66, note: "отправить договор")
+        let again = try JSONDecoder().decode(MomentMarker.self, from: JSONEncoder().encode(marker))
+        #expect(again == marker)
+    }
+
+    @Test func theSummaryLineCarriesWhatWasSaid() {
+        let plain = MomentMarker(offsetSec: 65, screenshot: nil, createdAt: origin)
+        #expect(MomentMarker.summaryLine([]) == nil)
+        let line = MomentMarker.summaryLine([plain, moment(from: 125, to: 130, note: "проверить цифры")])
+        #expect(line == "[The participant flagged these timecodes as worth remembering while the meeting was happening: 1:05, 2:05 (the participant's comment: \"проверить цифры\")]")
+    }
+
+    @Test func theMarkedMomentsLine() {
+        let plain = MomentMarker(offsetSec: 65, screenshot: nil, createdAt: origin)
+        #expect(plain.markdownLine(frameLink: nil) == "- **[1:05]**")
+        let commented = moment(from: 125, to: 130, note: "проверить цифры")
+        #expect(commented.markdownLine(frameLink: "screenshots/004.jpg") == "- **[2:05]** проверить цифры — ![2:05](screenshots/004.jpg)")
+    }
+
+    /// The cut runs inside `RecordingSession.segments` on every change of
+    /// a meeting's lines, so its cost is measured: a two-hour meeting's
+    /// worth of lines against twenty commented moments.
+    @Test func theCutStaysCheapOnALongMeeting() {
+        let lines = (0..<3_000).map { i in
+            line("строка \(i)", at: Double(i) * 2.4, to: Double(i) * 2.4 + 2, source: i % 2 == 0 ? .microphone : .systemAudio)
+        }
+        let markers = (0..<20).map { i in moment(from: Double(i) * 300, to: Double(i) * 300 + 8) }
+        let clock = ContinuousClock()
+        var kept = 0
+        let took = clock.measure {
+            kept = lines.filter { segment in !markers.contains { $0.owns(segment) } }.count
+        }
+        #expect(kept < lines.count)
+        print("K-3 cut: 3000 lines × 20 moments in \(took)")
+        #expect(took < .milliseconds(50))
+    }
+
+    @Test func aSideNoteCoversTheLinesThatStartInsideIt() {
+        let window = RecordingSession.SideNoteWindow(start: origin.addingTimeInterval(100), end: origin.addingTimeInterval(130))
+        #expect(RecordingSession.sideNote(window, covers: line("мне", at: 101, to: 104)))
+        #expect(RecordingSession.sideNote(window, covers: line("им", at: 120, to: 135, source: .systemAudio)))
+        #expect(!RecordingSession.sideNote(window, covers: line("раньше", at: 95, to: 102)))
+        #expect(!RecordingSession.sideNote(window, covers: line("  ", at: 110, to: 111)))
+        // An open window runs on.
+        let open = RecordingSession.SideNoteWindow(start: origin.addingTimeInterval(100), end: nil)
+        #expect(RecordingSession.sideNote(open, covers: line("потом", at: 900, to: 901)))
+    }
+
+    @Test func deletingTheFrameKeepsTheComment() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("k3-\(UUID().uuidString)", isDirectory: true)
+        let shots = dir.appendingPathComponent("screenshots", isDirectory: true)
+        try FileManager.default.createDirectory(at: shots, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let frame = shots.appendingPathComponent("004.jpg")
+        try Data([0xFF]).write(to: frame)
+        var marker = moment(from: 125, to: 130, note: "проверить цифры")
+        marker.screenshot = "004.jpg"
+        MomentMarkerStore.write([marker], to: dir)
+
+        #expect(ScreenshotDeletion.delete(frame, in: dir))
+        let kept = MomentMarkerStore.load(from: dir)
+        #expect(kept.first?.screenshot == nil)
+        #expect(kept.first?.note == "проверить цифры")
+        #expect(kept.first?.commentStart == marker.commentStart)
+    }
+}

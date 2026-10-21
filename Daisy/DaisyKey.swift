@@ -459,6 +459,14 @@ final class DaisyCommandHistory {
         persist()
     }
 
+    /// Better words for what was said: a command run during a meeting,
+    /// read again from the meeting's final pass.
+    func setText(_ text: String, for id: UUID) {
+        guard let index = entries.firstIndex(where: { $0.id == id }), entries[index].text != text else { return }
+        entries[index].text = text
+        persist()
+    }
+
     func audioURL(for entry: DaisyCommandEntry) -> URL? {
         guard let name = entry.audioFile else { return nil }
         return audioFolder?.appendingPathComponent(name)
@@ -630,6 +638,8 @@ final class DaisyKeyController {
     /// как у диктовки, сохранить»); also what frees the key if its
     /// key-up never arrives.
     nonisolated static let maxHold: TimeInterval = 5 * 60
+    /// The longest comment a meeting hold gives a moment.
+    nonisolated static let maxComment: TimeInterval = 2 * 60
 
     private enum PressMode {
         /// The key went down while nothing was recording: a capture runs.
@@ -644,6 +654,54 @@ final class DaisyKeyController {
         let token: UUID
         let at: Date
         let mode: PressMode
+        /// Set when the key went down during a meeting (K-3).
+        var meeting: MeetingPress? = nil
+    }
+
+    /// What a hold during a meeting needs at its release: where in the
+    /// recording it began, whether anything was said, and — when
+    /// commands run during meetings — what was in front.
+    private final class MeetingPress {
+        let offset: Double
+        let appName: String?
+        let bundleID: String?
+        let context: Task<DaisyKeyContext, Never>?
+        /// The moment's frame, taken once the press is a hold — the screen
+        /// as it was at the press, not after the comment (review 21.10).
+        /// A tap cancels it before the capture; a silent hold or a command
+        /// leaves it as one more ordinary screenshot.
+        let frame: Task<String?, Never>
+        /// Tenths of a second the microphone was above the speech floor.
+        private(set) var audible = 0
+        private var sampler: Task<Void, Never>?
+
+        init(session: RecordingSession, readsContext: Bool) {
+            offset = max(0, session.elapsed)
+            let front = NSWorkspace.shared.frontmostApplication
+            appName = front?.localizedName
+            bundleID = front?.bundleIdentifier
+            context = readsContext ? Task.detached(priority: .userInitiated) { DaisyKeyContext.read() } : nil
+            frame = Task { [weak session] in
+                try? await Task.sleep(for: .seconds(DaisyKeyController.tapThreshold))
+                guard !Task.isCancelled, let session else { return nil }
+                return await session.captureMomentFrame()
+            }
+            sampler = Task { [weak self, weak session] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    guard let self, let session else { return }
+                    if session.recorder.lastMicRMSDB > RecordingSession.sideNoteSpeechFloorDB { self.audible += 1 }
+                }
+            }
+        }
+
+        /// Three tenths of speech, as the side note's measure hears it.
+        var heardSpeech: Bool { audible >= 3 }
+
+        func finish(isTap: Bool) {
+            sampler?.cancel()
+            if isTap { frame.cancel() }
+        }
     }
 
     /// What a capturing press saw, kept until its hold is finished.
@@ -705,9 +763,17 @@ final class DaisyKeyController {
         let token = UUID()
         // A command still being written owns the key: say so rather than
         // ignore the press (research 21.10).
-        let mode = isWorking ? .ignored : Self.mode(for: session)
-        if isWorking { tell(String(localized: "Still working on the last command")) }
+        // A tap or hold over a recording doesn't need the command slot
+        // (a side note, a moment), so only a capture waits for it.
+        var mode = Self.mode(for: session)
+        if isWorking, mode == .capturing {
+            mode = .ignored
+            tell(String(localized: "Still working on the last command"))
+        }
         current = Press(token: token, at: Date(), mode: mode)
+        if mode == .noCapture, session.currentMode == .meeting {
+            current?.meeting = MeetingPress(session: session, readsContext: session.settings.daisyKeyMeetingCommands)
+        }
         holdCap?.cancel()
         holdCap = Task { [weak self, weak session] in
             try? await Task.sleep(for: .seconds(Self.maxHold))
@@ -739,11 +805,16 @@ final class DaisyKeyController {
         case .ignored:
             return
         case .noCapture:
+            press.meeting?.finish(isTap: isTap)
             if isTap {
+                press.meeting?.context?.cancel()
                 await session.toggleVoiceNoteByHotkey()
             } else if session.currentMode == .meeting {
-                // K-3 makes this a moment with a comment.
-                tell(String(localized: "For a quiet marker, use the Mark this moment key"))
+                if let meeting = press.meeting {
+                    await meetingHoldFinished(meeting, session: session)
+                } else {
+                    tell(String(localized: "For a quiet marker, use the Mark this moment key"))
+                }
             } else {
                 tell(String(localized: "Stop the note first"))
             }
@@ -856,6 +927,79 @@ final class DaisyKeyController {
                              outcome: "unclear", message: String(localized: "Saved as a note"), offerToRun: true,
                              context: context.isSecureField ? .empty : context)
         }
+    }
+
+    // MARK: During a meeting (K-3)
+
+    /// A hold during a meeting is a moment with a comment: the marker at
+    /// the press, a frame when screenshots are on, and what was said —
+    /// cut from the meeting's transcript and read back at finalize. With
+    /// «Команды во время встречи» on, words that make a command run it
+    /// instead. A silent hold marks nothing: there's a key for that.
+    private func meetingHoldFinished(_ hold: MeetingPress, session: RecordingSession) async {
+        // On the recording's clock, which the transcript's lines are on.
+        // At most two minutes of it: a key-up that never came is let go at
+        // five, and five minutes of the person's voice don't belong in
+        // one comment — past the cap the words stay in the meeting.
+        let start = session.mediaDate(hold.offset)
+        let end = min(session.mediaNow, start.addingTimeInterval(Self.maxComment))
+        guard hold.heardSpeech else {
+            hold.context?.cancel()
+            tell(String(localized: "For a quiet marker, use the Mark this moment key"))
+            return
+        }
+        // Commands need the live words; with live transcription off there
+        // are none to wait for.
+        if let contextTask = hold.context, session.settings.liveTranscriptionTier != .off {
+            let words = await Self.liveWords(of: session, from: start, to: end)
+            let context = await contextTask.value
+            if !words.isEmpty, !context.isSecureField,
+               DaisyKeyIntentParser.parse(words).map({ if case .unclear = $0 { return true }; return false }) == true,
+               let kind = DaisyKeyCommandParser.kind(of: words, hasSelection: context.hasSelection,
+                                                     selectionEditable: context.isEditable) {
+                // Said to Daisy, not to the meeting: cut like a comment, and
+                // the history entry gets the final pass's words later.
+                let entryID = DaisyCommandHistory.shared.record(text: words, samples: [], appName: hold.appName)
+                session.cutFromMeeting(from: start, to: end, entryID: entryID)
+                ImprovementStats.record(.daisyKeyHold)
+                ImprovementStats.record(.daisyKeyMeetingCommand)
+                ImprovementStats.record(.daisyKeyIntent(kind == .edit ? .edit : .write))
+                await runCommand(kind, request: words, context: context, bundleID: hold.bundleID, appName: hold.appName,
+                                 entryID: entryID, samples: [], durationSec: 0, atPress: true)
+                return
+            }
+        }
+        let frame = await hold.frame.value
+        guard let marker = session.markMomentWithComment(offset: hold.offset, frame: frame, from: start, to: end) else {
+            // The meeting stopped meanwhile: nothing was cut, the words
+            // are in its transcript.
+            tell(String(localized: "The recording ended before the moment was marked — what you said is in its transcript"))
+            return
+        }
+        ImprovementStats.record(.daisyKeyMoment)
+        tell(String(localized: "Moment marked at \(marker.timecode), with what you said"), style: .success)
+    }
+
+    /// What the meeting's live transcript heard over a hold. The live pass
+    /// runs every 2–3.5 s, so this waits for the words to appear and for
+    /// one more pass to settle their tail; ten seconds at most. Empty when
+    /// live transcription heard nothing (or is off): the hold is a moment.
+    private static func liveWords(of session: RecordingSession, from start: Date, to end: Date) async -> String {
+        let deadline = Date().addingTimeInterval(10)
+        var firstHeard: Date?
+        var words = ""
+        while Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(500))
+            words = session.uncutSegments
+                .filter { MomentMarker.isComment($0, from: start, to: end) }
+                .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            guard !words.isEmpty else { continue }
+            if firstHeard == nil { firstHeard = Date() }
+            if let firstHeard, Date().timeIntervalSince(firstHeard) >= 3 { break }
+        }
+        return corrected(words)
     }
 
     // MARK: Commands (K-2)

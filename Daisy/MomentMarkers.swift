@@ -37,10 +37,22 @@ struct MomentMarker: Codable, Sendable, Hashable, Identifiable {
     /// Frame captured for this marker, filename only, relative to the
     /// session's `screenshots/` folder. `nil` when no frame could be
     /// taken — the marker still stands.
-    let screenshot: String?
+    var screenshot: String?
     /// Wall clock, for a future "marked at 14:32" affordance and for
     /// ordering markers made during a pause, when `offsetSec` is frozen.
     let createdAt: Date
+    /// What the person said at this moment: a Daisy-key hold during a
+    /// meeting (backlog 34 K-3). Filled in at finalize from the final
+    /// transcript, so it reads at full quality; `nil` for a plain mark.
+    var note: String? = nil
+    /// The hold's span on the recording's clock (`RecordingSession
+    /// .mediaNow`, the clock segment dates are on), kept so finalize can
+    /// find its words.
+    /// Own-voice lines inside it belong to the moment, not the meeting:
+    /// `RecordingSession.segments` leaves them out (spec: «окно
+    /// вырезается из транскрипта»).
+    var commentStart: Date? = nil
+    var commentEnd: Date? = nil
 
     /// Keyed on the wall clock, not the offset: `elapsed` freezes while
     /// paused and is quantised to the recorder's half-second tick, so two
@@ -59,6 +71,43 @@ struct MomentMarker: Codable, Sendable, Hashable, Identifiable {
         return hours > 0
             ? String(format: "%d:%02d:%02d", hours, minutes, secs)
             : String(format: "%d:%02d", minutes, secs)
+    }
+
+    /// Whether a microphone line is this moment's comment rather than the
+    /// meeting's: its middle falls inside the hold, with a little slack —
+    /// half a second before the press, two seconds after the release, for
+    /// the tail of a sentence the person finished as they let go. A line
+    /// that began well before the press is meeting talk and stays.
+    nonisolated func owns(_ segment: TranscriptSegment) -> Bool {
+        guard let start = commentStart, let end = commentEnd else { return false }
+        return Self.isComment(segment, from: start, to: end)
+    }
+
+    /// The rule `owns` applies, for any span said to Daisy.
+    nonisolated static func isComment(_ segment: TranscriptSegment, from start: Date, to end: Date) -> Bool {
+        guard segment.source == .microphone else { return false }
+        let length = max(0, segment.endSec - segment.startSec)
+        let middle = segment.startedAt.addingTimeInterval(length / 2)
+        return middle >= start.addingTimeInterval(-0.5) && middle <= end.addingTimeInterval(2)
+    }
+
+    /// The summarizer's line about the marked moments, with what was said
+    /// at each, when anything was. Shared by finalize and re-summarize.
+    nonisolated static func summaryLine(_ markers: [MomentMarker]) -> String? {
+        guard !markers.isEmpty else { return nil }
+        let stamps = markers.map { marker in
+            guard let note = marker.note, !note.isEmpty else { return marker.timecode }
+            return "\(marker.timecode) (the participant's comment: \"\(note)\")"
+        }.joined(separator: ", ")
+        return "[The participant flagged these timecodes as worth remembering while the meeting was happening: \(stamps)]"
+    }
+
+    /// One `## Marked moments` line: the timecode, what was said, the frame.
+    nonisolated func markdownLine(frameLink: String?) -> String {
+        var line = "- **[\(timecode)]**"
+        if let note, !note.isEmpty { line += " \(note)" }
+        if let frameLink { line += " — ![\(timecode)](\(frameLink))" }
+        return line
     }
 }
 
@@ -101,11 +150,7 @@ nonisolated enum MomentMarkerStore {
         guard !markers.isEmpty else { return "" }
         var lines = ["## \(heading)", ""]
         for marker in markers {
-            if let frame = marker.screenshot {
-                lines.append("- **[\(marker.timecode)]** — ![\(marker.timecode)](screenshots/\(frame))")
-            } else {
-                lines.append("- **[\(marker.timecode)]**")
-            }
+            lines.append(marker.markdownLine(frameLink: marker.screenshot.map { "screenshots/\($0)" }))
         }
         lines.append("")
         return lines.joined(separator: "\n")

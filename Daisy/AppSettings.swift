@@ -714,6 +714,21 @@ final class AppSettings {
         didSet { defaults.set(suppressAcousticEcho, forKey: Self.k_suppressAcousticEcho) }
     }
 
+    /// A side note taken during a meeting MOVES its lines out of the
+    /// meeting instead of copying them (backlog 34 K-3). Off by default:
+    /// the copy keeps the meeting whole, which is what people expect.
+    var sideNoteCutsFromMeeting: Bool {
+        didSet { defaults.set(sideNoteCutsFromMeeting, forKey: Self.k_sideNoteCutsFromMeeting) }
+    }
+
+    /// «Команды во время встречи» (backlog 34 K-3): a Daisy-key hold
+    /// during a meeting that says a command runs it, as outside one.
+    /// Off by default — the other side hears what is said to Daisy, and
+    /// a hold during a meeting is a moment with a comment.
+    var daisyKeyMeetingCommands: Bool {
+        didSet { defaults.set(daisyKeyMeetingCommands, forKey: Self.k_daisyKeyMeetingCommands) }
+    }
+
     /// Post-stop global speaker re-clustering. When ON (default), once
     /// the post-stop pipeline writes transcript + summary, a final
     /// async pass loads the full concatenated audio off disk and
@@ -1552,6 +1567,8 @@ final class AppSettings {
         self.diarizeRemoteSpeakers = defaults.object(forKey: Self.k_diarizeRemoteSpeakers) as? Bool ?? true
         self.diarizeUseAttendeeCountHint = defaults.object(forKey: Self.k_diarizeUseAttendeeCountHint) as? Bool ?? false
         self.suppressAcousticEcho = defaults.object(forKey: Self.k_suppressAcousticEcho) as? Bool ?? true
+        self.sideNoteCutsFromMeeting = defaults.bool(forKey: Self.k_sideNoteCutsFromMeeting)
+        self.daisyKeyMeetingCommands = defaults.bool(forKey: Self.k_daisyKeyMeetingCommands)
         self.globalReclusterAfterStop = defaults.object(forKey: Self.k_globalReclusterAfterStop) as? Bool ?? true
         self.userDisplayName = (defaults.string(forKey: Self.k_userDisplayName) ?? "")
         // Speaker match mode — default `.automatic` so existing users
@@ -1879,6 +1896,8 @@ final class AppSettings {
     private static let k_diarizeRemoteSpeakers = "daisy.diarizeRemoteSpeakers"
     private static let k_diarizeUseAttendeeCountHint = "daisy.diarizeUseAttendeeCountHint"
     private static let k_suppressAcousticEcho = "daisy.suppressAcousticEcho"
+    private static let k_sideNoteCutsFromMeeting = "daisy.sideNoteCutsFromMeeting"
+    private static let k_daisyKeyMeetingCommands = "daisy.daisyKey.meetingCommands"
     private static let k_globalReclusterAfterStop = "daisy.globalReclusterAfterStop"
     private static let k_userDisplayName = "daisy.userDisplayName"
     private static let k_speakerMatchMode = "daisy.speakerMatchMode"

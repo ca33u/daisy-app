@@ -281,12 +281,8 @@ enum MarkdownExporter {
             let shotsDir = session.sessionDirectory?
                 .appendingPathComponent("screenshots", isDirectory: true)
             for marker in markers {
-                if let frame = marker.screenshot,
-                   let url = shotsDir?.appendingPathComponent(frame) {
-                    lines.append("- **[\(marker.timecode)]** — ![\(marker.timecode)](\(url.path))")
-                } else {
-                    lines.append("- **[\(marker.timecode)]**")
-                }
+                let link = marker.screenshot.flatMap { shotsDir?.appendingPathComponent($0).path }
+                lines.append(marker.markdownLine(frameLink: link))
             }
             lines.append("")
         }
@@ -303,8 +299,9 @@ enum MarkdownExporter {
         // instead of headphones; mic re-captures + Whisper re-
         // transcribes the same audio, producing duplicate lines
         // attributed to the user). See `AcousticEchoDedup.swift`.
-        // Side notes are COPIES of a meeting excerpt (2026-07-21 "excerpt"
-        // model) — the meeting keeps every segment; nothing is cut here.
+        // Nothing is cut here: `session.segments` already leaves out a
+        // moment's comment and, when side notes are set to cut, a side
+        // note's lines (backlog 34 K-3).
         let segments = session.settings.suppressAcousticEcho
             ? AcousticEchoDedup.filter(session.segments)
             : session.segments

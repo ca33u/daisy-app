@@ -141,6 +141,14 @@ final class WidgetBubbleCenter {
         host?.hideBubble()
     }
 
+    /// OUR pill was replaced by another, and that one has gone: the slot
+    /// is free to put ours back. False when ours is still the last one
+    /// shown — closed by the person, it stays closed.
+    func wasDisplacedAndFree(tag: String) -> Bool {
+        guard let host else { return false }
+        return lastShownTag != tag && !host.isBubbleShown
+    }
+
     /// Freeze the countdown of OUR pill (tag-guarded, same contract as
     /// `dismiss`). Used while a dictation hold is answering the prompt.
     func pauseCountdown(tag: String) {
@@ -217,6 +225,8 @@ final class WidgetBubbleCenter {
 @MainActor
 protocol WidgetBubbleHosting: AnyObject {
     var isWidgetVisible: Bool { get }
+    /// A prompt pill is on screen now (not dismissed, not expired).
+    var isBubbleShown: Bool { get }
     func showBubble(_ content: WidgetBubbleContent)
     func hideBubble()
     /// Freeze / restart the visible pill's countdown (ring + dismiss
