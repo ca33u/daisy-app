@@ -111,6 +111,7 @@ final class SelectionRewrite {
             seconds: Self.rewriteDeadlineSeconds
         )
         guard let rewritten, !rewritten.isEmpty else {
+            ImprovementStats.record(.rewriteFailed)
             PasteboardProxy.shared.giveBack(borrow)
             ToastCenter.shared.show(
                 String(localized: "Couldn’t rewrite that — check your summary provider in Settings."),
@@ -127,6 +128,7 @@ final class SelectionRewrite {
         // 5. Paste the result over the (still-active) selection; the
         //    proxy gives the user's clipboard back a beat later.
         PasteboardProxy.shared.pasteAndReturn(rewritten, borrow)
+        ImprovementStats.record(.rewriteDone)
 
         // 6. Auto-suggest (Egor 2026-07-25): the rewrite just restored a
         //    Latin brand name we don't cover — not in the built-in table,

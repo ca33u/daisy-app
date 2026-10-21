@@ -16,6 +16,8 @@ struct ImprovementStatsTests {
             .exportMarkdown, .exportArchive, .exportNotion, .exportClaude, .exportAudio,
             .mcpToolCall(failed: true), .screenshotNote, .momentMarked, .layoutFixed, .layoutUndo,
             .voiceProfileGenerated, .catchUpUsed, .speakersNamed, .speakersMatched,
+            .rewriteDone, .rewriteFailed,
+            .ask(withSelection: true, local: true), .ask(withSelection: false, local: false), .askUndone,
         ]
         for kind in SummaryProviderKind.allCases {
             events += [.summary(kind, viaAccount: false), .summaryFailed(kind, viaAccount: false)]
@@ -30,6 +32,7 @@ struct ImprovementStatsTests {
         #expect(ImprovementStats.publishedNames.subtracting(used).isEmpty)
         // An engine Daisy does not know yet is counted, but never named.
         #expect(ImprovementStats.Event.dictation(engine: "something new").names == ["dictation.done"])
+        #expect(ImprovementStats.Event.ask(withSelection: false, local: true).names == ["ask.done", "ask.local"])
     }
 
     @Test func aReportCarriesCountsAndVersionsOnly() throws {

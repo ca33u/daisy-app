@@ -71,6 +71,12 @@ nonisolated enum ImprovementStats {
         case catchUpUsed
         case speakersNamed
         case speakersMatched
+        case rewriteDone
+        case rewriteFailed
+        /// "Ask Daisy" (backlog 34 Ф-1) is not in the app yet: these are
+        /// published ahead so the server already takes them when it ships.
+        case ask(withSelection: Bool, local: Bool)
+        case askUndone
 
         /// The counter names an occurrence adds to.
         var names: [String] {
@@ -108,6 +114,11 @@ nonisolated enum ImprovementStats {
             case .catchUpUsed: return ["catch_up.used"]
             case .speakersNamed: return ["speakers.named"]
             case .speakersMatched: return ["speakers.matched"]
+            case .rewriteDone: return ["rewrite.done"]
+            case .rewriteFailed: return ["rewrite.failed"]
+            case .ask(let withSelection, let local):
+                return ["ask.done", local ? "ask.local" : "ask.cloud"] + (withSelection ? ["ask.with_selection"] : [])
+            case .askUndone: return ["ask.undone"]
             }
         }
 
@@ -146,6 +157,8 @@ nonisolated enum ImprovementStats {
             "layout.fixed", "layout.undo",
             "voice_profile.generated", "catch_up.used",
             "speakers.named", "speakers.matched",
+            "rewrite.done", "rewrite.failed",
+            "ask.done", "ask.with_selection", "ask.undone", "ask.local", "ask.cloud",
         ] + providers.map { "summary." + $0 } + providers.map { "summary.failed." + $0 })
     }()
 

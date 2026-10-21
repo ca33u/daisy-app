@@ -84,6 +84,14 @@ refuses anything else.
 | `voice_profile.generated` | the writing-style profile was built |
 | `catch_up.used` | "What did I miss?" made a recap |
 | `speakers.named` / `speakers.matched` | speakers were named by hand / matched automatically (the count) |
+| `rewrite.done` / `rewrite.failed` | "Rewrite in my voice" pasted a rewrite / the summary provider gave no usable rewrite in time (an error, a timeout, or a result too short, too long or with a privacy placeholder left in) |
+| `ask.done` | "Ask Daisy" answered and pasted the answer |
+| `ask.with_selection` | …with text selected |
+| `ask.local` / `ask.cloud` | …by a provider on this Mac / in the cloud |
+| `ask.undone` | an answer from "Ask Daisy" was undone |
+
+"Ask Daisy" is not in the app yet. Its counters are listed ahead, so the server
+already accepts them when it arrives; until then Daisy never sends them.
 
 `<provider>` is the kind of summary provider, never the model, key or
 account:
