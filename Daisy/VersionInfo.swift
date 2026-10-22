@@ -59,6 +59,9 @@ enum VersionInfo {
     /// launch and stays short. Capped — the last handful is what any
     /// diagnosis needs.
     static func recordLaunch() {
+        // The test host would log the dev build as an update, and then the
+        // real update to that build wouldn't be recorded.
+        guard !TestHost.isActive else { return }
         let current = "\(marketingVersion) (\(buildNumber))"
         var trail = UserDefaults.standard.stringArray(forKey: k_versionTrail) ?? []
         // Same build as last launch: nothing new to say.

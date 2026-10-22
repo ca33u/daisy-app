@@ -21,7 +21,9 @@ enum WhatsNew {
     /// Bump with each new edition: the window opens once per edition for
     /// anyone who had Daisy before it. A fresh install sees the onboarding
     /// instead and is marked as having seen this one.
-    nonisolated static let edition = "daisy-key-2026-10"
+    // "-b": 1.0.8.37–38 marked the first edition seen as it opened, then
+    // crashed drawing it (22.10) — everyone who updated gets it once more.
+    nonisolated static let edition = "daisy-key-2026-10-b"
     nonisolated static let seenKey = "daisy.whatsNew.seenEdition"
 
     static func shouldOpen(hasShownFirstRun: Bool, defaults: UserDefaults = .standard) -> Bool {
@@ -49,7 +51,8 @@ struct WhatsNewPresenter: ViewModifier {
                 // The process-tap question goes first: when it will be asked,
                 // this opens once its sheet closes (below). Read live — the
                 // modifier's own copy is from before MainView decided.
-                guard WhatsNew.shouldOpen(hasShownFirstRun: settings.hasShownFirstRun),
+                guard !TestHost.isActive,
+                      WhatsNew.shouldOpen(hasShownFirstRun: settings.hasShownFirstRun),
                       !ProcessTapPermission.shouldAsk else { return }
                 // Let the window settle first.
                 try? await Task.sleep(for: .seconds(1.2))
@@ -57,7 +60,7 @@ struct WhatsNewPresenter: ViewModifier {
                 nav.showsWhatsNew = true
             }
             .onChange(of: tapPermissionShowing) { _, showing in
-                if !showing, WhatsNew.shouldOpen(hasShownFirstRun: settings.hasShownFirstRun) {
+                if !showing, !TestHost.isActive, WhatsNew.shouldOpen(hasShownFirstRun: settings.hasShownFirstRun) {
                     nav.showsWhatsNew = true
                 }
             }
@@ -268,12 +271,19 @@ struct WhatsNewStage: View {
                 speechBubble(words)
                     .position(x: 300, y: 330 - 112)
             }
-            if let pill = pill {
-                WhatsNewPill(text: pill.0, detail: pill.1)
-                    .position(x: 600 - 96 - pill.width / 2, y: 330 - 54)
+            // The pill beside the flower, laid out rather than measured:
+            // measuring the timer with NSString crashed 1.0.8.37–38 (a nil
+            // value in CoreText's attribute copy, 22.10).
+            HStack(spacing: 8) {
+                if let pill {
+                    WhatsNewPill(text: pill.text, detail: pill.detail)
+                        .offset(y: 1)
+                }
+                WhatsNewFlower(look: look, size: 58)
             }
-            WhatsNewFlower(look: look, size: 58)
-                .position(x: 600 - 30 - 29, y: 330 - 26 - 29)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .padding(.trailing, 30)
+            .padding(.bottom, 26)
             WhatsNewKeycaps(caps: caps, down: script.isDown(t))
                 .position(x: 300, y: 330 - 44)
         }
@@ -340,9 +350,8 @@ struct WhatsNewStage: View {
         }
     }
 
-    /// The widget's pill: what it says, an optional timer, and its width
-    /// for placing it beside the flower.
-    private var pill: (String, String?, width: CGFloat)? {
+    /// The widget's pill: what it says, and an optional timer.
+    private var pill: (text: String, detail: String?)? {
         let text: String?
         var detail: String?
         switch scene {
@@ -367,10 +376,7 @@ struct WhatsNewStage: View {
             else { text = nil }
         }
         guard let text else { return nil }
-        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        var width = (text as NSString).size(withAttributes: [.font: font]).width + 24
-        if let detail { width += (detail as NSString).size(withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)]).width + 7 }
-        return (text, detail, width)
+        return (text, detail)
     }
 
     // MARK: The app window in the scene

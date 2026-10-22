@@ -53,7 +53,9 @@ nonisolated enum CrashReports {
 
     /// Call once at launch, before the first window.
     static func start() {
-        guard mode == .ask else { return }
+        // Not in the test host: Sentry's crash store (~/Library/Caches/
+        // SentryCrash/Daisy) is shared with the real app.
+        guard mode == .ask, !TestHost.isActive else { return }
         SentrySDK.start { options in configure(options) }
     }
 

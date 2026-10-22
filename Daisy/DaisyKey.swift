@@ -850,7 +850,8 @@ final class DaisyKeyController {
     /// window in front. Not on a fresh install: onboarding says it.
     static func introduceIfNeeded(settings: AppSettings) {
         let defaults = UserDefaults.standard
-        guard settings.hasShownFirstRun, !defaults.bool(forKey: introducedKey) else { return }
+        // Not from the test host: it shares the real app's defaults.
+        guard settings.hasShownFirstRun, !TestHost.isActive, !defaults.bool(forKey: introducedKey) else { return }
         // «What's New» is about to say it, with the key in front of them.
         if WhatsNew.shouldOpen(hasShownFirstRun: settings.hasShownFirstRun) { return }
         guard settings.voiceNoteHotkey != .none else {

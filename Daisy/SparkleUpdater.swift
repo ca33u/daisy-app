@@ -180,7 +180,9 @@ final class SparkleUpdater {
 
     private init() {
         controller = SPUStandardUpdaterController(
-            startingUpdater: true,
+            // Not in the test host: it would check the real feed with the
+            // real prefs, and could install a beta over the debug build.
+            startingUpdater: !TestHost.isActive,
             updaterDelegate: channelDelegate,
             userDriverDelegate: nil
         )
@@ -289,6 +291,7 @@ final class SparkleUpdater {
     /// satisfied by the singleton's construction just before this method is
     /// called from `DaisyApp.init`.
     func checkForUpdatesAfterLaunch() {
+        guard !TestHost.isActive else { return }
         guard automaticallyChecksForUpdates else { return }
         controller.updater.checkForUpdatesInBackground()
     }

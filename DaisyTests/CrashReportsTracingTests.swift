@@ -38,7 +38,12 @@ private let offlineDSN = "https://key@sentry.invalid/1"
 @Suite(.serialized)
 struct CrashReportsTracingTests {
     private func headers(after configure: @escaping (Options) -> Void) async throws -> [String: String] {
-        SentrySDK.start { options in configure(options) }
+        // No crash handler: its store (~/Library/Caches/SentryCrash/Daisy)
+        // is the real app's, and this test is about request headers.
+        SentrySDK.start { options in
+            configure(options)
+            options.enableCrashHandler = false
+        }
         defer { SentrySDK.close() }
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [HeaderCapture.self]
