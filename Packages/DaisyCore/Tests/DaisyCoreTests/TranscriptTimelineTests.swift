@@ -30,10 +30,40 @@ struct TranscriptTimelineTests {
         let order: [String] = items.map {
             switch $0 {
             case .segment(let s): "text \(Int(s.startSec))"
+            case .paragraph(let p): "paragraph \(p.text)"
             case .photo(let p): "photo \(p.file)"
             }
         }
         #expect(order == ["text 7", "photo 002.jpg", "text 42", "photo 001.jpg", "text 90"])
+    }
+
+    /// §3.3 (22.10): a line without a stamp is shown where it stands —
+    /// after the stamped line above it, before a photo taken at that
+    /// second — and is never dropped.
+    @Test func anUnstampedLineStaysWhereItStands() {
+        let body = """
+        Imported intro, no clock.
+
+        **[0:05 · Me]** First.
+
+        A paragraph typed on the Mac.
+        _No speech in this part._
+
+        **[0:20 · Remote A]** Second.
+        """
+        let items = TranscriptTimeline.items(body: body, frames: ["001.jpg": 5], durationSec: 60)
+        let order: [String] = items.map {
+            switch $0 {
+            case .segment(let s): "text \(Int(s.startSec))"
+            case .paragraph(let p): "paragraph \(p.text)"
+            case .photo(let p): "photo \(p.file)"
+            }
+        }
+        #expect(order == ["paragraph Imported intro, no clock.", "text 5",
+                          "paragraph A paragraph typed on the Mac.", "paragraph _No speech in this part._",
+                          "photo 001.jpg", "text 20"])
+        // Segments alone are unchanged for every other reader.
+        #expect(TranscriptTimeline.parseSegments(body).map(\.text) == ["First.", "Second."])
     }
 
     @Test func aFrameStampedPastTheEndGoesLastAndIsMarked() {

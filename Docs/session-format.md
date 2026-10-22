@@ -272,6 +272,14 @@ recordings.
 Timestamps are `m:ss`, or `h:mm:ss` past an hour. The separator between
 timestamp and speaker is `·` (U+00B7) with a space on each side.
 
+**A line without a stamp is still content.** Imports from other tools,
+a paragraph typed on the Mac, an italic "no speech" line — `## Transcript`
+can hold lines that are not `**[m:ss · Name]**`. A reader shows them where
+they stand, after the stamped line above them; an editor that edits line
+by line lets them be edited in place and writes back that line only. Never
+hide one: text in the file that no screen shows looks to the person like
+text that was lost (phone, 2026-10-22).
+
 Speaker labels: the microphone stream uses the user's configured display
 name, or `Me` when unset; the system stream uses `Remote A`, `Remote B`,
 …, or bare `Remote` when diarization produced nothing. On a phone session
@@ -362,6 +370,62 @@ body is the heading and a relative link to it:
 
 `summary.json` is made from the document's text. Like any note it has no
 audio-derived fields, and nothing in it is a transcript.
+
+#### Text notes (phone, 2026-10-22)
+
+A note the person typed: no audio, no speakers, no clock — just their
+text. It is marked by `daisy_text_note: true` and carries `daisy_origin`
+(the device it was typed on). Unlike the two profiles above it keeps the
+meeting frontmatter and the `## Transcript` heading, on purpose: every
+reader on every platform already finds a session's words under that
+heading (search, Ask, quotes, the Mac's evidence index), and a text note
+should be found by all of them without each learning a new shape.
+
+```yaml
+daisy_kind: note
+daisy_origin: iphone
+duration_sec: 0
+daisy_system_audio_status: off
+daisy_mic_audio_status: off
+daisy_text_note: true
+```
+
+```markdown
+# Ideas for the onboarding
+
+## Transcript
+
+Ask for the calendar on the second day, not the first.
+
+## Why
+People decline when they have nothing recorded yet.
+```
+
+Three rules make that heading safe here, and they apply only when the
+marker is present:
+
+- **Everything after `## Transcript` to the end of the file is the
+  note.** A `##` the person typed (`## Why` above) is part of the text,
+  not the end of the section. A reader that stops a transcript at the
+  next `##` heading must not stop there for a text note.
+- **No writer appends a section after it.** The note's text is the last
+  thing in the file; the Mac's `## Shared on screen` and anything like it
+  is never added to a text note. The editor replaces everything after
+  the heading, and that is only safe because of this rule (§7.2).
+- **Lines are text, not segments.** There are no `**[m:ss · Name]**`
+  stamps; if the person pasted one, it is still their text. A text note
+  is never diarized and never re-transcribed.
+
+The summary treats a text note as one voice (§3.6): one author, no
+participants, nobody to send a follow-up to.
+
+Phone text notes written before this profile (before 2026-10-22) have
+neither key. They are recognised as `daisy_kind: note` with
+`duration_sec: 0`, both audio statuses `off` and no `daisy_origin`, and
+receive both keys with their next edit — never by a sweep, which would
+rewrite every note at once and send all of them through sync for
+nothing. A Mac voice note whose audio retention removed does not match:
+it has a length and a captured status.
 
 ### 3.5 The other minimal profile: recovered recordings
 

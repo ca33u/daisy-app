@@ -24,11 +24,14 @@ import Foundation
 public nonisolated enum TranscriptTimeline {
     public enum Item: Sendable, Equatable, Identifiable {
         case segment(Segment)
+        /// A line under `## Transcript` without a stamp (§3.3): shown, never hidden.
+        case paragraph(Paragraph)
         case photo(Photo)
 
         public var id: String {
             switch self {
             case .segment(let s): "s-\(s.startSec)-\(s.text.hashValue)"
+            case .paragraph(let p): "t-\(p.afterSec)-\(p.rawLine.hashValue)"
             case .photo(let p): "p-\(p.file)"
             }
         }
@@ -36,6 +39,7 @@ public nonisolated enum TranscriptTimeline {
         public var startSec: Double {
             switch self {
             case .segment(let s): s.startSec
+            case .paragraph(let p): p.afterSec
             case .photo(let p): p.offsetSec
             }
         }
@@ -54,6 +58,19 @@ public nonisolated enum TranscriptTimeline {
         }
     }
 
+    public struct Paragraph: Sendable, Equatable {
+        /// The second of the stamped line above it (0 before the first):
+        /// it has no clock of its own and reads after that line.
+        public var afterSec: Double
+        public var text: String
+        /// The line exactly as it stands in the file (§7.2).
+        public var rawLine: String
+
+        public init(afterSec: Double, text: String, rawLine: String) {
+            self.afterSec = afterSec; self.text = text; self.rawLine = rawLine
+        }
+    }
+
     public struct Photo: Sendable, Equatable {
         public var file: String
         public var offsetSec: Double
@@ -69,48 +86,63 @@ public nonisolated enum TranscriptTimeline {
     ///   - durationSec: `duration_sec` from the frontmatter; a frame
     ///     stamped past it was added after the recording.
     public static func items(body: String, frames: [String: Double], durationSec: Int) -> [Item] {
-        let segments = parseSegments(body)
         let duration = Double(durationSec)
-        var during: [Item] = []
+        // Text in the order of the file; a paragraph takes the clock of the
+        // stamped line above it, and `order` keeps it right after that line.
+        var text: [(item: Item, order: Int)] = []
+        var lastSec = 0.0
+        for (order, line) in body.components(separatedBy: "\n").enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+            if let segment = segment(from: line) {
+                lastSec = segment.startSec
+                text.append((.segment(segment), order))
+            } else {
+                text.append((.paragraph(Paragraph(afterSec: lastSec, text: trimmed, rawLine: line)), order))
+            }
+        }
+        var during: [(item: Item, order: Int)] = []
         var later: [Item] = []
         for (file, offset) in frames {
             let photo = Photo(file: file, offsetSec: offset, isAddedLater: duration > 0 && offset > duration)
-            if photo.isAddedLater { later.append(.photo(photo)) } else { during.append(.photo(photo)) }
+            if photo.isAddedLater { later.append(.photo(photo)) } else { during.append((.photo(photo), Int.max)) }
         }
-        var merged = segments.map(Item.segment) + during
-        // Sort by the clock; a photo taken at the same second as a line
-        // was taken while it was being said, so it comes after it.
+        var merged = text + during
+        // Sort by the clock; a photo taken at the same second as a line was
+        // taken while it was being said, so it comes after it (and after
+        // the paragraphs that follow it). Ties never depend on the sort.
         merged.sort { lhs, rhs in
-            if lhs.startSec != rhs.startSec { return lhs.startSec < rhs.startSec }
-            if case .segment = lhs, case .photo = rhs { return true }
+            if lhs.item.startSec != rhs.item.startSec { return lhs.item.startSec < rhs.item.startSec }
+            if lhs.order != rhs.order { return lhs.order < rhs.order }
+            if case .photo(let a) = lhs.item, case .photo(let b) = rhs.item { return a.file < b.file }
             return false
         }
         later.sort { $0.startSec < $1.startSec }
-        return merged + later
+        return merged.map(\.item) + later
     }
 
     /// Segment lines of a body: `**[m:ss · Name]** text` (§3.3).
     /// Anything else (a heading, a stray paragraph) is skipped — this
     /// reads, it does not rewrite.
     public static func parseSegments(_ body: String) -> [Segment] {
-        var out: [Segment] = []
-        for line in body.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.hasPrefix("**["), let close = trimmed.range(of: "]**") else { continue }
-            let head = String(trimmed[trimmed.index(trimmed.startIndex, offsetBy: 3)..<close.lowerBound])
-                .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-            let text = String(trimmed[close.upperBound...]).trimmingCharacters(in: .whitespaces)
-            // `m:ss · Name` — the separator is the contract's middle dot.
-            let parts = head.components(separatedBy: " · ")
-            guard parts.count >= 2, let seconds = seconds(from: parts[0]) else { continue }
-            out.append(Segment(
-                startSec: seconds,
-                speaker: parts.dropFirst().joined(separator: " · "),
-                text: text,
-                rawLine: line
-            ))
-        }
-        return out
+        body.components(separatedBy: "\n").compactMap(segment(from:))
+    }
+
+    static func segment(from line: String) -> Segment? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("**["), let close = trimmed.range(of: "]**") else { return nil }
+        let head = String(trimmed[trimmed.index(trimmed.startIndex, offsetBy: 3)..<close.lowerBound])
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        let text = String(trimmed[close.upperBound...]).trimmingCharacters(in: .whitespaces)
+        // `m:ss · Name` — the separator is the contract's middle dot.
+        let parts = head.components(separatedBy: " · ")
+        guard parts.count >= 2, let seconds = seconds(from: parts[0]) else { return nil }
+        return Segment(
+            startSec: seconds,
+            speaker: parts.dropFirst().joined(separator: " · "),
+            text: text,
+            rawLine: line
+        )
     }
 
     /// `m:ss` or `h:mm:ss` → seconds.
