@@ -184,6 +184,8 @@ final class SparkleUpdater {
             updaterDelegate: channelDelegate,
             userDriverDelegate: nil
         )
+        // Sparkle's window paints its bar in Daisy's near-white accent.
+        UpdateProgressBar.install()
     }
 
     /// Manual "Check for Updates…" — fired from the menu command + the
