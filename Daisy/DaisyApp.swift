@@ -136,6 +136,7 @@ struct DaisyApp: App {
                     }
                 }
                 .keyboardShortcut("?", modifiers: [.command])
+                WhatsNewMenuItem(enabled: settings.hasShownFirstRun)
                 Divider()
                 // Tester feedback channel: collects the last 24 h of
                 // Daisy's own logs + an environment header and opens
@@ -349,6 +350,22 @@ private struct MenuBarLabelTrace: ViewModifier {
 // ContentView's "⋯ More" menu, without the live transcription UI. Its own
 // `.menu` MenuBarExtra scene (see DaisyApp), so macOS draws and places it
 // like any menu bar menu.
+
+/// Help → What's New in Daisy: the sheet lives on the main window, so the
+/// window is opened (or brought up) with it.
+private struct WhatsNewMenuItem: View {
+    let enabled: Bool
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("What’s New in Daisy") {
+            AppNavigation.shared.showsWhatsNew = true
+            openWindow(id: "main")
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        .disabled(!enabled)
+    }
+}
 
 private struct CompactMenuItems: View {
     @Bindable var session: RecordingSession

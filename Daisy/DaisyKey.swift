@@ -851,6 +851,8 @@ final class DaisyKeyController {
     static func introduceIfNeeded(settings: AppSettings) {
         let defaults = UserDefaults.standard
         guard settings.hasShownFirstRun, !defaults.bool(forKey: introducedKey) else { return }
+        // «What's New» is about to say it, with the key in front of them.
+        if WhatsNew.shouldOpen(hasShownFirstRun: settings.hasShownFirstRun) { return }
         guard settings.voiceNoteHotkey != .none else {
             defaults.set(true, forKey: introducedKey)
             return

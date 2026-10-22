@@ -1413,6 +1413,8 @@ struct FirstRunView: View {
         // to resume into.
         Resume.clear()
         UserDefaults.standard.removeObject(forKey: "daisy.preparation.started")
+        // A fresh install learned all of it here; «What's New» is for an update.
+        WhatsNew.markSeen()
         settings.hasShownFirstRun = true
     }
 

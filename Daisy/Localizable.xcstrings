@@ -721,6 +721,356 @@
         }
       }
     },
+    "AK" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "АК"
+          }
+        }
+      }
+    },
+    "Anna Kovaleva" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Анна Ковалёва"
+          }
+        }
+      }
+    },
+    "Hi Anna! Thursday at 3 pm works — I’ll send the call link the day before." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Анна, привет! Давай в четверг в 15:00 — ссылку на звонок пришлю накануне."
+          }
+        }
+      }
+    },
+    "Hi! Can we get on a call about the mockups this week?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Привет! Получится созвониться на этой неделе по макетам?"
+          }
+        }
+      }
+    },
+    "Hold %@ and say “write a reply…”, “translate”, “note…”. Let go, and Daisy does it right where you are." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зажми %@ и скажи: «напиши ответ…», «переведи», «запиши…». Отпустишь — Daisy сделает это там, где ты сейчас."
+          }
+        }
+      }
+    },
+    "Hold and say what to do" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удержание — скажи, что сделать"
+          }
+        }
+      }
+    },
+    "Hold without a word to rewrite in your voice" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удержание молча — переписать твоим голосом"
+          }
+        }
+      }
+    },
+    "In “Landing”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В проекте «Лендинг»"
+          }
+        }
+      }
+    },
+    "Landing" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лендинг"
+          }
+        }
+      }
+    },
+    "Landing first screen" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Первый экран лендинга"
+          }
+        }
+      }
+    },
+    "Listening" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Слушаю"
+          }
+        }
+      }
+    },
+    "Listening · silent" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Слушаю · молча"
+          }
+        }
+      }
+    },
+    "Mail" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Почта"
+          }
+        }
+      }
+    },
+    "Mockups · 10:42" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Макеты · 10:42"
+          }
+        }
+      }
+    },
+    "New note" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новая заметка"
+          }
+        }
+      }
+    },
+    "Next" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дальше"
+          }
+        }
+      }
+    },
+    "Note" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заметка"
+          }
+        }
+      }
+    },
+    "Reply…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ответ…"
+          }
+        }
+      }
+    },
+    "Rewriting…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переписываю…"
+          }
+        }
+      }
+    },
+    "Saving…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохраняю…"
+          }
+        }
+      }
+    },
+    "Select some text, hold %@ and say nothing. Daisy rewrites the selection the way you write." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выдели текст, зажми %@ и ничего не говори. Daisy перепишет выделенное так, как пишешь ты."
+          }
+        }
+      }
+    },
+    "Tap %@ and start with “to project Landing” — the note goes there. Talk as long as you need, tap again to finish. Without a project it lands in Notes." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нажми %@ и начни со слов «в проект Лендинг» — заметка ляжет туда. Говори сколько нужно, нажми ещё раз, чтобы закончить. Без проекта она попадёт в Заметки."
+          }
+        }
+      }
+    },
+    "Tap for a note, straight into its project" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нажатие — заметка, сразу в нужный проект"
+          }
+        }
+      }
+    },
+    "To project Landing: show Daisy writing an email on the first screen. Check with Masha by Friday." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В проект Лендинг: на первом экране показать, как Daisy пишет письмо. Проверить с Машей до пятницы."
+          }
+        }
+      }
+    },
+    "Understanding…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Понимаю…"
+          }
+        }
+      }
+    },
+    "We looked at the metrics: overall it’s fine, but mobile conversion dropped. We need to check the form." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Посмотрели метрики: в целом всё в порядке, но конверсия на мобильных просела. Нужно проверить форму."
+          }
+        }
+      }
+    },
+    "Week in review" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Итоги недели"
+          }
+        }
+      }
+    },
+    "Write a reply: let’s do Thursday at three, I’ll send the link." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Напиши ответ: давай в четверг в три, ссылку пришлю."
+          }
+        }
+      }
+    },
+    "Writing the reply…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пишу ответ…"
+          }
+        }
+      }
+    },
+    "%lld of %lld" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld из %2$lld"
+          }
+        }
+      }
+    },
+    "right command" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "правый command"
+          }
+        }
+      }
+    },
+    "so we looked at the metrics and its all fine but conversion dropped on mobile gotta check whats up with the form" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "короче мы посмотрели метрики и там все норм но конверсия просела на мобилке надо глянуть что с формой"
+          }
+        }
+      }
+    },
+    "What’s New in Daisy" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Что нового в Daisy"
+          }
+        }
+      }
+    },
+    "You don’t have a Daisy key yet — pick one in Settings. ⌃⌥ is the simplest." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Клавиша Daisy ещё не назначена — выбери её в Настройках. Проще всего ⌃⌥."
+          }
+        }
+      }
+    },
+    "Holding the key needs Accessibility — Settings shows what to allow." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для удержания клавиши нужен Универсальный доступ — в Настройках видно, что разрешить."
+          }
+        }
+      }
+    },
     "The Daisy key needs Accessibility — until it’s granted, it does nothing" : {
       "localizations" : {
         "ru" : {
@@ -3418,7 +3768,14 @@
       }
     },
     "“%@”" : {
-
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@»"
+          }
+        }
+      }
     },
     "“%@” (from the folder name)" : {
       "localizations" : {

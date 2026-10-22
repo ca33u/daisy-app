@@ -172,6 +172,9 @@ final class AppNavigation {
     /// destination. ConnectionsView reads + clears on appear; the
     /// section scrolls to the matching anchor.
     var pendingConnectionsSection: ConnectionSection?
+    /// «What's New in Daisy» is on screen (WhatsNew.swift) — set after an
+    /// update, or from the Help menu.
+    var showsWhatsNew = false
     private init() {}
 
     /// Convenience for `Open this session in Library`. Sets both
@@ -264,9 +267,12 @@ struct MainView: View {
         // Review 24.09: the process tap's permission, asked on Daisy's own
         // sheet — after onboarding, before any call.
         .sheet(isPresented: $showsTapPermission) { TapPermissionSheet() }
+        .modifier(WhatsNewPresenter(settings: settings, tapPermissionShowing: showsTapPermission))
         .task(id: settings.hasShownFirstRun) {
             guard settings.hasShownFirstRun else { return }
-            if ProcessTapPermission.shouldAsk {
+            // «What's New» opened from the Help menu is already up: one
+            // sheet at a time; the question waits for the next launch.
+            if ProcessTapPermission.shouldAsk, !nav.showsWhatsNew {
                 showsTapPermission = true
             } else {
                 ProcessTapPermission.recheckIfDenied()
