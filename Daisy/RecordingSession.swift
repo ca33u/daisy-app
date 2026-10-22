@@ -2888,6 +2888,43 @@ final class RecordingSession {
         await SessionStore.shared.refresh()
     }
 
+    /// A long note that opens with «(заметка) в проект Лендинг …» goes to
+    /// that project (Egor 22.10), as a held note does. Only a note nobody
+    /// filed by hand — still in the default notes project or Inbox. Run at
+    /// Stop on the live lines, and again on the final pass's — live
+    /// transcription may be off, behind, or mishear the name, so at Stop
+    /// only a match acts; «no such project» waits for the final words.
+    /// The words stay in the note. Said the way the held note says it: a
+    /// toast and the widget's pill with Open, once.
+    func fileNoteBySpokenProject(final: Bool) {
+        guard currentMode == .voiceNote, meetingPreparationSnapshot == nil, !spokenProjectAnswered,
+              folder == .inbox || folder.slug == FolderStore.shared.defaultNoteFolderSlug else { return }
+        let opening = segments.filter { $0.source == .microphone }
+            .sorted { $0.startSec < $1.startSec }
+            .prefix(3).map(\.text).joined(separator: " ")
+        guard let route = DaisyKeyFolderRoute.opening(opening, folders: DaisyKeyController.folders()) else { return }
+        let target = route.folderSlug.flatMap { FolderStore.shared.existingFolder(slug: $0) }
+        guard target != nil || final else { return }
+        spokenProjectAnswered = true
+        let id = sessionDirectory?.lastPathComponent
+        let open: (label: String, run: @MainActor () -> Void)? = id.map { id in
+            (String(localized: "Open"), { @MainActor in AppNavigation.shared.openInLibrary(id) })
+        }
+        if let target {
+            log.info("Voice note filed into the project its first words named")
+            folder = target
+            DaisyKeyController.shared.tell(String(localized: "Note saved to \(target.name)"), style: .success, action: open)
+        } else {
+            DaisyKeyController.shared.tell(route.ambiguous
+                ? String(localized: "Several projects match — saved to \(folder.name)")
+                : String(localized: "No such project — saved to \(folder.name)"),
+                action: open.map { (String(localized: "Move"), $0.run) })
+        }
+    }
+    /// The note's spoken project has been acted on or answered — the final
+    /// pass doesn't say it again.
+    var spokenProjectAnswered = false
+
     func stop() async {
         // Full finalize — explicit user action. Allowed from both
         // .recording and .paused (the latter so the user can pause
@@ -3170,6 +3207,9 @@ final class RecordingSession {
         if currentMode != .dictation, let dir = sessionDirectory {
             Task { await SessionDiagnosticsLog.shared.end(directory: dir) }
         }
+        // Before the capture checks below, so a warning they raise isn't
+        // covered by this note's one.
+        fileNoteBySpokenProject(final: false)
 
         // ── Capture-failure gate (2026-07-22, AirPods support case) ───────
         // If NEITHER channel reached `.captured` AND the transcript is
@@ -3757,6 +3797,7 @@ final class RecordingSession {
         // so calendar-driven sessions still inherit the event name.
         title = ""
         folder = .inbox
+        spokenProjectAnswered = false
         tag = ""
         currentMode = .meeting
         // Drop any unanswered Prompt-mode trigger + retract its banner —

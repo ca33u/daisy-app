@@ -69,6 +69,28 @@ struct DaisyKeyTests {
         #expect(DaisyKeyFolderRoute.route(tied, folders: folders) == .init(folderSlug: nil, ambiguous: true, body: tied))
     }
 
+    @Test func aLongNoteIsFiledByItsFirstWords() {
+        func slug(_ text: String, _ in: [DaisyKeyFolderRoute.Folder]? = nil) -> String? {
+            DaisyKeyFolderRoute.opening(text, folders: `in` ?? folders)?.folderSlug
+        }
+        #expect(slug("в проект Альфа, бюджет на ноябрь и сроки", [folders[1], folders[3]]) == "альфа")
+        #expect(slug("Заметка в проект Работа: созвон в пятницу") == "работа")
+        #expect(slug("Дейзи, запиши в папку Работы созвон") == "работа")
+        #expect(slug("Дейзи, в проект Работа созвон") == "работа")
+        #expect(slug("Note to project Client A: send the contract") == "client a")
+        #expect(slug("To the project Client B: invoice") == "client b")
+        // Only at the start.
+        #expect(DaisyKeyFolderRoute.opening("купить молоко и потом в проект Работа", folders: folders) == nil)
+        #expect(DaisyKeyFolderRoute.opening("", folders: folders) == nil)
+        #expect(DaisyKeyFolderRoute.opening("to the project", folders: folders) == nil)
+        // A story about a project isn't where the note goes.
+        #expect(DaisyKeyFolderRoute.opening("В проекте Работа сроки поехали", folders: folders) == nil)
+        #expect(DaisyKeyFolderRoute.opening("In project Client A we slipped", folders: folders) == nil)
+        // Said, but not one project: answered, not filed.
+        #expect(DaisyKeyFolderRoute.opening("в проект Альфу бюджет", folders: folders)?.ambiguous == true)
+        #expect(DaisyKeyFolderRoute.opening("в проект Бета позвонить", folders: folders)?.unmatched == true)
+    }
+
     @Test func noFolderPhraseIsJustTheNote() {
         #expect(DaisyKeyFolderRoute.route("купить молоко", folders: folders) == .init(folderSlug: nil, body: "купить молоко"))
         #expect(DaisyKeyFolderRoute.route("в магазин за хлебом", folders: folders).unmatched == false)

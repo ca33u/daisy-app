@@ -837,6 +837,9 @@ extension RecordingSession {
             persistedKindOverride = theirKind
         }
 
+        // The final pass's words may name a project the live ones missed.
+        fileNoteBySpokenProject(final: true)
+
         let reRenderState = signposter.beginInterval("re_render_md", id: signposter.makeSignpostID())
         let t_reRender = Date()
         // Without the summary: the transcript file never carries it.

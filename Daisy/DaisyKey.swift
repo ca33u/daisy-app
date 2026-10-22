@@ -368,6 +368,31 @@ nonisolated enum DaisyKeyFolderRoute {
         return Result(folderSlug: best.slug, body: rest.isEmpty ? text : rest)
     }
 
+    /// A long note's first words naming its project (Egor 22.10): «в
+    /// проект Лендинг …», or «заметка в проект Лендинг …» — the way a held
+    /// note is filed. nil when it doesn't open that way. Only the forms
+    /// that send somewhere: «в проекте Альфа сроки поехали» is a story
+    /// about the project, not where the note goes. The words themselves
+    /// stay in the note.
+    static let directions: Set<String> = ["в", "во", "to", "into"]
+    static let destinations: Set<String> = ["проект", "папку", "project", "folder"]
+
+    static func opening(_ text: String, folders: [Folder]) -> Result? {
+        let lead = text.split(whereSeparator: \.isWhitespace).prefix(12).joined(separator: " ")
+        let rest: String
+        switch DaisyKeyIntentParser.parse(lead) {
+        case .note(let said), .unclear(let said): rest = said
+        case nil: return nil
+        }
+        let words = rest.split(whereSeparator: \.isWhitespace).map { DaisyKeyIntentParser.normalized(String($0)) }
+        guard words.count >= 3, directions.contains(words[0]) else { return nil }
+        let noun = words[1] == "the" ? words[2] : words[1]
+        guard destinations.contains(noun) else { return nil }
+        let result = route(rest, folders: folders)
+        // «в проект» with no name after it names nothing.
+        return result.folderSlug == nil && !result.unmatched && !result.ambiguous ? nil : result
+    }
+
     /// Same word, or the same stem with a different ending: a shared
     /// start of all but the last letter of the shorter word, at least
     /// three letters, lengths at most two apart.
@@ -1459,7 +1484,7 @@ final class DaisyKeyController {
 
     /// The user's folders, with the names system folders answer to in
     /// speech in either language.
-    private static func folders() -> [DaisyKeyFolderRoute.Folder] {
+    static func folders() -> [DaisyKeyFolderRoute.Folder] {
         FolderStore.shared.allFolders.map { folder in
             var names = [folder.name]
             if folder.slug == SessionFolder.inbox.slug { names += ["Входящие", "Inbox"] }
@@ -1481,7 +1506,7 @@ final class DaisyKeyController {
     /// Said where the person is: the key is pressed from other apps, and
     /// the toast lives in Daisy's window — so the widget's pill too, or a
     /// notification when there is no pill.
-    private func tell(_ text: String, style: Toast.Style = .info,
+    func tell(_ text: String, style: Toast.Style = .info,
                       action: (label: String, run: @MainActor () -> Void)? = nil) {
         if let action {
             ToastCenter.shared.showAction(text, actionLabel: action.label, style: style, duration: .seconds(8), perform: action.run)
