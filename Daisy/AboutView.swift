@@ -194,62 +194,18 @@ struct AboutView: View {
                     detail: "support@mydaisy.io",
                     url: URL(string: "mailto:support@mydaisy.io")
                 )
-            } header: {
-                Text("Links")
-            }
-
-            // Who made the models Daisy downloads, and on what terms
-            // (backlog 30 Л-2): CC BY 4.0 asks for the credit, a link to
-            // the license and what was changed — given here, in the app
-            // people actually run, not only on the website.
-            Section {
-                ForEach(ModelCredit.mac) { credit in
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(credit.name).font(.callout.weight(.medium))
-                            Spacer()
-                            Button {
-                                NSWorkspace.shared.open(credit.licenseURL)
-                            } label: {
-                                Text(credit.license)
-                                    .foregroundStyle(Color.daisyAccent)
-                            }
-                            .buttonStyle(.plain)
-                            .help(credit.licenseURL.absoluteString)
-                        }
-                        Text(credit.authorsLine)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(credit.note)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Button {
-                            NSWorkspace.shared.open(credit.source)
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text("Upstream project")
-                                Image(systemName: "arrow.up.right.square").font(.caption2)
-                            }
-                            .font(.caption)
-                            .foregroundStyle(Color.daisyAccent)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.vertical, 2)
-                }
+                // Who made the models Daisy downloads and on what terms lives on
+                // the site (Egor 22.10). CC BY 4.0 allows the credit as a link to
+                // where it's given (§3(a)(2)); the models' own license files
+                // sit next to them on the mirror (models.mydaisy.io).
                 aboutLinkRow(
                     icon: "doc.plaintext",
-                    title: "All licenses",
+                    title: "Models and licenses",
                     detail: "mydaisy.io/licenses",
-                    url: URL(string: "https://mydaisy.io/licenses")
+                    url: URL(string: "https://mydaisy.io/licenses#models")
                 )
             } header: {
-                Text("Models and licenses")
-            } footer: {
-                Text("The models are downloaded when first needed and aren’t part of the installer. Their authors keep their rights; the credit doesn’t mean they endorse Daisy.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text("Links")
             }
 
             // Same tester feedback channel as Help → "Send Log Report…":
@@ -409,74 +365,6 @@ struct AboutView: View {
             }
         }
     }
-}
-
-/// One model Daisy for Mac downloads: who made it, its license, what was
-/// changed. Mirrored on mydaisy.io/licenses and in the README's Credits.
-struct ModelCredit: Identifiable {
-    let name: String
-    /// Who made the model.
-    let origin: String
-    /// Who converted it to Core ML.
-    let converter: String
-    let license: String
-    let licenseURL: URL
-    let source: URL
-    let note: String
-    var id: String { name }
-
-    var authorsLine: String { String(localized: "\(origin) · Core ML conversion: \(converter)") }
-
-    static let mac: [ModelCredit] = [
-        ModelCredit(
-            name: "Whisper",
-            origin: "OpenAI", converter: "Argmax (WhisperKit)",
-            license: "MIT",
-            licenseURL: URL(string: "https://github.com/openai/whisper/blob/main/LICENSE")!,
-            source: URL(string: "https://huggingface.co/argmaxinc/whisperkit-coreml")!,
-            note: String(localized: "Speech recognition for recordings and dictation.")
-        ),
-        ModelCredit(
-            name: "Parakeet TDT 0.6B v3",
-            origin: "NVIDIA", converter: "Fluid Inference",
-            license: "CC BY 4.0",
-            licenseURL: URL(string: "https://creativecommons.org/licenses/by/4.0/")!,
-            source: URL(string: "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3")!,
-            note: String(localized: "Fast dictation engine. Fluid Inference converted it to Core ML with compressed (palettized) encoder weights — FluidInference/parakeet-tdt-0.6b-v3-coreml.")
-        ),
-        ModelCredit(
-            name: "Nemotron 3.5 ASR Streaming 0.6B",
-            origin: "NVIDIA", converter: "Fluid Inference",
-            license: "OpenMDW 1.1",
-            licenseURL: URL(string: "https://openmdw.ai/license/1-1/")!,
-            source: URL(string: "https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b")!,
-            note: String(localized: "Live preview while dictating — downloaded only when that setting is on. Fluid Inference converted it to Core ML.")
-        ),
-        ModelCredit(
-            name: "pyannote segmentation-3.0",
-            origin: "CNRS · pyannote", converter: "Fluid Inference",
-            license: "MIT",
-            licenseURL: URL(string: "https://huggingface.co/FluidInference/speaker-diarization-coreml/blob/7eab74f3463c736418d0eb10296261ae581146c9/NOTICE.md")!,
-            source: URL(string: "https://huggingface.co/pyannote/segmentation-3.0")!,
-            note: String(localized: "Telling speakers apart. Fluid Inference converted it to Core ML with fixed input shapes.")
-        ),
-        ModelCredit(
-            name: "WeSpeaker wespeaker-voxceleb-resnet34-LM",
-            origin: "WeSpeaker · pyannote", converter: "Fluid Inference",
-            license: "CC BY 4.0",
-            licenseURL: URL(string: "https://creativecommons.org/licenses/by/4.0/")!,
-            source: URL(string: "https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM")!,
-            note: String(localized: "Voice fingerprints for recognising speakers. Modified by Fluid Inference: fixed input shapes, a fused filter-bank front end and 8-bit palettized weights.")
-        ),
-        ModelCredit(
-            name: "Silero VAD",
-            origin: "Silero Team", converter: "Fluid Inference",
-            license: "MIT",
-            licenseURL: URL(string: "https://github.com/snakers4/silero-vad/blob/master/LICENSE")!,
-            source: URL(string: "https://github.com/snakers4/silero-vad")!,
-            note: String(localized: "Finding where speech is, before transcription.")
-        ),
-    ]
 }
 
 #Preview {

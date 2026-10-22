@@ -1,16 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "\nModels: Whisper (OpenAI, MIT), Parakeet (NVIDIA, CC BY 4.0), Nemotron (NVIDIA, OpenMDW 1.1), pyannote segmentation (CNRS, MIT), WeSpeaker (CC BY 4.0), Silero VAD (MIT) — Core ML conversions by Argmax and Fluid Inference\n" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "\nМодели: Whisper (OpenAI, MIT), Parakeet (NVIDIA, CC BY 4.0), Nemotron (NVIDIA, OpenMDW 1.1), pyannote segmentation (CNRS, MIT), WeSpeaker (CC BY 4.0), Silero VAD (MIT) — версии для Core ML от Argmax и Fluid Inference\n"
-          }
-        }
-      }
-    },
     "%@ doesn't write in Russian yet." : {
       "localizations" : {
         "ru" : {
@@ -71,16 +61,6 @@
         }
       }
     },
-    "%@ · Core ML conversion: %@" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ · версия для Core ML: %@"
-          }
-        }
-      }
-    },
     "A follow-up or notes template (My style) makes its own extra request for the meetings it applies to, even with this off." : {
       "localizations" : {
         "ru" : {
@@ -127,16 +107,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Добавить раздел"
-          }
-        }
-      }
-    },
-    "All licenses" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Все лицензии"
           }
         }
       }
@@ -547,26 +517,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Примеры — одно-три твоих лучших письма"
-          }
-        }
-      }
-    },
-    "Fast dictation engine. Fluid Inference converted it to Core ML with compressed (palettized) encoder weights — FluidInference/parakeet-tdt-0.6b-v3-coreml." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Быстрый движок диктовки. Fluid Inference перевела модель в Core ML со сжатыми (палетизированными) весами энкодера — FluidInference/parakeet-tdt-0.6b-v3-coreml."
-          }
-        }
-      }
-    },
-    "Finding where speech is, before transcription." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Поиск речи в звуке перед расшифровкой."
           }
         }
       }
@@ -1071,6 +1021,16 @@
         }
       }
     },
+    "\nModels and licenses: " : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "\nМодели и лицензии: "
+          }
+        }
+      }
+    },
     "The Daisy key needs Accessibility — until it’s granted, it does nothing" : {
       "localizations" : {
         "ru" : {
@@ -1217,16 +1177,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Лицензия"
-          }
-        }
-      }
-    },
-    "Live preview while dictating — downloaded only when that setting is on. Fluid Inference converted it to Core ML." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Живой предпросмотр при диктовке — скачивается, только если эта настройка включена. Fluid Inference перевела модель в Core ML."
           }
         }
       }
@@ -2793,16 +2743,6 @@
         }
       }
     },
-    "Speech recognition for recordings and dictation." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Распознавание речи в записях и диктовке."
-          }
-        }
-      }
-    },
     "Standard summary only" : {
       "localizations" : {
         "ru" : {
@@ -2943,16 +2883,6 @@
         }
       }
     },
-    "Telling speakers apart. Fluid Inference converted it to Core ML with fixed input shapes." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Разделение говорящих. Fluid Inference перевела модель в Core ML с фиксированными размерами входа."
-          }
-        }
-      }
-    },
     "Template: %@" : {
       "localizations" : {
         "ru" : {
@@ -3049,16 +2979,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Модель не удалось скачать целиком. Проверь подключение и попробуй ещё раз."
-          }
-        }
-      }
-    },
-    "The models are downloaded when first needed and aren’t part of the installer. Their authors keep their rights; the credit doesn’t mean they endorse Daisy." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Модели скачиваются, когда впервые нужны, и не входят в установщик. Авторы сохраняют права на свои работы; упоминание не означает, что они одобряют Daisy."
           }
         }
       }
@@ -3223,16 +3143,6 @@
         }
       }
     },
-    "Upstream project" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Исходный проект"
-          }
-        }
-      }
-    },
     "Use" : {
       "localizations" : {
         "ru" : {
@@ -3279,16 +3189,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Проверка…"
-          }
-        }
-      }
-    },
-    "Voice fingerprints for recognising speakers. Modified by Fluid Inference: fixed input shapes, a fused filter-bank front end and 8-bit palettized weights." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Голосовые отпечатки для узнавания говорящих. Изменения Fluid Inference: фиксированные размеры входа, встроенный банк фильтров и 8-битная палетизация весов."
           }
         }
       }
