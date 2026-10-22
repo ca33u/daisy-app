@@ -13,34 +13,59 @@ import Foundation
 
 public nonisolated enum SummaryPrompt {
     /// Бэклог 15 П-3: what to add when the transcript names exactly one
-    /// voice.
+    /// voice — and, since 22.10, what to do with it.
     ///
-    /// Not a second format and not a "voice note mode" — the section
-    /// shape stays the same. It removes one specific failure: a
-    /// monologue summarised as if it were a meeting grows attendees who
-    /// were never there and "decisions" nobody agreed to, and the
-    /// person reading it has no way to tell which parts were invented.
-    ///
-    /// Silence is the instruction, not a different template: say less
-    /// where there is less, rather than filling the same sections with
-    /// plausible-sounding filler.
+    /// Not a second format and not a switch — the JSON stays the same and
+    /// the branch is chosen by the diarization, never by the person. The
+    /// first version only forbade (no invented attendees, no padding);
+    /// a note to self then came back as "the speaker discusses X", with the
+    /// thought itself gone. Egor 22.10: "if I record an idea myself, the
+    /// summary is about nothing". The rule now says what to keep: the
+    /// author's thought in the author's terms — what the best dictation
+    /// products do (cleaned and structured, not reported on).
     public nonisolated static let singleVoiceDirective = """
         ━━━ ONE VOICE IN THIS RECORDING ━━━
-        The transcript contains exactly one speaker. It may be a note to
-        self, a lecture, a dictated draft, or one side of something —
-        you do not know which, and you must not guess.
+        The transcript contains exactly one speaker. Most often it is a note
+        to self: an idea, a plan, a list, a reflection, a dictated draft. It
+        may also be a talk or one side of something. These rules override
+        the meeting rules below wherever they conflict, and wherever the
+        text below says "meeting" or "attendees", read "recording" and "the
+        speaker".
 
-        Therefore:
-        - Do NOT name or imply other participants. There are none in
-          this recording.
-        - Do NOT report decisions, agreements or commitments as made
-          BETWEEN people. If the speaker states an intention, write it
-          as their intention.
-        - Action items: only what this speaker said they or someone
-          named would do. Do not invent owners.
-        - Leave a section out entirely when the recording has nothing
-          for it. An empty section is better than a filled one that is
-          not true.
+        YOUR JOB: keep the speaker's thought, not report on it.
+        - Write as the speaker's own notes. Never "the speaker says /
+          discusses / reflects on", never "the author", never the third
+          person about them. State the thing itself: "Sell templates
+          separately, not in the subscription" — not "The speaker considers
+          selling templates".
+        - Keep what makes the thought theirs: the concrete example, the
+          number, the name, the comparison, the exact wording of a phrase
+          they coined. Do not generalise a specific into a platitude.
+        - Keep the doubt where there was doubt. "Maybe", "not sure", "one
+          option is" stay tentative — never turn a hypothesis into a
+          decision.
+        - Add nothing of your own: no advice, no evaluation ("great idea"),
+          no next steps the speaker did not say, no pros and cons they did
+          not raise.
+        - Nobody else was there. Do not name or imply other participants,
+          and do not report agreements between people.
+
+        SHAPE — follow the thought, not a meeting template:
+        - title: the subject itself, 2-7 words. Never "Voice note",
+          "Thoughts on…", "Idea".
+        - summary: the thought in one sentence, as the speaker would put it.
+        - sections: only the parts the recording actually has, in the order
+          of the thought. Typical parts of an idea: the core, why it
+          matters, how it could work, doubts and open questions. A plan or
+          a list keeps its own order and items. A talk keeps its key points
+          in order. A short note may have one section or none — then the
+          gist goes in summary. Never pad to reach a count: the output must
+          not be longer than the recording deserves.
+        - actionItems / actions: only what the speaker said must be done
+          ("I need to…", "call Boris", "check the price"). Owner "me" for
+          the speaker. A wish or a "maybe someday" is not an action — leave
+          it in the sections.
+        - clientFollowUp: always "". There is nobody to send it to.
 
 
         """
@@ -83,8 +108,19 @@ public nonisolated enum SummaryPrompt {
         }
         let voiceDirective = singleVoice ? Self.singleVoiceDirective : ""
 
-        let followUpGate = "Only return an empty string if the meeting was a purely internal team sync with NO external party — a customer call, vendor pitch, partner alignment, contractor onboarding, or any conversation where one side represents a different organization counts as external and you MUST draft the follow-up."
-        let followUpConstraint = "Empty clientFollowUp only for purely internal team meetings — when in doubt, draft one."
+        // One voice: the meeting rules would contradict the directive above
+        // (a count of sections, "when in doubt, draft one"), so they change
+        // here rather than lean on "override". Many voices: byte for byte
+        // as before.
+        let followUpGate = singleVoice
+            ? "Always an empty string: one voice, nobody to send it to."
+            : "Only return an empty string if the meeting was a purely internal team sync with NO external party — a customer call, vendor pitch, partner alignment, contractor onboarding, or any conversation where one side represents a different organization counts as external and you MUST draft the follow-up."
+        let followUpConstraint = singleVoice
+            ? "clientFollowUp is always empty."
+            : "Empty clientFollowUp only for purely internal team meetings — when in doubt, draft one."
+        let sectionCount = singleVoice
+            ? "0-4 sections, as many as the thought has, in the order of\n    the thought."
+            : "3-5 sections total, ordered by importance (most decision-\n    heavy first)."
 
         return topDirective + voiceDirective + """
         You write structured notes from meeting transcripts for a busy
@@ -144,8 +180,7 @@ public nonisolated enum SummaryPrompt {
         }
 
         Constraints:
-          - 3-5 sections total, ordered by importance (most decision-
-            heavy first).
+          - \(sectionCount)
           - 2-6 top-level bullets per section. Prefer rich bullets to
             many shallow ones.
           - 0-3 sub-bullets per top bullet. Most bullets are leaves.

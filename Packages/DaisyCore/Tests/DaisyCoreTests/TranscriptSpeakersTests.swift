@@ -70,6 +70,22 @@ struct TranscriptSpeakersTests {
         #expect(SummaryPrompt.meetingSystemInstructions(localeHint: "ru", singleVoice: true)
             .hasPrefix("━━━ OUTPUT LANGUAGE: RUSSIAN"))
     }
+
+    /// Egor 22.10: a note to self came back as a meeting "about nothing".
+    /// One voice keeps the thought and drops the meeting's quotas; many
+    /// voices keep the meeting rules unchanged.
+    @Test func oneVoiceDropsTheMeetingQuotasManyVoicesKeepThem() {
+        let one = SummaryPrompt.meetingSystemInstructions(localeHint: "ru", singleVoice: true)
+        let many = SummaryPrompt.meetingSystemInstructions(localeHint: "ru", singleVoice: false)
+        #expect(one.contains("keep the speaker's thought"))
+        #expect(one.contains("0-4 sections, as many as the thought has"))
+        #expect(one.contains("clientFollowUp is always empty."))
+        #expect(!one.contains("3-5 sections total"))
+        #expect(!one.contains("when in doubt, draft one"))
+        #expect(many.contains("  - 3-5 sections total, ordered by importance (most decision-\n    heavy first).\n"))
+        #expect(many.contains("when in doubt, draft one"))
+        #expect(!many.contains("keep the speaker's thought"))
+    }
 }
 
 @Suite("Speaker labels only count where they mean something")
