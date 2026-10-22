@@ -466,7 +466,7 @@ struct SettingsView: View {
                         // is off, so "free it up there" would point nowhere.
                         let message = owner == .layoutFix && !settings.layoutFixEnabled
                             ? String(localized: "\(newValue.label) is kept for the layout fixer, which is off. Turn it on in Transcription → Keyboard layout to change or clear that shortcut.")
-                            : String(localized: "\(newValue.label) is already assigned to “\(owner.displayName)”. Free it up there first.")
+                            : String(localized: "\(newValue.displayLabel) is already assigned to “\(owner.displayName)”. Free it up there first.")
                         ToastCenter.shared.show(message, style: .warning)
                         return
                     }
@@ -521,9 +521,9 @@ struct SettingsView: View {
                         } else if preset.isFnOnly {
                             Label(preset.label, systemImage: preset == binding.wrappedValue ? "checkmark" : "globe")
                         } else if preset == binding.wrappedValue {
-                            Label(preset.label, systemImage: "checkmark")
+                            Label(preset.displayLabel, systemImage: "checkmark")
                         } else {
-                            Text(preset.label)
+                            Text(preset.displayLabel)
                         }
                     }
                 }
@@ -1319,13 +1319,18 @@ struct SettingsView: View {
                     title: "Daisy key",
                     caption: "Tap for a long note, tap again to stop. Hold and say “note …” to save one, or hold without a word over selected text to rewrite it in your voice",
                     binding: $settings.voiceNoteHotkey,
-                    slot: .voiceNote
+                    slot: .voiceNote,
+                    presets: HotkeyChoice.daisyKeyPresets
                 )
                 // Read through the observable permission so the line goes
                 // when Accessibility is granted with Settings open.
                 if settings.voiceNoteHotkey != .none,
                    SystemPermissions.shared.accessibility != .granted, !CGPreflightListenEventAccess() {
-                    Text("Holding the Daisy key needs Accessibility — until it’s granted, the key only starts and stops notes")
+                    // Held modifiers have no Carbon fallback: without the
+                    // permission they do nothing at all.
+                    Text(settings.voiceNoteHotkey.isModifierHold
+                         ? String(localized: "The Daisy key needs Accessibility — until it’s granted, it does nothing")
+                         : String(localized: "Holding the Daisy key needs Accessibility — until it’s granted, the key only starts and stops notes"))
                         .font(.caption)
                         .foregroundStyle(Color.daisyWarning)
                         .fixedSize(horizontal: false, vertical: true)

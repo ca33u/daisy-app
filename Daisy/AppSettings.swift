@@ -1416,10 +1416,10 @@ final class AppSettings {
         } else if !defaults.bool(forKey: Self.k_hasShownFirstRun) {
             // Fresh install (backlog 34 K-4): the voice-note slot is the
             // Daisy key now, one of the main keys, assigned out of the box
-            // (⌃⌥⌘D — D for Daisy, next to ⌃⌥⌘R for recording). Existing
+            // — ⌃⌥ held on its own (Egor 22.10; was ⌃⌥⌘D). Existing
             // installs keep their own; theirs becomes the Daisy key.
-            self.voiceNoteHotkey = .ctrlOptCmdD
-            if let encoded = try? JSONEncoder().encode(HotkeyChoice.ctrlOptCmdD) {
+            self.voiceNoteHotkey = .ctrlOpt
+            if let encoded = try? JSONEncoder().encode(HotkeyChoice.ctrlOpt) {
                 defaults.set(encoded, forKey: Self.k_voiceNoteHotkey)
             }
             // Onboarding introduces the key; the one-time «your voice-note

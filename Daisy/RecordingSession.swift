@@ -2468,7 +2468,20 @@ final class RecordingSession {
         }
         if currentMode == .meeting { ImprovementStats.record(.recordingStarted(fromCalendar: fromCalendar)) }
         installThermalDowngrade(startedTier: tier)
-        if settings.recordingSoundsEnabled { SoundEffects.playStart(for: currentMode) }
+        if settings.recordingSoundsEnabled {
+            if case .daisyKeyHold(let token) = dictationPurpose {
+                // A Daisy-key capture purrs once it's a hold: a tap's
+                // half-second, or ⌃⌥ that turned out to be ⌃⌥⌘R, makes no
+                // sound (22.10).
+                Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(DaisyKeyController.tapThreshold))
+                    guard let self, self.dictationPurpose == .daisyKeyHold(token), self.status == .recording else { return }
+                    SoundEffects.playStart(for: .dictation)
+                }
+            } else {
+                SoundEffects.playStart(for: currentMode)
+            }
+        }
 
         // Optional screenshots.
         if settings.screenshotsEnabled, let dir {

@@ -104,7 +104,7 @@ struct HotkeyRecorder: View {
     private var displayLabel: String {
         if isListening { return String(localized: "Press keys…") }
         if value.keyCode == nil { return String(localized: "Disabled") }
-        return value.label
+        return value.displayLabel
     }
 }
 

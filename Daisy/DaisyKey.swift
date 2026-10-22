@@ -717,6 +717,10 @@ final class DaisyKeyController {
     nonisolated static let maxHold: TimeInterval = 5 * 60
     /// The longest comment a meeting hold gives a moment.
     nonisolated static let maxComment: TimeInterval = 2 * 60
+    /// A held-modifier press (⌃⌥, the right ⌘) that another key joins
+    /// this soon was some other shortcut's start, and is thrown away;
+    /// later, the person was talking, and it ends as a release does.
+    nonisolated static let chordCancelWindow: TimeInterval = 1.5
 
     private enum PressMode {
         /// The key went down while nothing was recording: a capture runs.
@@ -797,6 +801,11 @@ final class DaisyKeyController {
     private var stopWriting: (() -> Void)?
     private var current: Press?
     private var holds: [UUID: Hold] = [:]
+    /// Captures a cancel threw away: their finish starts no long note.
+    private var cancelled: [UUID: Date] = [:]
+    /// Holds a late cancel ended: their words count, their silence isn't
+    /// a rewrite — it was the other shortcut.
+    private var endedByChord: [UUID: Date] = [:]
     private var holdCap: Task<Void, Never>?
 
     private init() {}
@@ -823,7 +832,7 @@ final class DaisyKeyController {
         }
         guard canHold else { return }
         defaults.set(true, forKey: introducedKey)
-        let key = settings.voiceNoteHotkey.label
+        let key = settings.voiceNoteHotkey.displayLabel
         let text = settings.rewriteSelectionHotkey != .none
             ? String(localized: "Your voice-note key \(key) is now the Daisy key: tap for a note as before, hold to say what to do. Rewriting is on it too — hold without a word over selected text")
             : String(localized: "Your voice-note key \(key) is now the Daisy key: tap for a note as before, hold to say what to do")
@@ -862,6 +871,8 @@ final class DaisyKeyController {
         // A hold whose finish never came (a start that was refused) is
         // not kept forever.
         holds = holds.filter { Date().timeIntervalSince($0.value.at) < Self.maxHold * 2 }
+        cancelled = cancelled.filter { Date().timeIntervalSince($0.value) < Self.maxHold * 2 }
+        endedByChord = endedByChord.filter { Date().timeIntervalSince($0.value) < Self.maxHold * 2 }
         let front = NSWorkspace.shared.frontmostApplication
         holds[token] = Hold(
             appName: front?.localizedName,
@@ -913,6 +924,51 @@ final class DaisyKeyController {
         }
     }
 
+    /// Another key or modifier joined a held-modifier press (see
+    /// `HotkeyAction.hold`'s `onCancel`): within `chordCancelWindow` the
+    /// press was another shortcut's start — its capture is dropped as a
+    /// tap's is, and no long note starts; after it, an ordinary release.
+    func cancel(session: RecordingSession) async {
+        guard let press = current else { return }
+        if Date().timeIntervalSince(press.at) >= Self.chordCancelWindow {
+            switch press.mode {
+            case .capturing:
+                endedByChord[press.token] = Date()
+                await release(session: session)
+                return
+            case .noCapture:
+                // A meeting comment that was said is kept; a quiet one
+                // was the other shortcut's.
+                if press.meeting?.heardSpeech == true {
+                    await release(session: session)
+                    return
+                }
+            case .ignored:
+                break
+            }
+        }
+        lastCancel = Date()
+        current = nil
+        holdCap?.cancel()
+        holdCap = nil
+        log.info("Daisy key: another key joined the hold — press dropped")
+        switch press.mode {
+        case .ignored:
+            return
+        case .noCapture:
+            press.meeting?.finish(isTap: true)
+            press.meeting?.context?.cancel()
+        case .capturing:
+            cancelled[press.token] = Date()
+            session.markDaisyKeyTap(press.token)
+            await session.stopDictationHotkey(daisyKeyToken: press.token)
+        }
+    }
+
+    /// When a press was last dropped by a cancel — the meeting key that
+    /// ran through ⌃⌥ waits for its capture to let go (`toggleByHotkey`).
+    private(set) var lastCancel: Date?
+
     /// This press's capture is running or on its way on that session.
     private static func captures(_ token: UUID, on session: RecordingSession) -> Bool {
         (session.isDictating || session.pendingMode == .dictation || session.startingMode == .dictation)
@@ -937,6 +993,7 @@ final class DaisyKeyController {
     /// now, stop) the long note — what the voice-note key did.
     func tapCaptureFinished(token: UUID, on session: RecordingSession) {
         holds.removeValue(forKey: token)?.context.cancel()
+        if cancelled.removeValue(forKey: token) != nil { return }
         let main = RecordingSession.current ?? session
         Task { @MainActor in
             await main.toggleVoiceNoteByHotkey()
@@ -951,6 +1008,7 @@ final class DaisyKeyController {
     func holdFinished(token: UUID, transcript raw: String, samples: [Float], durationSec: Int) async {
         defer { DaisyKeyIndicator.shared.settle() }
         let hold = holds.removeValue(forKey: token)
+        let chordEnded = endedByChord.removeValue(forKey: token) != nil
         let text = Self.corrected(raw)
         guard let intent = DaisyKeyIntentParser.parse(text) else {
             // A second or more with nothing recognized may still be
@@ -962,6 +1020,12 @@ final class DaisyKeyController {
             // With the card open a silent hold means nothing: its text is
             // not a selection to rewrite.
             if DaisyResultCard.shared.isOpen { return }
+            // Ended by another shortcut, or in another app than it began
+            // (⌘Tab under the hold): the selection isn't what was meant.
+            if chordEnded || NSWorkspace.shared.frontmostApplication?.bundleIdentifier != hold?.bundleID {
+                log.info("Daisy key: silent hold ended by another shortcut or app — no rewrite")
+                return
+            }
             if silentHold(context: context), let entryID {
                 DaisyCommandHistory.shared.setOutcome("rewrite", for: entryID)
             }

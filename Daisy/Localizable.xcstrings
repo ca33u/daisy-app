@@ -711,6 +711,26 @@
         }
       }
     },
+    "Right ⌘" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Правый ⌘"
+          }
+        }
+      }
+    },
+    "The Daisy key needs Accessibility — until it’s granted, it does nothing" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Клавише Daisy нужен Универсальный доступ — пока его нет, она не работает"
+          }
+        }
+      }
+    },
     "Holding the Daisy key needs Accessibility — until it’s granted, the key only starts and stops notes" : {
       "localizations" : {
         "ru" : {

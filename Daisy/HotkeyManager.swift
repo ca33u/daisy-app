@@ -107,9 +107,63 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
         label: "Fn"
     )
 
+    /// Modifiers held on their own, no letter — the Daisy key's presets
+    /// (Egor 22.10: «вариант Ctrl Option»). Carbon can't bind these and
+    /// nothing reaches the front app, so `HotkeyManager` watches
+    /// `.flagsChanged` and lets a press through only once the chord has
+    /// stood alone for a beat — ⌃⌥⌘R, ⌃⌥⌘M and ⌃⌥-arrows all start
+    /// with ⌃⌥ (see `ModifierHoldMachine`).
+    nonisolated static let modifiersOnlyKeyCode: UInt32 = 0xFFFF
+    static let ctrlOpt = HotkeyChoice(
+        keyCode: modifiersOnlyKeyCode,
+        modifiers: UInt32(controlKey | optionKey),
+        label: "⌃⌥"
+    )
+    /// The right ⌘ alone; the left one goes on working as ⌘. Apple
+    /// keyboards all have it, unlike a right ⌃.
+    static let rightCommand = HotkeyChoice(
+        keyCode: UInt32(kVK_RightCommand),
+        modifiers: 0,
+        label: "Right ⌘"
+    )
+
     /// Preset list shown in Settings picker. Custom recorder lives
     /// alongside — see `HotkeyRecorder` view.
     static let allPresets: [HotkeyChoice] = [.none, .ctrlOptCmdR, .ctrlOptCmdD, .ctrlOptCmdM, .ctrlOptSpace, .shiftCmdR, .f5, .fn]
+
+    /// D for Daisy with two modifiers: no macOS shortcut uses either
+    /// (⌃D deletes forward, ⌥D types a letter, ⌥⌘D hides the Dock, ⌃⌘D
+    /// looks a word up, ⇧⌘D is taken by Finder and Mail — research 22.10).
+    static let ctrlOptD = HotkeyChoice(
+        keyCode: UInt32(kVK_ANSI_D),
+        modifiers: UInt32(controlKey | optionKey),
+        label: "⌃⌥D"
+    )
+    static let ctrlShiftD = HotkeyChoice(
+        keyCode: UInt32(kVK_ANSI_D),
+        modifiers: UInt32(controlKey | shiftKey),
+        label: "⌃⇧D"
+    )
+
+    /// The Daisy key's row (Egor 22.10): held modifiers first, then the
+    /// D pairs. Anything else is still a recording away.
+    static let daisyKeyPresets: [HotkeyChoice] = [.none, .ctrlOpt, .rightCommand, .ctrlOptD, .ctrlShiftD]
+
+    /// Held modifiers with no key — routed through the flags monitor.
+    nonisolated var isModifierHold: Bool {
+        (keyCode == Self.modifiersOnlyKeyCode && (modifiers ?? 0) != 0)
+            || (keyCode == UInt32(kVK_RightCommand) && (modifiers ?? 0) == 0)
+    }
+
+    /// What the UI shows. `label` is also the stored id, so a word in it
+    /// stays English there and is translated here.
+    var displayLabel: String {
+        isRightCommand ? String(localized: "Right ⌘") : label
+    }
+
+    nonisolated var isRightCommand: Bool {
+        keyCode == UInt32(kVK_RightCommand) && (modifiers ?? 0) == 0
+    }
 
     /// Paste-flavoured preset list — used by the "Paste my last
     /// dictation" row instead of `allPresets`.
@@ -134,7 +188,7 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
     /// Whether this choice is one of the canonical presets above.
     /// UI uses this to mark presets in the menu (vs custom recordings).
     var isPreset: Bool {
-        Self.allPresets.contains(self) || Self.pastePresets.contains(self)
+        Self.allPresets.contains(self) || Self.pastePresets.contains(self) || Self.daisyKeyPresets.contains(self)
     }
 
     // MARK: Custom recording
@@ -236,6 +290,8 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
         case kVK_F11:       return "F11"
         case kVK_F12:       return "F12"
         case kVK_Function:  return "Fn"
+        case kVK_RightCommand: return "Right ⌘"
+        case Int(modifiersOnlyKeyCode): return ""
         case kVK_LeftArrow:  return "←"
         case kVK_RightArrow: return "→"
         case kVK_UpArrow:    return "↑"
@@ -301,10 +357,166 @@ nonisolated enum HotkeySlot: UInt32, CaseIterable, Sendable {
 /// note can be ⌃⌥V (hold). They're orthogonal.
 nonisolated enum HotkeyAction: Sendable {
     case toggle(@MainActor @Sendable () -> Void)
+    /// `onCancel` is for held modifiers only: another key or modifier
+    /// joined the hold, so it was the start of some other shortcut.
+    /// Without one, a cancel is an ordinary release.
     case hold(
         onPress: @MainActor @Sendable () -> Void,
-        onRelease: @MainActor @Sendable () -> Void
+        onRelease: @MainActor @Sendable () -> Void,
+        onCancel: (@MainActor @Sendable () -> Void)? = nil
     )
+}
+
+// MARK: - Held modifiers
+
+/// What the modifiers down right now are, against a held-modifier
+/// choice (`HotkeyChoice.isModifierHold`).
+nonisolated enum ModifierChordReading: Equatable, Sendable {
+    /// Exactly the chord.
+    case exact
+    /// Something the chord doesn't have is down too — another modifier,
+    /// or the left ⌘ beside the right one.
+    case extra
+    /// Part of the chord, nothing else.
+    case partial
+    /// No modifier at all.
+    case none
+
+    /// The device-dependent bits of the two ⌘ keys (IOLLEvent.h
+    /// NX_DEVICELCMDKEYMASK / NX_DEVICERCMDKEYMASK).
+    static let leftCommandBit: UInt = 0x08
+    static let rightCommandBit: UInt = 0x10
+
+    static func read(_ flags: NSEvent.ModifierFlags, for choice: HotkeyChoice) -> ModifierChordReading {
+        let watched: NSEvent.ModifierFlags = [.control, .option, .shift, .command, .function]
+        let down = flags.intersection(watched)
+        if down.isEmpty { return .none }
+        if choice.isRightCommand {
+            let raw = flags.rawValue
+            // The right ⌘ alone — but an old event source may set
+            // `.command` without side bits; that isn't the right key.
+            if down != .command { return .extra }
+            if raw & leftCommandBit != 0 { return .extra }
+            return raw & rightCommandBit != 0 ? .exact : .partial
+        }
+        var chord: NSEvent.ModifierFlags = []
+        let mods = choice.modifiers ?? 0
+        if mods & UInt32(controlKey) != 0 { chord.insert(.control) }
+        if mods & UInt32(optionKey) != 0 { chord.insert(.option) }
+        if mods & UInt32(shiftKey) != 0 { chord.insert(.shift) }
+        if mods & UInt32(cmdKey) != 0 { chord.insert(.command) }
+        if !down.subtracting(chord).isEmpty { return .extra }
+        return down == chord ? .exact : .partial
+    }
+}
+
+/// Press, release and cancel for held modifiers, out of `.flagsChanged`
+/// and key-down events. Pure — the manager feeds it and runs the timer.
+///
+/// The chord has to stand alone for `armDelay` before it's a press:
+/// Daisy's own ⌃⌥⌘R and ⌃⌥⌘M, and window managers' ⌃⌥-arrows, all go
+/// through ⌃⌥ on the way. Let go sooner and it was a tap (press and
+/// release at once). Once pressed, a key or another modifier joining is
+/// a cancel. After anything extra, nothing fires until every modifier
+/// is up — letting go of ⌘ out of ⌃⌥⌘ must not leave a ⌃⌥ press.
+nonisolated struct ModifierHoldMachine: Sendable {
+    static let armDelay: TimeInterval = 0.12
+
+    enum Output: Equatable, Sendable {
+        case press, release, cancel
+        /// Call `armElapsed(generation)` after `armDelay`.
+        case scheduleArm(Int)
+    }
+
+    private enum State: Equatable {
+        case idle
+        case arming(Int)
+        case held
+        /// Waiting for every modifier to be up.
+        case spoiled
+    }
+
+    private var state: State = .idle
+    private var generation = 0
+    /// Whether any modifier was down at the last flags event.
+    private var anyDown = false
+
+    mutating func flags(_ reading: ModifierChordReading) -> [Output] {
+        anyDown = reading != .none
+        switch state {
+        case .idle:
+            switch reading {
+            case .exact:
+                generation += 1
+                state = .arming(generation)
+                return [.scheduleArm(generation)]
+            case .extra:
+                state = .spoiled
+            case .partial, .none:
+                break
+            }
+        case .arming:
+            switch reading {
+            case .exact:
+                break
+            case .extra:
+                state = .spoiled
+            case .partial, .none:
+                state = .idle
+                return [.press, .release]
+            }
+        case .held:
+            switch reading {
+            case .exact:
+                break
+            case .extra:
+                state = .spoiled
+                return [.cancel]
+            case .partial, .none:
+                state = .idle
+                return [.release]
+            }
+        case .spoiled:
+            if reading == .none { state = .idle }
+        }
+        return []
+    }
+
+    mutating func keyDown() -> [Output] {
+        switch state {
+        case .idle:
+            // ⌃ held for ⌃C, then ⌥ added: not a Daisy press.
+            if anyDown { state = .spoiled }
+        case .arming:
+            state = .spoiled
+        case .held:
+            state = .spoiled
+            return [.cancel]
+        case .spoiled:
+            break
+        }
+        return []
+    }
+
+    mutating func armElapsed(_ generation: Int) -> [Output] {
+        guard state == .arming(generation) else { return [] }
+        state = .held
+        return [.press]
+    }
+}
+
+/// The machine behind a lock — the monitors' closures are `@Sendable`.
+nonisolated private final class ModifierHoldBox: @unchecked Sendable {
+    private let lock = OSAllocatedUnfairLock<ModifierHoldMachine>(initialState: ModifierHoldMachine())
+    /// When the chord last stood alone — the start of the arm.
+    private let since = OSAllocatedUnfairLock<Date?>(initialState: nil)
+    func run(_ step: @Sendable (inout ModifierHoldMachine) -> [ModifierHoldMachine.Output]) -> [ModifierHoldMachine.Output] {
+        lock.withLock { step(&$0) }
+    }
+    var armedAt: Date? {
+        get { since.withLock { $0 } }
+        set { since.withLock { $0 = newValue } }
+    }
 }
 
 /// Thread-safe per-slot storage of the currently-registered action.
@@ -402,12 +614,18 @@ final class HotkeyManager {
         case .toggle:
             if choice.isFnOnly {
                 installFnFlagsMonitor(slot: slot, isHold: false)
+            } else if choice.isModifierHold {
+                installModifierHoldMonitor(slot: slot, choice: choice, isHold: false)
             } else {
                 installCarbonToggle(slot: slot, keyCode: keyCode, mods: mods)
             }
         case .hold:
             if choice.isFnOnly {
                 installFnFlagsMonitor(slot: slot, isHold: true)
+            } else if choice.isModifierHold {
+                installModifierHoldMonitor(slot: slot, choice: choice, isHold: true)
+            } else if slot == .voiceNote {
+                installCarbonHold(slot: slot, keyCode: keyCode, mods: mods)
             } else {
                 installKeyHoldMonitor(slot: slot, keyCode: keyCode, mods: mods)
             }
@@ -481,6 +699,27 @@ final class HotkeyManager {
         }
     }
 
+    /// The Daisy key on an ordinary key (⌃⌥D, ⌃⇧D, ⌃⌥⌘D): a Carbon hotkey
+    /// with its released event, so the key and its autorepeat never reach
+    /// the front app — a monitor only listens, and a held ⌃⇧D typed ^D
+    /// (EOF) into Terminal over and over (review 22.10). A key-up monitor
+    /// stands behind the released event; a second release is ignored.
+    private func installCarbonHold(slot: HotkeySlot, keyCode: UInt32, mods: UInt32) {
+        installCarbonToggle(slot: slot, keyCode: keyCode, mods: mods)
+        guard refs[slot] != nil else { return }
+        let handle: @Sendable (NSEvent) -> Void = { [weak self] event in
+            guard let self, UInt32(event.keyCode) == keyCode else { return }
+            self.fireOnRelease(slot: slot)
+        }
+        if let monitor = NSEvent.addGlobalMonitorForEvents(matching: .keyUp, handler: handle) {
+            fnMonitors[slot] = monitor
+        }
+        localMonitors[slot] = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { event in
+            handle(event)
+            return event
+        }
+    }
+
     /// NSEvent .flagsChanged monitor for Fn / 🌐 globe key.
     /// `isHold` switches between toggle (fire on rising edge only)
     /// and push-to-talk (fire onPress on rising edge, onRelease on
@@ -508,6 +747,70 @@ final class HotkeyManager {
             handle(event)
             return event
         }
+    }
+
+    /// Held modifiers (⌃⌥, the right ⌘): `.flagsChanged` for the chord,
+    /// `.keyDown` for a key that joins it — see `ModifierHoldMachine`. A
+    /// toggle fires on the press and ignores the rest.
+    private func installModifierHoldMonitor(slot: HotkeySlot, choice: HotkeyChoice, isHold: Bool) {
+        let box = ModifierHoldBox()
+        // ⌃⌥ is VoiceOver's own modifier; while VoiceOver runs it's left alone.
+        let yieldsToVoiceOver = !choice.isRightCommand && (choice.modifiers ?? 0) & UInt32(controlKey | optionKey) == UInt32(controlKey | optionKey)
+        let perform: @Sendable ([ModifierHoldMachine.Output]) -> Void = { [weak self] produced in
+            guard let self else { return }
+            var outputs = produced
+            // A key or click the system keeps for itself (⌘Tab, Spotlight's
+            // ⌘Space) never reaches a monitor, but the system's own counters
+            // saw it: the hold was that shortcut's, not Daisy's (review 22.10).
+            if outputs.contains(.release), let since = box.armedAt, Self.inputArrived(since: since) {
+                outputs = outputs == [.press, .release] ? [] : outputs.map { $0 == .release ? .cancel : $0 }
+            }
+            for output in outputs {
+                switch output {
+                case .press: self.fireOnPress(slot: slot)
+                case .release: if isHold { self.fireOnRelease(slot: slot) }
+                case .cancel: if isHold { self.fireOnCancel(slot: slot) }
+                case .scheduleArm(let generation):
+                    box.armedAt = Date()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + ModifierHoldMachine.armDelay) { [weak self] in
+                        guard let self else { return }
+                        // Only a press comes out of an elapsed arm.
+                        if box.run({ $0.armElapsed(generation) }).contains(.press) { self.fireOnPress(slot: slot) }
+                    }
+                }
+            }
+        }
+        let handle: @Sendable (NSEvent) -> Void = { event in
+            // A key or a click joining the chord — ⌘-click, ⌃⌥-arrows.
+            guard event.type == .flagsChanged else {
+                perform(box.run { $0.keyDown() })
+                return
+            }
+            let read = ModifierChordReading.read(event.modifierFlags, for: choice)
+            let reading = yieldsToVoiceOver && read != .none && NSWorkspace.shared.isVoiceOverEnabled ? .extra : read
+            perform(box.run { $0.flags(reading) })
+        }
+        let mask: NSEvent.EventTypeMask = [.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+        let monitor = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: handle)
+        guard let monitor else {
+            promptForInputMonitoring(label: choice.displayLabel)
+            return
+        }
+        fnMonitors[slot] = monitor
+        localMonitors[slot] = NSEvent.addLocalMonitorForEvents(matching: mask) { event in
+            handle(event)
+            return event
+        }
+    }
+
+    /// Whether a key went down or a mouse button was pressed since
+    /// `start`, anywhere — including what a system shortcut swallowed.
+    /// Hardware only: Daisy's own posted ⌘C / ⌘V aren't the person's.
+    /// Scrolling isn't counted: a trackpad's momentum outlives the swipe.
+    nonisolated static func inputArrived(since start: Date) -> Bool {
+        let held = Date().timeIntervalSince(start)
+        let types: [CGEventType] = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+        return types.contains { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) < held }
     }
 
     /// NSEvent .keyDown + .keyUp monitor for hold-to-talk bindings
@@ -565,7 +868,7 @@ final class HotkeyManager {
                 guard !(KeyCaptureBox.isListening && NSApp.isActive) else { return }
                 f()
             }
-        case .hold(let onPress, _):
+        case .hold(let onPress, _, _):
             Task { @MainActor in
                 // Only while Daisy is in front: a recorder left listening behind
                 // another app must not mute every shortcut.
@@ -578,8 +881,15 @@ final class HotkeyManager {
     /// Dispatch the release half — only relevant for `.hold`
     /// actions. `.toggle` slots ignore release edges.
     nonisolated private func fireOnRelease(slot: HotkeySlot) {
-        guard case .hold(_, let onRelease) = actionMap.get(slot: slot) else { return }
+        guard case .hold(_, let onRelease, _) = actionMap.get(slot: slot) else { return }
         Task { @MainActor in onRelease() }
+    }
+
+    /// Dispatch a held-modifier cancel — `.hold` only; one without an
+    /// `onCancel` gets its release.
+    nonisolated private func fireOnCancel(slot: HotkeySlot) {
+        guard case .hold(_, let onRelease, let onCancel) = actionMap.get(slot: slot) else { return }
+        Task { @MainActor in (onCancel ?? onRelease)() }
     }
 
     /// Show a once-per-failure toast nudging the user to Privacy &
@@ -634,10 +944,12 @@ final class HotkeyManager {
     /// last slot unregisters.
     private func ensureEventHandlerInstalled() {
         guard eventHandler == nil else { return }
-        var eventType = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: UInt32(kEventHotKeyPressed)
-        )
+        // Released too, for the Daisy key's Carbon hold; a toggle's
+        // release is dropped in `fireOnRelease`.
+        var eventTypes = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased)),
+        ]
         let userData = Unmanaged.passUnretained(self).toOpaque()
         InstallEventHandler(
             GetApplicationEventTarget(),
@@ -662,14 +974,17 @@ final class HotkeyManager {
                 let manager = Unmanaged<HotkeyManager>
                     .fromOpaque(userData)
                     .takeUnretainedValue()
-                // Carbon path only fires for `.toggle` registrations;
-                // `.hold` lives in NSEvent monitor land. Defensively
-                // accept either, but Carbon never sees a hold action.
-                manager.fireOnPress(slot: slot)
+                // Toggles, and the Daisy key's hold on an ordinary key
+                // (`installCarbonHold`); other holds live in monitor land.
+                if GetEventKind(eventRef) == UInt32(kEventHotKeyReleased) {
+                    manager.fireOnRelease(slot: slot)
+                } else {
+                    manager.fireOnPress(slot: slot)
+                }
                 return noErr
             },
-            1,
-            &eventType,
+            eventTypes.count,
+            &eventTypes,
             userData,
             &eventHandler
         )

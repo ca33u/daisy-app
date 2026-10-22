@@ -74,13 +74,20 @@ enum ServiceWiring {
                     onRelease: { [weak session] in
                         guard let session else { return }
                         Task { await DaisyKeyController.shared.release(session: session) }
+                    },
+                    onCancel: { [weak session] in
+                        guard let session else { return }
+                        Task { await DaisyKeyController.shared.cancel(session: session) }
                     }
                 )
             )
         } else {
+            // Held modifiers have no Carbon toggle to fall back on: their
+            // monitor needs the permission (and would ask for it before
+            // onboarding), so until then they stay unregistered.
             HotkeyManager.shared.register(
                 slot: .voiceNote,
-                choice: settings.voiceNoteHotkey,
+                choice: settings.voiceNoteHotkey.isModifierHold ? .none : settings.voiceNoteHotkey,
                 action: .toggle { [weak session] in
                     Task { await session?.toggleVoiceNoteByHotkey() }
                 }

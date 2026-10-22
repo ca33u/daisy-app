@@ -355,7 +355,7 @@ final class ScreenshotNoteCapture {
         if let key = contextKey {
             message = String(
                 format: String(localized: "Hold %@ to add context"),
-                key.label
+                key.displayLabel
             )
         } else {
             message = String(localized: "Screenshot saved to Notes")
@@ -399,7 +399,7 @@ final class ScreenshotNoteCapture {
             self?.clearPending()
         }
         announce(String(format: String(localized: "It’s the Daisy key now — hold %@ to add context"),
-                        settings.voiceNoteHotkey.label),
+                        settings.voiceNoteHotkey.displayLabel),
                  discarding: note, autoDismiss: Self.pendingWindow)
     }
 

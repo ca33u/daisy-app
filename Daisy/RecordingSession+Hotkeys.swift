@@ -162,14 +162,40 @@ extension RecordingSession {
     func toggleByHotkey() async {
         switch status {
         case .idle, .finished, .failed:
+            // The cancelled capture may still be in its start's first wait.
+            if isStarting, startingMode == .dictation {
+                guard await waitForCancelledDaisyCapture() else { return }
+            }
             await start()
         case .recording:
             await pause()
         case .paused:
             await resume()
-        case .preparing, .stopping, .summarizing:
+        case .preparing, .stopping:
+            guard currentMode == .dictation, await waitForCancelledDaisyCapture() else { return }
+            await start()
+        case .summarizing:
             return
         }
+    }
+
+    /// ⌃⌥⌘R typed slowly: the Daisy key on ⌃⌥ started a capture and its
+    /// cancel is letting the microphone go. The meeting starts once it
+    /// has (up to 3 s), rather than the key doing nothing (review 22.10).
+    /// False when no Daisy-key cancel is that recent, or it didn't settle.
+    private func waitForCancelledDaisyCapture() async -> Bool {
+        guard let cancel = DaisyKeyController.shared.lastCancel, Date().timeIntervalSince(cancel) < 2 else { return false }
+        func settled() -> Bool {
+            if isStarting { return false }
+            switch status {
+            case .idle, .finished, .failed: return true
+            default: return false
+            }
+        }
+        for _ in 0..<60 where !settled() {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return settled()
     }
 
     /// Voice-notes — TOGGLE on tap. Single press starts a
