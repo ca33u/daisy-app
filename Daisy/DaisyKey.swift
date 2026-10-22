@@ -99,6 +99,14 @@ nonisolated struct DaisyKeyContext: Sendable, Equatable {
             context.selectionReadable = true
             if let selected = selectedRef as? String, !selected.isEmpty { context.selection = selected }
         }
+        // Text selected in a page that isn't a field — a message open in
+        // Mail, an article in Safari — isn't in AXSelectedText; WebKit
+        // gives it through text markers. Without this «напиши ответ» over
+        // a selected email had nothing to answer (Egor 22.10).
+        if context.selection == nil, let marked = markedSelection(from: element) {
+            context.selection = marked
+            context.selectionReadable = true
+        }
         context.isEditable = isSettable(element, kAXValueAttribute as CFString)
             || (role == "AXWebArea" && isSettable(element, kAXSelectedTextRangeAttribute as CFString))
         return context
@@ -108,9 +116,11 @@ nonisolated struct DaisyKeyContext: Sendable, Equatable {
     /// it can't be read.
     static func currentSelection(in box: AXElementBox) -> String? {
         var raw: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(box.element, kAXSelectedTextAttribute as CFString, &raw) == .success,
-              let text = raw as? String, !text.isEmpty else { return nil }
-        return text
+        if AXUIElementCopyAttributeValue(box.element, kAXSelectedTextAttribute as CFString, &raw) == .success,
+           let text = raw as? String, !text.isEmpty { return text }
+        // Read the way `read()` read it, or an edit made over a page's
+        // selection would never count as over the same one.
+        return markedSelection(from: box.element)
     }
 
     /// The element that has the keyboard focus now, or nil.
@@ -122,6 +132,33 @@ nonisolated struct DaisyKeyContext: Sendable, Equatable {
         guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
               let focusedRef, CFGetTypeID(focusedRef) == AXUIElementGetTypeID() else { return nil }
         return AXElementBox(focusedRef as! AXUIElement)
+    }
+
+    /// The selection as WebKit's text markers give it, from the focused
+    /// element or the page it sits in (a few parents up, no further than
+    /// the AXWebArea).
+    static func markedSelection(from element: AXUIElement) -> String? {
+        var current = element
+        for _ in 0..<8 {
+            var range: CFTypeRef?
+            let asked = AXUIElementCopyAttributeValue(current, "AXSelectedTextMarkerRange" as CFString, &range)
+            // An app that doesn't answer won't answer its parents either.
+            if asked == .cannotComplete { return nil }
+            if asked == .success, let range {
+                var text: CFTypeRef?
+                if AXUIElementCopyParameterizedAttributeValue(current, "AXStringForTextMarkerRange" as CFString, range, &text) == .success,
+                   let marked = text as? String, !marked.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return marked
+                }
+            }
+            if string(current, kAXRoleAttribute) == "AXWebArea" { return nil }
+            var parent: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parent) == .success,
+                  let parent, CFGetTypeID(parent) == AXUIElementGetTypeID() else { return nil }
+            current = parent as! AXUIElement
+            AXUIElementSetMessagingTimeout(current, 0.2)
+        }
+        return nil
     }
 
     private static func string(_ element: AXUIElement, _ attribute: String) -> String? {
@@ -1262,6 +1299,14 @@ final class DaisyKeyController {
         guard case .text(let result) = written else {
             return await fallBack(String(localized: "Couldn’t do that — saved as a note"))
         }
+        // Written from nothing — «напиши ответ» with no message to answer —
+        // it comes back as a skeleton of [?] (Egor 22.10): not a card.
+        if role == .none, Self.isHollow(result) {
+            DaisyCommandHistory.shared.setOutcome("hollow", for: entryID)
+            tell(String(localized: "Nothing to answer — select the message text and say it again"))
+            log.info("Daisy key command came back as placeholders only — nothing shown")
+            return
+        }
         ImprovementStats.record(.daisyKeyGenerated(local: local))
         if let named { MeetingTemplateStore.shared.markUsed(named.id.uuidString) }
         let insertable = atPress && (kind == .edit || (kind == .write && role == .none))
@@ -1292,6 +1337,16 @@ final class DaisyKeyController {
                                     field: field, voice: voice)
         DaisyCommandHistory.shared.setOutcome("clipboard", for: entryID)
         log.info("Daisy key command to the card (\(result.count, privacy: .public) chars, kind \(String(describing: kind), privacy: .public))")
+    }
+
+    /// A text that is mostly «[?]»: placeholders where the body would go,
+    /// a greeting and a sign-off around them. A short line with one
+    /// unknown («Приду в [?].») is a real answer.
+    nonisolated static func isHollow(_ text: String) -> Bool {
+        let placeholders = text.components(separatedBy: "[?]").count - 1
+        let bodyIsPlaceholder = text.split(whereSeparator: \.isNewline).contains { $0.trimmingCharacters(in: .whitespaces) == "[?]" }
+        guard placeholders >= 2 || bodyIsPlaceholder else { return false }
+        return text.replacingOccurrences(of: "[?]", with: "").filter(\.isLetter).count < 25
     }
 
     /// «Использовано: выделение · Mail».

@@ -7,6 +7,7 @@
 //  folder that isn't there drops no word.
 //
 
+import AppKit
 import Foundation
 import Testing
 @testable import Daisy
@@ -89,6 +90,30 @@ struct DaisyKeyTests {
         // Said, but not one project: answered, not filed.
         #expect(DaisyKeyFolderRoute.opening("в проект Альфу бюджет", folders: folders)?.ambiguous == true)
         #expect(DaisyKeyFolderRoute.opening("в проект Бета позвонить", folders: folders)?.unmatched == true)
+    }
+
+    @Test func aReplyOfPlaceholdersOnlyIsHollow() {
+        #expect(DaisyKeyController.isHollow("Hi [?],\n\n[?]\n\nBest,\n[?]"))
+        #expect(DaisyKeyController.isHollow("Привет!\n\n[?]"))
+        // One unknown in a real reply is fine.
+        #expect(!DaisyKeyController.isHollow("Hi [?], Thursday at 3 pm works — I'll send the call link the day before."))
+        #expect(!DaisyKeyController.isHollow("Да, давай в четверг."))
+        #expect(!DaisyKeyController.isHollow("Приду в [?]."))
+        #expect(!DaisyKeyController.isHollow("Sure, see you at [?]."))
+    }
+
+    @Test func theResultCardSitsBesideTheWidget() {
+        let screen = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let card = NSSize(width: 400, height: 200)
+        // Widget bottom-right: the card above it, right edges together.
+        let widget = NSRect(x: 1340, y: 40, width: 58, height: 58)
+        #expect(DaisyResultCard.origin(for: card, beside: widget, in: screen) == NSPoint(x: 998, y: 108))
+        // Widget near the top: below it instead.
+        let high = NSRect(x: 1340, y: 800, width: 58, height: 58)
+        #expect(DaisyResultCard.origin(for: card, beside: high, in: screen) == NSPoint(x: 998, y: 590))
+        // Widget hidden: where it would be, bottom right.
+        let hidden = DaisyResultCard.origin(for: card, beside: nil, in: screen)
+        #expect(hidden.x == 1440 - 24 - 400 && hidden.y == 24 + 58 + 10)
     }
 
     @Test func noFolderPhraseIsJustTheNote() {

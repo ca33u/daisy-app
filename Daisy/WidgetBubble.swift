@@ -225,6 +225,9 @@ final class WidgetBubbleCenter {
 @MainActor
 protocol WidgetBubbleHosting: AnyObject {
     var isWidgetVisible: Bool { get }
+    /// Where the widget is on screen, when it is — what the Daisy key's
+    /// result card sits next to.
+    var widgetFrame: NSRect? { get }
     /// A prompt pill is on screen now (not dismissed, not expired).
     var isBubbleShown: Bool { get }
     func showBubble(_ content: WidgetBubbleContent)
@@ -290,4 +293,8 @@ struct WidgetBubbleView: View {
         // affordance as the toast.
         .onTapGesture(perform: onDismiss)
     }
+}
+
+extension WidgetBubbleHosting {
+    var widgetFrame: NSRect? { nil }
 }

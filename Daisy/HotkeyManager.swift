@@ -508,14 +508,23 @@ nonisolated struct ModifierHoldMachine: Sendable {
 /// The machine behind a lock — the monitors' closures are `@Sendable`.
 nonisolated private final class ModifierHoldBox: @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock<ModifierHoldMachine>(initialState: ModifierHoldMachine())
-    /// When the chord last stood alone — the start of the arm.
-    private let since = OSAllocatedUnfairLock<Date?>(initialState: nil)
+    /// When the chord last stood alone — the start of the arm — on the
+    /// events' own clock (system uptime), not when Daisy got round to
+    /// them: a fast ⌃⌥Space's Space would otherwise land «before» the arm
+    /// and not count (review 22.10).
+    private let since = OSAllocatedUnfairLock<TimeInterval?>(initialState: nil)
+    /// The latest `.flagsChanged` event's timestamp.
+    private let lastFlags = OSAllocatedUnfairLock<TimeInterval>(initialState: 0)
     func run(_ step: @Sendable (inout ModifierHoldMachine) -> [ModifierHoldMachine.Output]) -> [ModifierHoldMachine.Output] {
         lock.withLock { step(&$0) }
     }
-    var armedAt: Date? {
+    var armedAt: TimeInterval? {
         get { since.withLock { $0 } }
         set { since.withLock { $0 = newValue } }
+    }
+    var lastFlagsAt: TimeInterval {
+        get { lastFlags.withLock { $0 } }
+        set { lastFlags.withLock { $0 = newValue } }
     }
 }
 
@@ -588,6 +597,19 @@ final class HotkeyManager {
     /// is thread-safe; actions are `@MainActor`-typed so they can
     /// only run after a MainActor hop.
     nonisolated fileprivate let actionMap = HotkeyActionMap()
+
+    /// Per held-modifier slot: what to do when another Daisy shortcut
+    /// fires mid-chord. ⌃⌥Space (rewrite) or ⌃⌥V (paste last) go through
+    /// the Daisy key's ⌃⌥, and their Carbon hotkey swallows the Space or
+    /// V before any monitor sees it — the press then read as a tap and
+    /// started a long note as well (Egor 22.10). Daisy knows its own
+    /// shortcut fired, so it says so.
+    nonisolated private let modifierInterrupts = OSAllocatedUnfairLock<[HotkeySlot: @Sendable () -> Void]>(initialState: [:])
+    /// When each of Daisy's shortcuts last fired (system uptime) — for a
+    /// hold whose interrupt came before its own ⌃⌥ was seen: the Carbon
+    /// event and the flags reach the run loop by different routes. Per
+    /// slot, so the Daisy key's own press can't overwrite ⌃⌥Space's.
+    nonisolated private let lastHotkeyFire = OSAllocatedUnfairLock<[HotkeySlot: TimeInterval]>(initialState: [:])
 
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "Hotkey")
 
@@ -762,7 +784,7 @@ final class HotkeyManager {
             // A key or click the system keeps for itself (⌘Tab, Spotlight's
             // ⌘Space) never reaches a monitor, but the system's own counters
             // saw it: the hold was that shortcut's, not Daisy's (review 22.10).
-            if outputs.contains(.release), let since = box.armedAt, Self.inputArrived(since: since) {
+            if outputs.contains(.release), let since = box.armedAt, self.inputArrived(since: since, besides: slot) {
                 outputs = outputs == [.press, .release] ? [] : outputs.map { $0 == .release ? .cancel : $0 }
             }
             for output in outputs {
@@ -771,7 +793,8 @@ final class HotkeyManager {
                 case .release: if isHold { self.fireOnRelease(slot: slot) }
                 case .cancel: if isHold { self.fireOnCancel(slot: slot) }
                 case .scheduleArm(let generation):
-                    box.armedAt = Date()
+                    let flagsAt = box.lastFlagsAt
+                    box.armedAt = flagsAt > 0 ? flagsAt : ProcessInfo.processInfo.systemUptime
                     DispatchQueue.main.asyncAfter(deadline: .now() + ModifierHoldMachine.armDelay) { [weak self] in
                         guard let self else { return }
                         // Only a press comes out of an elapsed arm.
@@ -786,10 +809,12 @@ final class HotkeyManager {
                 perform(box.run { $0.keyDown() })
                 return
             }
+            box.lastFlagsAt = event.timestamp
             let read = ModifierChordReading.read(event.modifierFlags, for: choice)
             let reading = yieldsToVoiceOver && read != .none && NSWorkspace.shared.isVoiceOverEnabled ? .extra : read
             perform(box.run { $0.flags(reading) })
         }
+        modifierInterrupts.withLock { $0[slot] = { perform(box.run { $0.keyDown() }) } }
         let mask: NSEvent.EventTypeMask = [.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
         let monitor = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: handle)
         guard let monitor else {
@@ -804,11 +829,13 @@ final class HotkeyManager {
     }
 
     /// Whether a key went down or a mouse button was pressed since
-    /// `start`, anywhere — including what a system shortcut swallowed.
+    /// `start` (system uptime), anywhere — including what a system
+    /// shortcut swallowed — or another shortcut of Daisy's fired.
     /// Hardware only: Daisy's own posted ⌘C / ⌘V aren't the person's.
     /// Scrolling isn't counted: a trackpad's momentum outlives the swipe.
-    nonisolated static func inputArrived(since start: Date) -> Bool {
-        let held = Date().timeIntervalSince(start)
+    nonisolated func inputArrived(since start: TimeInterval, besides slot: HotkeySlot) -> Bool {
+        if lastHotkeyFire.withLock({ $0 }).contains(where: { $0.key != slot && $0.value >= start }) { return true }
+        let held = ProcessInfo.processInfo.systemUptime - start
         let types: [CGEventType] = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
         return types.contains { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) < held }
     }
@@ -859,6 +886,10 @@ final class HotkeyManager {
     /// Dispatch the press half of the slot's current action.
     /// Crosses MainActor for the actual closure invocation.
     nonisolated private func fireOnPress(slot: HotkeySlot) {
+        // Another shortcut of Daisy's went through a held chord: not a
+        // Daisy-key press after all.
+        lastHotkeyFire.withLock { $0[slot] = ProcessInfo.processInfo.systemUptime }
+        for (other, interrupt) in modifierInterrupts.withLock({ $0 }) where other != slot { interrupt() }
         guard let action = actionMap.get(slot: slot) else { return }
         switch action {
         case .toggle(let f):
@@ -913,6 +944,7 @@ final class HotkeyManager {
     /// Unregister a single slot. Idempotent. Removes the shared
     /// event handler only when no slot remains registered.
     func unregister(slot: HotkeySlot) {
+        modifierInterrupts.withLock { _ = $0.removeValue(forKey: slot) }
         if let ref = refs[slot] {
             UnregisterEventHotKey(ref)
             refs.removeValue(forKey: slot)

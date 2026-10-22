@@ -1031,6 +1031,26 @@
         }
       }
     },
+    "Nothing to answer — select the message text and say it again" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не на что отвечать — выдели текст письма и скажи ещё раз"
+          }
+        }
+      }
+    },
+    "Nothing to answer" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не на что отвечать"
+          }
+        }
+      }
+    },
     "The Daisy key needs Accessibility — until it’s granted, it does nothing" : {
       "localizations" : {
         "ru" : {

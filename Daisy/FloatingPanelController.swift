@@ -356,6 +356,11 @@ extension FloatingPanelController: WidgetBubbleHosting {
         return panel?.isVisible == true
     }
 
+    var widgetFrame: NSRect? {
+        guard let panel, panel.isVisible else { return nil }
+        return panel.frame
+    }
+
     func showBubble(_ content: WidgetBubbleContent) {
         guard let screen = panel?.screen ?? bestScreen() else {
             Logger(subsystem: "app.essazanov.Daisy", category: "WidgetBubble")

@@ -194,7 +194,7 @@ final class DaisyResultCard {
     private func refit() {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isShown, let panel = self.panel else { return }
-            self.fit(panel, keepPosition: true)
+            self.fit(panel)
         }
     }
 
@@ -208,6 +208,8 @@ final class DaisyResultCard {
         )
         panel.isOpaque = false
         panel.backgroundColor = .clear
+        // Dark like the widget and its pill, whatever the system theme.
+        panel.appearance = NSAppearance(named: .darkAqua)
         panel.hasShadow = true
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
@@ -218,24 +220,29 @@ final class DaisyResultCard {
         return panel
     }
 
-    /// Sized to its content, next to the mouse (or where it already is),
-    /// inside the screen.
-    private func fit(_ panel: NSPanel, keepPosition: Bool = false) {
+    /// Sized to its content, next to the widget (Egor 22.10: not wherever
+    /// the mouse happened to be) — above it, right edges together, or
+    /// below when there's no room above; where the widget would be, in the
+    /// bottom-right corner, when it's hidden. Inside the screen.
+    private func fit(_ panel: NSPanel) {
         guard let host = panel.contentView else { return }
         let size = host.fittingSize
-        if keepPosition {
-            // Grow downward from the top edge it already has.
-            let top = panel.frame.maxY
-            panel.setFrame(NSRect(x: panel.frame.minX, y: top - size.height, width: size.width, height: size.height), display: true)
-            return
-        }
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        let widget = WidgetBubbleCenter.shared.host?.widgetFrame
+        let screen = widget.flatMap { frame in NSScreen.screens.first { $0.frame.contains(NSPoint(x: frame.midX, y: frame.midY)) } }
+            ?? NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
         let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        var origin = NSPoint(x: mouse.x + 16, y: mouse.y - size.height - 16)
+        let origin = Self.origin(for: size, beside: widget, in: visible)
+        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+    }
+
+    nonisolated static func origin(for size: NSSize, beside widget: NSRect?, in visible: NSRect) -> NSPoint {
+        let gap: CGFloat = 10
+        let anchor = widget ?? NSRect(x: visible.maxX - 24 - 58, y: visible.minY + 24, width: 58, height: 58)
+        var origin = NSPoint(x: anchor.maxX - size.width, y: anchor.maxY + gap)
+        if origin.y + size.height > visible.maxY - 8 { origin.y = anchor.minY - gap - size.height }
         origin.x = min(max(origin.x, visible.minX + 8), visible.maxX - size.width - 8)
         origin.y = min(max(origin.y, visible.minY + 8), visible.maxY - size.height - 8)
-        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        return origin
     }
 }
 
@@ -338,8 +345,10 @@ private struct DaisyResultCardView: View {
         }
         .padding(14)
         .frame(width: 400, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.daisyBgElevated))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.daisyDivider, lineWidth: 0.5))
+        // The widget's and the pill's warm near-black, always (Egor 22.10).
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(red: 28 / 255, green: 26 / 255, blue: 23 / 255)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+        .environment(\.colorScheme, .dark)
     }
 
     private func changes(from old: String, to new: String) -> Text {

@@ -524,7 +524,9 @@ private struct WhatsNewPill: View {
         HStack(spacing: 7) {
             Text(text).font(.system(size: 12, weight: .medium))
             if let detail {
-                Text(detail).font(.system(size: 11).monospaced()).foregroundStyle(Color(white: 0.75))
+                // Tabular digits, not the monospaced design: its font is what
+                // crashed 1.0.8.37–38 (Sentry DAISY-MAC-1).
+                Text(detail).font(.system(size: 11).monospacedDigit()).foregroundStyle(Color(white: 0.75))
             }
         }
         .foregroundStyle(Color(white: 0.96))
