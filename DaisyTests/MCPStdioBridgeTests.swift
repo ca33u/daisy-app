@@ -23,7 +23,7 @@ struct MCPStdioBridgeTests {
         process.standardOutput = Pipe()
         process.standardError = Pipe()
         try process.run()
-        stdin.fileHandleForWriting.write(Data(input.utf8))
+        try stdin.fileHandleForWriting.write(contentsOf: Data(input.utf8))
         try stdin.fileHandleForWriting.close()
         process.waitUntilExit()
         return process.terminationStatus

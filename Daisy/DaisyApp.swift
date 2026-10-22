@@ -28,6 +28,16 @@ struct DaisyApp: App {
     @State private var floatingPanel: FloatingPanelController
 
     init() {
+        // A write to a pipe whose reader has gone (a Codex app server or an
+        // agent CLI that exited) raises SIGPIPE, and its default action ends
+        // the whole app. Ignored from launch, the write fails with EPIPE and
+        // the caller's `try` handles it. AgentProcessRunner switching it off
+        // on its first run wasn't enough: a Codex write could come first, and
+        // Sentry, which keeps whatever SIGPIPE was set to when it started,
+        // put "die" back on close — the test host died of it (22.10). So it
+        // stays here, before CrashReports.start().
+        signal(SIGPIPE, SIG_IGN)
+
         // One-shot migration of legacy `hola.*` preference keys to
         // `daisy.*`. Must run BEFORE AppSettings is constructed so the
         // migrated values are read in this same launch.
