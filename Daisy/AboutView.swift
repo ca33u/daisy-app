@@ -87,6 +87,24 @@ struct AboutView: View {
                     }
                 }
 
+                // «What's New» again, by the update controls (Egor 23.10): the
+                // window that opened after the last update.
+                LabeledContent {
+                    Button("Open") {
+                        AppNavigation.shared.showsWhatsNew = true
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(Color.daisyTextPrimary)
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "sparkles")
+                            .frame(width: 18)
+                            .foregroundStyle(.secondary)
+                        Text("What’s New in Daisy")
+                    }
+                }
+
                 // Automatic update — the auto-check toggle plus a manual
                 // "Check for Updates…" (same action as the App menu). Both
                 // controls regular-size so the switch matches the one below.
