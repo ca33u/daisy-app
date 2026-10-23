@@ -362,7 +362,20 @@ struct HomeView: View {
                 )
             }
 
-            if showsConsentRow { ImprovementConsentRow() }
+            if showsConsentRow {
+                ImprovementConsentRow()
+            } else if showsSetupRows, ImprovementStats.Mode(rawValue: improvementModeRaw) == .on {
+                // A yes stays on the list, ticked like a granted permission
+                // (Egor 23.10: without it the card looked as if Daisy never
+                // asked). A «no» or a «Not Now» isn't shown — see `offersRow`.
+                onboardingRow(
+                    title: String(localized: "Help make Daisy better"),
+                    caption: String(localized: "Once a day — anonymous counts of features and errors. No content, no identifier."),
+                    status: .granted,
+                    action: {},
+                    openSettings: {}
+                )
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
