@@ -42,6 +42,9 @@ struct TourBubbleContent {
     /// While set, the card is waiting for the person to DO something
     /// («зажми fn»): a pulsing dot and this text replace the buttons.
     var waiting: String?
+    /// «Пропустить» — a ghost button drawn last, and the one button a
+    /// waiting step keeps: every step of the tour can be skipped.
+    var skip: Action?
 
     init(
         text: String,
@@ -49,7 +52,8 @@ struct TourBubbleContent {
         total: Int,
         primary: Action? = nil,
         secondary: Action? = nil,
-        waiting: String? = nil
+        waiting: String? = nil,
+        skip: Action? = nil
     ) {
         self.text = text
         self.step = step
@@ -57,6 +61,7 @@ struct TourBubbleContent {
         self.primary = primary
         self.secondary = secondary
         self.waiting = waiting
+        self.skip = skip
     }
 
     /// The buttons actually drawn, primary first. Empty while waiting —
@@ -66,6 +71,14 @@ struct TourBubbleContent {
         var actions: [(action: Action, isPrimary: Bool)] = []
         if let primary { actions.append((primary, true)) }
         if let secondary { actions.append((secondary, false)) }
+        return actions
+    }
+
+    /// Everything on the row after the waiting line, if any: the visible
+    /// actions, then «Пропустить».
+    var rowActions: [(action: Action, isPrimary: Bool)] {
+        var actions = visibleActions
+        if let skip { actions.append((skip, false)) }
         return actions
     }
 
@@ -437,13 +450,12 @@ final class TourBubbleView: NSView {
             let view = TourWaitingView(text: waiting)
             row.addSubview(view)
             waitingView = view
-        } else {
-            for (action, isPrimary) in content.visibleActions {
-                let button = TourPillButton(title: action.title, isPrimary: isPrimary)
-                button.onPress = { [weak self] in self?.fire(action) }
-                row.addSubview(button)
-                pillButtons.append(button)
-            }
+        }
+        for (action, isPrimary) in content.rowActions {
+            let button = TourPillButton(title: action.title, isPrimary: isPrimary)
+            button.onPress = { [weak self] in self?.fire(action) }
+            row.addSubview(button)
+            pillButtons.append(button)
         }
         cardSize = measure()
         frame.size = NSSize(width: cardSize.width + TourBubbleLayout.arrowProtrusion, height: cardSize.height)
@@ -459,10 +471,10 @@ final class TourBubbleView: NSView {
     private var hasRow: Bool { waitingView != nil || !pillButtons.isEmpty }
 
     private var rowContentWidth: CGFloat {
-        if let waitingView { return waitingView.fittingWidth }
-        guard !pillButtons.isEmpty else { return 0 }
-        return pillButtons.reduce(0) { $0 + $1.fittingWidth }
-            + Metrics.buttonSpacing * CGFloat(pillButtons.count - 1)
+        var items = pillButtons.map(\.fittingWidth)
+        if let waitingView { items.insert(waitingView.fittingWidth, at: 0) }
+        guard !items.isEmpty else { return 0 }
+        return items.reduce(0, +) + Metrics.buttonSpacing * CGFloat(items.count - 1)
     }
 
     /// Narrow for a short line («Слушаю…»), up to 340 for a paragraph.
@@ -512,10 +524,11 @@ final class TourBubbleView: NSView {
         if hasRow {
             top -= Metrics.rowGap
             row.frame = NSRect(x: inner.minX, y: top - Metrics.rowHeight, width: inner.width, height: Metrics.rowHeight)
+            var x: CGFloat = 0
             if let waitingView {
                 waitingView.frame = NSRect(x: 0, y: 0, width: waitingView.fittingWidth, height: Metrics.rowHeight)
+                x = waitingView.fittingWidth + Metrics.buttonSpacing
             }
-            var x: CGFloat = 0
             for button in pillButtons {
                 button.frame = NSRect(x: x, y: 0, width: button.fittingWidth, height: Metrics.rowHeight)
                 x += button.fittingWidth + Metrics.buttonSpacing

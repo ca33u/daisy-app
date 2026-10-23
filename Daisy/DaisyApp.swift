@@ -147,6 +147,7 @@ struct DaisyApp: App {
                 }
                 .keyboardShortcut("?", modifiers: [.command])
                 WhatsNewMenuItem(enabled: settings.hasShownFirstRun)
+                TourAgainMenuItem(settings: settings)
                 Divider()
                 // Tester feedback channel: collects the last 24 h of
                 // Daisy's own logs + an environment header and opens
@@ -360,6 +361,22 @@ private struct MenuBarLabelTrace: ViewModifier {
 // ContentView's "⋯ More" menu, without the live transcription UI. Its own
 // `.menu` MenuBarExtra scene (see DaisyApp), so macOS draws and places it
 // like any menu bar menu.
+
+/// «Пройти тур заново» (Onboarding 2.0): the first-run tour from step 1,
+/// in the main window.
+private struct TourAgainMenuItem: View {
+    let settings: AppSettings
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button(OnboardingCopy.text(.again)) {
+            OnboardingTourController.shared.restart(settings: settings)
+            openWindow(id: "main")
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        .disabled(!settings.hasShownFirstRun)
+    }
+}
 
 /// Help → What's New in Daisy: the sheet lives on the main window, so the
 /// window is opened (or brought up) with it.

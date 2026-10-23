@@ -126,6 +126,24 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
         modifiers: 0,
         label: "Right ⌘"
     )
+    /// The right ⌥ alone, like the right ⌘ — a dictation key in the
+    /// tour's picker (Egor 23.10).
+    static let rightOption = HotkeyChoice(
+        keyCode: UInt32(kVK_RightOption),
+        modifiers: 0,
+        label: "Right ⌥"
+    )
+    /// ⌃Space held — the tour's fourth dictation key.
+    static let ctrlSpace = HotkeyChoice(
+        keyCode: UInt32(kVK_Space),
+        modifiers: UInt32(controlKey),
+        label: "⌃Space"
+    )
+
+    /// The dictation keys the first-run tour offers (Egor 23.10): fn,
+    /// the right ⌘, the right ⌥, ⌃Space. Anything else is a recording
+    /// away in Settings.
+    static let dictationPresets: [HotkeyChoice] = [.fn, .rightCommand, .rightOption, .ctrlSpace]
 
     /// Preset list shown in Settings picker. Custom recorder lives
     /// alongside — see `HotkeyRecorder` view.
@@ -152,17 +170,23 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
     /// Held modifiers with no key — routed through the flags monitor.
     nonisolated var isModifierHold: Bool {
         (keyCode == Self.modifiersOnlyKeyCode && (modifiers ?? 0) != 0)
-            || (keyCode == UInt32(kVK_RightCommand) && (modifiers ?? 0) == 0)
+            || isRightCommand || isRightOption
     }
 
     /// What the UI shows. `label` is also the stored id, so a word in it
     /// stays English there and is translated here.
     var displayLabel: String {
-        isRightCommand ? String(localized: "Right ⌘") : label
+        if isRightCommand { return String(localized: "Right ⌘") }
+        if isRightOption { return String(localized: "Right ⌥") }
+        return label
     }
 
     nonisolated var isRightCommand: Bool {
         keyCode == UInt32(kVK_RightCommand) && (modifiers ?? 0) == 0
+    }
+
+    nonisolated var isRightOption: Bool {
+        keyCode == UInt32(kVK_RightOption) && (modifiers ?? 0) == 0
     }
 
     /// Paste-flavoured preset list — used by the "Paste my last
@@ -189,6 +213,7 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
     /// UI uses this to mark presets in the menu (vs custom recordings).
     var isPreset: Bool {
         Self.allPresets.contains(self) || Self.pastePresets.contains(self) || Self.daisyKeyPresets.contains(self)
+            || Self.dictationPresets.contains(self)
     }
 
     // MARK: Custom recording
@@ -291,6 +316,7 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
         case kVK_F12:       return "F12"
         case kVK_Function:  return "Fn"
         case kVK_RightCommand: return "Right ⌘"
+        case kVK_RightOption: return "Right ⌥"
         case Int(modifiersOnlyKeyCode): return ""
         case kVK_LeftArrow:  return "←"
         case kVK_RightArrow: return "→"
@@ -386,6 +412,9 @@ nonisolated enum ModifierChordReading: Equatable, Sendable {
     /// NX_DEVICELCMDKEYMASK / NX_DEVICERCMDKEYMASK).
     static let leftCommandBit: UInt = 0x08
     static let rightCommandBit: UInt = 0x10
+    /// NX_DEVICELALTKEYMASK / NX_DEVICERALTKEYMASK.
+    static let leftOptionBit: UInt = 0x20
+    static let rightOptionBit: UInt = 0x40
 
     static func read(_ flags: NSEvent.ModifierFlags, for choice: HotkeyChoice) -> ModifierChordReading {
         let watched: NSEvent.ModifierFlags = [.control, .option, .shift, .command, .function]
@@ -398,6 +427,12 @@ nonisolated enum ModifierChordReading: Equatable, Sendable {
             if down != .command { return .extra }
             if raw & leftCommandBit != 0 { return .extra }
             return raw & rightCommandBit != 0 ? .exact : .partial
+        }
+        if choice.isRightOption {
+            let raw = flags.rawValue
+            if down != .option { return .extra }
+            if raw & leftOptionBit != 0 { return .extra }
+            return raw & rightOptionBit != 0 ? .exact : .partial
         }
         var chord: NSEvent.ModifierFlags = []
         let mods = choice.modifiers ?? 0

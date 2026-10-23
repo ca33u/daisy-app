@@ -31,7 +31,7 @@ struct WhatsNewTests {
 
     @Test func notDuringOnboarding() { withDefaults { d in
         #expect(!WhatsNew.shouldOpen(hasShownFirstRun: false, defaults: d))
-        // Finishing onboarding marks it seen (FirstRunView.finish).
+        // Finishing onboarding marks it seen (OnboardingTourController.finish).
         WhatsNew.markSeen(defaults: d)
         #expect(!WhatsNew.shouldOpen(hasShownFirstRun: true, defaults: d))
     } }

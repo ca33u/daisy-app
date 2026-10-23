@@ -91,7 +91,7 @@ struct SettingsView: View {
 
     /// Bump to force the layout-fixer caption to re-read state that
     /// isn't Observable (`LayoutAutoFix.isRunning`, installed keyboard
-    /// layouts). Mirrors `FirstRunView.layoutFixRecheck`.
+    /// layouts).
     @State private var layoutFixRecheck: Int = 0
 
     /// Mirror of `AppleSpeechLiveEngine.Availability` that doesn't need
@@ -209,7 +209,7 @@ struct SettingsView: View {
     }()
 
     /// Active sub-tab inside Settings. Bound to TabView's selection
-    /// so external surfaces (FirstRunView, Home CTAs) can deep-link
+    /// so external surfaces (onboarding, Home CTAs) can deep-link
     /// to a specific tab via `AppNavigation.shared.openInSettings(_:)`.
     /// Without an explicit binding TabView always lands on the first
     /// child — that's why early onboarding clicks felt broken
@@ -2108,7 +2108,7 @@ struct SettingsView: View {
 
     /// Why "Fix the layout as I type" is on but not running, or nil when
     /// it is running (or off, in which case there's nothing to explain).
-    /// Mirrors `FirstRunView.layoutFixCaption`, plus the one condition
+    /// The layout fixer's honest caption, plus the one condition
     /// onboarding never had to name because it checks Accessibility
     /// first: a Mac with a single keyboard layout has nothing to switch
     /// between, and `LayoutAutoFix.start` bails silently.

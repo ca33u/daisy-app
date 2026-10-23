@@ -965,6 +965,9 @@ final class DaisyKeyController {
     }
 
     nonisolated static let introducedKey = "daisy.daisyKey.introduced"
+    /// Posted when a hold saved a note — the first-run tour's Daisy-key
+    /// step finishes on it.
+    nonisolated static let noteSaved = Notification.Name("daisy.daisyKey.noteSaved")
 
     /// Once, to someone who had a voice-note key before the Daisy key:
     /// notes and commands are a hold, the tap fixes the layout. On the
@@ -1197,6 +1200,7 @@ final class DaisyKeyController {
             await SessionStore.shared.refresh()
             let folderName = FolderStore.shared.existingFolder(slug: slug)?.name ?? slug
             DaisyKeyIndicator.shared.showSavedAsNote()
+            NotificationCenter.default.post(name: Self.noteSaved, object: nil)
             let misfiled = route.unmatched || route.ambiguous
             if misfiled {
                 DaisyCommandHistory.shared.setOutcome("inbox", for: entryID)
