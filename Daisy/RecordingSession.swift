@@ -3443,6 +3443,8 @@ final class RecordingSession {
             SummaryFailureNote.announce(
                 SummaryFailureNote.write(message: reason, provider: summarizer.providerKind.shortName, in: dir)
             )
+            // Once per install, at the widget: who should write it.
+            ContextTips.shared.summaryProviderMissing()
         }
 
         // Mark the session as "summary in flight" BEFORE flipping

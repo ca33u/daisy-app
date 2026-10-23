@@ -338,6 +338,8 @@ final class OnboardingTourController {
             ModelPreparation.completeInBackground(settings: settings, includeSpeakers: false)
         }
         growWindowToShellFloor()
+        // The path and the day outlive the tour: the tips after it read them.
+        ContextTips.tourFinished(path: tour.path, defaults: defaults)
         OnboardingTour.clear(defaults)
         // FirstRunView's snapshot, from a build before the tour.
         for key in ["daisy.firstRun.resumeStep", "daisy.firstRun.resumePath",
