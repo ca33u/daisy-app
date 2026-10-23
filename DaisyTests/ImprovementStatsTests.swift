@@ -18,7 +18,7 @@ struct ImprovementStatsTests {
             .voiceProfileGenerated, .catchUpUsed, .speakersNamed, .speakersMatched,
             .rewriteDone, .rewriteFailed,
             .ask(withSelection: true, local: true), .ask(withSelection: false, local: false), .askUndone,
-            .daisyKeyTapNote, .daisyKeyHold, .daisyKeyRewriteSilent, .daisyKeyMoment, .daisyKeyScreenshotContext,
+            .daisyKeyHold, .daisyKeyRewriteSilent, .daisyKeyMoment, .daisyKeyScreenshotContext,
             .daisyKeyUndone, .daisyKeyGenerated(local: true), .daisyKeyGenerated(local: false),
             .daisyKeyFocusChanged, .daisyKeyMeetingCommand,
             .templateFollowUpCreated, .templateFollowUpApplied, .templateSummaryCreated, .templateSummaryApplied,

@@ -711,16 +711,6 @@
         }
       }
     },
-    "Hold %@ and say “write a reply…”, “translate”, “note…”. Let go, and Daisy does it right where you are." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Зажми %@ и скажи: «напиши ответ…», «переведи», «запиши…». Отпустишь — Daisy сделает это там, где ты сейчас."
-          }
-        }
-      }
-    },
     "Hold and say what to do" : {
       "localizations" : {
         "ru" : {
@@ -881,36 +871,6 @@
         }
       }
     },
-    "Tap %@ and start with “to project Landing” — the note goes there. Talk as long as you need, tap again to finish. Without a project it lands in Notes." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Нажми %@ и начни со слов «в проект Лендинг» — заметка ляжет туда. Говори сколько нужно, нажми ещё раз, чтобы закончить. Без проекта она попадёт в Заметки."
-          }
-        }
-      }
-    },
-    "Tap for a note, straight into its project" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Нажатие — заметка, сразу в нужный проект"
-          }
-        }
-      }
-    },
-    "To project Landing: show Daisy writing an email on the first screen. Check with Masha by Friday." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "В проект Лендинг: на первом экране показать, как Daisy пишет письмо. Проверить с Машей до пятницы."
-          }
-        }
-      }
-    },
     "Understanding…" : {
       "localizations" : {
         "ru" : {
@@ -1011,16 +971,6 @@
         }
       }
     },
-    "Holding the key needs Accessibility — Settings shows what to allow." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Для удержания клавиши нужен Универсальный доступ — в Настройках видно, что разрешить."
-          }
-        }
-      }
-    },
     "\nModels and licenses: " : {
       "localizations" : {
         "ru" : {
@@ -1051,22 +1001,162 @@
         }
       }
     },
+    "Your voice-note key %@ is now the Daisy key: hold and say “note …” or what to do, hold without a word over selected text to rewrite it. A tap fixes the keyboard layout" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Твоя клавиша заметок %@ теперь клавиша Daisy: зажми и скажи «заметка …» или что сделать, зажми без слов над выделенным текстом, чтобы переписать его. Короткое нажатие исправляет раскладку"
+          }
+        }
+      }
+    },
+    "A tap fixes the keyboard layout — turn layout fixing on in Settings → Transcription" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Короткое нажатие исправляет раскладку — включи исправление раскладки в «Настройки → Транскрипция»"
+          }
+        }
+      }
+    },
+    "Note saved to %@ — no summary provider is available for its summary" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заметка сохранена в «%@» — для саммари нет доступного провайдера"
+          }
+        }
+      }
+    },
+    "Note saved to %@. Its summary would send it to %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заметка сохранена в «%1$@». Для саммари её придётся отправить в %2$@"
+          }
+        }
+      }
+    },
+    "Allow and summarize" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешить и сделать саммари"
+          }
+        }
+      }
+    },
+    "Note saved to %@ — writing its summary…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заметка сохранена в «%@» — пишу саммари…"
+          }
+        }
+      }
+    },
+    "Note saved to %@, but its summary didn’t work out" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заметка сохранена в «%@», но саммари не получилось"
+          }
+        }
+      }
+    },
+    "Note saved to %@ with a summary" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заметка сохранена в «%@» вместе с саммари"
+          }
+        }
+      }
+    },
+    "Hold and say “note …” or what to do, or hold silently over selected text to rewrite it. A tap fixes the keyboard layout." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зажми и скажи «заметка …» или что сделать — или зажми молча над выделенным текстом, чтобы переписать его. Короткое нажатие исправляет раскладку."
+          }
+        }
+      }
+    },
+    "Hold and say what to do — “note to project Work: …”, “write a reply…” — or hold without a word over selected text to rewrite it in your voice. A tap fixes the keyboard layout of the selection or the word you just typed" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зажми и скажи, что сделать, — «заметка в проект Work: …», «напиши ответ…» — или зажми без слов над выделенным текстом, чтобы переписать его твоим голосом. Короткое нажатие исправляет раскладку выделенного текста или только что набранного слова"
+          }
+        }
+      }
+    },
+    "Hold and say “note” — it goes straight into its project" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зажми и скажи «заметка» — она сразу ляжет в свой проект"
+          }
+        }
+      }
+    },
+    "Hold %@ and say “note to project Landing: …” — let go, and the note is there. End with “and summarize” for a summary too. Without a project it lands in Notes." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зажми %@ и скажи «заметка в проект Лендинг: …» — отпустишь, и заметка уже там. Добавь в конце «и сделай саммари» — будет и саммари. Без проекта она попадёт в Заметки."
+          }
+        }
+      }
+    },
+    "Hold %@ and say “write a reply…”, “translate”, “make a prompt for…”. Let go, and Daisy does it right where you are. A tap fixes the keyboard layout." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зажми %@ и скажи: «напиши ответ…», «переведи», «сделай промпт для…». Отпустишь — Daisy сделает это там, где ты сейчас. Короткое нажатие исправляет раскладку."
+          }
+        }
+      }
+    },
+    "Note to project Landing: show Daisy writing an email on the first screen. Check with Masha by Friday." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заметка в проект Лендинг: на первом экране показать, как Daisy пишет письмо. Проверить с Машей до пятницы."
+          }
+        }
+      }
+    },
+    "Note saved to %@ — it’s too short for a summary" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заметка сохранена в «%@» — она слишком короткая для саммари"
+          }
+        }
+      }
+    },
     "The Daisy key needs Accessibility — until it’s granted, it does nothing" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Клавише Daisy нужен Универсальный доступ — пока его нет, она не работает"
-          }
-        }
-      }
-    },
-    "Holding the Daisy key needs Accessibility — until it’s granted, the key only starts and stops notes" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Для удержания клавиши Daisy нужен Универсальный доступ — пока его нет, клавиша только начинает и останавливает заметки"
           }
         }
       }
@@ -2863,42 +2953,12 @@
         }
       }
     },
-    "Tap for a long note, tap again to stop. Hold and say “note …” to save one, or hold without a word over selected text to rewrite it in your voice" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Тап — длинная заметка, ещё тап — стоп. Удержи и скажи «запиши …», чтобы сохранить заметку, или удержи молча над выделенным текстом, чтобы переписать его твоим голосом"
-          }
-        }
-      }
-    },
-    "Tap for a note. Hold and say “note …”, or hold silently over selected text to rewrite it." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Тап — заметка. Удержи и скажи «запиши …» или удержи молча над выделенным текстом, чтобы переписать его."
-          }
-        }
-      }
-    },
     "Tap for a side note, tap again to end it — it ends by itself after a minute of quiet. Hold and talk to mark a moment with a comment: the comment goes to the moment, not the transcript" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Нажми — побочная заметка, нажми ещё раз — конец; после минуты тишины она закончится сама. Удерживай и говори — момент с комментарием: комментарий попадает в момент, а не в транскрипт"
-          }
-        }
-      }
-    },
-    "Tap once to start a note, tap again to stop — the Daisy key’s tap on a key of its own" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Тап — начать заметку, ещё тап — остановить: то же, что тап клавиши Daisy, на отдельной клавише"
           }
         }
       }
@@ -3309,26 +3369,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Твой голос и шаблоны, по которым пишутся письма и заметки"
-          }
-        }
-      }
-    },
-    "Your voice-note key %@ is now the Daisy key: tap for a note as before, hold to say what to do" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Твоя клавиша заметок %@ теперь клавиша Daisy: тап — заметка, как раньше, удержание — скажи, что сделать"
-          }
-        }
-      }
-    },
-    "Your voice-note key %@ is now the Daisy key: tap for a note as before, hold to say what to do. Rewriting is on it too — hold without a word over selected text" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Твоя клавиша заметок %@ теперь клавиша Daisy: тап — заметка, как раньше, удержание — скажи, что сделать. Переписывание теперь тоже на ней — удержи без слов над выделенным текстом"
           }
         }
       }

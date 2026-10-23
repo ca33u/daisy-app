@@ -425,11 +425,13 @@ struct SettingsView: View {
             case .record: return settings.recordHotkey
             case .voiceNote: return settings.voiceNoteHotkey
             case .dictation: return settings.dictationHotkey
-            case .rewrite: return settings.rewriteSelectionHotkey
+            // Gone from Settings with 23.10 and unregistered: a key left in
+            // these doesn't hold a combination anyone could then not free.
+            case .rewrite: return .none
             case .layoutFix: return settings.layoutFixHotkey
             case .markMoment: return settings.markMomentHotkey
             case .repaste: return settings.repasteLastHotkey
-            case .noteOnly: return settings.noteOnlyHotkey
+            case .noteOnly: return .none
             }
         }
     }
@@ -1317,7 +1319,7 @@ struct SettingsView: View {
                 )
                 shortcutRow(
                     title: "Daisy key",
-                    caption: "Tap for a long note, tap again to stop. Hold and say “note …” to save one, or hold without a word over selected text to rewrite it in your voice",
+                    caption: "Hold and say what to do — “note to project Work: …”, “write a reply…” — or hold without a word over selected text to rewrite it in your voice. A tap fixes the keyboard layout of the selection or the word you just typed",
                     binding: $settings.voiceNoteHotkey,
                     slot: .voiceNote,
                     presets: HotkeyChoice.daisyKeyPresets
@@ -1326,11 +1328,8 @@ struct SettingsView: View {
                 // when Accessibility is granted with Settings open.
                 if settings.voiceNoteHotkey != .none,
                    SystemPermissions.shared.accessibility != .granted, !CGPreflightListenEventAccess() {
-                    // Held modifiers have no Carbon fallback: without the
-                    // permission they do nothing at all.
-                    Text(settings.voiceNoteHotkey.isModifierHold
-                         ? String(localized: "The Daisy key needs Accessibility — until it’s granted, it does nothing")
-                         : String(localized: "Holding the Daisy key needs Accessibility — until it’s granted, the key only starts and stops notes"))
+                    // Without it the key isn't registered at all (ServiceWiring).
+                    Text("The Daisy key needs Accessibility — until it’s granted, it does nothing")
                         .font(.caption)
                         .foregroundStyle(Color.daisyWarning)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1354,24 +1353,10 @@ struct SettingsView: View {
             // ── More shortcuts ────────────────────────────────
             // Not assigned on a fresh install; whatever someone already
             // assigned stays (backlog 34 K-4).
+            // «Rewrite in my voice» and «Note only» left with 23.10 (the Daisy
+            // key does both); the layout fix keeps its key in Transcription →
+            // Keyboard layout, for anyone without the Daisy key.
             Section("More shortcuts") {
-                shortcutRow(
-                    title: "Rewrite in my voice",
-                    caption: "Select text anywhere, tap to rewrite it in your tone (needs a style profile)",
-                    binding: $settings.rewriteSelectionHotkey,
-                    slot: .rewrite
-                )
-                shortcutRow(
-                    title: "Fix the keyboard layout",
-                    caption: "«ghbdtn» becomes «привет» — the selection, or the word you're typing",
-                    binding: $settings.layoutFixHotkey,
-                    slot: .layoutFix,
-                    presets: HotkeyChoice.layoutFixPresets
-                )
-                // Inert while the layout fixer is off (Transcription →
-                // Keyboard layout), and shown so.
-                .disabled(!settings.layoutFixEnabled)
-                .help(settings.layoutFixEnabled ? "" : String(localized: "Turn on the layout fixer in Transcription → Keyboard layout."))
                 shortcutRow(
                     title: "Paste my last dictation",
                     caption: "Re-inserts your last dictation from the past hour at the cursor — for when it landed in the wrong window or nowhere at all",
@@ -1380,12 +1365,6 @@ struct SettingsView: View {
                     // V-presets: paste mnemonic (⌘V muscle memory),
                     // not the record/dictate letters the other rows use.
                     presets: HotkeyChoice.pastePresets
-                )
-                shortcutRow(
-                    title: "Note only",
-                    caption: "Tap once to start a note, tap again to stop — the Daisy key’s tap on a key of its own",
-                    binding: $settings.noteOnlyHotkey,
-                    slot: .noteOnly
                 )
             }
 

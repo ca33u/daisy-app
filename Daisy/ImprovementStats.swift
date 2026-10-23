@@ -127,8 +127,7 @@ nonisolated enum ImprovementStats {
         case askUndone
         /// The Daisy key (backlog 34). Published ahead of the key itself,
         /// so the server already takes them when the build that sends
-        /// them ships. A tap that starts a long note.
-        case daisyKeyTapNote
+        /// them ships. (The tap's long note went with 23.10.)
         /// A hold that ended with something to do (said or selected).
         case daisyKeyHold
         /// What a hold was understood as, without its text.
@@ -197,7 +196,6 @@ nonisolated enum ImprovementStats {
             case .ask(let withSelection, let local):
                 return ["ask.done", local ? "ask.local" : "ask.cloud"] + (withSelection ? ["ask.with_selection"] : [])
             case .askUndone: return ["ask.undone"]
-            case .daisyKeyTapNote: return ["daisy_key.tap_note"]
             case .daisyKeyHold: return ["daisy_key.hold"]
             case .daisyKeyIntent(let intent): return ["daisy_key.intent." + intent.rawValue]
             case .daisyKeyRewriteSilent: return ["daisy_key.rewrite_silent"]
@@ -258,7 +256,7 @@ nonisolated enum ImprovementStats {
             "speakers.named", "speakers.matched",
             "rewrite.done", "rewrite.failed",
             "ask.done", "ask.with_selection", "ask.undone", "ask.local", "ask.cloud",
-            "daisy_key.tap_note", "daisy_key.hold", "daisy_key.rewrite_silent", "daisy_key.moment",
+            "daisy_key.hold", "daisy_key.rewrite_silent", "daisy_key.moment",
             "daisy_key.screenshot_context", "daisy_key.undone", "daisy_key.local", "daisy_key.cloud",
             "daisy_key.focus_changed", "daisy_key.meeting_command",
             "template.followup.created", "template.followup.applied",

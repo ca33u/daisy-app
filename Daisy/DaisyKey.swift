@@ -6,8 +6,8 @@
 //  used to be the voice-note key, «rewrite in my voice» and — next —
 //  voice commands. Two gestures, no menu:
 //
-//    • a TAP (< 0.35 s) is the old voice-note toggle: a long note that
-//      runs until the next tap; during a meeting, the side note;
+//    • a TAP (< 0.35 s) fixes the keyboard layout (Egor 23.10 — it was
+//      the long note until then); during a meeting, the side note;
 //    • a HOLD is «I talk while I hold»: let go and Daisy does it.
 //
 //  And one rule: save first, work out what was meant second. Whatever
@@ -27,7 +27,7 @@
 //  hands the text here instead of pasting it (`DictationPurpose`, which
 //  carries the press's token so each hold meets its own context). The
 //  capture starts on key-down, so the first words of a hold are never
-//  lost; a tap discards that half-second and starts the long note.
+//  lost; a tap discards that half-second and fixes the layout.
 //
 
 import AppKit
@@ -198,9 +198,16 @@ nonisolated enum DaisyKeyIntentParser {
     /// Words that, said first, make the rest a note. Longer openings
     /// («запиши заметку», «make a note») are tried before shorter ones.
     static let noteOpenings: [[String]] = [
+        // «Создай заметку в проект Work…» wasn't a note (Egor 23.10).
+        ["создай", "заметку"], ["добавь", "заметку"], ["сохрани", "заметку"], ["новая", "заметка"],
+        ["create", "a", "note"], ["add", "a", "note"], ["save", "a", "note"], ["new", "note"],
         ["запиши", "заметку"], ["сделай", "заметку"], ["make", "a", "note"], ["take", "a", "note"], ["note", "down"], ["write", "down"],
         ["заметка"], ["заметку"], ["запиши"], ["запомни"], ["записать"], ["note"], ["remember"],
     ]
+    /// «добавь заметку» / "add a note" are a note only before a project
+    /// («…в проект Work: …»): over a selection, "add a note at the end
+    /// that…" is an edit (review 23.10).
+    static let projectOnlyOpenings: Set<[String]> = [["добавь", "заметку"], ["add", "a", "note"]]
     /// A name said before the command («Daisy, запиши …») is not part of it.
     static let addressWords: Set<String> = ["daisy", "дейзи", "дэйзи", "дейси", "дези"]
 
@@ -213,6 +220,7 @@ nonisolated enum DaisyKeyIntentParser {
         for opening in noteOpenings where words.count >= opening.count {
             if zip(words, opening).allSatisfy({ normalized($0) == $1 }) {
                 let rest = words.dropFirst(opening.count).joined(separator: " ")
+                if projectOnlyOpenings.contains(opening), !DaisyKeyFolderRoute.opensWithFolderPhrase(rest) { continue }
                 return .note(trimmedLead(rest))
             }
         }
@@ -277,6 +285,28 @@ nonisolated enum DaisyKeyCommandParser {
     ]
     /// After «переведи»: the translation is for the person, not the field.
     static let forMe: Set<String> = ["мне", "me"]
+
+    /// The request is for a prompt for another tool («сделай промпт для
+    /// картинки…», «write a prompt for Midjourney…»).
+    /// English "prompt" only as the thing asked for — last, or before
+    /// "for / to / about…": "a prompt reply" is an adjective. «Переведи /
+    /// объясни этот промпт» works on a prompt, it doesn't write one
+    /// (review 23.10).
+    static func asksForPrompt(_ text: String) -> Bool {
+        var words = text.split(whereSeparator: \.isWhitespace).map { DaisyKeyIntentParser.normalized(String($0)) }
+        if let first = words.first, DaisyKeyIntentParser.addressWords.contains(first) { words.removeFirst() }
+        if let first = words.first, translateVerbs.contains(first) { return false }
+        if answerOpenings.contains(where: { opening in words.count >= opening.count && zip(words, opening).allSatisfy { $0 == $1 } }) {
+            return false
+        }
+        return words.indices.contains { i in
+            let w = words[i]
+            if w.hasPrefix("промпт") || w.hasPrefix("промт") { return true }
+            guard w == "prompt" || w == "prompts" else { return false }
+            return i == words.count - 1 || promptFollowers.contains(words[i + 1])
+        }
+    }
+    static let promptFollowers: Set<String> = ["for", "to", "about", "that", "which", "of", "in", "on", "with", "describing"]
 
     /// nil when the words aren't a command by these rules — they are
     /// then kept as a note, with a button to run them anyway.
@@ -343,7 +373,52 @@ nonisolated enum DaisyKeyCommandParser {
     }
 }
 
-// MARK: - Which folder a note named
+// MARK: - What a note asks for, and which folder it named
+
+/// A held note that asks for its summary at the end — «…и сделай саммари
+/// на это», «…самаризируй», «…and summarize it» (Egor 23.10). The ask is
+/// taken off the note; only at the end, so «резюме кандидата» stays a note.
+nonisolated enum DaisyKeyNoteSummary {
+    /// Asks on their own: «…, самаризируй», "… and summarize".
+    static let summaryVerbs: Set<String> = [
+        "самаризируй", "саммаризируй", "суммаризируй", "самаризуй", "резюмируй",
+        "summarize", "summarise",
+    ]
+    /// Only with a verb or «с» before them: «…отправить Пете саммари»,
+    /// "the quarterly summary" and «резюме» (a CV) are what the note says.
+    static let summaryNouns: Set<String> = ["саммари", "самари", "саммери", "резюме", "выжимку", "итоги", "summary"]
+    static let leadIns: Set<String> = [
+        "и", "а", "также", "ещё", "еще", "потом", "сделай", "добавь", "напиши", "пожалуйста",
+        "краткое", "короткое", "небольшое",
+        "and", "also", "then", "make", "add", "a", "please", "short", "brief", "quick",
+    ]
+    /// Imperatives only: «с резюме», "to write a summary", «подготовь
+    /// итоги» are what the note says (review 23.10).
+    static let nounOpeners: Set<String> = ["сделай", "добавь", "напиши", "make", "add"]
+    /// Before the ask, these make it part of a sentence: "remind Pete to
+    /// make a summary", «нужно сделать саммари».
+    static let notAnAsk: Set<String> = ["to", "чтобы", "надо", "нужно", "должен", "должна", "попроси", "попросить", "ask"]
+    static let tail: Set<String> = [
+        "на", "это", "этого", "этому", "эту", "по", "к", "нему", "ней", "неё", "нее", "заметку", "заметке", "заметки",
+        "it", "this", "the", "of", "for", "to", "too", "note",
+    ]
+
+    static func ask(in body: String) -> (body: String, wantsSummary: Bool) {
+        let tokens = body.split(whereSeparator: \.isWhitespace).map(String.init)
+        let words = tokens.map(DaisyKeyIntentParser.normalized)
+        guard let at = words.indices.reversed().first(where: { summaryVerbs.contains(words[$0]) || summaryNouns.contains(words[$0]) }),
+              at >= words.count - 8,
+              words[(at + 1)...].allSatisfy({ tail.contains($0) || $0.isEmpty }) else { return (body, false) }
+        var start = at
+        while start > 0, leadIns.contains(words[start - 1]) { start -= 1 }
+        if summaryNouns.contains(words[at]), !words[start..<at].contains(where: nounOpeners.contains) { return (body, false) }
+        if start > 0, notAnAsk.contains(words[start - 1]) { return (body, false) }
+        var kept = tokens[..<start].joined(separator: " ")
+        while let last = kept.last, last == "," || last == ";" || last == "—" || last == "-" || last.isWhitespace { kept.removeLast() }
+        guard kept.contains(where: \.isLetter) else { return (body, false) }
+        return (kept, true)
+    }
+}
 
 /// «… в проект Альфа, купить …» → the folder Альфа. Matching forgives
 /// Russian endings («в папку Работы» finds «Работа») but not guessing:
@@ -372,14 +447,24 @@ nonisolated enum DaisyKeyFolderRoute {
     static let prepositions: Set<String> = ["в", "во", "to", "in", "into"]
     static let folderWords: Set<String> = ["проект", "проекта", "проекте", "папку", "папка", "папке", "project", "folder"]
 
+    /// Where the folder's name starts after «в проект / to the folder»,
+    /// or 0 when the text doesn't open with such a phrase.
+    static func nameStart(_ words: [String]) -> Int {
+        guard words.count >= 2, prepositions.contains(DaisyKeyIntentParser.normalized(words[0])) else { return 0 }
+        var i = 1
+        if DaisyKeyIntentParser.normalized(words[i]) == "the", words.count >= 3 { i += 1 }
+        return folderWords.contains(DaisyKeyIntentParser.normalized(words[i])) ? i + 1 : 0
+    }
+
+    static func opensWithFolderPhrase(_ text: String) -> Bool {
+        let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
+        let start = nameStart(words)
+        return start > 0 && start < words.count
+    }
+
     static func route(_ text: String, folders: [Folder]) -> Result {
         let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
-        var nameStart = 0
-        if words.count >= 2, prepositions.contains(DaisyKeyIntentParser.normalized(words[0])) {
-            var i = 1
-            if DaisyKeyIntentParser.normalized(words[i]) == "the", words.count >= 3 { i += 1 }
-            if folderWords.contains(DaisyKeyIntentParser.normalized(words[i])) { nameStart = i + 1 }
-        }
+        let nameStart = Self.nameStart(words)
         guard nameStart > 0, nameStart < words.count else {
             return Result(folderSlug: nil, body: text)
         }
@@ -686,7 +771,7 @@ nonisolated enum DictationPurpose: Sendable, Equatable {
     /// A Daisy-key hold: hand the text to `DaisyKeyController`.
     case daisyKeyHold(UUID)
     /// A Daisy-key tap: the half-second captured is thrown away and the
-    /// long note starts.
+    /// layout is fixed.
     case daisyKeyTap(UUID)
 }
 
@@ -882,7 +967,7 @@ final class DaisyKeyController {
     nonisolated static let introducedKey = "daisy.daisyKey.introduced"
 
     /// Once, to someone who had a voice-note key before the Daisy key:
-    /// the tap is the note it always was, and the hold is new. On the
+    /// notes and commands are a hold, the tap fixes the layout. On the
     /// widget's pill, or as a notification — a launch usually has no
     /// window in front. Not on a fresh install: onboarding says it.
     static func introduceIfNeeded(settings: AppSettings) {
@@ -898,9 +983,7 @@ final class DaisyKeyController {
         guard canHold else { return }
         defaults.set(true, forKey: introducedKey)
         let key = settings.voiceNoteHotkey.displayLabel
-        let text = settings.rewriteSelectionHotkey != .none
-            ? String(localized: "Your voice-note key \(key) is now the Daisy key: tap for a note as before, hold to say what to do. Rewriting is on it too — hold without a word over selected text")
-            : String(localized: "Your voice-note key \(key) is now the Daisy key: tap for a note as before, hold to say what to do")
+        let text = String(localized: "Your voice-note key \(key) is now the Daisy key: hold and say “note …” or what to do, hold without a word over selected text to rewrite it. A tap fixes the keyboard layout")
         WidgetBubbleCenter.shared.present(
             WidgetBubbleContent(text: text, autoDismiss: 15, tag: "daisy-key-intro"),
             notificationTitle: String(localized: "The Daisy key")
@@ -1054,18 +1137,20 @@ final class DaisyKeyController {
 
     // MARK: From finishDictation
 
-    /// The tap's half-second is gone; start (or, if one is running by
-    /// now, stop) the long note — what the voice-note key did.
+    /// The tap's half-second is gone. A tap outside a recording fixes the keyboard layout — of the
+    /// selection, or the word just typed — as the layout-fix shortcut
+    /// does (Egor 23.10: notes are a hold now, the tap no longer starts
+    /// one).
     func tapCaptureFinished(token: UUID, on session: RecordingSession) {
         holds.removeValue(forKey: token)?.context.cancel()
         if cancelled.removeValue(forKey: token) != nil { return }
-        let main = RecordingSession.current ?? session
-        Task { @MainActor in
-            await main.toggleVoiceNoteByHotkey()
-            if main.currentMode == .voiceNote, main.status == .recording || main.status == .preparing {
-                ImprovementStats.record(.daisyKeyTapNote)
-            }
+        let settings = session.settings
+        guard settings.layoutFixEnabled else {
+            tell(String(localized: "A tap fixes the keyboard layout — turn layout fixing on in Settings → Transcription"),
+                 action: (String(localized: "Open Settings"), { AppNavigation.shared.openInSettings(.transcription) }))
+            return
         }
+        Task { @MainActor in await LayoutFixService.shared.trigger(settings: settings) }
     }
 
     /// A hold ended with its words recognized (possibly none). Saved
@@ -1103,13 +1188,17 @@ final class DaisyKeyController {
             ImprovementStats.record(.daisyKeyIntent(.note))
             let route = DaisyKeyFolderRoute.route(rest.isEmpty ? text : rest, folders: Self.folders())
             let slug = route.folderSlug ?? FolderStore.shared.defaultNoteFolderSlug
-            guard let saved = await DaisyKeyNote.write(body: route.body, samples: samples, durationSec: durationSec, folderSlug: slug) else {
+            // «…и сделай саммари» at the end asks for the note's summary
+            // too (Egor 23.10); the words of the ask aren't the note.
+            let ask = DaisyKeyNoteSummary.ask(in: route.body)
+            guard let saved = await DaisyKeyNote.write(body: ask.body, samples: samples, durationSec: durationSec, folderSlug: slug) else {
                 return noteNotSaved(text, entryID: entryID)
             }
             await SessionStore.shared.refresh()
             let folderName = FolderStore.shared.existingFolder(slug: slug)?.name ?? slug
             DaisyKeyIndicator.shared.showSavedAsNote()
-            if route.unmatched || route.ambiguous {
+            let misfiled = route.unmatched || route.ambiguous
+            if misfiled {
                 DaisyCommandHistory.shared.setOutcome("inbox", for: entryID)
                 tell(route.ambiguous
                      ? String(localized: "Several projects match — saved to \(folderName)")
@@ -1117,10 +1206,15 @@ final class DaisyKeyController {
                      action: (String(localized: "Move"), { AppNavigation.shared.openInLibrary(saved) }))
             } else {
                 DaisyCommandHistory.shared.setOutcome("note", for: entryID)
-                tell(String(localized: "Note saved to \(folderName)"), style: .success,
-                     action: (String(localized: "Open"), { AppNavigation.shared.openInLibrary(saved) }))
+                if !ask.wantsSummary {
+                    tell(String(localized: "Note saved to \(folderName)"), style: .success,
+                         action: (String(localized: "Open"), { AppNavigation.shared.openInLibrary(saved) }))
+                }
             }
-            log.info("Daisy key note saved (\(route.body.count, privacy: .public) chars)")
+            // A misfiled note keeps its «Move» message: its summary is
+            // written quietly, only a problem with it speaks up.
+            if ask.wantsSummary { await summarizeNote(id: saved, slug: slug, body: ask.body, quiet: misfiled) }
+            log.info("Daisy key note saved (\(ask.body.count, privacy: .public) chars, summary asked: \(ask.wantsSummary, privacy: .public))")
         case .unclear(let words):
             let context = await hold?.context.value ?? .empty
             // The card is open: what is said works on its text. Within five
@@ -1285,7 +1379,9 @@ final class DaisyKeyController {
         // «…по шаблону продажи»: a follow-up template the request names
         // gives the letter its structure (backlog 35 Ш-1).
         let named = kind == .write ? MeetingTemplateStore.shared.followUpTemplate(mentionedIn: request) : nil
-        let commandContext = VoiceCommandContext(role: role, field: field, voice: voice, structure: named?.structure)
+        let commandContext = VoiceCommandContext(role: role, field: field, voice: voice, structure: named?.structure,
+                                                 // «переведи этот промпт» edits a prompt, it doesn't write one.
+                                                 prompt: kind != .edit && DaisyKeyCommandParser.asksForPrompt(request))
 
         let payload = SummaryPrompt.voiceCommandPayload(request: request, source: role == .none ? nil : context.selection)
         let written = await write(payload: payload, context: commandContext)
@@ -1486,6 +1582,52 @@ final class DaisyKeyController {
     /// The cloud providers commands have a yes for.
     static var cloudAllowedProviders: [SummaryProviderKind] {
         SummaryProviderKind.allCases.filter(cloudAllowed)
+    }
+
+    /// The summary a held note asked for: the summary provider, with the
+    /// Daisy key's one-yes-per-cloud rule. Through `runProbe`, so a
+    /// meeting finishing meanwhile keeps its own summary state — its card
+    /// and auto-send read `Summarizer.lastSummary` (review 23.10).
+    /// `quiet`: a misfiled note's «Move» message stays up — only asking
+    /// for consent or a failure speaks over it.
+    private func summarizeNote(id: String, slug: String, body: String, quiet: Bool = false) async {
+        let folderName = FolderStore.shared.existingFolder(slug: slug)?.name ?? slug
+        let open: (label: String, run: @MainActor () -> Void) = (String(localized: "Open"), { AppNavigation.shared.openInLibrary(id) })
+        let summarizer = Summarizer.shared
+        if summarizer.availability != .available { await summarizer.refreshAvailability() }
+        guard summarizer.availability == .available else {
+            if !quiet { tell(String(localized: "Note saved to \(folderName) — no summary provider is available for its summary"), action: open) }
+            return
+        }
+        guard summarizer.providerIsEffectivelyLocal || Self.cloudAllowed(summarizer.providerKind) else {
+            let kind = summarizer.providerKind
+            tell(String(localized: "Note saved to \(folderName). Its summary would send it to \(kind.shortName)"),
+                 action: (String(localized: "Allow and summarize"), { [weak self] in
+                     Self.allowCloud(kind)
+                     Task { await self?.summarizeNote(id: id, slug: slug, body: body, quiet: quiet) }
+                 }))
+            return
+        }
+        // Under eight words there's nothing to sum up — a model would pad
+        // it. The note's own words: its transcript also carries the title.
+        guard !Summarizer.isEffectivelySilent(body) else {
+            if !quiet { tell(String(localized: "Note saved to \(folderName) — it’s too short for a summary"), action: open) }
+            return
+        }
+        guard let session = SessionStore.shared.sessions.first(where: { $0.id == id }), !session.transcriptText.isEmpty else {
+            if !quiet { tell(String(localized: "Note saved to \(folderName)"), style: .success, action: open) }
+            return
+        }
+        let hint = RecordingSession.resolveSummaryLocaleHint(
+            transcript: session.transcriptText, transcriptLocale: session.locale,
+            summaryLanguageOverride: AppSettings.currentSummaryLanguage)
+        if !quiet { tell(String(localized: "Note saved to \(folderName) — writing its summary…")) }
+        guard let summary = try? await summarizer.runProbe(transcript: session.transcriptText, title: session.title, localeHint: hint) else {
+            tell(String(localized: "Note saved to \(folderName), but its summary didn’t work out"), action: open)
+            return
+        }
+        _ = await SessionStore.shared.updateSummary(summary, for: session)
+        if !quiet { tell(String(localized: "Note saved to \(folderName) with a summary"), style: .success, action: open) }
     }
 
     /// The words as a note in the default notes folder — the end of every

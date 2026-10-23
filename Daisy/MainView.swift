@@ -1168,9 +1168,6 @@ private struct HotkeyStopWiring: ViewModifier {
             .onChange(of: settings.dictationHotkey) { _, _ in
                 ServiceWiring.applyAllHotkeys(settings: settings, session: session)
             }
-            .onChange(of: settings.rewriteSelectionHotkey) { _, _ in
-                ServiceWiring.applyAllHotkeys(settings: settings, session: session)
-            }
             .onChange(of: settings.layoutFixHotkey) { _, _ in
                 ServiceWiring.applyAllHotkeys(settings: settings, session: session)
             }
@@ -1178,9 +1175,6 @@ private struct HotkeyStopWiring: ViewModifier {
                 ServiceWiring.applyAllHotkeys(settings: settings, session: session)
             }
             .onChange(of: settings.repasteLastHotkey) { _, _ in
-                ServiceWiring.applyAllHotkeys(settings: settings, session: session)
-            }
-            .onChange(of: settings.noteOnlyHotkey) { _, _ in
                 ServiceWiring.applyAllHotkeys(settings: settings, session: session)
             }
             // The Daisy key's hold needs Accessibility; granted later, the

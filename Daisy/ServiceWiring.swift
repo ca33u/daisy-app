@@ -55,13 +55,13 @@ enum ServiceWiring {
                 Task { await session?.toggleByHotkey() }
             }
         )
-        // The Daisy key (backlog 34) lives in the voice-note slot — its
-        // tap IS the voice-note toggle. A hold needs key-up events, which
-        // only the event monitor delivers (Accessibility / Input
-        // Monitoring); without them it stays a tap-only key, the voice
-        // note it always was, rather than a dead one. Registered only
-        // after first run, like dictation, so a permission prompt never
-        // lands before onboarding has explained it.
+        // The Daisy key (backlog 34) lives in the voice-note slot. A hold
+        // needs key-up events, which only the event monitor delivers
+        // (Accessibility / Input Monitoring). Since 23.10 its tap fixes
+        // the keyboard layout and notes are a hold, so without the
+        // permission it has nothing left to do and isn't registered.
+        // Registered only after first run, like dictation, so a permission
+        // prompt never lands before onboarding has explained it.
         if settings.hasShownFirstRun, DaisyKeyController.canHold {
             HotkeyManager.shared.register(
                 slot: .voiceNote,
@@ -82,26 +82,13 @@ enum ServiceWiring {
                 )
             )
         } else {
-            // Held modifiers have no Carbon toggle to fall back on: their
-            // monitor needs the permission (and would ask for it before
-            // onboarding), so until then they stay unregistered.
-            HotkeyManager.shared.register(
-                slot: .voiceNote,
-                choice: settings.voiceNoteHotkey.isModifierHold ? .none : settings.voiceNoteHotkey,
-                action: .toggle { [weak session] in
-                    Task { await session?.toggleVoiceNoteByHotkey() }
-                }
-            )
+            HotkeyManager.shared.unregister(slot: .voiceNote)
         }
-        // «Note only» — the old voice-note toggle on a key of its own, for
-        // anyone who wants it without the Daisy key's hold (K-4).
-        HotkeyManager.shared.register(
-            slot: .noteOnly,
-            choice: settings.noteOnlyHotkey,
-            action: .toggle { [weak session] in
-                Task { await session?.toggleVoiceNoteByHotkey() }
-            }
-        )
+        // «Note only» and «Rewrite in my voice» are gone (Egor 23.10): notes
+        // are a Daisy-key hold, and a silent hold over a selection rewrites
+        // it. A key someone assigned stays in their settings, unregistered.
+        HotkeyManager.shared.unregister(slot: .noteOnly)
+        HotkeyManager.shared.unregister(slot: .rewrite)
         // Dictation registers only AFTER first-run completes. The hold
         // path needs Input Monitoring, and macOS prompts at monitor
         // registration — with the fresh-install Fn default that prompt
@@ -119,15 +106,6 @@ enum ServiceWiring {
                     Task { await session?.stopDictationHotkey() }
                 }
             )
-        )
-        // Rewrite-selection-in-my-voice — one tap grabs the selection,
-        // rewrites it via the Voice Profile, pastes it back.
-        HotkeyManager.shared.register(
-            slot: .rewrite,
-            choice: settings.rewriteSelectionHotkey,
-            action: .toggle {
-                Task { await SelectionRewrite.shared.trigger() }
-            }
         )
         // Fix-the-layout — one tap re-types the selection (or the word in
         // flight) in the layout it should have been typed with.

@@ -23,7 +23,8 @@ enum WhatsNew {
     /// instead and is marked as having seen this one.
     // "-b": 1.0.8.37–38 marked the first edition seen as it opened, then
     // crashed drawing it (22.10) — everyone who updated gets it once more.
-    nonisolated static let edition = "daisy-key-2026-10-b"
+    // "-c": notes became a hold and the tap the layout fix (Egor 23.10).
+    nonisolated static let edition = "daisy-key-2026-10-c"
     nonisolated static let seenKey = "daisy.whatsNew.seenEdition"
 
     static func shouldOpen(hasShownFirstRun: Bool, defaults: UserDefaults = .standard) -> Bool {
@@ -167,17 +168,15 @@ struct WhatsNewSheet: View {
             return String(localized: "You don’t have a Daisy key yet — pick one in Settings. ⌃⌥ is the simplest.")
         }
         if !DaisyKeyController.canHold {
-            // Held modifiers don't even tap without it — as Settings says.
-            return settings.voiceNoteHotkey.isModifierHold
-                ? String(localized: "The Daisy key needs Accessibility — until it’s granted, it does nothing")
-                : String(localized: "Holding the key needs Accessibility — Settings shows what to allow.")
+            // Without it the key isn't registered at all — as Settings says.
+            return String(localized: "The Daisy key needs Accessibility — until it’s granted, it does nothing")
         }
         return nil
     }
 
     private var title: String {
         switch scene {
-        case 0: String(localized: "Tap for a note, straight into its project")
+        case 0: String(localized: "Hold and say “note” — it goes straight into its project")
         case 1: String(localized: "Hold and say what to do")
         default: String(localized: "Hold without a word to rewrite in your voice")
         }
@@ -186,8 +185,8 @@ struct WhatsNewSheet: View {
     private var text: String {
         let k = key.displayLabel
         switch scene {
-        case 0: return String(localized: "Tap \(k) and start with “to project Landing” — the note goes there. Talk as long as you need, tap again to finish. Without a project it lands in Notes.")
-        case 1: return String(localized: "Hold \(k) and say “write a reply…”, “translate”, “note…”. Let go, and Daisy does it right where you are.")
+        case 0: return String(localized: "Hold \(k) and say “note to project Landing: …” — let go, and the note is there. End with “and summarize” for a summary too. Without a project it lands in Notes.")
+        case 1: return String(localized: "Hold \(k) and say “write a reply…”, “translate”, “make a prompt for…”. Let go, and Daisy does it right where you are. A tap fixes the keyboard layout.")
         default: return String(localized: "Select some text, hold \(k) and say nothing. Daisy rewrites the selection the way you write.")
         }
     }
@@ -221,7 +220,7 @@ struct WhatsNewScript {
     let speech: ClosedRange<TimeInterval>?
 
     static let all = [
-        WhatsNewScript(duration: 10, still: 9, keyDown: [0.6...0.78, 7.4...7.58], speech: 1.2...6.8),
+        WhatsNewScript(duration: 10, still: 9, keyDown: [0.6...7.5], speech: 1.2...6.8),
         WhatsNewScript(duration: 12, still: 10, keyDown: [0.6...4.6], speech: 1.15...4.3),
         WhatsNewScript(duration: 10, still: 8.5, keyDown: [1.8...3.4], speech: nil),
     ]
@@ -300,7 +299,7 @@ struct WhatsNewStage: View {
 
     private var spoken: String {
         switch scene {
-        case 0: String(localized: "To project Landing: show Daisy writing an email on the first screen. Check with Masha by Friday.")
+        case 0: String(localized: "Note to project Landing: show Daisy writing an email on the first screen. Check with Masha by Friday.")
         default: String(localized: "Write a reply: let’s do Thursday at three, I’ll send the link.")
         }
     }

@@ -723,7 +723,7 @@ struct FirstRunView: View {
                     )
                     hotkeyRow(
                         title: String(localized: "Daisy key"),
-                        description: String(localized: "Tap for a note. Hold and say “note …”, or hold silently over selected text to rewrite it."),
+                        description: String(localized: "Hold and say “note …” or what to do, or hold silently over selected text to rewrite it. A tap fixes the keyboard layout."),
                         color: .daisyVoiceNote,
                         binding: $settings.voiceNoteHotkey
                     )

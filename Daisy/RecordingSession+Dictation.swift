@@ -37,7 +37,7 @@ extension RecordingSession {
         let samples = micTranscriber.capturedSamples
 
         // The Daisy key (backlog 34): a tap throws its half-second away
-        // and starts the long note — before any engine runs on it; a hold
+        // and fixes the layout — before any engine runs on it; a hold
         // hands its words over instead of pasting them. Read once and
         // reset, so a later ordinary dictation on this session pastes.
         let purpose = dictationPurpose
@@ -49,7 +49,7 @@ extension RecordingSession {
                 pendingScreenshotNote = nil
                 ScreenshotNoteCapture.shared.restorePending(pending)
             }
-            log.info("Daisy key tap — capture discarded, starting the long note")
+            log.info("Daisy key tap — capture discarded, fixing the layout")
             if let dir = sessionDirectory { try? FileManager.default.removeItem(at: dir) }
             releaseSessionsFolderTicket()
             reset()

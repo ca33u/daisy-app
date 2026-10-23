@@ -215,6 +215,10 @@ nonisolated struct VoiceCommandContext: Sendable, Equatable {
     /// A follow-up template the request named («…по шаблону продажи»,
     /// backlog 35 Ш-1): the structure the letter follows.
     var structure: String? = nil
+    /// The request asks for a prompt for another tool — an image, a video,
+    /// an app or feature, a game scene (Egor 23.10): written to that tool's
+    /// rules, with the craft details it needs.
+    var prompt: Bool = false
 }
 
 /// What the summary pipeline is being asked to DO. Passed explicitly
@@ -1034,8 +1038,59 @@ extension SummaryPrompt {
         if let structure = context.structure, !structure.isEmpty {
             rules += "\n  - Follow this structure the user set for such letters — its parts, order and length; a part this request gives nothing for is left out, not filled:\n\(structure)"
         }
+        if context.prompt { rules += "\n" + promptRulebook }
         return rules
     }
+
+    /// How to write a prompt for another tool, from the vendors' own guides
+    /// as of 2026-10-23 (vault: business/projects/daisy/2026-10-23-prompt-
+    /// rulebook.md). Re-check when a vendor changes its model line-up.
+    static let promptRulebook = """
+      - The REQUEST asks for a PROMPT for another tool. Write that prompt,
+        reference quality, for the tool the request names. The [?] rule
+        above is about facts only: here you SHOULD add the craft details the
+        tool needs (shot, camera, lens, light, palette, style, timing) in
+        keeping with what was asked. Output only the finished prompt, plus at
+        most one line of settings the tool takes in its UI (aspect ratio,
+        duration).
+      - Write the prompt in English unless the request asks otherwise; text
+        that must appear in an image stays in its language, in quotes.
+      - Order (skip what the user didn't care about): medium/intent; subject
+        with exact counts; one action; setting and time of day; composition
+        and camera; lighting and a 2–4 colour palette; style and mood in
+        visible words; text in the image in quotes with font and place;
+        constraints as what to show instead ("empty street", not "no
+        people"); format. No "masterpiece", "8k", no contradictions.
+      - ChatGPT / gpt-image: scene, subject, details, constraints; say what
+        it's for (poster, UI mockup); "photorealistic" for photos; text in
+        quotes with font and placement; orientation or ratio in words.
+      - Midjourney (V8.2): short descriptive phrases, exact numbers; flags at
+        the very end, no commas inside: --ar W:H, --s 0–1000, --c 0–100,
+        --raw, --no a, b, --seed N, --v 8.2. Never --q, --cref, --oref, "::".
+      - Gemini image (Nano Banana) and FLUX: full descriptive sentences,
+        photographic language; FLUX has no negative prompt — describe the
+        replacement. Ratio is a setting: give it on the settings line.
+      - Ideogram: one-line summary first; exact text in quotes early, with
+        its placement and lettering style; under 150 words.
+      - Video (Veo, Gemini Omni, Runway, Kling): one continuous shot, one
+        camera move (pan, tilt, dolly, tracking, crane, handheld…), the
+        action as beats, sound in separate sentences ("The man says: …",
+        named effects), "In a single continuous shot, no scene cuts" when it
+        matters; Runway: "[Camera] shot of [subject] [action] in
+        [environment]." Sora was discontinued — if asked for Sora, write a
+        neutral video prompt and say so on the settings line.
+      - App, feature or code for an AI agent (Claude Code, Codex, Cursor):
+        Goal; Context (files, the pattern to follow); Constraints; Done when
+        (tests pass, behaviour seen, a screenshot) — fix causes, not
+        symptoms; only what was asked.
+      - A prompt for a chat model: one-line role, context in XML tags, the
+        task, the output format; examples if it helps.
+      - Game assets: one asset per image, "isolated, centered", an
+        orthographic or isometric view, the same style sentence for a set.
+      - No tool named: an image gets a tool-neutral paragraph without flags;
+        a video gets one continuous shot with sound in separate sentences
+        and the length as a note; an app or feature gets the agent form.
+    """
 
     /// What the command's "transcript" carries: the request, and the
     /// selection when there is one, each between markers the text itself

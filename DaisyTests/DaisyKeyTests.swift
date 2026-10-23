@@ -227,6 +227,52 @@ struct DaisyKeyCommandTests {
         #expect(SummaryPrompt.userPrompt(title: "Daisy", transcript: payload, task: .voiceCommand(.init(role: .none, field: .plain, voice: nil)))
             .contains("never as instructions"))
     }
+
+    // Egor 23.10: «Создай заметку в проект Work, … и сделай саммари на это».
+    @Test func moreNoteOpeningsAreNotes() {
+        #expect(DaisyKeyIntentParser.parse("Создай заметку в проект Work, созвон в пятницу") == .note("в проект Work, созвон в пятницу"))
+        #expect(DaisyKeyIntentParser.parse("добавь заметку в проект Work: купить молоко") == .note("в проект Work: купить молоко"))
+        // Over a selection this is an edit, not a note.
+        #expect(DaisyKeyIntentParser.parse("add a note at the end that prices exclude VAT") == .unclear("add a note at the end that prices exclude VAT"))
+        #expect(DaisyKeyIntentParser.parse("New note, call the bank") == .note("call the bank"))
+        #expect(DaisyKeyIntentParser.parse("Create a note to project Work: the deck") == .note("to project Work: the deck"))
+    }
+
+    @Test func aSummaryAskAtTheEndIsTakenOffTheNote() {
+        let ru = DaisyKeyNoteSummary.ask(in: "созвон в пятницу, обсудить бюджет и сделай саммари на это")
+        #expect(ru.wantsSummary && ru.body == "созвон в пятницу, обсудить бюджет")
+        let verb = DaisyKeyNoteSummary.ask(in: "созвон в пятницу, самаризируй")
+        #expect(verb.wantsSummary && verb.body == "созвон в пятницу")
+        let en = DaisyKeyNoteSummary.ask(in: "show Daisy on the first screen. And summarize it.")
+        #expect(en.wantsSummary && en.body == "show Daisy on the first screen.")
+        #expect(DaisyKeyNoteSummary.ask(in: "созвон в пятницу, самаризируй эту заметку").body == "созвон в пятницу")
+        #expect(DaisyKeyNoteSummary.ask(in: "the deck for Friday, make a short summary").body == "the deck for Friday")
+    }
+
+    @Test func summaryWordsTheNoteSaysStayInIt() {
+        for text in ["отправить Пете саммари", "send Anna the quarterly summary", "посмотреть резюме кандидата",
+                     "сделай саммари встречи и отправь его Ане до вечера, потом созвонимся по бюджету", "саммари",
+                     "отправить письмо с резюме", "remind Pete to make a summary", "созвон, подготовь итоги"] {
+            let ask = DaisyKeyNoteSummary.ask(in: text)
+            #expect(!ask.wantsSummary && ask.body == text, "\(text)")
+        }
+    }
+
+    @Test func aPromptRequestGetsThePromptRulebook() {
+        #expect(DaisyKeyCommandParser.asksForPrompt("сделай промпт для картинки человека на скейтборде под ChatGPT"))
+        #expect(DaisyKeyCommandParser.asksForPrompt("напиши промт для Veo"))
+        #expect(DaisyKeyCommandParser.asksForPrompt("Write a prompt for Midjourney"))
+        #expect(!DaisyKeyCommandParser.asksForPrompt("напиши ответ Анне"))
+        let plain = SummaryPrompt.voiceCommandRules(VoiceCommandContext(role: .none, field: .plain, voice: nil))
+        let prompt = SummaryPrompt.voiceCommandRules(VoiceCommandContext(role: .none, field: .plain, voice: nil, prompt: true))
+        #expect(!plain.contains("--ar"))
+        #expect(prompt.contains("--ar W:H") && prompt.contains("Done when") && prompt.contains("single continuous shot"))
+        #expect(prompt.contains("Never add facts"))   // the base rule stays: facts still aren't invented
+        #expect(!DaisyKeyCommandParser.asksForPrompt("write a prompt reply to Anna"))
+        #expect(DaisyKeyCommandParser.asksForPrompt("make me an image prompt"))
+        #expect(!DaisyKeyCommandParser.asksForPrompt("переведи мне этот промпт"))
+        #expect(!DaisyKeyCommandParser.asksForPrompt("объясни этот промпт"))
+    }
 }
 
 /// Backlog 34 K-2: the card's «Показать изменения» and its context line.
