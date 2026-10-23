@@ -55,6 +55,8 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         // backlog 9 Ф3-A: phone ⇄ Mac text sync through CloudKit —
         // launch, activation, once a minute, after Library refreshes.
         SyncCoordinator.shared.start()
+        // Onboarding 2.0: the calendar / summary tips after the tour.
+        ContextTips.shared.start()
         // Ф3-B: audio on request — the phone finds this Mac on the local
         // network and hands over the recordings whose text already came.
         AudioHandoffServer.shared.start()

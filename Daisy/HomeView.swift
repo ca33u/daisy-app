@@ -252,10 +252,29 @@ struct HomeView: View {
     /// Home is clean for the everyday case.
     private var showsSetupRows: Bool {
         guard !onboardingDismissed else { return false }
+        if meetingsNotYet {
+            return permissions.microphone != .granted || permissions.accessibility != .granted
+        }
         return permissions.microphone != .granted
             || permissions.accessibility != .granted
             || permissions.screenRecording == .notDetermined
             || permissions.calendar == .notDetermined
+            || needsSummaryProvider
+    }
+
+    /// The tour's «just dictation», and no meeting recorded since
+    /// (Onboarding 2.0): the meeting rows wait — only what dictation and
+    /// the Daisy key need is listed.
+    private var meetingsNotYet: Bool {
+        ContextTips.shared.meetingsNotYet
+    }
+
+    /// Summaries are on and the chosen provider can't write them — the
+    /// tour no longer asks which one, so the checklist does.
+    private var needsSummaryProvider: Bool {
+        guard settings.autoSummarize else { return false }
+        if case .unavailable = summarizer.availability { return true }
+        return false
     }
 
     /// Free bytes when they're under the floor where Daisy stops
@@ -346,20 +365,33 @@ struct HomeView: View {
                     action: { permissions.requestAccessibility() },
                     openSettings: permissions.openAccessibilitySettings
                 )
-                onboardingRow(
-                    title: String(localized: "Screen Recording"),
-                    caption: String(localized: "Captures the other side of meetings"),
-                    status: permissions.screenRecording,
-                    action: { permissions.requestScreenRecording() },
-                    openSettings: permissions.openScreenRecordingSettings
-                )
-                onboardingRow(
-                    title: String(localized: "Calendar"),
-                    caption: String(localized: "Auto-starts recording at meeting times"),
-                    status: permissions.calendar,
-                    action: { Task { await permissions.requestCalendar() } },
-                    openSettings: permissions.openCalendarSettings
-                )
+                if !meetingsNotYet {
+                    onboardingRow(
+                        title: String(localized: "Screen Recording"),
+                        caption: String(localized: "Captures the other side of meetings"),
+                        status: permissions.screenRecording,
+                        action: { permissions.requestScreenRecording() },
+                        openSettings: permissions.openScreenRecordingSettings
+                    )
+                    onboardingRow(
+                        title: String(localized: "Calendar"),
+                        caption: String(localized: "Auto-starts recording at meeting times"),
+                        status: permissions.calendar,
+                        action: { Task { await permissions.requestCalendar() } },
+                        openSettings: permissions.openCalendarSettings
+                    )
+                    // Listed only while missing: there is nothing to tick
+                    // once a provider works.
+                    if needsSummaryProvider {
+                        onboardingRow(
+                            title: String(localized: "Summary provider"),
+                            caption: ContextTips.Copy.homeSummaryCaption,
+                            status: .notDetermined,
+                            action: { AppNavigation.shared.openInSettings(.summary) },
+                            openSettings: { AppNavigation.shared.openInSettings(.summary) }
+                        )
+                    }
+                }
             }
 
             if showsConsentRow {

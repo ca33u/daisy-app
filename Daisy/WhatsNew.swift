@@ -24,7 +24,9 @@ enum WhatsNew {
     // "-b": 1.0.8.37–38 marked the first edition seen as it opened, then
     // crashed drawing it (22.10) — everyone who updated gets it once more.
     // "-c": notes became a hold and the tap the layout fix (Egor 23.10).
-    nonisolated static let edition = "daisy-key-2026-10-c"
+    // "-d": the last scene says where the new tour is — someone who
+    // updates never sees it otherwise (Onboarding 2.0, Egor 24.10).
+    nonisolated static let edition = "daisy-key-2026-10-d"
     nonisolated static let seenKey = "daisy.whatsNew.seenEdition"
 
     static func shouldOpen(hasShownFirstRun: Bool, defaults: UserDefaults = .standard) -> Bool {
@@ -110,6 +112,24 @@ struct WhatsNewSheet: View {
                     Button("Open Settings") {
                         AppNavigation.shared.openInSettings(.recording)
                         dismiss()
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+            }
+            if scene == Self.sceneCount - 1 {
+                // The tour came with this update, and only a fresh install
+                // walks into it by itself.
+                HStack(spacing: 10) {
+                    Image(systemName: "figure.walk")
+                        .foregroundStyle(.secondary)
+                    Text(ContextTips.Copy.whatsNewTour)
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    Button("Open") {
+                        dismiss()
+                        OnboardingTourController.shared.restart(settings: settings)
                     }
                 }
                 .padding(.horizontal, 24)

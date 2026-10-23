@@ -1204,10 +1204,20 @@ final class DaisyKeyController {
             let misfiled = route.unmatched || route.ambiguous
             if misfiled {
                 DaisyCommandHistory.shared.setOutcome("inbox", for: entryID)
-                tell(route.ambiguous
-                     ? String(localized: "Several projects match — saved to \(folderName)")
-                     : String(localized: "No such project — saved to \(folderName)"),
-                     action: (String(localized: "Move"), { AppNavigation.shared.openInLibrary(saved) }))
+                // The first «в проект X» with no X (Onboarding 2.0 tip):
+                // offer to make X and put the note there, once.
+                if let name = ContextTips.shared.projectOffer(for: rest.isEmpty ? text : rest, route: route) {
+                    tell(ContextTips.Copy.projectAsk(name: name, savedTo: folderName),
+                         action: (ContextTips.Copy.projectCreate(name), { [weak self] in
+                             Task { @MainActor in await self?.createProject(name, moving: saved, savedTo: folderName) }
+                         }),
+                         opensWindow: false)
+                } else {
+                    tell(route.ambiguous
+                         ? String(localized: "Several projects match — saved to \(folderName)")
+                         : String(localized: "No such project — saved to \(folderName)"),
+                         action: (String(localized: "Move"), { AppNavigation.shared.openInLibrary(saved) }))
+                }
             } else {
                 DaisyCommandHistory.shared.setOutcome("note", for: entryID)
                 if !ask.wantsSummary {
@@ -1707,11 +1717,26 @@ final class DaisyKeyController {
         tell(String(localized: "Couldn’t save the note — the text is on the clipboard and in the command history"), style: .warning)
     }
 
+    /// «Создать «X»» on a misfiled note: the project, the note moved into
+    /// it, and what came of it.
+    private func createProject(_ name: String, moving note: StoredSession.ID, savedTo folderName: String) async {
+        if let folder = await ContextTips.createProject(named: name, moving: note) {
+            tell(ContextTips.Copy.projectCreated(folder.name), style: .success,
+                 action: (String(localized: "Open"), { AppNavigation.shared.openInLibrary(note) }))
+        } else {
+            tell(ContextTips.Copy.projectNotMoved(folderName), style: .warning,
+                 action: (String(localized: "Move"), { AppNavigation.shared.openInLibrary(note) }))
+        }
+    }
+
     /// Said where the person is: the key is pressed from other apps, and
     /// the toast lives in Daisy's window — so the widget's pill too, or a
-    /// notification when there is no pill.
+    /// notification when there is no pill. `opensWindow`: the pill's action
+    /// also brings Daisy's window up — off for an action that is done in
+    /// place and says its outcome itself.
     func tell(_ text: String, style: Toast.Style = .info,
-                      action: (label: String, run: @MainActor () -> Void)? = nil) {
+                      action: (label: String, run: @MainActor () -> Void)? = nil,
+                      opensWindow: Bool = true) {
         if let action {
             ToastCenter.shared.showAction(text, actionLabel: action.label, style: style, duration: .seconds(8), perform: action.run)
         } else {
@@ -1720,7 +1745,7 @@ final class DaisyKeyController {
         // From the pill the action has to bring the window up too: the
         // Library behind a closed window shows nothing.
         let fromPill: (@MainActor () -> Void)? = action.map { action in
-            { action.run(); WidgetBubbleCenter.shared.openMainWindow?() }
+            { action.run(); if opensWindow { WidgetBubbleCenter.shared.openMainWindow?() } }
         }
         WidgetBubbleCenter.shared.present(
             WidgetBubbleContent(text: text, actionTitle: action?.label, autoDismiss: 8, tag: "daisy-key", action: fromPill),
