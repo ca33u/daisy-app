@@ -228,6 +228,9 @@ protocol WidgetBubbleHosting: AnyObject {
     /// Where the widget is on screen, when it is — what the Daisy key's
     /// result card sits next to.
     var widgetFrame: NSRect? { get }
+    /// The widget's own window, while it's on screen — what the tour's
+    /// coach mark attaches to as a child so it rides along with a drag.
+    var widgetWindow: NSWindow? { get }
     /// A prompt pill is on screen now (not dismissed, not expired).
     var isBubbleShown: Bool { get }
     func showBubble(_ content: WidgetBubbleContent)
@@ -297,4 +300,5 @@ struct WidgetBubbleView: View {
 
 extension WidgetBubbleHosting {
     var widgetFrame: NSRect? { nil }
+    var widgetWindow: NSWindow? { nil }
 }

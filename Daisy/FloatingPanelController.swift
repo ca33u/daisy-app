@@ -15,10 +15,40 @@ import os
 
 @MainActor
 final class FloatingPanelController {
+    /// The live controller, for callers outside the SwiftUI tree that
+    /// owns it (the first-run tour's attention ring). Weak: `DaisyApp`
+    /// owns the one instance.
+    private(set) static weak var shared: FloatingPanelController?
+    /// Posted after the person finishes dragging the widget somewhere
+    /// new — never for Daisy's own placement. The tour's «drag me» step
+    /// completes on it.
+    static let widgetMoved = Notification.Name("daisy.widget.moved")
+
     private let session: RecordingSession
     private let settings: AppSettings
     private var panel: NSPanel?
     private var hasPositionedOnce = false
+    /// True while Daisy moves the panel herself, so the move observer
+    /// doesn't mistake it for a drag.
+    private var isPositioning = false
+    /// Where the widget last came to rest — a "drag" that ends here
+    /// (a click that jiggled a pixel) isn't news.
+    private var settledOrigin: NSPoint?
+    /// Waits out a drag in progress: saved and announced once the mouse
+    /// button is back up.
+    private var dragSettleTask: Task<Void, Never>?
+    /// The left button went down ON the widget and that press hasn't
+    /// been resolved yet — only then is a move the person's drag. Without
+    /// this, macOS relocating the panel off an unplugged display would
+    /// read as a drag and overwrite the remembered spot.
+    private var pressStartedOnWidget = false
+    /// Disarms `pressStartedOnWidget` shortly after a press that moved
+    /// nothing (a click, a drag that went nowhere).
+    private var pressWatchTask: Task<Void, Never>?
+    /// The tour's pulsing ring around the widget — a child panel, see
+    /// `setAttentionRing`.
+    private var attentionRingOn = false
+    private var ringPanel: NSPanel?
     /// The callout anchored to the widget (see `WidgetBubble`). A second
     /// borderless panel, sized to its content, tracked to the widget's
     /// frame on show. Nil when nothing is being prompted.
@@ -58,6 +88,7 @@ final class FloatingPanelController {
     init(session: RecordingSession, settings: AppSettings) {
         self.session = session
         self.settings = settings
+        Self.shared = self
         WidgetBubbleCenter.shared.host = self
         startObserving()
         startObservingSettings()
@@ -101,6 +132,8 @@ final class FloatingPanelController {
         if panel == nil { buildPanel() }
         positionIfNeeded()
         panel?.orderFrontRegardless()
+        syncAttentionRing()
+        TourBubbleCenter.shared.widgetVisibilityChanged()
     }
 
     func hide() {
@@ -108,6 +141,9 @@ final class FloatingPanelController {
         // point at — take it with the widget.
         hideBubble()
         panel?.orderOut(nil)
+        // The ring goes too, but stays asked-for: `show` brings it back.
+        syncAttentionRing()
+        TourBubbleCenter.shared.widgetVisibilityChanged()
     }
 
     /// Hide the widget for `duration` seconds. Called from the widget's
@@ -223,8 +259,17 @@ final class FloatingPanelController {
     /// moves the panel with correct screen clamping. Clicks still hit
     /// SwiftUI first, so tap-to-record and right-click are unaffected.
     private final class WidgetPanel: NSPanel {
+        /// Left button down anywhere on the widget — seen here, before
+        /// SwiftUI's gestures claim the event.
+        var onLeftMouseDown: (() -> Void)?
+
         override func mouseDragged(with event: NSEvent) {
             performDrag(with: event)
+        }
+
+        override func sendEvent(_ event: NSEvent) {
+            if event.type == .leftMouseDown { onLeftMouseDown?() }
+            super.sendEvent(event)
         }
     }
 
@@ -278,11 +323,21 @@ final class FloatingPanelController {
         panel.contentView?.layer?.backgroundColor = CGColor.clear
 
         self.panel = panel
+        panel.onLeftMouseDown = { [weak self] in self?.widgetPressBegan() }
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.widgetDidMove() }
+        }
     }
 
-    /// Auto-position only on the very first show. After that, the user's
-    /// manual drag wins — we never override their placement (except when
-    /// the panel has fallen off all displays; see `ensureOnScreen`).
+    /// Auto-position only on the very first show: where the person last
+    /// left the widget (any earlier launch), else the bottom-right
+    /// corner. After that, the user's manual drag wins — we never
+    /// override their placement (except when the panel has fallen off
+    /// all displays; see `ensureOnScreen`).
     private func positionIfNeeded() {
         guard let panel = panel, let screen = bestScreen() else { return }
         guard !hasPositionedOnce else {
@@ -290,20 +345,94 @@ final class FloatingPanelController {
             return
         }
         hasPositionedOnce = true
-        anchorBottomRight(panel: panel, on: screen)
+        if !restoreSavedOrigin(panel: panel) {
+            anchorBottomRight(panel: panel, on: screen)
+        }
     }
 
     private func ensureOnScreen() {
         guard let panel = panel else { return }
         let frame = panel.frame
         // If any visible screen still contains the centre of the panel,
-        // we're fine. Otherwise recover to the bottom-right of the best
-        // available screen.
+        // we're fine. Otherwise recover to the remembered spot — mapped
+        // onto a display that's still here — or the bottom-right of the
+        // best available screen. (macOS usually pulls windows off an
+        // unplugged display itself; then the mapping happens at the next
+        // launch, when `positionIfNeeded` restores.)
         let centre = NSPoint(x: frame.midX, y: frame.midY)
         let onAnyScreen = NSScreen.screens.contains { $0.frame.contains(centre) }
-        if !onAnyScreen, let screen = bestScreen() {
+        if !onAnyScreen, !restoreSavedOrigin(panel: panel), let screen = bestScreen() {
             anchorBottomRight(panel: panel, on: screen)
         }
+    }
+
+    /// Arm drag detection for this press, and disarm it half a second
+    /// after the button comes up unless a move arrived meanwhile (then
+    /// `dragDidSettle` disarms it). Polled rather than read from the
+    /// mouse-up event, which a drag can swallow.
+    private func widgetPressBegan() {
+        pressStartedOnWidget = true
+        pressWatchTask?.cancel()
+        pressWatchTask = Task { @MainActor [weak self] in
+            repeat {
+                try? await Task.sleep(for: .milliseconds(150))
+            } while !Task.isCancelled && NSEvent.pressedMouseButtons & 1 != 0
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled, let self, self.dragSettleTask == nil else { return }
+            self.pressStartedOnWidget = false
+        }
+    }
+
+    /// Put the panel where the person last dragged it. Its own display
+    /// when that's connected; otherwise the same relative spot on the
+    /// best screen. False when nothing was ever saved.
+    private func restoreSavedOrigin(panel: NSPanel) -> Bool {
+        guard let saved = WidgetOrigin.load(from: .standard) else { return false }
+        let screen = NSScreen.screens.first { $0.displayID == saved.displayID } ?? bestScreen()
+        guard let screen else { return false }
+        place(panel, at: saved.origin(size: panel.frame.size, visible: screen.visibleFrame))
+        return true
+    }
+
+    /// Daisy's own moves go through here, so `widgetDidMove` can tell
+    /// them from the person's.
+    private func place(_ panel: NSPanel, at origin: NSPoint) {
+        isPositioning = true
+        panel.setFrameOrigin(origin)
+        isPositioning = false
+        settledOrigin = origin
+    }
+
+    /// A move we didn't make, during or just after a press on the widget,
+    /// is a drag. Depending on how AppKit runs it, moves arrive live or
+    /// once at the end — either way, wait for the mouse button to come
+    /// up, then save the spot and say so.
+    private func widgetDidMove() {
+        guard !isPositioning, pressStartedOnWidget else { return }
+        dragSettleTask?.cancel()
+        dragSettleTask = Task { @MainActor [weak self] in
+            repeat {
+                try? await Task.sleep(for: .milliseconds(150))
+            } while !Task.isCancelled && NSEvent.pressedMouseButtons & 1 != 0
+            guard !Task.isCancelled else { return }
+            self?.dragDidSettle()
+        }
+    }
+
+    private func dragDidSettle() {
+        dragSettleTask = nil
+        pressStartedOnWidget = false
+        guard let panel, let screen = panel.screen ?? bestScreen() else { return }
+        let origin = panel.frame.origin
+        if let settledOrigin, hypot(origin.x - settledOrigin.x, origin.y - settledOrigin.y) < 3 {
+            return
+        }
+        settledOrigin = origin
+        WidgetOrigin(
+            origin: origin, size: panel.frame.size,
+            displayID: screen.displayID, visible: screen.visibleFrame
+        ).save(to: .standard)
+        NotificationCenter.default.post(name: Self.widgetMoved, object: self)
     }
 
     /// Prefer the screen the cursor is on (matches user attention), then
@@ -338,7 +467,167 @@ final class FloatingPanelController {
         let maxY = frame.maxY - size.height - 4
         let y = min(max(frame.minY, rawY), maxY)
 
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        place(panel, at: NSPoint(x: x, y: y))
+    }
+
+    // MARK: - Attention ring
+
+    /// The tour's «this is me» highlight: a dashed amber ring that swells
+    /// out from the widget and fades, over and over (the prototype's
+    /// `.wring`). Its own click-through panel, a child of the widget's so
+    /// it follows a drag and leaves with the widget — the widget panel
+    /// itself is too tight for a ring that grows to 1.35×.
+    func setAttentionRing(_ on: Bool) {
+        attentionRingOn = on
+        syncAttentionRing()
+    }
+
+    private func syncAttentionRing() {
+        guard attentionRingOn, let panel, panel.isVisible else {
+            if let ringPanel {
+                ringPanel.parent?.removeChildWindow(ringPanel)
+                ringPanel.orderOut(nil)
+            }
+            ringPanel = nil
+            return
+        }
+        guard ringPanel == nil else { return }
+
+        let side: CGFloat = 84
+        let ring = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: side, height: side),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        ring.isOpaque = false
+        ring.backgroundColor = .clear
+        ring.hasShadow = false
+        ring.ignoresMouseEvents = true
+        ring.level = .floating
+        ring.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        ring.isReleasedWhenClosed = false
+        ring.hidesOnDeactivate = false
+
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: side, height: side))
+        host.wantsLayer = true
+        // The daisy's disc is 42 pt; the prototype's ring sits 6 pt
+        // outside the widget all round.
+        let diameter: CGFloat = 54
+        let shape = CAShapeLayer()
+        shape.frame = host.bounds
+        shape.path = CGPath(
+            ellipseIn: CGRect(
+                x: (side - diameter) / 2, y: (side - diameter) / 2,
+                width: diameter, height: diameter
+            ),
+            transform: nil
+        )
+        shape.fillColor = NSColor.clear.cgColor
+        // #D97A28 — the prototype's accent.
+        shape.strokeColor = NSColor(red: 217 / 255, green: 122 / 255, blue: 40 / 255, alpha: 1).cgColor
+        shape.lineWidth = 2
+        shape.lineDashPattern = [5, 4]
+        shape.contentsScale = panel.backingScaleFactor
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            shape.opacity = 0.9
+        } else {
+            let scale = CABasicAnimation(keyPath: "transform.scale")
+            scale.fromValue = 0.9
+            scale.toValue = 1.35
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0.9
+            fade.toValue = 0
+            let pulse = CAAnimationGroup()
+            pulse.animations = [scale, fade]
+            pulse.duration = 1.4
+            pulse.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            pulse.repeatCount = .infinity
+            shape.opacity = 0
+            shape.add(pulse, forKey: "pulse")
+        }
+        host.layer?.addSublayer(shape)
+        ring.contentView = host
+
+        let frame = panel.frame
+        ring.setFrameOrigin(NSPoint(x: frame.midX - side / 2, y: frame.midY - side / 2))
+        panel.addChildWindow(ring, ordered: .below)
+        ringPanel = ring
+    }
+}
+
+// MARK: - Remembered position
+
+/// Where the widget was last dragged, kept relative to its display: which
+/// display, and how far across / up the room left in its visible frame
+/// (0 = left / bottom, 1 = right / top). Relative rather than absolute so
+/// unplugging an external display — or a resolution change — maps the
+/// spot onto the screen that's left (bottom-right stays bottom-right)
+/// instead of losing it off-canvas.
+nonisolated struct WidgetOrigin: Equatable {
+    static let defaultsKey = "daisy.widget.origin"
+    /// Same 4 pt inner gutter `anchorBottomRight` clamps to.
+    static let gutter: CGFloat = 4
+
+    var displayID: UInt32
+    var fx: Double
+    var fy: Double
+
+    init(displayID: UInt32, fx: Double, fy: Double) {
+        self.displayID = displayID
+        self.fx = fx
+        self.fy = fy
+    }
+
+    /// Partly off-screen origins are pulled in — the fractions are kept
+    /// to 0…1.
+    init(origin: NSPoint, size: NSSize, displayID: UInt32, visible: NSRect) {
+        let (minX, maxX, minY, maxY) = Self.room(size: size, visible: visible)
+        self.displayID = displayID
+        fx = Self.fraction(origin.x, minX, maxX)
+        fy = Self.fraction(origin.y, minY, maxY)
+    }
+
+    /// The origin on a screen with this visible frame, clamped inside it.
+    func origin(size: NSSize, visible: NSRect) -> NSPoint {
+        let (minX, maxX, minY, maxY) = Self.room(size: size, visible: visible)
+        let x = minX + CGFloat(min(max(fx, 0), 1)) * max(maxX - minX, 0)
+        let y = minY + CGFloat(min(max(fy, 0), 1)) * max(maxY - minY, 0)
+        return NSPoint(x: x, y: y)
+    }
+
+    func save(to defaults: UserDefaults) {
+        defaults.set(
+            ["display": Int(displayID), "fx": fx, "fy": fy] as [String: Any],
+            forKey: Self.defaultsKey
+        )
+    }
+
+    static func load(from defaults: UserDefaults) -> WidgetOrigin? {
+        guard let dict = defaults.dictionary(forKey: defaultsKey),
+              let display = dict["display"] as? Int,
+              let fx = dict["fx"] as? Double, fx.isFinite,
+              let fy = dict["fy"] as? Double, fy.isFinite
+        else { return nil }
+        return WidgetOrigin(displayID: UInt32(truncatingIfNeeded: display), fx: fx, fy: fy)
+    }
+
+    private static func room(size: NSSize, visible: NSRect) -> (CGFloat, CGFloat, CGFloat, CGFloat) {
+        (visible.minX + gutter, visible.maxX - size.width - gutter,
+         visible.minY + gutter, visible.maxY - size.height - gutter)
+    }
+
+    private static func fraction(_ value: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> Double {
+        guard hi > lo else { return 0.5 }
+        return Double(min(max((value - lo) / (hi - lo), 0), 1))
+    }
+}
+
+extension NSScreen {
+    /// The CoreGraphics display number — stable for as long as the
+    /// display stays connected; what `WidgetOrigin` remembers.
+    var displayID: UInt32 {
+        (deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
     }
 }
 
@@ -359,6 +648,11 @@ extension FloatingPanelController: WidgetBubbleHosting {
     var widgetFrame: NSRect? {
         guard let panel, panel.isVisible else { return nil }
         return panel.frame
+    }
+
+    var widgetWindow: NSWindow? {
+        guard let panel, panel.isVisible else { return nil }
+        return panel
     }
 
     func showBubble(_ content: WidgetBubbleContent) {
