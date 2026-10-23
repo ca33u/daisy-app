@@ -7539,6 +7539,16 @@
         }
       }
     },
+    "Build" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Собрать"
+          }
+        }
+      }
+    },
     "Built by addicted\n" : {
       "localizations" : {
         "ru" : {
@@ -12287,6 +12297,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Достаточно для диктовки"
+          }
+        }
+      }
+    },
+    "Enough words now. Build your style profile?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Слов набралось. Собрать твой профиль стиля?"
           }
         }
       }

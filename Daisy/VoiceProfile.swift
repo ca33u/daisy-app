@@ -83,6 +83,18 @@ nonisolated struct VoiceProfile: Codable, Sendable, Equatable {
     }
 }
 
+/// Provenance tag for a sample the first-run tour fed into the corpus
+/// (`VoiceProfileStore.appendTourSample`). The words are in the bucket
+/// like any dictation's — the tail-trim may since have dropped them, so a
+/// view that highlights them checks the bucket text before pointing.
+nonisolated struct VoiceTourSample: Codable, Sendable, Equatable {
+    /// The bucket it landed in (ISO 639-1 or `VoiceLanguage.undetermined`).
+    let language: String
+    let text: String
+    let words: Int
+    let at: Date
+}
+
 /// A style instruction resolved for one piece of text, plus the two facts
 /// the prompt needs about where it came from.
 nonisolated struct ResolvedVoiceStyle: Sendable, Equatable {
@@ -208,8 +220,32 @@ final class VoiceProfileStore {
     static let visibilityMinWords = 40
 
     private let storeDirectory: URL
+    @ObservationIgnored
+    private let defaults: UserDefaults
 
-    private init() {
+    /// Told, after a dictation, a tour sample or a meeting's own speech
+    /// lands, which languages that sample carried over `unlockWords` for
+    /// the first time and still have no profile — possibly none, which
+    /// is the tip's cue to retry one still waiting. The shared store
+    /// routes it to `StyleProfileTip`; a test store leaves it to the test.
+    @ObservationIgnored
+    var thresholdObserver: (@MainActor (_ crossed: [String]) -> Void)?
+
+    /// Samples the first-run tour fed in, tagged so a later "what's in my
+    /// corpus" view can tell them from ordinary dictations. The text
+    /// itself lives in the bucket like any dictation's; this is
+    /// provenance, persisted to `tour-samples.json`.
+    private(set) var tourSamples: [VoiceTourSample] = []
+    @ObservationIgnored
+    private var tourSamplesUnreadable = false
+
+    /// The last few ordinary dictations, held so a tour sample that ALSO
+    /// went through the paste path (the tour's practice field takes
+    /// dictation like any field) is tagged rather than counted twice.
+    @ObservationIgnored
+    private var recentDictations: [(text: String, language: String, at: Date)] = []
+
+    private convenience init() {
         // Container's Application Support, exactly like
         // `SpeakerProfileStore`. NOT UserDefaults (six languages × two
         // sources × 16k would be ~200 KB in a plist macOS reads whole at
@@ -223,13 +259,31 @@ final class VoiceProfileStore {
             appropriateFor: nil,
             create: true
         )) ?? FileManager.default.temporaryDirectory
-        storeDirectory = appSupport
-            .appendingPathComponent("Daisy", isDirectory: true)
-            .appendingPathComponent("Voice", isDirectory: true)
+        self.init(
+            storeDirectory: appSupport
+                .appendingPathComponent("Daisy", isDirectory: true)
+                .appendingPathComponent("Voice", isDirectory: true),
+            defaults: .standard
+        )
+        // Read at call time, never here: `shared` is still being built.
+        thresholdObserver = { crossed in
+            StyleProfileTip.shared.corpusGrew(crossed: crossed, in: VoiceProfileStore.shared)
+        }
+    }
+
+    /// A store on its own folder and defaults — what tests use, so they
+    /// never touch the real corpus or the real preferences.
+    init(storeDirectory: URL, defaults: UserDefaults) {
+        self.storeDirectory = storeDirectory
+        self.defaults = defaults
 
         // Absent key → false. Opt-in by design.
-        includesMeetings = UserDefaults.standard.bool(forKey: Self.includeMeetingsKey)
+        includesMeetings = defaults.bool(forKey: Self.includeMeetingsKey)
 
+        // Tags first: `loadOrMigrate` may prune a stale bucket, and that
+        // drops the bucket's tags too — loaded later, the tags of an
+        // evicted bucket would survive the prune.
+        loadTourSamples()
         loadOrMigrate()
         // The `DictationHistory` used to seed an empty
         // corpus here. It no longer does, and that is the point: history
@@ -273,7 +327,7 @@ final class VoiceProfileStore {
                     // release, so this recovers rather than starts from
                     // zero.
                     moveAside(corpusURL, suffix: "corpus-damaged.json")
-                    UserDefaults.standard.removeObject(forKey: Self.migratedKey)
+                    defaults.removeObject(forKey: Self.migratedKey)
                     log.error("Voice corpus file unreadable as JSON — moved aside, re-migrating from the legacy keys")
                 }
             } catch {
@@ -292,7 +346,7 @@ final class VoiceProfileStore {
                     moveAside(profilesURL, suffix: "profiles-damaged.json")
                     // The pre-split profile is still in UserDefaults for
                     // one release; re-running migration recovers it.
-                    UserDefaults.standard.removeObject(forKey: Self.migratedKey)
+                    defaults.removeObject(forKey: Self.migratedKey)
                     log.error("Voice profiles file unreadable as JSON — moved aside, re-migrating from the legacy key")
                 }
             } catch {
@@ -308,7 +362,7 @@ final class VoiceProfileStore {
         // Application Support, and those two can be restored (or wiped)
         // independently. `corpusAlreadyPopulated` is what actually
         // prevents a double absorb.
-        let migrated = UserDefaults.standard.bool(forKey: Self.migratedKey)
+        let migrated = defaults.bool(forKey: Self.migratedKey)
         if !corpusUnreadable, !profilesUnreadable, !migrated || !loadedCorpus {
             migrateFromLegacyDefaults(corpusAlreadyPopulated: loadedCorpus)
         }
@@ -347,7 +401,6 @@ final class VoiceProfileStore {
     /// unlocked — they never see "your profile was reset, now dictate
     /// 300 English words".
     private func migrateFromLegacyDefaults(corpusAlreadyPopulated: Bool) {
-        let defaults = UserDefaults.standard
         let oldCorpus = defaults.string(forKey: Self.legacyCorpusKey) ?? ""
         let oldMeetings = defaults.string(forKey: Self.legacyMeetingCorpusKey) ?? ""
         let fallback = AppSettings.currentDictationLanguage
@@ -487,6 +540,11 @@ final class VoiceProfileStore {
         }
         guard !evicted.isEmpty else { return }
         _ = writeCorpus()
+        // Their text is gone from the bucket, so the tags would point at
+        // nothing. (The tags load BEFORE this runs at launch — see init.)
+        let before = tourSamples.count
+        tourSamples.removeAll { evicted.contains($0.language) }
+        if tourSamples.count != before { writeTourSamples() }
         log.info("Voice corpus: evicted stale bucket(s) \(evicted.joined(separator: ","), privacy: .public)")
     }
 
@@ -534,6 +592,37 @@ final class VoiceProfileStore {
         }
     }
 
+    private var tourSamplesURL: URL { storeDirectory.appendingPathComponent("tour-samples.json") }
+
+    /// Same read rules as the corpus: a file we couldn't read is left
+    /// alone this launch; one we read and couldn't parse is moved aside
+    /// and the list starts over.
+    private func loadTourSamples() {
+        guard FileManager.default.fileExists(atPath: tourSamplesURL.path) else { return }
+        do {
+            let data = try Data(contentsOf: tourSamplesURL)
+            if let decoded = try? JSONDecoder().decode([VoiceTourSample].self, from: data) {
+                tourSamples = decoded
+            } else {
+                moveAside(tourSamplesURL, suffix: "tour-samples-damaged.json")
+            }
+        } catch {
+            tourSamplesUnreadable = true
+            log.error("Tour samples could not be read (\(error.localizedDescription, privacy: .public)) — leaving them untouched this launch")
+        }
+    }
+
+    private func writeTourSamples() {
+        guard !tourSamplesUnreadable else { return }
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            try encoder.encode(tourSamples).write(to: tourSamplesURL, options: [.atomic])
+        } catch {
+            log.error("Couldn't persist tour samples: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     // MARK: - Meetings switch
 
     /// Whether meeting speech is currently counted, and the single source
@@ -552,7 +641,7 @@ final class VoiceProfileStore {
     func setIncludesMeetings(_ on: Bool) {
         guard includesMeetings != on else { return }
         includesMeetings = on
-        UserDefaults.standard.set(on, forKey: Self.includeMeetingsKey)
+        defaults.set(on, forKey: Self.includeMeetingsKey)
     }
 
     // MARK: - Reading the corpus
@@ -610,6 +699,22 @@ final class VoiceProfileStore {
 
     func unlockProgress(for language: String) -> Double {
         min(1, Double(effectiveWords(for: language)) / Double(Self.unlockWords))
+    }
+
+    /// The tour's «27 / 300 слов до профиля стиля». `locale` is whatever
+    /// the dictation runs in ("ru-RU", "en", "auto"); a locale that names
+    /// no language ("auto") reports the language closest to its unlock,
+    /// like the pre-unlock card in My style. `words` is NOT clamped — a
+    /// counter shows `min(words, threshold)`.
+    ///
+    /// Reads `buckets`, so a SwiftUI view that calls it in `body` is
+    /// redrawn by `@Observable` the moment a dictation or a tour sample
+    /// lands — no extra publisher needed.
+    func progress(locale: String) -> (words: Int, threshold: Int) {
+        guard let code = VoiceCorpusClassifier.normalized(locale) else {
+            return (effectiveWords, Self.unlockWords)
+        }
+        return (effectiveWords(for: code), Self.unlockWords)
     }
 
     /// Any meeting speech at all, in any language — the gate the
@@ -695,8 +800,112 @@ final class VoiceProfileStore {
             pinned: language ?? AppSettings.currentDictationLanguage,
             transcriberHint: nil
         )
+        let before = wordsByLanguage()
         store(sample: trimmed, in: verdict, isMeeting: false, touchStickiness: true)
+        let now = Date()
+        recentDictations.removeAll { now.timeIntervalSince($0.at) >= Self.tourSampleDedupWindow }
+        recentDictations.append((trimmed, verdict.language, now))
+        if recentDictations.count > 8 { recentDictations.removeFirst() }
         scheduleCorpusWrite()
+        reportCrossings(since: before)
+    }
+
+    /// Feed what the person dictated during the first-run tour. Exactly a
+    /// dictation — same classification, caps and bucket — plus a
+    /// `VoiceTourSample` tag. `locale` is the tour's dictation locale
+    /// ("ru-RU", "en", "auto"); one that names no language leaves the
+    /// choice to the detector, as for any dictation.
+    ///
+    /// Safe to call for text that ALSO went through the paste path (the
+    /// tour's practice field takes dictation like any field, and
+    /// `DictationPaste` feeds every dictation here): text equal to one
+    /// recent dictation, or to the last few joined in order (two
+    /// dictations into one field), is tagged where it already landed
+    /// instead of being counted twice. Pass it as the field got it — text
+    /// the person then edited by hand no longer matches and is counted as
+    /// a sample of its own.
+    ///
+    /// Same contract as `appendDictation`: the person's own words, never
+    /// a rewrite.
+    func appendTourSample(_ text: String, locale: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let language: String
+        if let pasted = takeRecentDictations(matching: trimmed) {
+            language = pasted
+        } else {
+            let verdict = classify(trimmed, pinned: locale, transcriberHint: nil)
+            let before = wordsByLanguage()
+            store(sample: trimmed, in: verdict, isMeeting: false, touchStickiness: true)
+            scheduleCorpusWrite()
+            language = verdict.language
+            reportCrossings(since: before)
+        }
+        tourSamples.append(VoiceTourSample(
+            language: language,
+            text: trimmed,
+            words: UsageStats.wordCount(trimmed),
+            at: Date()
+        ))
+        writeTourSamples()
+    }
+
+    /// How long after a pasted dictation the same text from the tour is
+    /// taken to be that dictation. Generous: the tour hands the text over
+    /// when the step completes, not at the paste.
+    private static let tourSampleDedupWindow: TimeInterval = 10 * 60
+
+    /// The language of the recent dictation(s) `text` is made of, consumed
+    /// so the same dictation can't be claimed twice; nil = not pasted.
+    /// Compared with whitespace collapsed: two pastes into one field are
+    /// joined by whatever separator the field put between them.
+    private func takeRecentDictations(matching text: String) -> String? {
+        let now = Date()
+        recentDictations.removeAll { now.timeIntervalSince($0.at) >= Self.tourSampleDedupWindow }
+        func collapsed(_ s: String) -> String {
+            s.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+        let target = collapsed(text)
+        // Newest first: a single match, then the last two joined, …
+        for start in recentDictations.indices.reversed() {
+            let run = recentDictations[start...]
+            guard collapsed(run.map(\.text).joined(separator: " ")) == target else { continue }
+            let language = run.last!.language
+            recentDictations.removeSubrange(start...)
+            return language
+        }
+        for index in recentDictations.indices.reversed()
+        where collapsed(recentDictations[index].text) == target {
+            let language = recentDictations[index].language
+            recentDictations.remove(at: index)
+            return language
+        }
+        return nil
+    }
+
+    /// Counted words per bucket — the "before" half of `reportCrossings`.
+    private func wordsByLanguage() -> [String: Int] {
+        buckets.mapValues { $0.effectiveWords(includingMeetings: includesMeetings) }
+    }
+
+    /// Tell `thresholdObserver` which languages just went over the unlock
+    /// with no profile of their own — and none at all when a universal
+    /// profile exists, which already covers every language (see
+    /// `StyleProfileTip`). Called from the passive feeds only —
+    /// a dictation, a tour sample, a meeting's own speech. Import, the
+    /// meetings switch and the library backfill happen IN My style, with
+    /// the Generate button in front of the person; asking again from the
+    /// widget would be noise.
+    private func reportCrossings(since before: [String: Int]) {
+        guard let thresholdObserver else { return }
+        let crossed = buckets.keys.filter { code in
+            legacyProfile == nil
+                && code != VoiceLanguage.undetermined
+                && (before[code] ?? 0) < Self.unlockWords
+                && effectiveWords(for: code) >= Self.unlockWords
+                && profiles[code] == nil
+        }
+        thresholdObserver(crossed.sorted())
     }
 
     /// The dictation path runs INSIDE the Stop→paste window, and the
@@ -741,6 +950,7 @@ final class VoiceProfileStore {
     /// judging it as one would file half of it wrong.
     func appendMeetingSpeech(_ blocks: [String], language: String? = nil, transcriberHint: String? = nil) {
         var stored = 0
+        let before = wordsByLanguage()
         for block in blocks {
             let trimmed = block.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
@@ -749,7 +959,10 @@ final class VoiceProfileStore {
             stored += 1
         }
         // One write for the whole meeting, not one per block.
-        if stored > 0 { _ = writeCorpus() }
+        if stored > 0 {
+            _ = writeCorpus()
+            reportCrossings(since: before)
+        }
     }
 
     private func classify(
@@ -957,8 +1170,8 @@ final class VoiceProfileStore {
     func noteCrossLanguagePolish(target: String?) {
         guard let target else { return }
         let key = Self.crossLanguageNudgeKeyPrefix + target
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
-        UserDefaults.standard.set(true, forKey: key)
+        guard !defaults.bool(forKey: key) else { return }
+        defaults.set(true, forKey: key)
         ToastCenter.shared.show(
             String(localized: "No profile for this language yet — Daisy is carrying your manner over, not your words. Keep dictating and it will build one."),
             style: .info,
