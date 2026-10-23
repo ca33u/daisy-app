@@ -472,7 +472,8 @@ struct HomeView: View {
     /// feature lives behind Settings, and users we surveyed didn't
     /// know it existed.
     private var showDestinationsHint: Bool {
-        guard !store.sessions.isEmpty else { return false }
+        // The tour's demo meeting doesn't count as being past that stage.
+        guard store.sessions.contains(where: { !$0.isDemo }) else { return false }
         let hasNotion = settings.hasNotionCredentials
         let hasMCP = !integrationStore.enabledIntegrations.isEmpty
         return !hasNotion && !hasMCP
@@ -1361,15 +1362,7 @@ struct HomeView: View {
                 .foregroundStyle(.secondary)
             }
 
-            if store.sessions.isEmpty {
-                ContentUnavailableView(
-                    "No recordings yet",
-                    systemImage: "tray",
-                    description: Text(firstRecordingHint)
-                )
-                .frame(maxWidth: .infinity)
-                .frame(height: 160)
-            } else {
+            if !store.sessions.isEmpty {
                 // One block, no dividers — the per-row hover carries the
                 // separation now.
                 VStack(spacing: 0) {
@@ -1381,6 +1374,17 @@ struct HomeView: View {
                         }
                     }
                 }
+            }
+            // The tour's demo alone still leaves the person without a
+            // recording of their own: keep saying where one starts.
+            if store.sessions.allSatisfy(\.isDemo) {
+                ContentUnavailableView(
+                    "No recordings yet",
+                    systemImage: "tray",
+                    description: Text(firstRecordingHint)
+                )
+                .frame(maxWidth: .infinity)
+                .frame(height: 160)
             }
         }
         .padding(16)
@@ -1757,9 +1761,12 @@ private struct RecentSessionRow: View {
         Button(action: onTap) {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(session.title)
-                        .font(.callout.weight(.medium))
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(session.title)
+                            .font(.callout.weight(.medium))
+                            .lineLimit(1)
+                        if session.isDemo { DemoBadge() }
+                    }
                     HStack(spacing: 6) {
                         Text(formattedDate)
                         Text("·")

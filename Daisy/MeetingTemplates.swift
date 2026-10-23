@@ -1038,7 +1038,7 @@ enum StoredSessionTemplates {
         }
         var result = await FollowUpVoice.polished(summary, template: choice?.template,
                                                   pickedByHand: choice?.reason == .pickedByHand, voice: voice,
-                                                  language: writeIn)
+                                                  language: writeIn, marksUse: !session.isDemo)
         // The flag says what language the letter is in. Rewritten: the one
         // asked for. Not rewritten after a pick: what it was. Not rewritten
         // on a new summary or draft: the meeting's own.
@@ -1084,7 +1084,9 @@ enum StoredSessionTemplates {
                   choice.template, transcriptMarkdown: markdown, title: session.title,
                   localeHint: hint, durationSec: session.durationSec,
                   reason: reason, pickedByHand: pickedByHand) else { return summary }
-        MeetingTemplateStore.shared.markUsed(choice.template.id.uuidString)
+        // The tour's demo meeting: laid out, but neither counted nor
+        // moved up the template list.
+        if !session.isDemo { MeetingTemplateStore.shared.markUsed(choice.template.id.uuidString) }
         templated.language = language
         var result = summary
         result.templated = templated

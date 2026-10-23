@@ -31,7 +31,7 @@ enum ProjectMemoryBridge {
         }
         let project = FolderRegistryBridge.shared.project(for: folderSlug)
         let earlier = SessionStore.shared.sessions.compactMap { session -> ProjectMemory.Earlier? in
-            guard let summary = session.summary, summary != .noSpeechCaptured else { return nil }
+            guard let summary = session.summary, summary != .noSpeechCaptured, !session.isDemo else { return nil }
             return ProjectMemory.Earlier(
                 id: session.id, title: session.title, startedAt: session.startedAt,
                 folderSlug: session.folderSlug, tag: session.tag,

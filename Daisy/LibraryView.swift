@@ -1208,6 +1208,7 @@ private struct SessionRow: View {
     @ViewBuilder
     private var badges: some View {
         HStack(spacing: 4) {
+            if session.isDemo { DemoBadge() }
             switch session.contentState {
             case .audioOnly:
                 Image(systemName: "waveform")

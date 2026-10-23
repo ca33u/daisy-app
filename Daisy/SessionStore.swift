@@ -633,7 +633,7 @@ final class SessionStore {
     /// the Detail view re-renders with the new names.
     func updateSpeakerMap(_ map: [String: String], for session: StoredSession) async {
         guard let url = session.transcriptURL else { return }
-        ImprovementStats.record(.speakersNamed)
+        ImprovementStats.record(.speakersNamed, onDemo: session.isDemo)
         do {
             var text = try String(contentsOf: url, encoding: .utf8)
             let encoded = Self.encodeYAMLDict(map)
@@ -1234,6 +1234,7 @@ final class SessionStore {
         var systemAudioStatus: String?
         var micOnlyCause: String?
         var micAudioStatus: String?
+        var isDemo = false
         if !transcriptEvicted,
            let text = try? String(contentsOf: transcriptURL, encoding: .utf8) {
             let parsedFm = parseFrontmatter(in: text)
@@ -1260,6 +1261,7 @@ final class SessionStore {
             systemAudioStatus = parsedFm.systemAudioStatus
             micOnlyCause = parsedFm.micOnlyCause
             micAudioStatus = parsedFm.micAudioStatus
+            isDemo = parsedFm.isDemo
         } else if let marker = ImportMarker.load(from: directory) {
             // Project chosen at import time — carried into the
             // frontmatter by the first "Transcribe audio" run.
@@ -1312,6 +1314,7 @@ final class SessionStore {
             systemAudioStatus: systemAudioStatus,
             micOnlyCause: micOnlyCause,
             micAudioStatus: micAudioStatus,
+            isDemo: isDemo,
             // "Evicted" only when the PRIMARY content is unreachable: a
             // local transcript with cloud-evicted audio still reads fine —
             // the audio player is the only thing that would trigger a
@@ -1508,6 +1511,11 @@ struct StoredSession: Identifiable, Sendable {
     /// "No audio found" when they tried to re-transcribe it
     /// (audit 2026-09-01).
     var micAudioStatus: String? = nil
+    /// The bundled demo meeting of the tour (`daisy_demo: true`, see
+    /// `DemoSession`). Shown, opened and deleted like any session; skipped
+    /// by everything that acts on new sessions — counts, auto-send, the
+    /// Home stats, open items, briefs, sync.
+    var isDemo: Bool = false
     /// True when transcript.md or a retained .caf is present on disk but
     /// its bytes were evicted to iCloud — reading would require a
     /// download. Sessions built in-memory after a live recording are
@@ -1634,6 +1642,8 @@ nonisolated private struct ParsedFrontmatter {
     var micOnlyCause: String?
     /// `daisy_mic_audio_status:` — `ok` / `off` / `empty` / `truncated`.
     var micAudioStatus: String?
+    /// `daisy_demo: true` — the tour's demo meeting.
+    var isDemo = false
     /// Markdown body after the closing `---`. Empty if no frontmatter.
     var body: String
 }
@@ -1699,6 +1709,8 @@ nonisolated private func parseFrontmatter(in markdown: String) -> ParsedFrontmat
             // Library indistinguishable from one whose audio was simply
             // deleted (audit 2026-09-01).
             parsed.micAudioStatus = valueRaw
+        case DemoSession.frontmatterKey:
+            parsed.isDemo = DemoSession.isDemo(frontmatterValue: valueRaw)
         default:              break
         }
     }

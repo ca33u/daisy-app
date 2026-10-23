@@ -1899,7 +1899,7 @@ final class AppSettings {
     private static let k_sideNoteCutsFromMeeting = "daisy.sideNoteCutsFromMeeting"
     private static let k_daisyKeyMeetingCommands = "daisy.daisyKey.meetingCommands"
     private static let k_globalReclusterAfterStop = "daisy.globalReclusterAfterStop"
-    private static let k_userDisplayName = "daisy.userDisplayName"
+    static let k_userDisplayName = "daisy.userDisplayName"
     private static let k_speakerMatchMode = "daisy.speakerMatchMode"
     nonisolated private static let k_audioRetentionDays = "daisy.audioRetentionDays"
     private static let k_recordingSoundsEnabled = "daisy.recordingSoundsEnabled"

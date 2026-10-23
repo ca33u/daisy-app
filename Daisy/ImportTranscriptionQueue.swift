@@ -573,7 +573,8 @@ final class ImportTranscriptionQueue {
     /// Finalize Stage 5 for a stored session: Notion and the auto-on-save
     /// integrations, filtered by project exactly as finalize filters them.
     private func autoSendFinished(_ session: StoredSession, settings: AppSettings) async {
-        guard !session.transcriptText.isEmpty else { return }
+        // The tour's demo meeting is never sent anywhere on its own.
+        guard !session.transcriptText.isEmpty, !session.isDemo else { return }
         if settings.autoSendNotion, settings.hasNotionCredentials,
            RecordingSession.folderAllowed(session.folderSlug, allowed: settings.autoSendNotionFolders) {
             let export = MeetingExportData(

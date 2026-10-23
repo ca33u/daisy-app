@@ -491,7 +491,9 @@ enum MCPTools {
 
     private static func listSessions(args: ListSessionsArgs) async throws -> MCPToolCallResult {
         await SessionStore.shared.refresh()
-        var pool = SessionStore.shared.sessions
+        // The tour's demo meeting is not one of the person's meetings; an
+        // agent asked about "my last call" must not pick it.
+        var pool = SessionStore.shared.sessions.filter { !$0.isDemo }
 
         if let folder = args.folder, !folder.isEmpty {
             pool = pool.filter { $0.folderSlug == folder }
@@ -527,7 +529,7 @@ enum MCPTools {
         // Index-prefiltered substring search via the shared store —
         // identical results to filtering on `matches(query:)` directly.
         let store = SessionStore.shared
-        let hits = store.sessionsMatching(q, in: store.sessions)
+        let hits = store.sessionsMatching(q, in: store.sessions.filter { !$0.isDemo })
             .prefix(limit)
             .map { SessionHit($0, query: q) }
 
