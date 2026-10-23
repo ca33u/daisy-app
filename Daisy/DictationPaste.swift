@@ -79,6 +79,17 @@ final class DictationPaste {
     /// a little longer (audit 2026-09-01).
     static let quickRestoreSeconds: TimeInterval = 4
 
+    /// The first-run tour's practice field (`OnboardingTourController`).
+    /// While set and Daisy is in front, a fresh dictation lands there
+    /// instead of at the system's focused element — no Accessibility
+    /// needed, which the tour asks for only later. Returning false falls
+    /// back to the usual delivery.
+    var practiceSink: ((String) -> Bool)?
+    /// The tour's style step: the person reads a given passage, which is
+    /// not their style — while Daisy is in front it stays out of the
+    /// voice-profile corpus (history and corrections as usual).
+    var practiceKeepsOutOfCorpus = false
+
     private init() {}
 
     // MARK: - Public entry
@@ -155,7 +166,9 @@ final class DictationPaste {
         // applied — those are spelling, and "Figma" is how this person
         // writes it. Nothing else touches the text before it lands here,
         // so the profile learns from the person's own words.
-        VoiceProfileStore.shared.appendDictation(transcript)
+        if !(practiceKeepsOutOfCorpus && NSApp.isActive) {
+            VoiceProfileStore.shared.appendDictation(transcript)
+        }
         return transcript
     }
 
@@ -251,6 +264,10 @@ final class DictationPaste {
     /// Assumes the text is already corrected — callers that start from a
     /// raw dictation run `prepare` first.
     private func deliver(_ transcript: String, context: DeliveryContext) {
+        // The tour's practice field takes a fresh dictation said into it.
+        if context == .freshDictation, NSApp.isActive, let practiceSink, practiceSink(transcript) {
+            return
+        }
         // 0. Best path: insert DIRECTLY into the focused text field via
         //    the Accessibility API — the pasteboard is never touched, so
         //    whatever the user had copied (logs, a link…) survives

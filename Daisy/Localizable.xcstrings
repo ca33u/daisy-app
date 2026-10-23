@@ -851,6 +851,16 @@
         }
       }
     },
+    "Right ⌥" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Правый ⌥"
+          }
+        }
+      }
+    },
     "Saving…" : {
       "localizations" : {
         "ru" : {
@@ -927,6 +937,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld из %2$lld"
+          }
+        }
+      }
+    },
+    "right option" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "правый option"
           }
         }
       }
@@ -1077,16 +1097,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Заметка сохранена в «%@» вместе с саммари"
-          }
-        }
-      }
-    },
-    "Hold and say “note …” or what to do, or hold silently over selected text to rewrite it. A tap fixes the keyboard layout." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Зажми и скажи «заметка …» или что сделать — или зажми молча над выделенным текстом, чтобы переписать его. Короткое нажатие исправляет раскладку."
           }
         }
       }
@@ -3596,6 +3606,941 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "по умолчанию"
+          }
+        }
+      }
+    },
+    "tour.again" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Take the tour again"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пройти тур заново"
+          }
+        }
+      }
+    },
+    "tour.allow" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешить"
+          }
+        }
+      }
+    },
+    "tour.daisyKey.accessWhy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "So I can type where you are. Nothing else."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нужно, чтобы печатать там, где ты. Больше ни для чего."
+          }
+        }
+      }
+    },
+    "tour.daisyKey.bubble" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold %@ and say: “note to project Daisy: try the commands”."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зажми %@ и скажи: «заметка в проект Daisy: попробовать команды»."
+          }
+        }
+      }
+    },
+    "tour.daisyKey.done" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I also do “write a reply”, “translate”, “make a prompt”. A tap fixes the keyboard layout, ghbdtn."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ещё умею «напиши ответ», «переведи», «сделай промпт». Нажмёшь коротко — поправлю раскладку, ghbdtn."
+          }
+        }
+      }
+    },
+    "tour.daisyKey.line" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold, say it, let go. The rest is my job."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зажал, сказал, отпустил. Остальное — моё дело."
+          }
+        }
+      }
+    },
+    "tour.daisyKey.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Daisy key."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Клавиша Daisy."
+          }
+        }
+      }
+    },
+    "tour.dictation.bubble" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold %@ and say what’s on your plate today."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зажми %@ и скажи, что сегодня по плану."
+          }
+        }
+      }
+    },
+    "tour.dictation.done" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Works in any field. Mail, Telegram, even the terminal."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Так работает в любом поле. Хоть в Почте, хоть в терминале."
+          }
+        }
+      }
+    },
+    "tour.dictation.keyLabel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Key:"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Клавиша:"
+          }
+        }
+      }
+    },
+    "tour.dictation.placeholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What’s on your plate today?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Что у тебя сегодня по плану?"
+          }
+        }
+      }
+    },
+    "tour.dictation.rightCommand" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "right ⌘"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "правый ⌘"
+          }
+        }
+      }
+    },
+    "tour.dictation.rightOption" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "right ⌥"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "правый ⌥"
+          }
+        }
+      }
+    },
+    "tour.dictation.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dictate."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Продиктуй."
+          }
+        }
+      }
+    },
+    "tour.done.line" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go have your conversation — I’ll keep what matters. Forget what I can do? Hold %@ and ask."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Можешь заниматься разговором — важное сохраню. Забудешь, что я умею, — зажми %@ и спроси."
+          }
+        }
+      }
+    },
+    "tour.done.open" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Daisy"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть Daisy"
+          }
+        }
+      }
+    },
+    "tour.done.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I’m here."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Я на месте."
+          }
+        }
+      }
+    },
+    "tour.hello.go" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Let’s go"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поехали"
+          }
+        }
+      }
+    },
+    "tour.hello.line" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You talk, I keep the record. All of it stays on your Mac."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ты говоришь — я записываю. И всё остаётся на твоём Mac."
+          }
+        }
+      }
+    },
+    "tour.hello.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hi. I’m Daisy."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Привет. Я Daisy."
+          }
+        }
+      }
+    },
+    "tour.holdKey" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "hold %@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "зажми %@"
+          }
+        }
+      }
+    },
+    "tour.listening" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Listening…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Слушаю…"
+          }
+        }
+      }
+    },
+    "tour.meeting.accessWhy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only for meetings, to hear the other side."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Только для встреч — чтобы слышать собеседника."
+          }
+        }
+      }
+    },
+    "tour.meeting.demo.detail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A two-minute meeting is already here."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Двухминутная встреча уже у меня."
+          }
+        }
+      }
+    },
+    "tour.meeting.demo.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show me on a demo"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Покажи на демо"
+          }
+        }
+      }
+    },
+    "tour.meeting.done" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "After a meeting I write down what was decided and who promised what. Calendar comes with your first meeting."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "После встречи напишу, что решили и кто что обещал. Календарь подключим, когда появится первая встреча."
+          }
+        }
+      }
+    },
+    "tour.meeting.line" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your microphone and the other side. No bot joins the call."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Твой микрофон и собеседник. Бот в звонок не приходит."
+          }
+        }
+      }
+    },
+    "tour.meeting.recording" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recording. Press me again when that’s enough."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Записываю. Нажми ещё раз, когда хватит."
+          }
+        }
+      }
+    },
+    "tour.meeting.self.detail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Play any video and press me."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включи любое видео и нажми на меня."
+          }
+        }
+      }
+    },
+    "tour.meeting.self.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I’ll record one"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запишу сам"
+          }
+        }
+      }
+    },
+    "tour.meeting.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A meeting."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встреча."
+          }
+        }
+      }
+    },
+    "tour.models.line" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "600 MB, once. After that I don’t need the internet."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "600 МБ, один раз. Потом интернет мне не нужен."
+          }
+        }
+      }
+    },
+    "tour.models.standard" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Standard model — meetings and dictation"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Стандартная модель — встречи и диктовка"
+          }
+        }
+      }
+    },
+    "tour.models.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I’ll download the speech model."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скачаю модель речи."
+          }
+        }
+      }
+    },
+    "tour.next" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дальше"
+          }
+        }
+      }
+    },
+    "tour.skipStep" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skip"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пропустить"
+          }
+        }
+      }
+    },
+    "tour.skipTour" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skip the tour"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пропустить тур"
+          }
+        }
+      }
+    },
+    "tour.style.bubble" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold %@ and read it. That’s how I get used to your voice."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зажми %@ и прочитай. Так я привыкну к твоему голосу."
+          }
+        }
+      }
+    },
+    "tour.style.counter" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld / %2$lld words to a style profile"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld / %2$lld слов до профиля стиля"
+          }
+        }
+      }
+    },
+    "tour.style.done" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Got that on record. Your style I’ll pick up from your real dictations."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Записала. Дальше стиль соберу из твоих настоящих диктовок."
+          }
+        }
+      }
+    },
+    "tour.style.passage" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The call moved to Thursday at three. Please send the mockups by tonight and remind Anna about the contract."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Созвон перенесли на четверг в три. Пришли, пожалуйста, макеты до вечера и напомни Анне про договор."
+          }
+        }
+      }
+    },
+    "tour.style.placeholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold %@ and read the text above. Feeling is optional."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зажми %@ и прочитай текст выше. Можно с выражением."
+          }
+        }
+      }
+    },
+    "tour.style.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read this aloud."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Прочитай вслух."
+          }
+        }
+      }
+    },
+    "tour.widget.bubble" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This is me. **Drag me** wherever you like — I won’t mind."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это я. **Перетащи**, куда удобно — я не обижусь."
+          }
+        }
+      }
+    },
+    "tour.widget.done" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Got it. This corner is mine now."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запомнила. Теперь тут мой угол."
+          }
+        }
+      }
+    },
+    "tour.widget.line" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I live above your windows. I don’t take much room."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Живу поверх окон. Места занимаю мало."
+          }
+        }
+      }
+    },
+    "tour.widget.stay" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep it here"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Оставить здесь"
+          }
+        }
+      }
+    },
+    "tour.widget.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Here I am."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вот я."
+          }
+        }
+      }
+    },
+    "tour.you.dictation.detail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold, talk, text at the cursor."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зажал — сказал — текст у курсора."
+          }
+        }
+      }
+    },
+    "tour.you.dictation.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Just dictation"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Только диктовка"
+          }
+        }
+      }
+    },
+    "tour.you.full.detail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calls without a bot, text by voice, notes."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Звонки без бота в звонке, текст голосом, заметки."
+          }
+        }
+      }
+    },
+    "tour.you.full.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Meetings and dictation"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встречи и диктовка"
+          }
+        }
+      }
+    },
+    "tour.you.placeholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can skip this"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Можно и не говорить"
+          }
+        }
+      }
+    },
+    "tour.you.purpose" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "And what am I here for?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "И зачем я тебе?"
+          }
+        }
+      }
+    },
+    "tour.you.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What’s your name?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Как тебя зовут?"
           }
         }
       }
@@ -7721,16 +8666,6 @@
         }
       }
     },
-    "Captures mic + system audio together." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Записывает микрофон и системный звук вместе."
-          }
-        }
-      }
-    },
     "Captures the other side of meetings" : {
       "localizations" : {
         "ru" : {
@@ -7941,16 +8876,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выбрать пресет"
-          }
-        }
-      }
-    },
-    "Choose the AI that writes your meeting summaries. You can change it or add other providers later in Settings." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Выбери ИИ, который пишет саммари встреч. Изменить или добавить других провайдеров можно позже в Настройках."
           }
         }
       }
@@ -8549,26 +9474,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Подключить Notion в Настройках…"
-          }
-        }
-      }
-    },
-    "Connect one or both — Daisy merges events from both and removes duplicates." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Можно подключить один источник или оба — Daisy объединит события и уберёт дубликаты."
-          }
-        }
-      }
-    },
-    "Connect your calendar so Daisy can start recording automatically when a meeting begins. You can change this anytime in Settings." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Подключи календарь, чтобы Daisy запускала запись автоматически в начале встречи. Это можно изменить в любой момент в Настройках."
           }
         }
       }
@@ -9860,16 +10765,6 @@
         }
       }
     },
-    "Daisy asks for exactly what its features need — nothing more." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daisy просит ровно то, что нужно её функциям, — и ничего больше."
-          }
-        }
-      }
-    },
     "Daisy asks with a pill on the widget once the meeting is past its scheduled end and both sides have been quiet for a couple of minutes — or, at the latest, 30 minutes after the end. Ignoring the pill keeps recording; Daisy never stops on its own. If the next calendar meeting starts while you're still recording, it asks before switching." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -10617,16 +11512,6 @@
         }
       }
     },
-    "Daisy notices a word typed in the wrong keyboard layout and fixes it — before you send the message." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daisy замечает слово, набранное не в той раскладке, и чинит его — до того, как ты отправишь сообщение."
-          }
-        }
-      }
-    },
     "Daisy now asks for sound only" : {
       "localizations" : {
         "ru" : {
@@ -10716,16 +11601,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Daisy распознаёт человека, но ждёт — показывает имя как предложение в карточке записи «Назвать спикеров», и ты подтверждаешь, прежде чем оно применится."
-          }
-        }
-      }
-    },
-    "Daisy records meetings and dictates into any app — all on your Mac." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daisy записывает встречи и диктует текст в любое приложение — всё на этом Mac."
           }
         }
       }
@@ -13434,16 +14309,6 @@
         }
       }
     },
-    "Hold to talk, release to paste at cursor." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Удерживай, чтобы говорить, отпусти, чтобы вставить в курсор."
-          }
-        }
-      }
-    },
     "Hold your dictation key, or use the voice-note shortcut, to capture a quick note. It'll land here." : {
       "comment" : "A description of how to create a note.",
       "isCommentAutoGenerated" : true,
@@ -13462,16 +14327,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Главная"
-          }
-        }
-      }
-    },
-    "Hotkeys" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Горячие клавиши"
           }
         }
       }
@@ -14095,16 +14950,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Перейти к следующему показанному экрану"
-          }
-        }
-      }
-    },
-    "Just dictation" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Только диктовка"
           }
         }
       }
@@ -15179,16 +16024,6 @@
         }
       }
     },
-    "Meetings + dictation" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Встречи и диктовка"
-          }
-        }
-      }
-    },
     "Meetings with a link" : {
       "localizations" : {
         "ru" : {
@@ -15674,26 +16509,6 @@
         }
       }
     },
-    "Needed for any recording." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Нужен для любой записи."
-          }
-        }
-      }
-    },
-    "Needed for system audio — the other side of a meeting." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Нужен для системного звука — другой стороны встречи."
-          }
-        }
-      }
-    },
     "Needs a quick repair before Claude Desktop can connect." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -15934,16 +16749,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "На этом Mac нет аккаунта iCloud — войди в iCloud в Системных настройках."
-          }
-        }
-      }
-    },
-    "No key yet? Continue — you can add it later in Settings." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Нет ключа? Жми «Далее» — его можно добавить позже в Настройках."
           }
         }
       }
@@ -17700,16 +18505,6 @@
         }
       }
     },
-    "Pastes dictated text into the app you're in." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Вставляет надиктованное в приложение, где ты сейчас."
-          }
-        }
-      }
-    },
     "Path (optional)" : {
       "localizations" : {
         "ru" : {
@@ -17816,28 +18611,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Личные"
-          }
-        }
-      }
-    },
-    "Pick a global shortcut for dictation. You can change it later in Settings → Recording → Shortcuts." : {
-      "comment" : "A description of the hotkey selection process.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Выбери глобальное сочетание для диктовки. Его можно изменить позже: «Настройки → Запись → Сочетания клавиш»."
-          }
-        }
-      }
-    },
-    "Pick a global shortcut for each recording mode. You can change them later in Settings → Recording → Shortcuts." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Выбери глобальное сочетание для каждого режима записи. Их можно изменить позже: «Настройки → Запись → Сочетания клавиш»."
           }
         }
       }
@@ -18501,16 +19274,6 @@
         }
       }
     },
-    "Purpose" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Зачем"
-          }
-        }
-      }
-    },
     "Puts the text where the cursor is in %@." : {
       "localizations" : {
         "ru" : {
@@ -18840,16 +19603,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Записать снова (Пробел)"
-          }
-        }
-      }
-    },
-    "Record and transcribe meetings, and dictate into any app." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Записывай и транскрибируй встречи, а также диктуй текст в любое приложение."
           }
         }
       }
@@ -19846,16 +20599,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Работает полностью на устройстве. Ничего из транскрипта не покидает твой Mac. Локальная модель Apple поддерживает не все языки (например, русский) — для них переключись на облачного провайдера."
-          }
-        }
-      }
-    },
-    "Runs on-device — no API key needed." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Работает на устройстве — API-ключ не нужен."
           }
         }
       }
@@ -21095,26 +21838,6 @@
         }
       }
     },
-    "Start using Daisy" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Начать пользоваться Daisy"
-          }
-        }
-      }
-    },
-    "Start using Daisy now. The speech models finish downloading in the background, and the first recording waits for them if they aren’t ready yet." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Начать пользоваться Daisy сейчас. Речевые модели догрузятся в фоне, а первая запись дождётся их, если они ещё не готовы."
-          }
-        }
-      }
-    },
     "Starting on port %lld…" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -21358,16 +22081,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Предложено: "
-          }
-        }
-      }
-    },
-    "Summaries" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Саммари"
           }
         }
       }
@@ -21827,16 +22540,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Теги"
-          }
-        }
-      }
-    },
-    "Talk, and Daisy types it into whatever app you're in." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Говори, а Daisy печатает текст в активном приложении."
           }
         }
       }
@@ -23452,16 +24155,6 @@
         }
       }
     },
-    "Used to greet you and to label your voice in transcripts. Optional — leave it blank to skip." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Используется в приветствии и для подписи твоего голоса в транскриптах. Необязательно: оставь пустым, чтобы пропустить."
-          }
-        }
-      }
-    },
     "Uses the Claude Code or Codex command you already have signed in — no API key. The transcript is sent to Anthropic or OpenAI by that CLI, under your own account, and counts against your subscription's limits. Note: if your account also has API access, some setups have been reported to bill these runs as metered API usage — check your usage after the first summary. Daisy runs the agent with tools disabled, in an empty temporary folder." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -23596,16 +24289,6 @@
         }
       }
     },
-    "We'll set up only what you need — you can enable the rest anytime." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Настроим только нужное — остальное можно включить в любой момент."
-          }
-        }
-      }
-    },
     "Web searches" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -23713,16 +24396,6 @@
         }
       }
     },
-    "What do you need Daisy for?" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Для чего тебе нужна Daisy?"
-          }
-        }
-      }
-    },
     "What should Daisy do with the existing recordings?" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -23730,16 +24403,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Что сделать с текущими записями?"
-          }
-        }
-      }
-    },
-    "What should we call you?" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Как к тебе обращаться?"
           }
         }
       }
@@ -24073,39 +24736,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Свои настройки заменятся — их можно снова настроить во вкладках «Транскрипция» и «Саммари»."
-          }
-        }
-      }
-    },
-    "How should Daisy process meetings?" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Как обрабатывать встречи?"
-          }
-        }
-      }
-    },
-    "A plan decides how much Daisy does while the meeting is on — and how much battery it takes. The final transcript is the same full quality in every plan." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "План решает, сколько Daisy делает во время встречи и сколько батареи на это уходит. Итоговый транскрипт одинаково полного качества в любом плане."
-          }
-        }
-      }
-    },
-    "You can change this anytime in Settings → General." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Это можно поменять в любой момент в Настройках → Основные."
           }
         }
       }

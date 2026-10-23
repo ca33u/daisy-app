@@ -1907,6 +1907,14 @@ final class AppSettings {
     private static let k_compactMenuBarOnly = "daisy.compactMenuBarOnly"
     private static let k_suppressMeetingPermissionReminders = "daisy.suppressMeetingPermissionReminders"
     private static let k_hasShownFirstRun = "daisy.hasShownFirstRun"
+    /// The first-run tour's place, read and written by `OnboardingTour`
+    /// (not settings — scratch state for one tour, cleared when it ends):
+    /// the step, the setup path, and whether the tour already fired the
+    /// one-shot Accessibility prompt. Granting Screen Recording ends with
+    /// macOS offering «Quit & Reopen»; the tour picks up where it was.
+    nonisolated static let k_tourStep = "daisy.tour.step"
+    nonisolated static let k_tourPath = "daisy.tour.path"
+    nonisolated static let k_tourAccessibilityAsked = "daisy.tour.accessibilityAsked"
     private static let k_hasSeenAcousticLoopbackExplainer =
         "daisy.hasSeenAcousticLoopbackExplainer"
     private static let k_autoSendNotion = "daisy.autoSendNotion"

@@ -48,6 +48,9 @@ enum ServiceWiring {
     ///     the transcript on the clipboard. Requires Input
     ///     Monitoring permission regardless of which key is bound.
     static func applyAllHotkeys(settings: AppSettings, session: RecordingSession) {
+        // The dictation and Daisy keys go live after first run — or from
+        // the tour's dictation step, which teaches them by use.
+        let keysLive = settings.hasShownFirstRun || OnboardingTourController.shared.keysLive
         HotkeyManager.shared.register(
             slot: .record,
             choice: settings.recordHotkey,
@@ -60,9 +63,10 @@ enum ServiceWiring {
         // (Accessibility / Input Monitoring). Since 23.10 its tap fixes
         // the keyboard layout and notes are a hold, so without the
         // permission it has nothing left to do and isn't registered.
-        // Registered only after first run, like dictation, so a permission
-        // prompt never lands before onboarding has explained it.
-        if settings.hasShownFirstRun, DaisyKeyController.canHold {
+        // Registered only after first run (or from the tour's dictation
+        // step), like dictation, so a permission prompt never lands
+        // before onboarding has explained it.
+        if keysLive, DaisyKeyController.canHold {
             HotkeyManager.shared.register(
                 slot: .voiceNote,
                 choice: settings.voiceNoteHotkey,
@@ -94,10 +98,11 @@ enum ServiceWiring {
         // registration — with the fresh-install Fn default that prompt
         // would otherwise fire at first launch, BEFORE onboarding has
         // shown the Hotkeys step that explains it. MainView re-applies
-        // hotkeys when `hasShownFirstRun` flips.
+        // hotkeys when `hasShownFirstRun` flips; the tour re-applies them
+        // on its dictation step.
         HotkeyManager.shared.register(
             slot: .dictation,
-            choice: settings.hasShownFirstRun ? settings.dictationHotkey : .none,
+            choice: keysLive ? settings.dictationHotkey : .none,
             action: .hold(
                 onPress: { [weak session] in
                     Task { await session?.startDictationHotkey() }

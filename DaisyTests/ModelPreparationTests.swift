@@ -4,18 +4,15 @@ import Testing
 
 @Suite("Model preparation safety")
 struct ModelPreparationTests {
-    @Test("Every onboarding path ends on the preparation step")
-    func preparationIsTheLastStep() {
-        // Last, and exactly once. It can be SKIPPED ("Skip for now",
-        // models finish in the background) but never bypassed — every
-        // path still lands on it, and `finish()` redirects there.
-        for path in [FirstRunView.SetupPath.full, .dictationOnly] {
-            for layouts in [1, 2, 5] {
-                let steps = FirstRunView.steps(for: path, installedLayoutCount: layouts)
-                #expect(steps.last == .preparation)
-                #expect(steps.filter { $0 == .preparation }.count == 1)
-                #expect(FirstRunView.resumeStep(savedRaw: "preparation", in: steps) == .preparation)
-            }
+    @Test("Every tour path has the models step, once, right before the end")
+    func modelsStepInEveryPath() {
+        // It can be skipped (the model finishes in the background) but
+        // every path still passes through it, and a resume lands on it.
+        for path in [OnboardingTour.Path.full, .dictationOnly] {
+            let steps = OnboardingTour.steps(for: path)
+            #expect(steps.suffix(2) == [.models, .done])
+            #expect(steps.filter { $0 == .models }.count == 1)
+            #expect(OnboardingTour.resumeStep(savedRaw: "models", path: path) == .models)
         }
     }
 
