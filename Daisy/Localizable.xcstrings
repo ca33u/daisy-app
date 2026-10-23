@@ -1,6 +1,36 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "demo" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "демо"
+          }
+        }
+      }
+    },
+    "A sample meeting from the tour. Delete it whenever you like." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пример встречи из знакомства с Daisy. Удали, когда захочешь."
+          }
+        }
+      }
+    },
+    "The demo meeting has no audio — just the transcript and the summary." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У демо-встречи нет аудио — только транскрипт и саммари."
+          }
+        }
+      }
+    },
     "%@ doesn't write in Russian yet." : {
       "localizations" : {
         "ru" : {

@@ -237,7 +237,7 @@ final class EndOfDaySummaries {
     static func pendingSessions() -> [StoredSession] {
         let cutoff = Date().addingTimeInterval(-Double(maxLookbackDays) * 86_400)
         return SessionStore.shared.sessions
-            .filter { $0.kind == .recording }
+            .filter { $0.kind == .recording && !$0.isDemo }
             .filter { $0.summary == nil }
             .filter { !$0.transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .filter { $0.startedAt >= cutoff }

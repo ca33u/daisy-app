@@ -778,6 +778,8 @@ struct SessionDetailView: View {
                 // directory name). Only the LIVE recording is off-limits.
                 .disabled(session.id == SessionStore.shared.activeRecordingDirName)
             HStack(spacing: 8) {
+                // The tour's demo meeting says so where it's opened, too.
+                if session.isDemo { DemoBadge() }
                 Text(formattedDate)
                 Text("·")
                 Text(formattedDuration)
@@ -1852,7 +1854,7 @@ struct SessionDetailView: View {
             ToastCenter.shared.show(String(localized: "Couldn’t lay this meeting out by “\(template.name)”"), style: .warning)
             return
         }
-        ImprovementStats.record(.templateSwitched)
+        ImprovementStats.record(.templateSwitched, onDemo: target.isDemo)
         if session.id == target.id { showsStandardSummary = false }
         // Not `adopt`: that is the live recording's summary, which
         // auto-send and its transcript read — this is a stored meeting.
@@ -1868,7 +1870,7 @@ struct SessionDetailView: View {
         // Remembered: a new summary of this meeting stays standard until a
         // template is picked here again.
         summary.standardByHand = true
-        ImprovementStats.record(.templateSwitched)
+        ImprovementStats.record(.templateSwitched, onDemo: target.isDemo)
         // Not `adopt`: that is the live recording's summary, which
         // auto-send and its transcript read — this is a stored meeting.
         _ = await SessionStore.shared.updateSummary(summary, for: target)
@@ -1888,7 +1890,7 @@ struct SessionDetailView: View {
                                     ?? String(localized: "Couldn’t rewrite the follow-up"), style: .warning)
             return
         }
-        ImprovementStats.record(.templateSwitched)
+        ImprovementStats.record(.templateSwitched, onDemo: target.isDemo)
         // Not `adopt`: that is the live recording's summary, which
         // auto-send and its transcript read — this is a stored meeting.
         _ = await SessionStore.shared.updateSummary(rewritten, for: target)
@@ -2667,6 +2669,12 @@ struct SessionDetailView: View {
                             files: audio.system
                         )
                     }
+                } else if session.isDemo {
+                    // The demo is a fixture until Egor's recording is
+                    // bundled (see DemoSession): no retention advice.
+                    Text("The demo meeting has no audio — just the transcript and the summary.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 } else if session.micAudioStatus == "off" {
                     // Never written, as opposed to written-then-deleted.
                     // The retention advice below would be a lie here:

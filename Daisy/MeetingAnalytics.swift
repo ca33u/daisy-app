@@ -129,7 +129,7 @@ nonisolated enum MeetingAnalytics {
         calendar: Calendar = .current
     ) -> Snapshot {
         let recordings = sessions
-            .filter { $0.kind == .recording && $0.durationSec > 0 }
+            .filter { $0.kind == .recording && $0.durationSec > 0 && !$0.isDemo }
             .map {
                 Recording(
                     startedAt: $0.startedAt,

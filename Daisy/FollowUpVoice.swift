@@ -57,7 +57,8 @@ enum FollowUpVoice {
     /// pick from the meeting card, or the meeting's own when the pick is
     /// taken back. The caller remembers it; this only writes.
     static func polished(_ summary: MeetingSummary, template: MeetingTemplate? = nil,
-                         pickedByHand: Bool = false, voice: Bool = true, language: String? = nil) async -> MeetingSummary {
+                         pickedByHand: Bool = false, voice: Bool = true, language: String? = nil,
+                         marksUse: Bool = true) async -> MeetingSummary {
         let structure = template.map(\.structure).flatMap { $0.isEmpty ? nil : $0 }
         let wantsVoice = voice && AppSettings.followUpsInMyVoiceEnabled
         let languageName = SummaryPrompt.explicitLanguageName(for: language)
@@ -107,7 +108,9 @@ enum FollowUpVoice {
         if let template, structure != nil {
             result.followUpTemplate = TemplateReference(name: template.name, id: template.id.uuidString,
                                                         pickedByHand: pickedByHand ? true : nil)
-            MeetingTemplateStore.shared.markUsed(template.id.uuidString)
+            // Not for the tour's demo meeting (`marksUse`): neither counted
+            // nor moved up the template list.
+            if marksUse { MeetingTemplateStore.shared.markUsed(template.id.uuidString) }
         } else {
             // Rewritten without a template: a name left from an earlier one
             // would describe a letter that isn't its any more.

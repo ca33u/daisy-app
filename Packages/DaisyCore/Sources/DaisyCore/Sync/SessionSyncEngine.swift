@@ -201,6 +201,8 @@ public final class SessionSyncEngine {
         guard let text = try? String(contentsOf: transcriptURL, encoding: .utf8) else { return nil }
         let stamp = Self.mtime(of: transcriptURL)
         let (values, _) = Self.rawFrontmatter(text)
+        // The Mac tour's demo meeting (`daisy_demo: true`) stays on the Mac.
+        guard values["daisy_demo"]?.lowercased() != "true" else { return nil }
         var record = SessionSyncRecord(id: id, frontmatter: values, frontmatterStamps: values.mapValues { _ in stamp },
                                        body: SessionEditing.split(text).body, bodyStamp: stamp, editor: state.deviceID)
         var screenshotBytes = 0

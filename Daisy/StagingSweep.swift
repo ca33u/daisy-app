@@ -26,7 +26,7 @@ import Foundation
 import os
 
 nonisolated enum StagingSweep {
-    static let prefixes = [".daisy-import-", ".daisy-retranscribe-"]
+    static let prefixes = [".daisy-import-", ".daisy-retranscribe-", ".daisy-demo-"]
     static let minimumAge: TimeInterval = 6 * 3600
 
     private static let log = Logger(subsystem: "app.essazanov.Daisy", category: "StagingSweep")

@@ -419,7 +419,8 @@ final class PreMeetingBriefStore {
         struct Scored { let session: StoredSession; let score: Int }
         var scored: [Scored] = []
 
-        for s in sessions where s.startedAt < now {
+        // The tour's demo meeting is nobody's history.
+        for s in sessions where s.startedAt < now && !s.isDemo {
             var score = 0
             // Strongest — and the ONLY signal allowed for cloud: a shared
             // attendee email. Unique enough to trust cross-session.

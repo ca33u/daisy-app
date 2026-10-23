@@ -1,0 +1,42 @@
+{
+  "_audio": "Slot for the recording: put en.m4a next to this file (same folder). DemoSession copies it into the demo as system_audio.m4a; the line times below must then match it. Without it the demo is transcript-only.",
+  "title": "Demo: landing mockups",
+  "durationSec": 124,
+  "anna": "Anna",
+  "me": "You",
+  "lines": [
+    { "speaker": "anna", "at": 0, "text": "So I put together two versions of the first screen. One is a big headline with a screenshot of the app, the other is a live example." },
+    { "speaker": "me", "at": 11, "text": "A live example meaning what?" },
+    { "speaker": "anna", "at": 14, "text": "Daisy writes an email right there on the page. Someone says “tell Masha the call moves to Thursday”, and a second later the text is ready." },
+    { "speaker": "me", "at": 27, "text": "I like it. Nobody looks at app screenshots, but an email makes sense at once." },
+    { "speaker": "anna", "at": 35, "text": "That’s what I think too. Just keep the animation under five seconds, or nobody scrolls down to the button." },
+    { "speaker": "me", "at": 45, "text": "Agreed. And no “revolutionary AI assistant”, please. Just: you talk, Daisy writes." },
+    { "speaker": "anna", "at": 54, "text": "I already crossed that headline out. So the copy is yours?" },
+    { "speaker": "me", "at": 60, "text": "It’s mine. And let’s show it to Masha — she’s the best at spotting where we oversell." },
+    { "speaker": "anna", "at": 70, "text": "Sure. She needs time, though: send it by Friday so we can still fix things." },
+    { "speaker": "me", "at": 79, "text": "Okay, by Friday. When can you show the mockup?" },
+    { "speaker": "anna", "at": 85, "text": "The first screen by Thursday. I’ll leave the other blocks alone and redo them after the copy." },
+    { "speaker": "me", "at": 96, "text": "Great. So Thursday we look at the mockup, Friday we get Masha’s notes." },
+    { "speaker": "anna", "at": 105, "text": "And keep the call short, like today. This one could have been an email, honestly." },
+    { "speaker": "me", "at": 113, "text": "At least Daisy got it all down. Thanks, Anna!" }
+  ],
+  "summary": "Agreed to show on the landing’s first screen how Daisy writes an email; check the copy with Masha by Friday.",
+  "sections": [
+    { "title": "First screen", "bullets": [
+      "A live example instead of an app screenshot: Daisy writes an email by voice",
+      "Animation under five seconds, so people still scroll to the button"
+    ] },
+    { "title": "Copy", "bullets": [
+      "No “revolutionary AI assistant”: you talk, Daisy writes",
+      "Masha reviews the copy before it goes live"
+    ] },
+    { "title": "Dates", "bullets": [
+      "Thursday — first-screen mockup",
+      "Friday — Masha’s notes on the copy"
+    ] }
+  ],
+  "actionItems": [
+    "{anna}: first-screen mockup by Thursday",
+    "{me}: send the copy to Masha by Friday"
+  ]
+}

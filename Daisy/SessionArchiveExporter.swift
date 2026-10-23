@@ -76,21 +76,25 @@ enum SessionArchiveExporter {
 
     private static func run(pairs: [(StoredSession, URL)]) {
         let jobs = pairs.map { ($0.0.directoryURL, $0.1) }
+        // The tour's demo meeting exports like any other, uncounted.
+        let demoDirectories = Set(pairs.filter { $0.0.isDemo }.map(\.0.directoryURL))
         ToastCenter.shared.show(
             jobs.count == 1 ? String(localized: "Exporting session") : String(localized: "Exporting \(jobs.count) sessions"),
             style: .info
         )
         Task.detached(priority: .userInitiated) {
             var failures: [String] = []
+            var exportedDemos = 0
             for (directory, destination) in jobs {
                 do {
                     try archive(directory, to: destination)
+                    if demoDirectories.contains(directory) { exportedDemos += 1 }
                 } catch {
                     failures.append("\(directory.lastPathComponent): \(error.localizedDescription)")
                 }
             }
             let done = jobs.count - failures.count
-            ImprovementStats.record(.exportArchive, count: done)
+            ImprovementStats.record(.exportArchive, count: done - exportedDemos)
             await MainActor.run {
                 if failures.isEmpty {
                     ToastCenter.shared.show(
