@@ -178,7 +178,7 @@ final class StyleProfileTip {
             let text: String
             switch store.state(for: language) {
             case .ready:
-                text = String(localized: "Your style profile is ready!")
+                text = String(localized: "Your style profile is ready.")
             case .failed(let reason):
                 // The same words the My style card shows for this failure
                 // (no provider, a provider that didn't answer…).

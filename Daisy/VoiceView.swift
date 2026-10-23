@@ -437,7 +437,7 @@ struct VoiceView: View {
     private func emptyCard(language code: String? = nil) -> some View {
         card {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Your style profile is ready!")
+                Text("Your style profile is ready.")
                     .font(.headline)
                 if let code {
                     Text(VoiceLanguage.label(for: code))

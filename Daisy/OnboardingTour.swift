@@ -12,8 +12,8 @@
 //   • `OnboardingTour` — the pure state machine: which steps a path has,
 //     what moves between them, which event finishes which step, and the
 //     resume snapshot. Unit-tested without a screen.
-//   • `TourHooks` — the three calls into packages C (demo meeting) and D
-//     (style samples), stubbed until they are wired at integration.
+//   • `TourHooks` — the three calls into the demo meeting and the style
+//     samples (packages C and D), swappable for the tests.
 //   • `OnboardingTourController` — the one live tour: side effects per
 //     step (widget, permissions, hotkeys, the practice field, the models),
 //     the bubble's script, and `finish()`, which keeps what FirstRunView's
@@ -181,37 +181,34 @@ nonisolated struct OnboardingTour: Equatable, Sendable {
     }
 }
 
-// MARK: - Hooks into packages C and D
+// MARK: - Hooks into the demo meeting and the style profile
 
-/// The tour's three calls into work built alongside it: the demo meeting
-/// (package C) and the style samples (package D). Replaced at integration;
-/// until then the defaults keep the tour whole.
+/// The tour's three calls into work built alongside it (packages C and
+/// D, merged 24.10): the demo meeting and the style samples. Swappable so
+/// the tests can run the tour without a Library or a corpus.
 @MainActor
 enum TourHooks {
     /// Installs the bundled demo meeting in the given language ("ru", "en")
-    /// and returns its session id (`StoredSession.ID`), or nil when there
-    /// is nothing to show. Package C: `DemoSession.install(locale:)`.
-    static var installDemoMeeting: @MainActor (String) async -> String? = { _ in nil }
+    /// and returns its session id (`StoredSession.ID`), or nil when it
+    /// could not be written (`DemoSession.install` logs why).
+    static var installDemoMeeting: @MainActor (String) async -> String? = { locale in
+        let id = await DemoSession.install(locale: locale)
+        return id.isEmpty ? nil : id
+    }
 
     /// The dictation step's text, in the person's own words, and the
-    /// dictation locale ("ru-RU", "en", "auto"). Package D:
-    /// `VoiceProfileStore.appendTourSample(_:locale:)`.
-    ///
-    /// No-op by default ON PURPOSE: the practice field takes a real
-    /// dictation, and `DictationPaste.prepare` already put the same words
-    /// in the corpus via `appendDictation` — appending them again would
-    /// count them twice. D's call de-duplicates and only tags the sample.
-    static var styleSample: @MainActor (String, String) -> Void = { _, _ in }
+    /// dictation locale ("ru-RU", "en", "auto"). `appendTourSample` finds
+    /// the same words `DictationPaste` already put in the corpus and only
+    /// tags them — nothing is counted twice.
+    static var styleSample: @MainActor (String, String) -> Void = { text, locale in
+        VoiceProfileStore.shared.appendTourSample(text, locale: locale)
+    }
 
     /// The counter on the style step: words so far toward a style profile
-    /// for that locale, and the threshold. Package D:
-    /// `VoiceProfileStore.progress(locale:)`. Read in a view body, so it
+    /// for that locale, and the threshold. Read in a view body, so it
     /// updates live through the store's observation.
     static var styleProgress: @MainActor (String) -> (words: Int, threshold: Int) = { locale in
-        let store = VoiceProfileStore.shared
-        let code = Locale(identifier: locale).language.languageCode?.identifier
-        let words = code.map { store.effectiveWords(for: $0) } ?? 0
-        return (words > 0 ? words : store.effectiveWords, VoiceProfileStore.unlockWords)
+        VoiceProfileStore.shared.progress(locale: locale)
     }
 }
 

@@ -25140,12 +25140,12 @@
         }
       }
     },
-    "Your style profile is ready!" : {
+    "Your style profile is ready." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Профиль стиля готов!"
+            "value" : "Профиль стиля готов."
           }
         }
       }
