@@ -99,7 +99,9 @@ final class ActionItemStore {
         ) ?? .distantPast
 
         var rebuilt: [TrackedActionItem] = []
-        for session in sessions where session.startedAt >= cutoff {
+        // The tour's demo meeting has action items too; they aren't the
+        // person's to close.
+        for session in sessions where session.startedAt >= cutoff && !session.isDemo {
             guard let summary = session.summary else { continue }
             for (idx, text) in summary.actionItems.enumerated() {
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

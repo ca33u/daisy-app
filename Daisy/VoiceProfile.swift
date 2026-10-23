@@ -989,7 +989,8 @@ final class VoiceProfileStore {
             // "meetings", and the post-stop hook is gated the same way,
             // so a voice note is treated identically whether it was
             // recorded before or after the switch was flipped.
-            guard session.kind == .recording else { continue }
+            // Nor the tour's demo: those lines were written for the person.
+            guard session.kind == .recording, !session.isDemo else { continue }
             for block in Self.ownSpeechChunks(inTranscript: session.transcriptText, displayName: displayName) {
                 collected.append(block)
                 chars += block.count

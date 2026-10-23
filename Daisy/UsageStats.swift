@@ -152,7 +152,7 @@ final class UsageStats {
         UserDefaults.standard.set(true, forKey: Self.backfillKey)
         guard !sessions.isEmpty else { return }
 
-        for s in sessions {
+        for s in sessions where !s.isDemo {
             let words = Self.wordCount(s.transcriptText)
             guard words > 0 else { continue }
             let key = Self.dayKey(for: s.startedAt)

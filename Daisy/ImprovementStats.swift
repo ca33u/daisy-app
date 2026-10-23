@@ -271,6 +271,20 @@ nonisolated enum ImprovementStats {
         store.add(event.names, count: count, day: day(Date()))
     }
 
+    /// Counts one occurrence done to a Library session — never to the
+    /// tour's demo meeting (`StoredSession.isDemo`, Onboarding 2.0, 24.10):
+    /// trying things on the demo is not using the feature.
+    static func record(_ event: Event, count: Int = 1, onDemo: Bool) {
+        add(event, count: count, onDemo: onDemo, mode: mode, to: store)
+    }
+
+    /// `record(_:count:onDemo:)` with the person's choice and the counts
+    /// file passed in, so a test touches neither.
+    static func add(_ event: Event, count: Int, onDemo: Bool, mode: Mode, to store: Store, now: Date = Date()) {
+        guard mode == .on, count > 0, !onDemo else { return }
+        store.add(event.names, count: count, day: day(now))
+    }
+
     // MARK: - Reports
 
     struct Report: Codable, Equatable, Sendable {
