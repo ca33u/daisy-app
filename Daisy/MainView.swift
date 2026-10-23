@@ -157,7 +157,7 @@ final class AppNavigation {
     /// clears it on appear / when it observes the change. nil means
     /// "let the view pick its own default" — usually the first row.
     var pendingLibrarySelection: StoredSession.ID?
-    /// One-shot Settings tab request. FirstRunView and any external
+    /// One-shot Settings tab request. Onboarding and any external
     /// CTA that wants to land the user on a specific sub-tab inside
     /// SettingsView (Summary for API key, Capture for Calendar,
     /// etc.) sets this together with `section = .settings`. The
@@ -230,6 +230,7 @@ struct MainView: View {
     /// Notes independent, mirroring the pre-refactor per-tab `@State`.
     @State private var libraryModel = LibraryModel(scope: .all)
     @State private var showsTapPermission = false
+    @Bindable private var tour = OnboardingTourController.shared
 
     var body: some View {
         // The shell arity branches per section (see `splitShell`).
@@ -243,21 +244,22 @@ struct MainView: View {
         // MainView (`libraryModel`, `sidebarSelection`)
         // lives above the branch, and the wiring `.onChange` handlers
         // stay registered while onboarding is on screen — which is what
-        // makes the layout-fixer toggle on the onboarding's layout step
-        // actually start the tap.
+        // makes the tour's dictation-key picker re-register the key.
         Group {
-            if settings.hasShownFirstRun {
+            if !OnboardingTourController.showsTour(hasShownFirstRun: settings.hasShownFirstRun,
+                                                   isActive: tour.isActive) {
                 splitShell
             } else {
-                // First run owns the WHOLE window — no sidebar: showing
-                // navigation that can't be used yet is worse than showing
-                // none. `FirstRunView.finish()` flips `hasShownFirstRun`
-                // and this branch swaps to the ordinary shell in place.
-                // MainWindowChrome (toolbar pill, 860pt floor) stays off
-                // here on purpose: onboarding has no toolbar, suppresses
-                // the window title itself, and allows a narrower window
-                // (its single-column fallback kicks in below ~760pt).
-                FirstRunView(settings: settings)
+                // The first-run tour owns the WHOLE window — no sidebar:
+                // showing navigation that can't be used yet is worse than
+                // showing none. A replay from Help / About takes it the
+                // same way. `OnboardingTourController.finish()` flips
+                // `hasShownFirstRun` (and ends a replay), and this branch
+                // swaps to the ordinary shell in place. MainWindowChrome
+                // (toolbar pill, 860pt floor) stays off here on purpose:
+                // the tour has no toolbar, suppresses the window title
+                // itself, and allows a narrower window.
+                OnboardingTourView(session: session, settings: settings)
                     .navigationTitle("")
                     .frame(minWidth: 560, minHeight: 520)
                     .daisyWindowBackground(Color.daisyBgPrimary)
@@ -762,10 +764,9 @@ struct MainView: View {
 /// window toolbar, so this can't move above the shell-arity branch.
 /// The shell's window floor. A named, internal constant (not inlined in
 /// MainWindowChrome, which is private) because onboarding reads it too:
-/// FirstRunView allows a narrower window (560pt, for its single-column
-/// fallback) and pre-grows the window to THIS floor before handing over
-/// to the shell — one source, so the two can't drift apart and
-/// reintroduce the 300pt snap on finishing first run.
+/// the tour allows a narrower window (560pt) and pre-grows the window to
+/// THIS floor before handing over to the shell — one source, so the two
+/// can't drift apart and reintroduce the 300pt snap on finishing first run.
 enum MainWindowShellFloor {
     static let width: CGFloat = 860
     static let height: CGFloat = 560

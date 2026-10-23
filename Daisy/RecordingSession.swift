@@ -1839,7 +1839,9 @@ final class RecordingSession {
         let modelIsCached = whisperState == .ready
             || WhisperEngine.cachedModelFolder(variant: WhisperEngine.shared.modelID) != nil
         let preflight = StartPreflight.decide(
-            hasShownFirstRun: settings.hasShownFirstRun,
+            // The tour records for real (dictation, the Daisy key, a
+            // meeting) before first run is marked done.
+            hasShownFirstRun: settings.hasShownFirstRun || OnboardingTourController.shared.isActive,
             whisperState: whisperState,
             modelIsCached: modelIsCached,
             isOnline: NetworkMonitor.shared.isOnline

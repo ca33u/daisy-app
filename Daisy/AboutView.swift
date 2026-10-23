@@ -105,6 +105,23 @@ struct AboutView: View {
                     }
                 }
 
+                // The first-run tour again, from step 1 (Onboarding 2.0).
+                LabeledContent {
+                    Button("Open") {
+                        OnboardingTourController.shared.restart(settings: settings)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(Color.daisyTextPrimary)
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "figure.walk")
+                            .frame(width: 18)
+                            .foregroundStyle(.secondary)
+                        Text(OnboardingCopy.text(.again))
+                    }
+                }
+
                 // Automatic update — the auto-check toggle plus a manual
                 // "Check for Updates…" (same action as the App menu). Both
                 // controls regular-size so the switch matches the one below.
