@@ -587,10 +587,21 @@ struct SettingsView: View {
                     if let owner {
                         // The layout fixer's row is disabled while the fixer
                         // is off, so "free it up there" would point nowhere.
-                        let message = owner == .layoutFix && !settings.layoutFixEnabled
-                            ? String(localized: "\(newValue.label) is kept for the layout fixer, which is off. Turn it on in Transcription → Keyboard layout to change or clear that shortcut.")
-                            : String(localized: "\(newValue.displayLabel) is already assigned to “\(owner.displayName)”. Free it up there first.")
-                        ToastCenter.shared.show(message, style: .warning)
+                        if owner == .layoutFix && !settings.layoutFixEnabled {
+                            ToastCenter.shared.showAction(
+                                String(localized: "\(newValue.label) is kept for the layout fixer, which is off. Turn it on in \(SettingsRow.layoutFixer.path) to change or clear that shortcut."),
+                                actionLabel: SettingsRow.layoutFixer.title,
+                                style: .warning,
+                                duration: .seconds(8)
+                            ) {
+                                AppNavigation.shared.openInSettings(.dictation, row: .layoutFixer)
+                            }
+                        } else {
+                            ToastCenter.shared.show(
+                                String(localized: "\(newValue.displayLabel) is already assigned to “\(owner.displayName)”. Free it up there first."),
+                                style: .warning
+                            )
+                        }
                         return
                     }
                 }
@@ -1246,7 +1257,7 @@ struct SettingsView: View {
                 // (per-app language can also be set in System Settings →
                 // Language & Region). Uses the standard `AppleLanguages`
                 // override, which only applies on the next launch.
-                Picker("Language", selection: appLanguageBinding) {
+                Picker("Interface language", selection: appLanguageBinding) {
                     Text("System").tag("system")
                     Text("English").tag("en")
                     Text("Русский").tag("ru")
@@ -1261,7 +1272,8 @@ struct SettingsView: View {
                 }
 
                 Picker("Theme", selection: $settings.appAppearance) {
-                    Text("Automatic").tag(AppearancePreference.system)
+                    // The same word as the language above (S4): both follow macOS.
+                    Text("System").tag(AppearancePreference.system)
                     Text("Light").tag(AppearancePreference.light)
                     Text("Dark").tag(AppearancePreference.dark)
                 }
@@ -1292,9 +1304,12 @@ struct SettingsView: View {
                 Text("Appearance")
             } footer: {
                 if !hasAnyCalendarSource {
-                    Text("Showing the next meeting needs a calendar in Settings → Connections → Calendar.")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Showing the next meeting needs a calendar in Settings → Connections → Calendar.")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        connectCalendarLink
+                    }
                 }
             }
 
@@ -1332,6 +1347,15 @@ struct SettingsView: View {
                 .settingsRow(.notifications)
             } header: {
                 Text("Notifications")
+            } footer: {
+                // The caption names the ask's own row; this is the way there.
+                if notificationLevelBinding.wrappedValue == .off {
+                    Button(SettingsRow.askToStop.title) {
+                        AppNavigation.shared.openInSettings(.meetings, row: .askToStop)
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                }
             }
 
             // ── Updates (from About, S3) ──────────────────────
@@ -1487,7 +1511,7 @@ struct SettingsView: View {
                     }
                 } label: {
                     transcriptionRowLabel(
-                        "Meeting model",
+                        "Model: meetings",
                         state: whisperBadgeState,
                         message: whisperShortStatus
                     )
@@ -1646,12 +1670,15 @@ struct SettingsView: View {
                 // by itself.
                 .help("Daisy asks with a pill on the widget once the meeting is past its scheduled end and both sides have been quiet for a couple of minutes — or, at the latest, 30 minutes after the end. Ignoring the pill keeps recording; Daisy never stops on its own. If the next calendar meeting starts while you're still recording, it asks before switching.")
             } header: {
-                Text("Meetings")
+                Text("Recording")
             } footer: {
                 if !hasAnyCalendarSource {
-                    Text("Calendar-based options need a calendar in Settings → Connections → Calendar. Daisy reads via macOS Calendar — iCloud, Exchange, and any Google accounts you've added to Calendar.app.")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Calendar-based options need a calendar in Settings → Connections → Calendar. Daisy reads via macOS Calendar — iCloud, Exchange, and any Google accounts you've added to Calendar.app.")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        connectCalendarLink
+                    }
                 }
             }
 
@@ -1949,7 +1976,7 @@ struct SettingsView: View {
                     }
                 } label: {
                     transcriptionRowLabel(
-                        "Dictation engine",
+                        "Model: dictation",
                         state: dictationBadgeState,
                         message: dictationShortStatus
                     )
@@ -2038,7 +2065,7 @@ struct SettingsView: View {
                     )
                 }
                 .settingsRow(.livePreview)
-                .help("Shows your words about half a second behind your speech while you hold the dictation key. The pasted text still comes from the dictation engine above. Turning this on downloads an on-device model once.")
+                .help("Shows your words about half a second behind your speech while you hold the dictation key. The pasted text still comes from the dictation model above. Turning this on downloads an on-device model once.")
                 .onChange(of: settings.dictationUseNemotronLive) { _, useNemotron in
                     if useNemotron { Task { await NemotronLiveEngine.shared.ensureLoaded() } }
                 }
@@ -2056,7 +2083,7 @@ struct SettingsView: View {
                 // mis-decoded as French). Voice-note / dictation locale
                 // fields stay in the model defaulting to "inherit", so this
                 // single pick drives all three modes.
-                Picker("Language", selection: $settings.defaultTranscriptionLocale) {
+                Picker("Transcription language", selection: $settings.defaultTranscriptionLocale) {
                     ForEach(Transcriber.availableLocales, id: \.id) { locale in
                         Text(locale.label).tag(locale.id)
                     }
@@ -2064,7 +2091,7 @@ struct SettingsView: View {
                 .pickerStyle(.menu)
                 .settingsRow(.transcriptionLanguage)
             } header: {
-                Text("Transcription")
+                Text("Speech recognition")
             }
 
             // ── Keyboard layout ───────────────────────────────
@@ -2184,7 +2211,7 @@ struct SettingsView: View {
 
     private var libraryTab: some View {
         Form {
-            // ── Group 2: Storage / Privacy ────────────────────
+            // ── Group 2: Storage ──────────────────────────────
             // Split (1.0.7.16) from one "Storage" section that conflated
             // three things: where files live, the retention/privacy
             // choice, and the optional Notion export.
@@ -2193,20 +2220,9 @@ struct SettingsView: View {
                     .settingsRow(.recordingsFolder)
                 storageUsageRow
                     .settingsRow(.spaceUsed)
-                clearAudioCacheRow
-                    .settingsRow(.deleteAudioFiles)
-                // The bulk delete is the biggest single mover of the
-                // "Space used" figure sitting two rows above it, so it
-                // reports back rather than leaving a stale number on
-                // screen for as long as Settings stays open.
-                BulkDeleteRecordingsView(onDeleted: { refreshStorageUsage() })
-                    .settingsRow(.deleteRecordings)
-            } header: {
-                Text("Storage")
-            }
-
-            Section {
-                // Retention / privacy posture. "Don't record audio" is the
+                // Retention / privacy posture — in Storage since S4: the
+                // plan keeps it with the files, and a «Privacy» header here
+                // named the Privacy tab. "Don't record audio" is the
                 // strongest stance; the rest are a time-to-live. Per-session
                 // purge fires from RecordingSession.finalizePostStop; the
                 // time options are swept by AudioRetentionSweep.
@@ -2244,8 +2260,16 @@ struct SettingsView: View {
                     }
                 }
                 .settingsRow(.audioStorage)
+                clearAudioCacheRow
+                    .settingsRow(.deleteAudioFiles)
+                // The bulk delete is the biggest single mover of the
+                // "Space used" figure a few rows above it, so it
+                // reports back rather than leaving a stale number on
+                // screen for as long as Settings stays open.
+                BulkDeleteRecordingsView(onDeleted: { refreshStorageUsage() })
+                    .settingsRow(.deleteRecordings)
             } header: {
-                Text("Privacy")
+                Text("Storage")
             }
 
             // (Notion "Send to" moved to the Connections page in 1.0.7.16
@@ -2270,7 +2294,7 @@ struct SettingsView: View {
                 downloadModelsNowRow
                     .settingsRow(.downloadModels)
             } header: {
-                Text("Models")
+                Text("Speech models")
             } footer: {
                 Text("Models update only when Daisy updates. Pull any missing ones ahead of time so a download never interrupts a recording.")
                     .font(.caption2)
@@ -2683,7 +2707,7 @@ struct SettingsView: View {
     }
 
     /// Compact per-row status — a short word/percent for the badge that
-    /// sits next to the "Meeting model" label (also the download indicator).
+    /// sits next to the "Model: meetings" label (also the download indicator).
     /// `nil` when ready or not-yet-loaded → the badge shows just its icon.
     private var whisperShortStatus: String? {
         switch whisper.state {
@@ -2803,6 +2827,16 @@ struct SettingsView: View {
         )
     }
 
+    /// The way to the Calendar segment the two «needs a calendar»
+    /// footers name.
+    private var connectCalendarLink: some View {
+        Button("Connect calendar") {
+            AppNavigation.shared.openInConnections(.calendar)
+        }
+        .buttonStyle(.link)
+        .font(.caption2)
+    }
+
     private var notificationLevelCaption: String {
         switch notificationLevelBinding.wrappedValue {
         case .all:
@@ -2810,7 +2844,7 @@ struct SettingsView: View {
         case .important:
             return String(localized: "Only the start-of-recording prompts — no sounds, no long-silence check.")
         case .off:
-            return String(localized: "No sounds or prompts. The end-of-meeting ask keeps its own setting above.")
+            return String(localized: "No sounds or prompts. The end-of-meeting ask keeps its own setting in \(SettingsRow.askToStop.path).")
         case .custom:
             return String(localized: "A custom per-notification mix from an earlier version. Picking a preset replaces it.")
         }
@@ -3024,7 +3058,14 @@ struct SettingsView: View {
                 // The Daisy key's grants moved to Shortcuts (S2); reading
                 // template examples is My style's, so it stays here.
                 CloudPermissionRows(kind: .templateReading)
+            } header: {
+                Text("How Daisy writes")
+            }
 
+            // The plan's «Брифы» («Брифинги», as the pre-meeting row says):
+            // one section of their own instead of the tail of «Summary
+            // output» (S4).
+            Section {
                 Toggle(isOn: $settings.morningBriefEnabled) {
                     Text("Morning brief")
                     Text("A card on Home each day: your meetings, open action items from recent sessions, and what to focus on.")
@@ -3081,7 +3122,7 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } header: {
-                Text("Summary output")
+                Text("Briefs")
             }
 
             myStyleSection

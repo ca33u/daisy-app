@@ -84,7 +84,7 @@ struct AppleIntelligenceLanguageGateTests {
     @Test func theProviderErrorCarriesTheCause() {
         let error = SummaryProviderError.unsupportedLanguage(provider: "Apple Intelligence", languageCode: "ru")
         #expect(error.localizedDescription
-                == "Apple Intelligence doesn't write in Russian yet. Choose another provider in Settings → Summary.")
+                == "Apple Intelligence doesn't write in Russian yet. Choose another provider in Settings → AI → Summary provider.")
         #expect(SummaryFailureCause.of(error) == .unsupportedLanguage(languageCode: "ru"))
         #expect(SummaryFailureCause.of(SummaryProviderError.transcriptTooShort) == nil)
         #expect(SummaryFailureCause.of(CancellationError()) == nil)

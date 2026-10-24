@@ -132,7 +132,7 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
         self = row
     }
 
-    var tab: SettingsTab {
+    nonisolated var tab: SettingsTab {
         switch self {
         case .displayName, .interfaceLanguage, .theme, .compactMenuBar, .floatingWidget,
              .menuBarNextMeeting, .notifications, .autoUpdate, .betaChannel, .whatsNew:
@@ -165,10 +165,11 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
     }
 
     /// The row's name as its label reads — the same catalog key the view
-    /// uses, so search shows what the eye then finds. Where the label
-    /// alone is ambiguous across tabs («Language» was three different
-    /// things) the title says which.
-    var titleResource: LocalizedStringResource {
+    /// uses, so search shows what the eye then finds. One dictionary (S4,
+    /// Egor 24.10): the three languages say which one they are, and the
+    /// two speech models read «Model: meetings» / «Model: dictation»
+    /// rather than a model on one tab and an engine on the other.
+    nonisolated var titleResource: LocalizedStringResource {
         switch self {
         case .displayName: "Your name"
         case .interfaceLanguage: "Interface language"
@@ -192,9 +193,9 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
         case .noiseReduction: "Reduce background noise"
         case .recordOtherSide: "Record the other side"
         case .macOutput: "Mac output"
-        case .processingPlan: "Meeting processing"
+        case .processingPlan: "Processing plan"
         case .processLaterOnCharger: "Process meetings later, on a charger"
-        case .meetingModel: "Meeting model"
+        case .meetingModel: "Model: meetings"
         case .liveTranscript: "Live transcript"
         case .autoRecord: "Auto-record"
         case .workingHours: "Track working hours"
@@ -208,7 +209,7 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
         case .splitMicVoices: "Split voices in my mic"
         case .removeEcho: "Remove echo from my mic"
         case .knownSpeakers: "Known speakers"
-        case .dictationEngine: "Dictation engine"
+        case .dictationEngine: "Model: dictation"
         case .fixProductNames: "Fix product names"
         case .pasteViaClipboard: "Paste through the clipboard"
         case .livePreview: "Live preview while dictating"
@@ -235,7 +236,7 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
         case .defaultMeetingProject: "Default project for meetings"
         case .defaultNoteProject: "Default project for notes"
         case .iCloudSync: "Sync with the iPhone through iCloud"
-        case .speechModels: "Models"
+        case .speechModels: "Speech models"
         case .downloadModels: "Download models now"
         case .notion: "Notion"
         case .mcpServer: "MCP server"
@@ -251,7 +252,15 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
         }
     }
 
-    var title: String { String(localized: titleResource) }
+    nonisolated var title: String { String(localized: titleResource) }
+
+    /// «Settings → AI → Summary provider»: where the row is, in the words
+    /// the tab bar and the row use. Every message that sends someone into
+    /// Settings names the place through this, so a renamed tab or row
+    /// can't leave an old path behind in an error (S4).
+    nonisolated var path: String {
+        [tab.path, title].joined(separator: " → ")
+    }
 
     /// The row that stands in for this one while it is hidden — the
     /// layout fixer's rows only exist with the fixer on, so a link to

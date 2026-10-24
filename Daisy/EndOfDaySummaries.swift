@@ -315,11 +315,14 @@ final class EndOfDaySummaries {
         } else if attempted > 0, !stoppedByUser {
             // Silence here would read as "nothing needed doing", which
             // is the opposite of what happened.
-            ToastCenter.shared.show(
-                String(localized: "Couldn't summarize tonight's meetings — check the summary provider in Settings."),
+            ToastCenter.shared.showAction(
+                String(localized: "Couldn't summarize tonight's meetings — check \(SettingsRow.summaryProvider.path)."),
+                actionLabel: String(localized: "Summary settings"),
                 style: .error,
                 duration: .seconds(8)
-            )
+            ) {
+                AppNavigation.shared.openInSettings(.ai, row: .summaryProvider)
+            }
         }
     }
 

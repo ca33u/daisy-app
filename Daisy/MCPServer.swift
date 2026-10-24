@@ -513,7 +513,7 @@ final class MCPServer {
         if !isProbe, !MCPAccessToken.authorize(header: request.headers["authorization"]) {
             Self.write(
                 status: 401,
-                body: "Unauthorized — this Daisy MCP server requires an access token. Copy it from Daisy → Connections → MCP server.",
+                body: "Unauthorized — this Daisy MCP server requires an access token. Copy it from Daisy → Settings → Connections → MCP server.",
                 on: connection,
                 closeAfter: true
             )

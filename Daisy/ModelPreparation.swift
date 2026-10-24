@@ -164,7 +164,7 @@ final class ModelPreparation {
             if !locale.isEmpty, locale != "auto" {
                 stage = String(localized: "Preparing Apple dictation…")
                 guard await AppleSpeechEngine.ensureModelReady(locale: Locale(identifier: locale), userInitiated: true) else {
-                    error = String(localized: "Apple dictation is unavailable for this language. Choose Standard in Settings → Transcription and try again.")
+                    error = String(localized: "Apple dictation is unavailable for this language. Choose Standard in \(SettingsRow.dictationEngine.path) and try again.")
                     return
                 }
             }
@@ -174,7 +174,7 @@ final class ModelPreparation {
             stage = String(localized: "Preparing live dictation…")
             await NemotronLiveEngine.shared.ensureLoaded()
             guard NemotronLiveEngine.shared.isReady else {
-                error = String(localized: "Couldn’t prepare live dictation. Turn off live preview in Settings → Transcription or try again.")
+                error = String(localized: "Couldn’t prepare live dictation. Turn off \(SettingsRow.livePreview.path) or try again.")
                 return
             }
         }

@@ -1664,7 +1664,7 @@ final class RecordingSession {
         guard let deviceName = AudioInputDevices.name(for: deviceID) else { return }
         let uid = AudioInputDevices.uid(for: deviceID) ?? deviceName
         guard virtualInputWarnedUIDs.insert(uid).inserted else { return }
-        let message = String(localized: "The microphone is set to “\(deviceName)” — a virtual audio device. If the recording comes out empty, pick your microphone in Settings.")
+        let message = String(localized: "The microphone is set to “\(deviceName)” — a virtual audio device. If the recording comes out empty, pick your microphone in \(SettingsRow.microphone.path).")
         _ = WidgetBubbleCenter.shared.show(
             WidgetBubbleContent(text: message, autoDismiss: 12, tag: Self.virtualInputBubbleTag)
         )
@@ -1815,7 +1815,7 @@ final class RecordingSession {
     /// notification when the trigger came from a hotkey or the calendar
     /// with no window in front), and open the screen that repairs it.
     private func presentSpeechModelUnavailable() {
-        let message = String(localized: "The speech model is not ready. Open Settings → Transcription to prepare or repair it.")
+        let message = String(localized: "The speech model is not ready. Open \(SettingsRow.meetingModel.path) to prepare or repair it.")
         ToastCenter.shared.show(message, style: .warning)
         WidgetBubbleCenter.shared.present(WidgetBubbleContent(text: message),
             notificationTitle: String(localized: "Prepare Daisy"))
@@ -2680,7 +2680,7 @@ final class RecordingSession {
             return String(localized: "Not enough disk space, so this meeting was recorded without audio — and the live transcript came out empty, so no summary was made. Free up space and the audio comes back.")
         }
         if settings.audioRetentionDays == AppSettings.audioRetentionDoNotRecord {
-            return String(localized: "Audio recording is off in Settings → Privacy, and the live transcript came out empty, so no summary was made. There's no audio file to fall back on in this mode.")
+            return String(localized: "Audio recording is off in \(SettingsRow.audioStorage.path), and the live transcript came out empty, so no summary was made. There's no audio file to fall back on in this mode.")
         }
         if AudioInputDevices.isBluetooth(AudioInputDevices.systemDefaultOutputID())
             || AudioInputDevices.isBluetooth(AudioInputDevices.systemDefaultInputID()) {
@@ -3092,11 +3092,14 @@ final class RecordingSession {
             // so nothing gets summarised or pushed to Notion on empty — it
             // just leaves an (empty) transcript.md the user can see.
             log.warning("Stop: \(self.elapsed, privacy: .public)s elapsed but no audio and no transcript — keeping session and warning (not deleting)")
-            ToastCenter.shared.show(
-                String(localized: "Nothing was transcribed this session — check your mic and Settings → Transcription. The recording was kept, not discarded"),
+            ToastCenter.shared.showAction(
+                String(localized: "Nothing was transcribed this session — check \(SettingsRow.microphone.path). The recording was kept, not discarded"),
+                actionLabel: String(localized: "Open audio settings"),
                 style: .warning,
                 duration: .seconds(8)
-            )
+            ) {
+                AppNavigation.shared.openInSettings(.meetings, row: .microphone)
+            }
             // fall through — keep the empty session instead of removing it.
         }
 

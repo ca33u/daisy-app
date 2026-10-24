@@ -367,7 +367,7 @@ enum MCPTools {
     /// bare protocol error, and the user learns exactly where the
     /// opt-in lives.
     private static func externalActionsDisabled(tool: String) -> MCPToolCallResult {
-        .error("\(tool) is disabled. External actions (re-summarize, route to destination) can send transcript content to a cloud provider or an outbound destination, so they're off by default. The user can enable them in Daisy → Connections → MCP server → \"Allow actions from MCP clients\".")
+        .error("\(tool) is disabled. External actions (re-summarize, route to destination) can send transcript content to a cloud provider or an outbound destination, so they're off by default. The user can enable them in Daisy → Settings → Connections → MCP server → \"Allow actions from MCP clients\".")
     }
 
     static func call(name: String, arguments: AnyJSON?) async -> MCPToolCallResult {
@@ -598,7 +598,7 @@ enum MCPTools {
             // generic failure after a long wait.
             let reason: String
             if case .unavailable(let r) = Summarizer.shared.availability { reason = r }
-            else { reason = "The summary provider isn't ready. Check Daisy → Settings → Summary." }
+            else { reason = "The summary provider isn't ready. Check Daisy → Settings → AI → Summary provider." }
             return .error("Can't summarize: \(reason)")
         }
 
@@ -751,7 +751,7 @@ enum MCPTools {
         }
         let enabled = MCPIntegrationStore.shared.enabledIntegrations
         guard !enabled.isEmpty else {
-            return .error("No enabled destinations are configured. Add one in Daisy → Connections.")
+            return .error("No enabled destinations are configured. Add one in Daisy → Settings → Connections.")
         }
         let match = enabled.first(where: { $0.id.uuidString == needle })
             ?? enabled.first(where: { $0.name == needle })
@@ -793,7 +793,7 @@ enum MCPTools {
         let needle = args.destination.trimmingCharacters(in: .whitespacesAndNewlines)
         let destinations = ActionRouting.destinations
         guard !destinations.isEmpty else {
-            return .error("No destinations are configured. Set up Notion or add one in Daisy → Connections.")
+            return .error("No destinations are configured. Set up Notion or add one in Daisy → Settings → Connections.")
         }
         guard let destination = destinations.first(where: { $0.id == needle })
             ?? destinations.first(where: { $0.name == needle })

@@ -321,16 +321,6 @@
         }
       }
     },
-    "Couldn't reach Ollama at %@. Install or open Ollama — Settings → Summary → Ollama has the install button, and the model downloads from there." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daisy не видит Ollama по адресу %@. Установи или открой Ollama — в Настройки → Саммари → Ollama есть кнопка установки, и модель скачается оттуда же."
-          }
-        }
-      }
-    },
     "Couldn’t change it — the card keeps the last version" : {
       "localizations" : {
         "ru" : {
@@ -1011,16 +1001,6 @@
         }
       }
     },
-    "You don’t have a Daisy key yet — pick one in Settings. ⌃⌥ is the simplest." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Клавиша Daisy ещё не назначена — выбери её в Настройках. Проще всего ⌃⌥."
-          }
-        }
-      }
-    },
     "\nModels and licenses: " : {
       "localizations" : {
         "ru" : {
@@ -1057,16 +1037,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Твоя клавиша заметок %@ теперь клавиша Daisy: зажми и скажи «заметка …» или что сделать, зажми без слов над выделенным текстом, чтобы переписать его. Короткое нажатие исправляет раскладку"
-          }
-        }
-      }
-    },
-    "A tap fixes the keyboard layout — turn layout fixing on in Settings → Transcription" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Короткое нажатие исправляет раскладку — включи исправление раскладки в «Настройки → Транскрипция»"
           }
         }
       }
@@ -1401,16 +1371,6 @@
         }
       }
     },
-    "Choose another provider in Settings → Summary." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Выбери другого провайдера в «Настройки → Саммари»."
-          }
-        }
-      }
-    },
     "Choose another provider" : {
       "localizations" : {
         "ru" : {
@@ -1479,16 +1439,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ отказался делать саммари этого транскрипта."
-          }
-        }
-      }
-    },
-    "%@ is kept for the layout fixer, which is off. Turn it on in Transcription → Keyboard layout to change or clear that shortcut." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ закреплено за исправлением раскладки, а оно выключено. Включи его в «Транскрипция → Раскладка клавиатуры», чтобы изменить или убрать это сочетание."
           }
         }
       }
@@ -1773,16 +1723,6 @@
         }
       }
     },
-    "Gemini API key is missing. Add it in Settings → Summary Provider." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Отсутствует API-ключ Gemini. Добавь его в разделе «Настройки → Провайдер саммари»."
-          }
-        }
-      }
-    },
     "Google Gemini API" : {
       "localizations" : {
         "ru" : {
@@ -1939,26 +1879,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Максимум"
-          }
-        }
-      }
-    },
-    "Meeting model" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Модель для встреч"
-          }
-        }
-      }
-    },
-    "Meeting processing" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Обработка встреч"
           }
         }
       }
@@ -3223,16 +3143,6 @@
         }
       }
     },
-    "Turn on the layout fixer in Transcription → Keyboard layout." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Включи исправление раскладки в «Транскрипция → Раскладка клавиатуры»."
-          }
-        }
-      }
-    },
     "Undo" : {
       "localizations" : {
         "ru" : {
@@ -3373,16 +3283,6 @@
         }
       }
     },
-    "Your own settings — they live under Transcription and Summary. Pick a plan to reset them." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Свои настройки — они во вкладках «Транскрипция» и «Саммари». Выбери план, чтобы сбросить их."
-          }
-        }
-      }
-    },
     "Your voice, and the templates your letters and notes follow" : {
       "localizations" : {
         "ru" : {
@@ -3425,16 +3325,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "интервью, демо, планёрка, 1:1"
-          }
-        }
-      }
-    },
-    "it doesn't write in %@ yet. Pick a cloud provider or Ollama in Settings → Summary." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "пока не пишет на языке «%@». Выбери облачного провайдера или Ollama в «Настройки → Саммари»."
           }
         }
       }
@@ -5367,16 +5257,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@: %2$lld токенов на входе, %3$lld на выходе"
-          }
-        }
-      }
-    },
-    "%@: API key is missing. Open Settings → Summary to add it." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@: отсутствует API-ключ. Добавь его в «Настройки → Саммари»."
           }
         }
       }
@@ -7734,16 +7614,6 @@
         }
       }
     },
-    "Another app is already using %@ — Daisy can't use it as a shortcut. Pick a different one." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сочетание %@ уже занято другой программой — Daisy не может его использовать. Выбери другое."
-          }
-        }
-      }
-    },
     "Another audio operation is already running." : {
       "comment" : "Error message when another audio operation is already in progress.",
       "isCommentAutoGenerated" : true,
@@ -7876,17 +7746,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Apple · встроенный"
-          }
-        }
-      }
-    },
-    "Apple dictation is unavailable for this language. Choose Standard in Settings → Transcription and try again." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Диктовка Apple недоступна для этого языка. Выбери стандартный движок диктовки и повтори попытку."
           }
         }
       }
@@ -8117,16 +7976,6 @@
         }
       }
     },
-    "Audio diagnostics" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Диагностика аудио"
-          }
-        }
-      }
-    },
     "Audio export was cancelled." : {
       "comment" : "Message displayed when the audio export is cancelled.",
       "isCommentAutoGenerated" : true,
@@ -8177,16 +8026,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "только звук"
-          }
-        }
-      }
-    },
-    "Audio recording is off in Settings → Privacy, and the live transcript came out empty, so no summary was made. There's no audio file to fall back on in this mode." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Запись аудио выключена в Настройках → Приватность, а живой транскрипт вышел пустым, так что саммари не сделано. В этом режиме нет аудиофайла, к которому можно вернуться."
           }
         }
       }
@@ -9607,7 +9446,6 @@
       }
     },
     "Connect calendar" : {
-      "extractionState" : "stale",
       "localizations" : {
         "ru" : {
           "stringUnit" : {
@@ -9658,33 +9496,12 @@
         }
       }
     },
-    "Connect your ChatGPT account in Settings → Summary." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Подключи аккаунт ChatGPT в разделе «Настройки → Саммари»."
-          }
-        }
-      }
-    },
     "Connect your ChatGPT account to see subscription limits." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Подключи аккаунт ChatGPT, чтобы видеть лимиты подписки."
-          }
-        }
-      }
-    },
-    "Connect your Cursor account in Settings → Summary." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Подключи аккаунт Cursor в разделе «Настройки → Саммари»."
           }
         }
       }
@@ -10271,17 +10088,6 @@
         }
       }
     },
-    "Couldn’t prepare live dictation. Turn off live preview in Settings → Transcription or try again." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Не удалось подготовить живую диктовку. Отключи предпросмотр в настройках транскрипции или повтори попытку."
-          }
-        }
-      }
-    },
     "Couldn’t prepare speaker separation. Try again." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -10398,18 +10204,6 @@
         }
       }
     },
-    "Couldn’t rewrite that — check your summary provider in Settings." : {
-      "comment" : "Error message displayed when the rewrite fails.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Не удалось переписать текст — проверь провайдера саммари в Настройках."
-          }
-        }
-      }
-    },
     "Couldn’t save %@ — try again." : {
       "localizations" : {
         "ru" : {
@@ -10517,16 +10311,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Не удалось подготовить саммари: провайдер недоступен."
-          }
-        }
-      }
-    },
-    "Couldn't summarize tonight's meetings — check the summary provider in Settings." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Не удалось подготовить саммари — проверь провайдера в настройках."
           }
         }
       }
@@ -10741,16 +10525,6 @@
         }
       }
     },
-    "Cursor Agent CLI isn't installed. Install `cursor-agent`, then return to Settings → Summary." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cursor Agent CLI не установлен. Установи `cursor-agent`, затем вернись в раздел «Настройки → Саммари»."
-          }
-        }
-      }
-    },
     "Cursor Agent CLI isn't installed. The Cursor editor command is not a substitute." : {
       "localizations" : {
         "ru" : {
@@ -10777,16 +10551,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "API-ключ Cursor"
-          }
-        }
-      }
-    },
-    "Cursor API key is missing. Add it in Settings → Summary Provider." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Отсутствует API-ключ Cursor. Добавь его в разделе «Настройки → Провайдер саммари»."
           }
         }
       }
@@ -11102,17 +10866,6 @@
         }
       }
     },
-    "Daisy couldn't access one of your recordings folders. Choose it again in Settings to restore access." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daisy не удалось открыть одну из папок с записями. Выбери её снова в настройках, чтобы восстановить доступ."
-          }
-        }
-      }
-    },
     "Daisy couldn't access the current recordings folder." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11194,16 +10947,6 @@
         }
       }
     },
-    "Daisy couldn't register %@ as a shortcut. Try a different combination." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daisy не смогла назначить сочетание %@. Попробуй другое."
-          }
-        }
-      }
-    },
     "Daisy couldn't remember the new recordings folder." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11262,27 +11005,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Daisy не удалось записать данные в новую папку."
-          }
-        }
-      }
-    },
-    "Daisy couldn't write to the recordings folder. Choose its storage folder again in Settings." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daisy не смогла записать в папку записей. Выбери папку хранения заново в Настройках."
-          }
-        }
-      }
-    },
-    "Daisy couldn't write to this recording folder. Choose its storage folder again in Settings." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daisy не удалось записать данные в эту папку. Выбери папку хранилища снова в настройках."
           }
         }
       }
@@ -12625,18 +12347,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Диктовка скопирована — нажми ⌘V, чтобы вставить. Буфер обмена вернётся к прежнему через %lld с."
-          }
-        }
-      }
-    },
-    "Dictation engine" : {
-      "comment" : "A label for the dictation engine.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Движок диктовки"
           }
         }
       }
@@ -16401,16 +16111,6 @@
         }
       }
     },
-    "Models" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Модели"
-          }
-        }
-      }
-    },
     "Models ready." : {
       "localizations" : {
         "ru" : {
@@ -16717,17 +16417,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Нужен API-ключ Anthropic: для сводки используется веб-поиск Claude. Без ключа сводка останется полностью локальной."
-          }
-        }
-      }
-    },
-    "Needs Full Disk Access — grant it in Settings → Permissions." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Требуется полный доступ к диску — предоставь его в Настройках → Разрешения."
           }
         }
       }
@@ -17133,16 +16822,6 @@
         }
       }
     },
-    "No sounds or prompts. The end-of-meeting ask keeps its own setting above." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Без звуков и подсказок. Вопрос о завершении встречи настраивается отдельно выше."
-          }
-        }
-      }
-    },
     "No speech detected in the archived audio." : {
       "localizations" : {
         "ru" : {
@@ -17417,16 +17096,6 @@
         }
       }
     },
-    "Not installed, or Daisy can’t see it. Install the CLI and sign in, or set its path in Settings → Summary." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Не установлено или Daisy его не видит. Установи CLI и войди в аккаунт либо укажи путь в Настройки → Саммари."
-          }
-        }
-      }
-    },
     "Not much was said in the last few minutes." : {
       "localizations" : {
         "ru" : {
@@ -17596,16 +17265,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ничего не записано — macOS передал Daisy пустой сигнал микрофона. Проверь «Конфиденциальность и безопасность» → «Микрофон»."
-          }
-        }
-      }
-    },
-    "Nothing was transcribed this session — check your mic and Settings → Transcription. The recording was kept, not discarded" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "В этой записи ничего не распознано — проверь микрофон и Настройки → Транскрипция. Запись сохранена, а не удалена"
           }
         }
       }
@@ -18764,16 +18423,6 @@
         }
       }
     },
-    "Permissions" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Разрешения"
-          }
-        }
-      }
-    },
     "Personal" : {
       "localizations" : {
         "ru" : {
@@ -18883,16 +18532,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Плейсхолдеры"
-          }
-        }
-      }
-    },
-    "Plan analysis is not available for %@ yet. Choose OpenAI in Summary settings, then retry." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Разбор плана пока недоступен для %@. Выбери OpenAI в настройках саммари и повтори попытку."
           }
         }
       }
@@ -19418,7 +19057,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Защищать чувствительные данные перед облачным AI"
+            "value" : "Защищать чувствительные данные перед облачным ИИ"
           }
         }
       }
@@ -20751,17 +20390,6 @@
         }
       }
     },
-    "Runs automatically once a day. Needs Full Disk Access to read your Voice Memos library — grant it in Settings → Permissions." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Запускается автоматически раз в день. Требуется полный доступ к диску для чтения библиотеки Диктофона — предоставь его в Настройках → Разрешения."
-          }
-        }
-      }
-    },
     "Runs entirely on-device. Nothing about the transcript leaves your Mac. Apple's local model doesn't support every language (e.g. Russian) — for those, switch to a cloud provider." : {
       "localizations" : {
         "ru" : {
@@ -21405,17 +21033,6 @@
         }
       }
     },
-    "Set Notion token in Settings first" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сначала укажи токен Notion в Настройках"
-          }
-        }
-      }
-    },
     "Set up" : {
       "localizations" : {
         "ru" : {
@@ -21464,16 +21081,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сначала укажи токен Notion в «Подключениях»"
-          }
-        }
-      }
-    },
-    "Set your Notion token in Settings → Connections first" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сначала укажи токен Notion в «Настройках» → «Подключения»"
           }
         }
       }
@@ -21604,7 +21211,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Сочетания клавиш"
+            "value" : "Сочетания"
           }
         }
       }
@@ -21636,16 +21243,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Отображается в меню-«многоточие» как «Отправить в {Name}»."
-          }
-        }
-      }
-    },
-    "Shows your words about half a second behind your speech while you hold the dictation key. The pasted text still comes from the dictation engine above. Turning this on downloads an on-device model once." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Показывает твои слова с задержкой около половины секунды, пока ты удерживаешь клавишу диктовки. Вставляемый текст всё равно берётся из движка диктовки выше. Включение один раз загрузит модель на устройство."
           }
         }
       }
@@ -22191,17 +21788,6 @@
         }
       }
     },
-    "Style-profile generation isn't supported on Apple Intelligence yet. Switch the summary provider in Settings → Summary." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apple Intelligence пока не умеет строить профиль стиля. Смени провайдера саммари в Настройках → Саммари."
-          }
-        }
-      }
-    },
     "Suggest" : {
       "localizations" : {
         "ru" : {
@@ -22381,16 +21967,6 @@
         }
       }
     },
-    "Summary output" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Вывод саммари"
-          }
-        }
-      }
-    },
     "Summary provider" : {
       "localizations" : {
         "ru" : {
@@ -22534,7 +22110,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Система"
+            "value" : "Как в системе"
           }
         }
       }
@@ -22845,16 +22421,6 @@
         }
       }
     },
-    "That model isn't available on this ChatGPT account. Pick another model in Settings → Summary." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Эта модель недоступна для данного аккаунта ChatGPT. Выбери другую в разделе «Настройки → Саммари»."
-          }
-        }
-      }
-    },
     "That screenshot couldn’t be deleted." : {
       "localizations" : {
         "ru" : {
@@ -22881,16 +22447,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "32-символьный идентификатор в конце URL страницы или базы данных — с дефисами или без."
-          }
-        }
-      }
-    },
-    "The account isn’t signed in. Connect it in Daisy settings and try again." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Вход в аккаунт не выполнен. Подключи его в настройках Daisy и попробуй снова."
           }
         }
       }
@@ -23160,16 +22716,6 @@
         }
       }
     },
-    "The microphone is set to “%@” — a virtual audio device. If the recording comes out empty, pick your microphone in Settings." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Микрофоном выбран «%@» — это виртуальный аудиодрайвер. Если запись окажется пустой, выбери свой микрофон в настройках."
-          }
-        }
-      }
-    },
     "The microphone stopped delivering audio — recording is paused. Reconnect it and press Resume, or stop and save what's recorded." : {
       "localizations" : {
         "ru" : {
@@ -23302,17 +22848,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сочетание исправляет выделенный текст в поддерживаемых приложениях. Автоматическое исправление принимает решение, пока ты ещё печатаешь слово, используя словари проверки орфографии на твоём Mac — поэтому слово, после которого ты нажимаешь Return, исправляется до отправки. Ничего не сохраняется и никуда не отправляется; функция не работает в полях паролей, терминалах, IDE, менеджерах паролей и удалённых рабочих столах. Нужен доступ к «Универсальному доступу»."
-          }
-        }
-      }
-    },
-    "The speech model is not ready. Open Settings → Transcription to prepare or repair it." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Модель распознавания не готова. Открой Настройки → Расшифровка, чтобы подготовить или восстановить её."
           }
         }
       }
@@ -23572,16 +23107,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Чтобы слышать собеседников в звонке, Daisy будет использовать «Запись только системного звука» — только звук, без экрана. Так запись работает и в Bluetooth-наушниках."
-          }
-        }
-      }
-    },
-    "To play future recordings here, choose 24 hours, 7 days, 30 days, or Keep forever in Settings → Privacy → Delete audio after." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Чтобы воспроизводить здесь будущие записи, выбери 24 часа, 7 дней, 30 дней или «Хранить всегда» в Настройки → Приватность → Удалять аудио через."
           }
         }
       }
@@ -24625,16 +24150,6 @@
         }
       }
     },
-    "Whisper model isn't loaded yet. Open Settings → Transcription." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Модель Whisper ещё не загружена. Открой Настройки → Транскрипция."
-          }
-        }
-      }
-    },
     "Whisper model isn't ready yet — try again in a moment." : {
       "localizations" : {
         "ru" : {
@@ -25100,16 +24615,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Лимит плана ChatGPT исчерпан. Повтори попытку после его обновления."
-          }
-        }
-      }
-    },
-    "Your ChatGPT session expired. Connect the account again in Settings → Summary." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сессия ChatGPT истекла. Подключи аккаунт снова в разделе «Настройки → Саммари»."
           }
         }
       }
@@ -25676,6 +25181,542 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Для настроек на основе календаря подключи календарь в «Настройки → Подключения → Календарь». Daisy читает данные через Календарь macOS — iCloud, Exchange и любые аккаунты Google, добавленные в приложение «Календарь»."
+          }
+        }
+      }
+    },
+    "Model: meetings" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Модель: встречи"
+          }
+        }
+      }
+    },
+    "Model: dictation" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Модель: диктовка"
+          }
+        }
+      }
+    },
+    "Processing plan" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "План обработки"
+          }
+        }
+      }
+    },
+    "Sound" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Звук"
+          }
+        }
+      }
+    },
+    "How Daisy writes" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Как пишет Daisy"
+          }
+        }
+      }
+    },
+    "Briefs" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Брифинги"
+          }
+        }
+      }
+    },
+    "Speech models" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Модели речи"
+          }
+        }
+      }
+    },
+    "Speech recognition" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Распознавание речи"
+          }
+        }
+      }
+    },
+    "Shows your words about half a second behind your speech while you hold the dictation key. The pasted text still comes from the dictation model above. Turning this on downloads an on-device model once." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывает твои слова с задержкой около половины секунды, пока ты удерживаешь клавишу диктовки. Вставляемый текст всё равно берётся из модели диктовки выше. Включение один раз загрузит модель на устройство."
+          }
+        }
+      }
+    },
+    "Not installed, or Daisy can’t see it. Install the CLI and sign in, or set its path in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не установлено или Daisy его не видит. Установи CLI и войди в аккаунт либо укажи путь в «%@»."
+          }
+        }
+      }
+    },
+    "Pre-meeting briefs aren't supported on Apple Intelligence yet. Switch the summary provider to Anthropic, OpenAI, Ollama, or LM Studio in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Intelligence пока не готовит брифинги перед встречей. Смени провайдера саммари на Anthropic, OpenAI, Ollama или LM Studio в «%@»."
+          }
+        }
+      }
+    },
+    "Style-profile generation isn't supported on Apple Intelligence yet. Switch the summary provider in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Intelligence пока не умеет строить профиль стиля. Смени провайдера саммари в «%@»."
+          }
+        }
+      }
+    },
+    "This recording is too long for Apple Intelligence's on-device model. For long meetings, switch to Anthropic, OpenAI, or Ollama in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эта запись слишком длинная для модели Apple Intelligence на устройстве. Для длинных встреч выбери Anthropic, OpenAI или Ollama в «%@»."
+          }
+        }
+      }
+    },
+    "Daisy couldn't write to the recordings folder. Choose it again in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не смогла записать в папку записей. Выбери её заново в «%@»."
+          }
+        }
+      }
+    },
+    "Daisy couldn't access one of your recordings folders. Choose it again in %@ to restore access." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не удалось открыть одну из папок с записями. Выбери её снова в «%@», чтобы восстановить доступ."
+          }
+        }
+      }
+    },
+    "Your ChatGPT session expired. Connect the account again in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сессия ChatGPT истекла. Подключи аккаунт снова в «%@»."
+          }
+        }
+      }
+    },
+    "That model isn't available on this ChatGPT account. Pick another model in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эта модель недоступна для данного аккаунта ChatGPT. Выбери другую в «%@»."
+          }
+        }
+      }
+    },
+    "A tap fixes the keyboard layout — turn it on in %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Короткое нажатие исправляет раскладку — включи это в «%@»"
+          }
+        }
+      }
+    },
+    "Couldn't summarize tonight's meetings — check %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось подготовить саммари — проверь «%@»."
+          }
+        }
+      }
+    },
+    "Apple dictation is unavailable for this language. Choose Standard in %@ and try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Диктовка Apple недоступна для этого языка. Выбери «Стандартный» в «%@» и повтори попытку."
+          }
+        }
+      }
+    },
+    "Couldn’t prepare live dictation. Turn off %@ or try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось подготовить живую диктовку. Выключи «%@» или повтори попытку."
+          }
+        }
+      }
+    },
+    "The microphone is set to “%@” — a virtual audio device. If the recording comes out empty, pick your microphone in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Микрофоном выбран «%1$@» — это виртуальный аудиодрайвер. Если запись окажется пустой, выбери свой микрофон в «%2$@»."
+          }
+        }
+      }
+    },
+    "The speech model is not ready. Open %@ to prepare or repair it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Модель распознавания не готова. Открой «%@», чтобы подготовить или восстановить её."
+          }
+        }
+      }
+    },
+    "Audio recording is off in %@, and the live transcript came out empty, so no summary was made. There's no audio file to fall back on in this mode." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запись аудио выключена в «%@», а живой транскрипт вышел пустым, так что саммари не сделано. В этом режиме нет аудиофайла, к которому можно вернуться."
+          }
+        }
+      }
+    },
+    "Nothing was transcribed this session — check %@. The recording was kept, not discarded" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В этой записи ничего не распознано — проверь «%@». Запись сохранена, а не удалена"
+          }
+        }
+      }
+    },
+    "Couldn’t rewrite that — check %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось переписать текст — проверь «%@»."
+          }
+        }
+      }
+    },
+    "To play future recordings here, choose 24 hours, 7 days, 30 days, or Keep forever in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чтобы воспроизводить здесь будущие записи, выбери 24 часа, 7 дней, 30 дней или «Хранить всегда» в «%@»."
+          }
+        }
+      }
+    },
+    "Set your Notion token in %@ first" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сначала укажи токен Notion в «%@»"
+          }
+        }
+      }
+    },
+    "Apple Intelligence needs macOS 26 or later. Pick a cloud provider (Anthropic / OpenAI) in %@ instead." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Intelligence нужна macOS 26 или новее. Выбери облачного провайдера (Anthropic / OpenAI) в «%@»."
+          }
+        }
+      }
+    },
+    "Anthropic API key is missing. Add it in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отсутствует API-ключ Anthropic. Добавь его в «%@»."
+          }
+        }
+      }
+    },
+    "Connect your ChatGPT account in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключи аккаунт ChatGPT в «%@»."
+          }
+        }
+      }
+    },
+    "OpenAI API key is missing. Add it in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отсутствует API-ключ OpenAI. Добавь его в «%@»."
+          }
+        }
+      }
+    },
+    "Cursor Agent CLI isn't installed. Install `cursor-agent`, then return to %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cursor Agent CLI не установлен. Установи `cursor-agent`, затем вернись в «%@»."
+          }
+        }
+      }
+    },
+    "Cursor API key is missing. Add it in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отсутствует API-ключ Cursor. Добавь его в «%@»."
+          }
+        }
+      }
+    },
+    "Kimi API key is missing. Add it in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отсутствует API-ключ Kimi. Добавь его в «%@»."
+          }
+        }
+      }
+    },
+    "Gemini API key is missing. Add it in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отсутствует API-ключ Gemini. Добавь его в «%@»."
+          }
+        }
+      }
+    },
+    "Couldn't reach Ollama at %@. Install or open Ollama — %@ has the install button when Ollama is chosen, and the model downloads from there." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не видит Ollama по адресу %1$@. Установи или открой Ollama — в «%2$@» есть кнопка установки, когда выбрана Ollama, и модель скачается оттуда же."
+          }
+        }
+      }
+    },
+    "MCP summarizer isn't configured. Open %@ and set the server URL, tool name, and arguments template." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MCP-саммаризатор не настроен. Открой «%@» и укажи URL сервера, имя инструмента и шаблон аргументов."
+          }
+        }
+      }
+    },
+    "Daisy can't find the %@ command. Install it and sign in (run it once in Terminal), or set its full path in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не находит команду %1$@. Установи её и войди в аккаунт (запусти один раз в Терминале) либо укажи полный путь в «%2$@»."
+          }
+        }
+      }
+    },
+    "Apple Intelligence summaries require macOS 26 (Tahoe) or newer. Open %@ and pick Anthropic, OpenAI, or your local MCP server instead." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Саммари через Apple Intelligence требуют macOS 26 (Tahoe) или новее. Открой «%@» и выбери Anthropic, OpenAI или свой локальный MCP-сервер."
+          }
+        }
+      }
+    },
+    "%@: API key is missing. Open %@ to add it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@: отсутствует API-ключ. Добавь его в «%2$@»."
+          }
+        }
+      }
+    },
+    "Choose another provider in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбери другого провайдера в «%@»."
+          }
+        }
+      }
+    },
+    "You don’t have a Daisy key yet — pick one in %@. ⌃⌥ is the simplest." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Клавиша Daisy ещё не назначена — выбери её в «%@». Проще всего ⌃⌥."
+          }
+        }
+      }
+    },
+    "Whisper model isn't loaded yet. Open %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Модель Whisper ещё не загружена. Открой «%@»."
+          }
+        }
+      }
+    },
+    "%@ is kept for the layout fixer, which is off. Turn it on in %@ to change or clear that shortcut." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ закреплено за исправлением раскладки, а оно выключено. Включи его в «%2$@», чтобы изменить или убрать это сочетание."
+          }
+        }
+      }
+    },
+    "No sounds or prompts. The end-of-meeting ask keeps its own setting in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Без звуков и подсказок. У вопроса о завершении встречи своя настройка: «%@»."
+          }
+        }
+      }
+    },
+    "Another app is already using %@ — Daisy can't use it as a shortcut. Pick a different one in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сочетание %1$@ уже занято другой программой — Daisy не может его использовать. Выбери другое в «%2$@»."
+          }
+        }
+      }
+    },
+    "Daisy couldn't register %@ as a shortcut. Try a different combination in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не смогла назначить сочетание %1$@. Попробуй другое в «%2$@»."
+          }
+        }
+      }
+    },
+    "whatsNew.settings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings are eight tabs now, with search (⌘F)"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Настройки — восемь вкладок и поиск (⌘F)"
+          }
+        }
+      }
+    },
+    "Plan analysis is not available for %@ yet. Choose OpenAI in %@, then retry." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разбор плана пока недоступен для %1$@. Выбери OpenAI в «%2$@» и повтори попытку."
+          }
+        }
+      }
+    },
+    "The account isn’t signed in. Connect it in %@ and try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вход в аккаунт не выполнен. Подключи его в «%@» и попробуй снова."
+          }
+        }
+      }
+    },
+    "Notion token or parent page ID is missing. Set them in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не указан токен Notion или ID родительской страницы. Укажи их в «%@»."
+          }
+        }
+      }
+    },
+    "Daisy couldn't write to this recording folder. Choose it again in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не удалось записать данные в эту папку. Выбери её заново в «%@»."
           }
         }
       }

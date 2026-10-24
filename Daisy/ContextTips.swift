@@ -12,7 +12,7 @@
 //     the dictation-only path until the person records a meeting.
 //   • Summary provider — a meeting ended and no provider can write its
 //     summary (the «No summary — …» toast already says why; this is the
-//     one-time nudge beside it) → Settings → Summary.
+//     one-time nudge beside it) → Settings → AI → Summary provider.
 //   • Project — a Daisy-key note said «в проект X» and there is no X: the
 //     misfiled-note message offers «Создать «X»» instead of «Move», once
 //     (DaisyKeyController builds the message; the name and the create +

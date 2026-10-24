@@ -31,7 +31,7 @@ actor NotionExporter {
         var errorDescription: String? {
             switch self {
             case .missingCredentials:
-                return "Notion token or parent page ID is missing. Open Settings to configure."
+                return String(localized: "Notion token or parent page ID is missing. Set them in \(SettingsRow.notion.path).")
             case .invalidParentID:
                 return "Notion parent ID looks malformed (expecting 32 hex chars)."
             case .httpError(let code, let body):

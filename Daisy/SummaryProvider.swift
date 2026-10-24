@@ -328,7 +328,7 @@ enum SummaryProviderError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingAPIKey(let p):
-            return String(localized: "\(p): API key is missing. Open Settings → Summary to add it.")
+            return String(localized: "\(p): API key is missing. Open \(SettingsRow.summaryProvider.path) to add it.")
         case .invalidResponse(let p):
             return String(localized: "\(p): unexpected response from the API.")
         case .httpError(let p, let code, let body):
@@ -350,7 +350,7 @@ enum SummaryProviderError: LocalizedError {
         case .unsupportedLanguage(let p, let code):
             return AppleIntelligenceLanguageGate.cannotWritePhrase(provider: p, languageCode: code)
                 + " "
-                + String(localized: "Choose another provider in Settings → Summary.")
+                + String(localized: "Choose another provider in \(SettingsRow.summaryProvider.path).")
         case .contextOverflow(let p, let approx, let reported):
             if let reported {
                 // The server told us what it actually read. No hedging.

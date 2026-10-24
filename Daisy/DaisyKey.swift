@@ -1149,7 +1149,7 @@ final class DaisyKeyController {
         if cancelled.removeValue(forKey: token) != nil { return }
         let settings = session.settings
         guard settings.layoutFixEnabled else {
-            tell(String(localized: "A tap fixes the keyboard layout — turn layout fixing on in Settings → Transcription"),
+            tell(String(localized: "A tap fixes the keyboard layout — turn it on in \(SettingsRow.layoutFixer.path)"),
                  action: (String(localized: "Open Settings"), { AppNavigation.shared.openInSettings(.dictation, row: .layoutFixer) }))
             return
         }

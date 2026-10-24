@@ -312,7 +312,7 @@ final class SessionStore {
         // apart; see `UsageStats.backfillIfNeeded`.
         storageWasReachable = !inaccessibleConfiguredFolder
         if inaccessibleConfiguredFolder {
-            lastError = String(localized: "Daisy couldn't access one of your recordings folders. Choose it again in Settings to restore access.")
+            lastError = String(localized: "Daisy couldn't access one of your recordings folders. Choose it again in \(SettingsRow.recordingsFolder.path) to restore access.")
         }
         // Reconcile the search index lazily on the next search — the
         // per-session content stamp keeps that cheap for unchanged rows.

@@ -335,7 +335,7 @@ nonisolated struct AgentProcessRunner: Sendable {
             || text.contains("sign in")
             || text.contains("authentication")
             || text.contains("unauthorized") {
-            return String(localized: "The account isn’t signed in. Connect it in Daisy settings and try again.")
+            return String(localized: "The account isn’t signed in. Connect it in \(SettingsRow.summaryProvider.path) and try again.")
         }
         if text.contains("rate limit")
             || text.contains("usage limit")

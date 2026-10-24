@@ -1952,7 +1952,7 @@ nonisolated enum WhisperEngineError: LocalizedError {
     case notEnoughDiskSpace
     var errorDescription: String? {
         switch self {
-        case .notReady: return String(localized: "Whisper model isn't loaded yet. Open Settings → Transcription.")
+        case .notReady: return String(localized: "Whisper model isn't loaded yet. Open \(SettingsRow.meetingModel.path).")
         case .unsupportedModel(let id):
             return String(localized: "The transcription model \(id) is not supported.")
         case .notEnoughDiskSpace:

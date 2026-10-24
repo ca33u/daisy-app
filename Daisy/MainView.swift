@@ -132,7 +132,7 @@ enum SettingsTab: String, Hashable, Sendable, CaseIterable {
     @available(*, deprecated, renamed: "ai")
     static var voice: SettingsTab { .ai }
 
-    var title: String {
+    nonisolated var title: String {
         switch self {
         case .general: String(localized: "settings.tab.general", defaultValue: "General")
         case .shortcuts: String(localized: "settings.tab.shortcuts", defaultValue: "Shortcuts")
@@ -143,6 +143,12 @@ enum SettingsTab: String, Hashable, Sendable, CaseIterable {
         case .connections: String(localized: "settings.tab.connections", defaultValue: "Connections")
         case .privacy: String(localized: "settings.tab.privacy", defaultValue: "Privacy")
         }
+    }
+
+    /// «Settings → AI» — see `SettingsRow.path`, which messages use
+    /// whenever the place has a row.
+    nonisolated var path: String {
+        String(localized: "Settings") + " → " + title
     }
 
     var systemImage: String {

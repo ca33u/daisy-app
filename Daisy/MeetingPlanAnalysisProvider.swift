@@ -24,7 +24,7 @@ nonisolated enum MeetingPlanAnalysisProviderError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedProvider(let provider):
-            return String(localized: "Plan analysis is not available for \(provider) yet. Choose OpenAI in Summary settings, then retry.")
+            return String(localized: "Plan analysis is not available for \(provider) yet. Choose OpenAI in \(SettingsRow.summaryProvider.path), then retry.")
         case .invalidResponse(let provider):
             return String(localized: "\(provider) returned an invalid structured plan analysis.")
         }
