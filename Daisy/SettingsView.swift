@@ -1419,7 +1419,7 @@ struct SettingsView: View {
                 .settingsRow(.repasteHotkey)
             }
 
-            // ── The Daisy key in a meeting (backlog 34 K-3) ──────────
+            // ── Daisy key: in a meeting (backlog 34 K-3), cloud grants ──
             Section {
                 Toggle(isOn: $settings.daisyKeyMeetingCommands) {
                     Text("Commands during a meeting")
@@ -1435,8 +1435,11 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 .settingsRow(.sideNotesLeaveMeeting)
+                // The yeses its commands were given to send to a cloud
+                // provider (S2, 24.10.2026: from the AI tab).
+                CloudPermissionRows(kind: .daisyKey)
             } header: {
-                Text("The Daisy key in a meeting")
+                Text("Daisy key")
             } footer: {
                 Text("Tap for a side note, tap again to end it — it ends by itself after a minute of quiet. Hold and talk to mark a moment with a comment: the comment goes to the moment, not the transcript")
                     .font(.caption)
@@ -1495,12 +1498,17 @@ struct SettingsView: View {
                 // sensible default; Full is heavier; Off transcribes once on
                 // Stop. The final saved transcript is always full quality,
                 // and dictation always runs live regardless of this.
-                // Same words as the plans in General (Egor, 07.10.2026),
+                // Same words as the plans above (Egor, 07.10.2026),
                 // and feminine to agree with «Живая транскрипция».
-                Picker("Live transcript", selection: $settings.liveTranscriptionTier) {
+                Picker(selection: $settings.liveTranscriptionTier) {
                     Text("After the meeting").tag(LiveTranscriptionTier.off)
                     Text("Optimal").tag(LiveTranscriptionTier.lite)
                     Text("Full · uses more memory").tag(LiveTranscriptionTier.full)
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("Live transcript")
+                        PlanBadge(.liveTranscript, settings: settings)
+                    }
                 }
                 .pickerStyle(.menu)
                 .settingsRow(.liveTranscript)
@@ -1564,29 +1572,36 @@ struct SettingsView: View {
                     }
                 }
 
-                // Applies to every recording (not just meetings) → ungated,
-                // above the calendar-only row.
-                Toggle("Open the session window when recording stops", isOn: $settings.showSessionAfterStop)
-                    .settingsRow(.showSessionAfterStop)
-
                 // Screen-content capture + on-device OCR. Off by default;
                 // needs Screen Recording permission. Reinstated with a
                 // clearer pitch after being parked (UI-only) in 1.0.7.16.
                 Toggle(isOn: $settings.screenshotsEnabled) {
-                    Text("Capture what's shared on screen")
+                    HStack(spacing: 6) {
+                        Text("Capture what's shared on screen")
+                        PlanBadge(.screenCapture, settings: settings)
+                    }
                     Text("Periodically captures your screen while recording, reads the text on-device (slides, dashboards, docs), and folds it into the transcript and summary — searchable even if never said aloud. Needs Screen Recording permission; stays on your Mac.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 .settingsRow(.screenCapture)
+                .onChange(of: settings.screenshotsEnabled) { _, on in
+                    if on { ProcessingPreset.capturesTurnedOn(ProcessingPreset.State(settings)).write(to: settings) }
+                }
                 if settings.screenshotsEnabled {
-                    Picker("Capture every", selection: $settings.screenshotIntervalSec) {
+                    Picker(selection: $settings.screenshotIntervalSec) {
                         Text("15 seconds").tag(15)
                         Text("30 seconds").tag(30)
                         Text("1 minute").tag(60)
                         Text("2 minutes").tag(120)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("Capture every")
+                            PlanBadge(.screenshotInterval, settings: settings)
+                        }
                     }
                     .pickerStyle(.menu)
+                    .settingsRow(.screenshotInterval)
                     Toggle(isOn: $settings.screenTextInSummary) {
                         Text("Use screen text in summaries")
                         Text("Off keeps it in the transcript and in search, but out of the summary — useful when what's on screen is unrelated to the conversation.")
@@ -1692,7 +1707,10 @@ struct SettingsView: View {
                     Text("Me and others")
                         .tag(false)
                 } label: {
-                    Text("Speakers in transcript")
+                    HStack(spacing: 6) {
+                        Text("Speakers in transcript")
+                        PlanBadge(.speakersInTranscript, settings: settings)
+                    }
                 }
                 .pickerStyle(.menu)
                 .settingsRow(.speakersInTranscript)
@@ -1714,7 +1732,10 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 Toggle(isOn: $settings.diarizeMicrophone) {
-                    Text("Split voices in my mic")
+                    HStack(spacing: 6) {
+                        Text("Split voices in my mic")
+                        PlanBadge(.splitMicVoices, settings: settings)
+                    }
                     Text("When other people are heard through your speakers, label them separately instead of all as “Me.”")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -1767,6 +1788,64 @@ struct SettingsView: View {
                 Text("After you name a speaker in a transcript (e.g. \"Alex\"), Daisy stores a short voice fingerprint locally and auto-labels them in future recordings. Open a speaker to add their email (so calendar invites match them too) or notes. Fingerprints never leave your Mac. Forget anytime.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+            }
+
+            // ── After the meeting (S2, 24.10.2026) ────────────
+            // What happens once a recording stops: the session window,
+            // and when the summary is written (moved from the AI tab —
+            // the provider stays there).
+            Section {
+                // Applies to every recording (not just meetings).
+                Toggle("Open the session window when recording stops", isOn: $settings.showSessionAfterStop)
+                    .settingsRow(.showSessionAfterStop)
+
+                Picker("Summarize", selection: $settings.summaryTiming) {
+                    ForEach(SummaryTiming.allCases) { timing in
+                        Text(timing.displayName).tag(timing)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(!summarizerAvailable)
+                .settingsRow(.summaryTiming)
+                if settings.summaryTiming == .endOfDay {
+                    // Not the bare "At" the morning-brief row uses: that
+                    // key is still untranslated in the catalog, and this
+                    // row reads better with a verb anyway.
+                    Picker("Run at", selection: $settings.endOfDaySummaryHour) {
+                        ForEach(Array(16...23), id: \.self) { hour in
+                            Text(verbatim: String(format: "%02d:00", hour)).tag(hour)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    if case .running(let current, let total) = endOfDay.state {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Summarizing \(current) of \(total)…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    // Names the week explicitly: on any normal evening
+                    // this is just today's meetings, but the FIRST pass
+                    // after switching over from "Only when I ask" reaches
+                    // back through everything that never got one — which
+                    // is the one time a user needs warning.
+                    Text("Daisy summarizes the day's meetings in one pass, plus anything from the last week that still has no summary. It waits if you're recording, and picks up whatever it missed next time — including meetings recorded after the hour, and evenings when the Mac was asleep or Daisy was closed.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !summarizerAvailable {
+                    // The provider is set up on another tab now: say
+                    // which, and go there.
+                    Button("The summary provider isn’t ready yet — set it up") {
+                        AppNavigation.shared.openInSettings(.ai, row: .summaryProvider)
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                }
+            } header: {
+                Text("After the meeting")
             }
 
         }
@@ -2892,48 +2971,6 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Picker("Summarize", selection: $settings.summaryTiming) {
-                    ForEach(SummaryTiming.allCases) { timing in
-                        Text(timing.displayName).tag(timing)
-                    }
-                }
-                .pickerStyle(.menu)
-                .disabled(!summarizerAvailable)
-                .settingsRow(.summaryTiming)
-                if settings.summaryTiming == .endOfDay {
-                    // Not the bare "At" the morning-brief row uses: that
-                    // key is still untranslated in the catalog, and this
-                    // row reads better with a verb anyway.
-                    Picker("Run at", selection: $settings.endOfDaySummaryHour) {
-                        ForEach(Array(16...23), id: \.self) { hour in
-                            Text(verbatim: String(format: "%02d:00", hour)).tag(hour)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    if case .running(let current, let total) = endOfDay.state {
-                        HStack(spacing: 8) {
-                            ProgressView().controlSize(.small)
-                            Text("Summarizing \(current) of \(total)…")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    // Names the week explicitly: on any normal evening
-                    // this is just today's meetings, but the FIRST pass
-                    // after switching over from "Only when I ask" reaches
-                    // back through everything that never got one — which
-                    // is the one time a user needs warning.
-                    Text("Daisy summarizes the day's meetings in one pass, plus anything from the last week that still has no summary. It waits if you're recording, and picks up whatever it missed next time — including meetings recorded after the hour, and evenings when the Mac was asleep or Daisy was closed.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if !summarizerAvailable {
-                    Text("Provider isn’t ready yet — set it up above first.")
-                        .font(.caption)
-                        .foregroundStyle(Color.daisyWarning)
-                }
-
                 Toggle(isOn: $settings.protectSensitiveDataBeforeCloudAI) {
                     Text("Protect sensitive data before cloud AI")
                     Text("When enabled, Daisy locally replaces detected people, companies, contacts, and links before a remote request, then restores them in the result. Passwords, API keys, and payment-card numbers stay redacted. Local providers are unchanged. This reduces disclosure risk but cannot guarantee anonymity.")
@@ -2950,7 +2987,10 @@ struct SettingsView: View {
                 // ask about, and "only when it was going there anyway"
                 // is the answer to the question the word "cloud" raises.
                 Toggle(isOn: $settings.transcriptSecondPass) {
-                    Text("Second pass over the transcript")
+                    HStack(spacing: 6) {
+                        Text("Second pass over the transcript")
+                        PlanBadge(.secondPass, settings: settings)
+                    }
                     Text("After a meeting, Daisy re-reads the transcript and fixes names, brands, and terms that transcription got wrong — using the calendar invite and your vocabulary. Wording is never changed, and the original is kept alongside it. Daisy also proposes who each speaker is, for you to confirm. Costs a couple of extra requests per meeting, and sends the invite’s attendee names along with the transcript; on a cloud provider it runs only when that meeting is being summarized there anyway.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -2979,7 +3019,9 @@ struct SettingsView: View {
                 }
                 .settingsRow(.followUpsInMyVoice)
 
-                CloudPermissionRows()
+                // The Daisy key's grants moved to Shortcuts (S2); reading
+                // template examples is My style's, so it stays here.
+                CloudPermissionRows(kind: .templateReading)
 
                 Toggle(isOn: $settings.morningBriefEnabled) {
                     Text("Morning brief")
@@ -4486,48 +4528,63 @@ enum TestResult: Equatable {
 /// The cloud yeses given along the way — Daisy-key commands per provider,
 /// reading template examples — each with a way to take it back (backlog 34
 /// research: a consent that can't be withdrawn isn't one). Hidden while
-/// there is none.
+/// there is none. Since S2 each list sits with what asked for it: the
+/// commands' in Shortcuts → Daisy key, the templates' in AI.
 private struct CloudPermissionRows: View {
+    enum Kind { case daisyKey, templateReading }
+    let kind: Kind
     /// UserDefaults isn't observed: a revoke bumps this to redraw.
     @State private var tick = 0
 
     var body: some View {
         let _ = tick
-        let providers = DaisyKeyController.cloudAllowedProviders
-        let reading = UserDefaults.standard.bool(forKey: MeetingTemplatePass.cloudReadingKey)
+        let providers = kind == .daisyKey ? DaisyKeyController.cloudAllowedProviders : []
+        let reading = kind == .templateReading
+            && UserDefaults.standard.bool(forKey: MeetingTemplatePass.cloudReadingKey)
         if !providers.isEmpty || reading {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Allowed to send to the cloud")
-                ForEach(providers, id: \.self) { kind in
-                    HStack {
-                        Text("Daisy key commands — \(kind.shortName)")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Revoke") {
-                            DaisyKeyController.revokeCloud(kind)
-                            tick += 1
-                        }
-                        .controlSize(.small)
-                    }
-                }
-                if reading {
-                    HStack {
-                        Text("Reading template examples")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Revoke") {
-                            UserDefaults.standard.removeObject(forKey: MeetingTemplatePass.cloudReadingKey)
-                            tick += 1
-                        }
-                        .controlSize(.small)
-                    }
-                }
-                Text("Revoked, Daisy asks again the next time.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+            // Anchored only where it is shown: an empty list leaves no
+            // row behind for a link to land on (its stand-in does).
+            if kind == .daisyKey {
+                list(providers: providers, reading: reading)
+                    .settingsRow(.daisyKeyCloudGrants)
+            } else {
+                list(providers: providers, reading: reading)
             }
+        }
+    }
+
+    private func list(providers: [SummaryProviderKind], reading: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Allowed to send to the cloud")
+            ForEach(providers, id: \.self) { kind in
+                HStack {
+                    Text("Daisy key commands — \(kind.shortName)")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Revoke") {
+                        DaisyKeyController.revokeCloud(kind)
+                        tick += 1
+                    }
+                    .controlSize(.small)
+                }
+            }
+            if reading {
+                HStack {
+                    Text("Reading template examples")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Revoke") {
+                        UserDefaults.standard.removeObject(forKey: MeetingTemplatePass.cloudReadingKey)
+                        tick += 1
+                    }
+                    .controlSize(.small)
+                }
+            }
+            Text("Revoked, Daisy asks again the next time.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
     }
 }

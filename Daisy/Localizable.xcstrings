@@ -1553,16 +1553,6 @@
         }
       }
     },
-    "As set in Recording" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Как настроено в «Записи»"
-          }
-        }
-      }
-    },
     "Attach the file %@ — it's selected in Finder." : {
       "localizations" : {
         "ru" : {
@@ -3039,16 +3029,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Клавиша Daisy"
-          }
-        }
-      }
-    },
-    "The Daisy key in a meeting" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Клавиша Daisy на встрече"
           }
         }
       }
@@ -12960,17 +12940,6 @@
         }
       }
     },
-    "Download the speech models, then let Daisy check that they work. If you’d rather not wait, skip for now — they finish in the background, and your first recording waits for them." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Скачай речевые модели — Daisy проверит, что они работают. Не хочешь ждать — пропусти пока: они догрузятся в фоне, а первая запись их дождётся."
-          }
-        }
-      }
-    },
     "Downloading again keeps the previous model files for diagnostics and needs additional free space." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -19474,16 +19443,6 @@
         }
       }
     },
-    "Provider isn’t ready yet — set it up above first." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Провайдер ещё не готов — сначала настрой его выше."
-          }
-        }
-      }
-    },
     "Proxied by your local Ollama out to ollama.com — transcript leaves your Mac." : {
       "localizations" : {
         "ru" : {
@@ -21391,17 +21350,6 @@
         }
       }
     },
-    "Separate speakers" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Разделять спикеров"
-          }
-        }
-      }
-    },
     "Server isn't running" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -21930,17 +21878,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Определение речи ещё не загружено — Daisy работает и без него и скачает его, когда появится сеть."
-          }
-        }
-      }
-    },
-    "Speech model" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Модель распознавания"
           }
         }
       }
@@ -24894,17 +24831,6 @@
         }
       }
     },
-    "Your own settings — none of the plans. Picking one replaces them." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Свои настройки — ни один план не выбран. Выбор плана их заменит."
-          }
-        }
-      }
-    },
     "Switch to “%@”?" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -24945,17 +24871,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Скриншоты: не чаще раза в 2 минуты."
-          }
-        }
-      }
-    },
-    "Your own settings are replaced — you can tune them again under Transcription and Summary." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Свои настройки заменятся — их можно снова настроить во вкладках «Транскрипция» и «Саммари»."
           }
         }
       }
@@ -25649,6 +25564,98 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Профиля пока нет — он строится из твоих диктовок"
+          }
+        }
+      }
+    },
+    "set by plan" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "по плану"
+          }
+        }
+      }
+    },
+    "Set by the “%@” plan" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Задано планом «%@»"
+          }
+        }
+      }
+    },
+    "plan.custom" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свой"
+          }
+        }
+      }
+    },
+    "Your own settings are replaced — you can change them again in the rows marked “set by plan”." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свои настройки заменятся — их можно снова поменять в строках с меткой «по плану»."
+          }
+        }
+      }
+    },
+    "preset.screens.asIs" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "As they are"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Как есть"
+          }
+        }
+      }
+    },
+    "The summary provider isn’t ready yet — set it up" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Провайдер саммари ещё не готов — настрой его"
+          }
+        }
+      }
+    },
+    "Daisy needs its speech models on this Mac. Download them, and Daisy checks that they work." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy нужны речевые модели на этом Mac. Скачай их — Daisy проверит, что они работают."
+          }
+        }
+      }
+    },
+    "Changed by hand — these are the rows a plan sets" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изменено вручную — вот строки, которые задаёт план"
           }
         }
       }

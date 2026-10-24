@@ -65,10 +65,10 @@ struct SettingsFrameTests {
     }
 
     @Test func aHiddenRowLandsOnItsStandIn() {
-        #expect(SettingsRow.layoutFixHotkey.target(layoutFixEnabled: false) == .layoutFixer)
-        #expect(SettingsRow.layoutFixAsYouType.target(layoutFixEnabled: false) == .layoutFixer)
-        #expect(SettingsRow.microphone.target(layoutFixEnabled: false) == .microphone)
-        #expect(SettingsRow.layoutFixHotkey.target(layoutFixEnabled: true) == .layoutFixHotkey)
+        #expect(SettingsRow.layoutFixHotkey.target(.init(layoutFixEnabled: false)) == .layoutFixer)
+        #expect(SettingsRow.layoutFixAsYouType.target(.init(layoutFixEnabled: false)) == .layoutFixer)
+        #expect(SettingsRow.microphone.target(.init(layoutFixEnabled: false)) == .microphone)
+        #expect(SettingsRow.layoutFixHotkey.target(.init(layoutFixEnabled: true)) == .layoutFixHotkey)
         // A stand-in lives on the same tab, or the link would switch tabs
         // and then find nothing to light.
         for row in SettingsRow.allCases {

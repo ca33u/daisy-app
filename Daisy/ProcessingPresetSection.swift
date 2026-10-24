@@ -2,9 +2,13 @@
 //  ProcessingPresetSection.swift
 //  Daisy
 //
-//  The «Обработка встреч» section in Settings → General: three plans
-//  side by side, each with the same four lines, so the difference reads
+//  The «Обработка встреч» section in Settings → Meetings: three plans
+//  side by side, each with the same lines, so the difference reads
 //  across a row instead of from four separate tabs. See ProcessingPreset.
+//
+//  S2 (Egor 24.10.2026): the rows a plan speaks for wear a «по плану»
+//  badge (`PlanBadge`) while the settings match it; a hand change there
+//  turns the cards to «Свой», a fourth card that links to those rows.
 //
 
 import SwiftUI
@@ -19,20 +23,16 @@ struct ProcessingPresetSection: View {
     var body: some View {
         let selected = ProcessingPreset.matching(settings)
         Section {
-            if selected == nil {
-                // No card is ticked — say so where the eye lands, not only
-                // in the caption under the switch.
-                Label {
-                    Text("Your own settings — none of the plans. Picking one replaces them.")
-                } icon: {
-                    Image(systemName: "slider.horizontal.3")
+            VStack(spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
+                    ForEach(ProcessingPreset.allCases) { preset in
+                        card(preset, isSelected: preset == selected)
+                    }
                 }
-                .font(.callout)
-                .foregroundStyle(Color.daisyTextPrimary)
-            }
-            HStack(alignment: .top, spacing: 10) {
-                ForEach(ProcessingPreset.allCases) { preset in
-                    card(preset, isSelected: preset == selected)
+                // No plan's rules hold: the fourth state, said where the
+                // eye lands, with the way back to what was changed.
+                if selected == nil {
+                    customCard
                 }
             }
             .padding(.vertical, 4)
@@ -71,8 +71,8 @@ struct ProcessingPresetSection: View {
     private func card(_ preset: ProcessingPreset, isSelected: Bool) -> some View {
         Button {
             // Nothing would change → no question to ask. The ticked card
-            // still asks when its side effects were undone by hand
-            // (screenshots back on after Economy): clicking it redoes them.
+            // still asks when Economy's side effect was undone by hand
+            // (processing on battery back on): clicking it redoes it.
             if changes(to: preset, from: ProcessingPreset.matching(settings)).isEmpty {
                 preset.apply(to: settings)
             } else {
@@ -127,6 +127,57 @@ struct ProcessingPresetSection: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
+    /// «Свой»: the settings keep no plan's rules. Not a button — there is
+    /// nothing to pick; the links lead to the rows a plan would set.
+    private var customCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text(String(localized: "plan.custom", defaultValue: "Custom"))
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(Color.daisyTextPrimary)
+                Spacer(minLength: 4)
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color.daisyAccent)
+            }
+            Text("Changed by hand — these are the rows a plan sets")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Divider()
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), alignment: .leading)],
+                      alignment: .leading, spacing: 4) {
+                ForEach(customLinks, id: \.self) { row in
+                    // A row on another tab says which, as search does.
+                    Button(row.tab == .meetings ? row.title : "\(row.title) · \(row.tab.title)") {
+                        AppNavigation.shared.openInSettings(row.tab, row: row)
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.daisySelectionBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.daisySelectionBorder, lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isSelected)
+    }
+
+    /// The rows a plan speaks for — the interval only while captures are
+    /// on, since its row is hidden otherwise.
+    private var customLinks: [SettingsRow] {
+        ProcessingPreset.Setting.allCases
+            .filter { $0 != .screenshotInterval || settings.screenshotsEnabled }
+            .map(\.row)
+    }
+
     /// What picking `preset` would change, one line each, in the cards'
     /// own words: «Живая транскрипция: Полная → Оптимальная».
     private func changes(to preset: ProcessingPreset, from current: ProcessingPreset?) -> [String] {
@@ -158,7 +209,7 @@ struct ProcessingPresetSection: View {
             break
         }
         if current == nil, !lines.isEmpty {
-            lines.append(String(localized: "Your own settings are replaced — you can tune them again under Transcription and Summary."))
+            lines.append(String(localized: "Your own settings are replaced — you can change them again in the rows marked “set by plan”."))
         }
         return lines
     }
@@ -182,16 +233,45 @@ struct ProcessingPresetSection: View {
             Row(label: String(localized: "Shared mic in the room"),
                 value: ProcessingPreset.roomLabel(v.diarizeMicrophone),
                 isOn: v.diarizeMicrophone),
-            // The Summary tab's "Second pass" toggle: names and terms
-            // fixed, and a guess at who each speaker is.
             Row(label: String(localized: "Screenshots"),
                 value: preset == .economy ? String(localized: "preset.screens.off", defaultValue: "Off")
                     : preset == .balanced ? String(localized: "Every 2 min at most")
-                    : String(localized: "As set in Recording"),
+                    : String(localized: "preset.screens.asIs", defaultValue: "As they are"),
                 isOn: preset != .economy),
+            // The AI tab's "Second pass" toggle: names and terms fixed,
+            // and a guess at who each speaker is.
             Row(label: String(localized: "Transcript refinement"),
                 value: ProcessingPreset.refineLabel(v.transcriptSecondPass),
                 isOn: v.transcriptSecondPass),
         ]
+    }
+}
+
+/// «по плану» beside a row a processing plan speaks for, while the
+/// settings keep that plan's rules; the tooltip names the plan. A hand
+/// change to the row breaks the match, the badge goes and the plan cards
+/// say «Свой» — the plan shown is always `ProcessingPreset.matching`.
+struct PlanBadge: View {
+    let setting: ProcessingPreset.Setting
+    let settings: AppSettings
+
+    init(_ setting: ProcessingPreset.Setting, settings: AppSettings) {
+        self.setting = setting
+        self.settings = settings
+    }
+
+    var body: some View {
+        if let plan = ProcessingPreset.matching(settings), plan.owns(setting) {
+            let help = String(localized: "Set by the “\(plan.title)” plan")
+            Text("set by plan")
+                .font(.caption2)
+                .foregroundStyle(Color.daisyTextSecondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
+                .background(Capsule().fill(Color.daisyTextSecondary.opacity(0.12)))
+                .fixedSize()
+                .help(help)
+                .accessibilityLabel(help)
+        }
     }
 }

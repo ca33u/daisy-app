@@ -193,6 +193,11 @@ final class ModelPreparation {
     }
 }
 
+/// The card at the top of Settings → Meetings and Dictation while a model
+/// the chosen engines need is missing or failed: what's going on and the
+/// one button. The choices it acts on — the meeting model, the dictation
+/// engine, speakers — are the rows below it, the single place to change
+/// them (Settings restructure S2, 24.10.2026).
 struct ModelPreparationView: View {
     @Bindable var settings: AppSettings
     @Bindable var preparation: ModelPreparation
@@ -200,30 +205,11 @@ struct ModelPreparationView: View {
     @Bindable private var whisper = WhisperEngine.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Prepare Daisy").font(.title2.weight(.semibold))
-            Text("Download the speech models, then let Daisy check that they work. If you’d rather not wait, skip for now — they finish in the background, and your first recording waits for them.")
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Prepare Daisy").font(.headline)
+            Text("Daisy needs its speech models on this Mac. Download them, and Daisy checks that they work.")
                 .foregroundStyle(.secondary)
-            if !settings.hasShownFirstRun {
-                Picker("Speech model", selection: $whisper.modelID) {
-                    ForEach(WhisperEngine.availableModels, id: \.id) { model in
-                        Text("\(model.label) · \(model.sizeMB) MB").tag(model.id)
-                    }
-                }
-                .disabled(preparation.isRunning)
-                Picker("Dictation engine", selection: $settings.dictationEngine) {
-                    Text(DictationEngine.whisper.displayName).tag(DictationEngine.whisper)
-                    Text(DictationEngine.parakeet.displayName).tag(DictationEngine.parakeet)
-                    if #available(macOS 26, *), settings.dictationEngine == .appleSpeech {
-                        Text(DictationEngine.appleSpeech.displayName).tag(DictationEngine.appleSpeech)
-                    }
-                }
-                .disabled(preparation.isRunning)
-                if includeSpeakers {
-                    Toggle("Separate speakers", isOn: $settings.diarizeRemoteSpeakers)
-                        .disabled(preparation.isRunning)
-                }
-            }
+                .fixedSize(horizontal: false, vertical: true)
             if preparation.isRunning {
                 Text(preparation.stage)
                 if case .downloading(let progress) = whisper.state {
