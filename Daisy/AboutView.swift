@@ -20,23 +20,17 @@
 //  The brand block sits borderless ABOVE the Form (a title header,
 //  not a boxed card) so the 56pt logo keeps room to breathe.
 //
+//  2026-10-24 (Settings restructure S3, Egor): About is only about the
+//  app now — version, What's New, the tour, links, licenses, the studio.
+//  Updates went to Settings → General; crash reports, «Help improve
+//  Daisy» and the logs to Settings → Privacy. No switches live here.
+//
 
 import AppKit
 import SwiftUI
 
 struct AboutView: View {
     let settings: AppSettings
-    @Bindable private var updater = SparkleUpdater.shared
-    /// `CrashReports.mode` (UserDefaults), written back on change.
-    @State private var crashReportsMode = CrashReports.mode
-    /// "Help improve Daisy" — read from the stored mode, so a «Help» on
-    /// Home shows here at once; set only by this switch (a «no» here is
-    /// never asked again).
-    @AppStorage(ImprovementStats.modeKey) private var improvementModeRaw = ImprovementStats.Mode.unasked.rawValue
-    private var helpsImprove: Binding<Bool> {
-        Binding(get: { improvementModeRaw == ImprovementStats.Mode.on.rawValue },
-                set: { ImprovementStats.setFromAbout($0) })
-    }
 
     var body: some View {
         Form {
@@ -56,10 +50,8 @@ struct AboutView: View {
                 Text("Support Daisy")
             }
 
-            // Updates lives directly under the version line — natural
-            // pairing of "what version am I on" and "how do I get newer
-            // ones". Apple's own About panels historically had this same
-            // adjacency.
+            // The version, what came with it, and the tour. The update
+            // controls that sat here are on Settings → General (S3).
             Section {
                 // Current version — name on the left, number + a copy button
                 // on the right. Click it to copy "Daisy <version> (<build>)"
@@ -87,8 +79,8 @@ struct AboutView: View {
                     }
                 }
 
-                // «What's New» again, by the update controls (Egor 23.10): the
-                // window that opened after the last update.
+                // «What's New» again (Egor 23.10): the window that opened
+                // after the last update. Also on Settings → General → Updates.
                 LabeledContent {
                     Button("Open") {
                         AppNavigation.shared.showsWhatsNew = true
@@ -121,46 +113,8 @@ struct AboutView: View {
                         Text(OnboardingCopy.text(.again))
                     }
                 }
-
-                // Automatic update — the auto-check toggle plus a manual
-                // "Check for Updates…" (same action as the App menu). Both
-                // controls regular-size so the switch matches the one below.
-                LabeledContent {
-                    HStack(spacing: 8) {
-                        Button(updater.checkOrInstallTitle) {
-                            updater.checkOrInstall()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .tint(Color.daisyTextPrimary)
-                        .disabled(!updater.canCheckOrInstall)
-
-                        Toggle("", isOn: $updater.automaticallyChecksForUpdates)
-                            .labelsHidden()
-                            // Nested in LabeledContent/HStack it loses the
-                            // Form-row context and defaults to .checkbox —
-                            // force .switch to match "Get beta updates" below.
-                            .toggleStyle(.switch)
-                    }
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "arrow.down.circle")
-                            .frame(width: 18)
-                            .foregroundStyle(.secondary)
-                        Text("Automatic update")
-                    }
-                }
-
-                Toggle(isOn: $updater.receiveBetaUpdates) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "testtube.2")
-                            .frame(width: 18)
-                            .foregroundStyle(.secondary)
-                        Text("Get beta updates")
-                    }
-                }
             } header: {
-                Text("Updates")
+                Text("Daisy")
             }
 
             Section {
@@ -243,103 +197,6 @@ struct AboutView: View {
                 Text("Links")
             }
 
-            // Same tester feedback channel as Help → "Send Log Report…":
-            // collects the last 24 h of Daisy's own logs + an environment
-            // header and opens a pre-addressed Mail compose (LogReporter).
-            Section {
-                LabeledContent {
-                    Button {
-                        LogReporter.sendReport(settings: settings)
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text("Send Log Report…")
-                            Image(systemName: "envelope")
-                                .font(.caption)
-                        }
-                        .foregroundStyle(Color.daisyAccent)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Report a bug: send a log report")
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "ladybug")
-                            .frame(width: 18)
-                            .foregroundStyle(.secondary)
-                        Text("Report a bug")
-                    }
-                }
-                // Second, EQUALLY visible path, and deliberately the dumb
-                // one: it produces the log file and nothing else.
-                // `canPerform` only proves Mail.app is installed, so the
-                // button above can drop a user into a compose window they
-                // can't send from (Ken, 2026-07-28 — mail lives in his
-                // browser). Named for what it hands you, because the
-                // previous "Save Log Report…" wording plus a clipboard
-                // side effect read as "copies a form" (Egor, 2026-07-28).
-                LabeledContent {
-                    Button {
-                        LogReporter.exportLogs(settings: settings)
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text("Export Logs…")
-                            Image(systemName: "arrow.down.doc")
-                                .font(.caption)
-                        }
-                        .foregroundStyle(Color.daisyAccent)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Export the last 24 hours of logs to a file")
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "doc.text")
-                            .frame(width: 18)
-                            .foregroundStyle(.secondary)
-                        Text("Just the log file")
-                    }
-                }
-            } header: {
-                Text("Feedback")
-            } footer: {
-                Text("Both cover the last 24 hours of Daisy's logs — diagnostics only, no transcript text. Nothing is sent automatically; review it first.")
-            }
-
-            // Crash reports only when the person sends one (backlog 27 С-2):
-            // after a crash Daisy asks, showing the whole report. "Never"
-            // doesn't start the crash reporter at all; takes effect on the
-            // next launch.
-            Section {
-                Picker(selection: $crashReportsMode) {
-                    Text("Ask every time").tag(CrashReports.Mode.ask)
-                    Text("Never send").tag(CrashReports.Mode.never)
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "exclamationmark.bubble")
-                            .frame(width: 18)
-                            .foregroundStyle(.secondary)
-                        Text("Crash reports")
-                    }
-                }
-                .onChange(of: crashReportsMode) { _, mode in CrashReports.mode = mode }
-            } footer: {
-                Text("After a crash, Daisy asks before sending anything and shows the whole report: where in the code it failed, the app and macOS versions and the Mac model. Never your meetings, names, files or devices. “Never send” applies from the next launch.")
-            }
-
-            // Anonymous feature counts, only with a yes (ImprovementStats).
-            Section {
-                Toggle(isOn: helpsImprove) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "chart.bar")
-                            .frame(width: 18)
-                            .foregroundStyle(.secondary)
-                        Text("Help improve Daisy")
-                    }
-                }
-                Button("What's sent") { ImprovementStats.showPreview() }
-                    .buttonStyle(.link)
-            } footer: {
-                Text("Once a day — anonymous counts of features and errors. No content, no identifier.")
-            }
-
             Section {
                 aboutLinkRow(
                     icon: "building.2",
@@ -391,7 +248,7 @@ struct AboutView: View {
             }
         } label: {
             // Leading icon (secondary) + title — matches the icon rows in
-            // Settings → Permissions (18pt icon column).
+            // Settings → Privacy (18pt icon column).
             HStack(spacing: 10) {
                 Image(systemName: icon)
                     .frame(width: 18)

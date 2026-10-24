@@ -161,26 +161,20 @@ enum SettingsTab: String, Hashable, Sendable, CaseIterable {
 
 /// Sub-section inside the Connections page. Lets external CTAs
 /// (FirstRun, Home destination prompts) deep-link to a specific
-/// card on the page — MCP server / Auto-routing.
+/// card on the page — Calendar / Auto-routing / MCP server.
 ///
-/// Calendar dropped in 1.0.4 — EventKit permission moved to
-/// Settings → Permissions and behaviour toggles to Settings →
-/// General. Notion briefly lived in Settings → General → Storage
-/// (1.0.5) but came back to Connections in 1.0.7.16 — it's an
-/// outbound send-to destination, so it renders as a "Notion" Section
-/// at the top of the Auto-routing tab rather than getting its own
-/// `ConnectionSection` case. Google Calendar OAuth UI is dormant
-/// pre-verification; when it returns it'll come back as its own case
-/// here.
+/// Notion briefly lived in Settings → General → Storage (1.0.5) but
+/// came back to Connections in 1.0.7.16 — it's an outbound send-to
+/// destination, so it renders as a "Notion" Section at the top of the
+/// Auto-routing tab rather than getting its own case.
 enum ConnectionSection: String, Hashable, Sendable {
-    case mcpServer
+    /// Where Daisy reads meetings from: Apple Calendar (EventKit) and
+    /// Google Calendar (OAuth), side by side. In Permissions from build
+    /// 42 until the Settings restructure (S3, Egor 24.10.2026) brought
+    /// them here — they are connections, not a macOS permission.
+    case calendar
     case autoRouting
-    // Google Calendar OAuth row moved to Settings → Permissions
-    // → Calendar in build 42 (2026-05-28). Both calendar sources
-    // (Apple via EventKit, Google via OAuth) now live side-by-side
-    // in Permissions so users see "where Daisy reads calendar data
-    // from" in one place. Connections is now strictly outbound
-    // integrations (auto-routing + MCP server).
+    case mcpServer
 }
 
 @Observable
@@ -635,7 +629,7 @@ struct MainView: View {
                 // putting it above Stop made the eye land on a label
                 // before the actionable button, which felt wrong.
                 // Muted when the user opted out of meeting-permission
-                // reminders (Settings → Permissions → "Don't remind me").
+                // reminders (Settings → Privacy → "Don't remind me").
                 if (session.status == .recording || session.status == .paused),
                    !settings.suppressMeetingPermissionReminders {
                     SystemAudioStatusPill(session: session)

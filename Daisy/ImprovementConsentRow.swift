@@ -14,7 +14,7 @@ import SwiftUI
 
 struct ImprovementConsentRow: View {
     // Read through @AppStorage so the row goes the moment it's answered,
-    // here or in About.
+    // here or in Settings → Privacy.
     @AppStorage(ImprovementStats.modeKey) private var modeRaw = ImprovementStats.Mode.unasked.rawValue
     @AppStorage(ImprovementStats.notNowCountKey) private var notNowCount = 0
     @AppStorage(ImprovementStats.offByChoiceKey) private var offByChoice = false

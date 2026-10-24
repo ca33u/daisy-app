@@ -13,8 +13,11 @@
 //
 //  Raw values are `<tab>.<row>` — deep links and any saved reference go
 //  through them. Moving a row to another tab changes `tab` and the
-//  prefix together; the test checks they agree. S2 moved «Summarize»
-//  (ai.summaryTiming → meetings.summaryTiming).
+//  prefix together; the test checks they agree, and the old id goes into
+//  `movedIDs` so it still resolves. S2 moved «Summarize»
+//  (ai.summaryTiming → meetings.summaryTiming); S3 moved the calendar
+//  rows from Privacy to Connections and brought Updates, crash reports,
+//  the improvement counts and the logs out of About.
 //
 
 import SwiftUI
@@ -28,6 +31,9 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
     case floatingWidget = "general.floatingWidget"
     case menuBarNextMeeting = "general.menuBarNextMeeting"
     case notifications = "general.notifications"
+    case autoUpdate = "general.autoUpdate"
+    case betaChannel = "general.betaChannel"
+    case whatsNew = "general.whatsNew"
 
     // Shortcuts
     case recordHotkey = "shortcuts.record"
@@ -97,6 +103,8 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
     case downloadModels = "library.downloadModels"
 
     // Connections
+    case calendarApple = "connections.calendarApple"
+    case calendarGoogle = "connections.calendarGoogle"
     case notion = "connections.notion"
     case mcpServer = "connections.mcpServer"
 
@@ -104,14 +112,30 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
     case microphoneAccess = "privacy.microphone"
     case accessibility = "privacy.accessibility"
     case screenRecording = "privacy.screenRecording"
-    case calendarApple = "privacy.calendarApple"
-    case calendarGoogle = "privacy.calendarGoogle"
     case notificationPermission = "privacy.notifications"
+    case improveDaisy = "privacy.improveDaisy"
+    case crashReports = "privacy.crashReports"
+    case logReport = "privacy.logReport"
+
+    /// Ids a row answered to before it moved, so a link or a saved
+    /// reference written then still lands.
+    static let movedIDs: [String: String] = [
+        "ai.summaryTiming": "meetings.summaryTiming",
+        "privacy.calendarApple": "connections.calendarApple",
+        "privacy.calendarGoogle": "connections.calendarGoogle",
+    ]
+
+    /// The current id, or one the row had before it moved.
+    init?(rawValue: String) {
+        let id = Self.movedIDs[rawValue] ?? rawValue
+        guard let row = Self.allCases.first(where: { $0.rawValue == id }) else { return nil }
+        self = row
+    }
 
     var tab: SettingsTab {
         switch self {
         case .displayName, .interfaceLanguage, .theme, .compactMenuBar, .floatingWidget,
-             .menuBarNextMeeting, .notifications:
+             .menuBarNextMeeting, .notifications, .autoUpdate, .betaChannel, .whatsNew:
             .general
         case .recordHotkey, .dictationHotkey, .daisyKey, .markMomentHotkey, .repasteHotkey,
              .daisyKeyMeetingCommands, .sideNotesLeaveMeeting, .daisyKeyCloudGrants:
@@ -132,10 +156,10 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
         case .recordingsFolder, .spaceUsed, .deleteAudioFiles, .deleteRecordings, .audioStorage,
              .defaultMeetingProject, .defaultNoteProject, .iCloudSync, .speechModels, .downloadModels:
             .library
-        case .notion, .mcpServer:
+        case .calendarApple, .calendarGoogle, .notion, .mcpServer:
             .connections
-        case .microphoneAccess, .accessibility, .screenRecording, .calendarApple, .calendarGoogle,
-             .notificationPermission:
+        case .microphoneAccess, .accessibility, .screenRecording, .notificationPermission,
+             .improveDaisy, .crashReports, .logReport:
             .privacy
         }
     }
@@ -153,6 +177,9 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
         case .floatingWidget: "Floating widget"
         case .menuBarNextMeeting: "Show next meeting in the menu bar"
         case .notifications: "Notifications"
+        case .autoUpdate: "Automatic update"
+        case .betaChannel: "Get beta updates"
+        case .whatsNew: "What’s New in Daisy"
         case .recordHotkey: "Record a meeting"
         case .dictationHotkey: "Dictation"
         case .daisyKey: "Daisy key"
@@ -218,6 +245,9 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
         case .calendarApple: "Calendar (Apple)"
         case .calendarGoogle: "Calendar (Google)"
         case .notificationPermission: "Notifications"
+        case .improveDaisy: "Help improve Daisy"
+        case .crashReports: "Crash reports"
+        case .logReport: "Report a bug"
         }
     }
 
@@ -266,10 +296,11 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
         isShown(switches) ? self : (standIn ?? self)
     }
 
-    /// The Connections page keeps two forms behind its own switch; a row
+    /// The Connections page keeps three forms behind its own switch; a row
     /// there names the one it lives on so a link can switch to it first.
     var connectionSection: ConnectionSection? {
         switch self {
+        case .calendarApple, .calendarGoogle: .calendar
         case .notion: .autoRouting
         case .mcpServer: .mcpServer
         default: nil

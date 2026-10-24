@@ -311,7 +311,7 @@ struct ContentView: View {
         switch session.systemAudioStatus {
         case .denied, .failed:
             // Muted when the user opted out of meeting-permission
-            // reminders (Settings → Permissions → "Don't remind me").
+            // reminders (Settings → Privacy → "Don't remind me").
             if !settings.suppressMeetingPermissionReminders {
                 SystemAudioStatusPill(session: session)
                     .padding(.horizontal, 16)
@@ -389,7 +389,7 @@ struct ContentView: View {
         Menu {
             if CalendarService.shared.authorizationStatus != .fullAccess {
                 Button {
-                    AppNavigation.shared.openInSettings(.privacy, row: .calendarApple)
+                    AppNavigation.shared.openInSettings(.connections, row: .calendarApple)
                     openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)
                 } label: {

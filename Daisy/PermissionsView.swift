@@ -2,11 +2,12 @@
 //  PermissionsView.swift
 //  Daisy
 //
-//  Dashboard for the four system privacy permissions Daisy uses.
-//  Lives as a tab inside Settings (`SettingsTab.permissions`) because
-//  it's about local OS-level access — not external service
-//  integrations. Granola / Wispr Flow / MacWhisper put their
-//  permission panes in Settings too; this matches macOS convention.
+//  The Privacy tab of Settings: the macOS permissions Daisy uses, then
+//  what leaves the Mac — the improvement counts and crash reports — and
+//  the logs (Settings restructure S3, Egor 24.10.2026: those three came
+//  from About; the calendar rows went to Connections). Granola / Wispr
+//  Flow / MacWhisper put their permission panes in Settings too; this
+//  matches macOS convention.
 //
 //  Each row encodes status as a coloured badge + caption + action
 //  button (Request access for `.notDetermined`, Open System
@@ -32,23 +33,22 @@ struct PermissionsView: View {
     @State private var checkingSystemAudio = false
     @State private var showsTapSheet = false
 
-    /// Observable Google account state — moved here from
-    /// `ConnectionsView` in build 42 (2026-05-28). Drives the
-    /// Connect / Disconnect button labels and the connected-as email
-    /// row in the Google Calendar permission row.
-    @Bindable private var googleAccount = GoogleAccountStore.shared
-    /// True while the OAuth flow is in flight (Safari hands off to
-    /// our loopback listener and back). Disables Connect to stop
-    /// double-clicks from spawning two browser windows.
-    @State private var googleConnecting: Bool = false
-    /// Most-recent OAuth error message, surfaced inline below the
-    /// Google Calendar row so the user can see exactly what Google
-    /// returned.
-    @State private var googleConnectError: String?
+    /// `CrashReports.mode` (UserDefaults), written back on change.
+    @State private var crashReportsMode = CrashReports.mode
+    /// "Help improve Daisy" — read from the stored mode, so a «Help» on
+    /// Home shows here at once; set only by this switch (a «no» here is
+    /// never asked again).
+    @AppStorage(ImprovementStats.modeKey) private var improvementModeRaw = ImprovementStats.Mode.unasked.rawValue
+    private var helpsImprove: Binding<Bool> {
+        Binding(get: { improvementModeRaw == ImprovementStats.Mode.on.rawValue },
+                set: { ImprovementStats.setFromAbout($0) })
+    }
 
     var body: some View {
         Form {
             permissionsSection
+            leavesTheMacSection
+            logsSection
         }
         .formStyle(.grouped)
         .settingsScrollTarget(.privacy, settings: settings)
@@ -64,7 +64,7 @@ struct PermissionsView: View {
     private var permissionsSection: some View {
         // ── For dictation: the minimum to dictate ─────────────
         Section {
-            permissionRow(
+            PermissionStatusRow(
                 title: String(localized: "Microphone"),
                 caption: String(localized: "Captures your voice"),
                 iconName: "mic.fill",
@@ -75,7 +75,7 @@ struct PermissionsView: View {
             )
                 .settingsRow(.microphoneAccess)
 
-            permissionRow(
+            PermissionStatusRow(
                 title: String(localized: "Accessibility"),
                 caption: String(localized: "Lets dictation paste into any app"),
                 iconName: "keyboard",
@@ -110,7 +110,7 @@ struct PermissionsView: View {
             if ProcessTapPermission.isAvailable {
                 systemAudioRow
             }
-            permissionRow(
+            PermissionStatusRow(
                 title: String(localized: "Screen Recording"),
                 caption: ProcessTapPermission.isAvailable
                     ? String(localized: "Captures the other side when System Audio Recording isn’t allowed")
@@ -123,21 +123,7 @@ struct PermissionsView: View {
             )
                 .settingsRow(.screenRecording)
 
-            permissionRow(
-                title: String(localized: "Calendar (Apple)"),
-                caption: String(localized: "Auto-starts recording at meeting times"),
-                iconName: "calendar",
-                isRequired: false,
-                status: permissions.calendar,
-                requestAction: { Task { await permissions.requestCalendar() } },
-                openSettings: permissions.openCalendarSettings
-            )
-                .settingsRow(.calendarApple)
-
-            // Google Calendar — OAuth row, same "calendar source"
-            // mental model as Apple Calendar, sat side-by-side.
-            googleCalendarRow
-                .settingsRow(.calendarGoogle)
+            // The calendars are on Connections → Calendar since S3.
 
             // "Don't remind me" — mutes Daisy's in-app warning when a
             // recording isn't capturing the other side. The macOS
@@ -155,7 +141,7 @@ struct PermissionsView: View {
 
         // ── Notifications ─────────────────────────────────────
         Section {
-            permissionRow(
+            PermissionStatusRow(
                 title: String(localized: "Notifications"),
                 caption: String(localized: "Banner when Daisy auto-starts or saves"),
                 iconName: "bell",
@@ -168,10 +154,99 @@ struct PermissionsView: View {
         } header: {
             Text("Notifications")
         }
-
     }
 
-    // MARK: - Row
+    // MARK: - What leaves the Mac (from About, S3)
+
+    @ViewBuilder
+    private var leavesTheMacSection: some View {
+        Section {
+            // Anonymous feature counts, only with a yes (ImprovementStats).
+            Toggle(isOn: helpsImprove) {
+                Text("Help improve Daisy")
+                Text("Once a day — anonymous counts of features and errors. No content, no identifier.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .settingsRow(.improveDaisy)
+            Button("What's sent") { ImprovementStats.showPreview() }
+                .buttonStyle(.link)
+
+            // Crash reports only when the person sends one (backlog 27
+            // С-2): after a crash Daisy asks, showing the whole report.
+            // "Never" doesn't start the crash reporter at all; takes
+            // effect on the next launch.
+            Picker(selection: $crashReportsMode) {
+                Text("Ask every time").tag(CrashReports.Mode.ask)
+                Text("Never send").tag(CrashReports.Mode.never)
+            } label: {
+                Text("Crash reports")
+                Text("After a crash, Daisy asks before sending anything and shows the whole report: where in the code it failed, the app and macOS versions and the Mac model. Never your meetings, names, files or devices. “Never send” applies from the next launch.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .onChange(of: crashReportsMode) { _, mode in CrashReports.mode = mode }
+            .settingsRow(.crashReports)
+        } header: {
+            Text("What leaves your Mac")
+        }
+    }
+
+    // MARK: - Logs (from About's «Feedback», S3)
+
+    /// Same tester feedback channel as Help → "Send Log Report…":
+    /// collects the last 24 h of Daisy's own logs + an environment header
+    /// and opens a pre-addressed Mail compose (LogReporter).
+    @ViewBuilder
+    private var logsSection: some View {
+        Section {
+            LabeledContent {
+                Button {
+                    LogReporter.sendReport(settings: settings)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("Send Log Report…")
+                        Image(systemName: "envelope")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(Color.daisyAccent)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Report a bug: send a log report")
+            } label: {
+                Text("Report a bug")
+            }
+            .settingsRow(.logReport)
+            // Second, EQUALLY visible path, and deliberately the dumb
+            // one: it produces the log file and nothing else.
+            // `canPerform` only proves Mail.app is installed, so the
+            // button above can drop a user into a compose window they
+            // can't send from (Ken, 2026-07-28 — mail lives in his
+            // browser). Named for what it hands you, because the
+            // previous "Save Log Report…" wording plus a clipboard
+            // side effect read as "copies a form" (Egor, 2026-07-28).
+            LabeledContent {
+                Button {
+                    LogReporter.exportLogs(settings: settings)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("Export Logs…")
+                        Image(systemName: "arrow.down.doc")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(Color.daisyAccent)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Export the last 24 hours of logs to a file")
+            } label: {
+                Text("Just the log file")
+            }
+        } header: {
+            Text("Logs")
+        } footer: {
+            Text("Both cover the last 24 hours of Daisy's logs — diagnostics only, no transcript text. Nothing is sent automatically; review it first.")
+        }
+    }
 
     // MARK: - System Audio Recording row (process tap, 24.09)
 
@@ -234,116 +309,31 @@ struct PermissionsView: View {
         ProcessTapPermission.record(result)
         systemAudio = ProcessTapPermission.state
     }
+}
 
-    // MARK: - Google Calendar row (OAuth, custom shape)
+// MARK: - Permission row
 
-    /// Google Calendar permission row — OAuth flow instead of the
-    /// EventKit Request/Settings rhythm. Mimics the visual structure
-    /// of `permissionRow` (SF Symbol + title + caption on the left,
-    /// action on the right) so it reads as "another permission row",
-    /// but the action button toggles between Connect (PKCE-loopback
-    /// OAuth) and Disconnect (revoke token), and there's a
-    /// connected-as email surfaced when connected.
-    @ViewBuilder
-    private var googleCalendarRow: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: googleAccount.isConnected ? "checkmark.seal.fill" : "calendar.badge.plus")
-                .font(.callout)
-                .foregroundStyle(googleAccount.isConnected ? Color.daisySuccess : .secondary)
-                .frame(width: 18)
-                .padding(.top, 2)
+/// One row in the permissions dashboard — here, and Apple Calendar on
+/// Connections. SF Symbol + title + caption on the left, then the action
+/// button. The status itself is communicated by two existing signals —
+/// icon colour (green = granted, red/orange = needs attention, secondary
+/// = idle) and the action button's text (Request / Open Settings… /
+/// Revoke…) — so the explicit "Granted / Not requested" pill in between
+/// was redundant visual noise. Removed in 1.0.5.
+struct PermissionStatusRow: View {
+    let title: String
+    let caption: String
+    let iconName: String
+    let isRequired: Bool
+    let status: SystemPermissions.Status
+    let requestAction: () -> Void
+    let openSettings: () -> Void
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Calendar (Google)")
-                    .font(.callout.weight(.medium))
-                if googleAccount.isConnected, let email = googleAccount.email {
-                    Text("Connected as \(email)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Read-only access to your calendar events")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if let err = googleConnectError {
-                    Text(err)
-                        .font(.caption)
-                        .foregroundStyle(Color.daisyError)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            if googleAccount.isConnected {
-                Button(role: .destructive) {
-                    Task {
-                        await googleAccount.disconnect()
-                        googleConnectError = nil
-                    }
-                } label: {
-                    Text("Disconnect")
-                }
-                .controlSize(.small)
-            } else {
-                Button {
-                    Task { await runOAuthConnect() }
-                } label: {
-                    if googleConnecting {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text("Connect")
-                    }
-                }
-                .controlSize(.small)
-                .disabled(googleConnecting)
-            }
-        }
-    }
-
-    /// Run the PKCE-loopback OAuth flow + persist the result via
-    /// `GoogleAccountStore`. Surfaces any thrown error inline so the
-    /// user can see exactly what Google returned (was useful during
-    /// the verification recording attempt; still useful for
-    /// debugging "I clicked Connect and nothing happened" reports).
-    private func runOAuthConnect() async {
-        googleConnecting = true
-        googleConnectError = nil
-        defer { googleConnecting = false }
-        do {
-            let result = try await GoogleOAuthClient.connect()
-            googleAccount.save(connect: result)
-        } catch {
-            googleConnectError = error.localizedDescription
-        }
-    }
-
-    // MARK: - Voice Memos Full Disk Access row
-
-    // MARK: - Generic permission row
-
-    /// One row in the permissions dashboard. SF Symbol + title +
-    /// caption on the left, then the action button. The status itself
-    /// is communicated by two existing signals — icon colour (green
-    /// = granted, red/orange = needs attention, secondary = idle)
-    /// and the action button's text (Request / Open Settings… /
-    /// Revoke…) — so the explicit "Granted / Not requested" pill
-    /// in between was redundant visual noise. Removed in 1.0.5.
-    @ViewBuilder
-    private func permissionRow(
-        title: String,
-        caption: String,
-        iconName: String,
-        isRequired: Bool,
-        status: SystemPermissions.Status,
-        requestAction: @escaping () -> Void,
-        openSettings: @escaping () -> Void
-    ) -> some View {
+    var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: iconName)
                 .font(.callout)
-                .foregroundStyle(iconColor(status: status, isRequired: isRequired))
+                .foregroundStyle(iconColor)
                 .frame(width: 18)
                 .padding(.top, 2)
 
@@ -358,22 +348,13 @@ struct PermissionsView: View {
 
             Spacer(minLength: 12)
 
-            actionButton(
-                status: status,
-                requestAction: requestAction,
-                openSettings: openSettings
-            )
+            actionButton
         }
         .font(.callout)
         .padding(.vertical, 4)
     }
 
-    // MARK: - Cell pieces
-
-    private func iconColor(
-        status: SystemPermissions.Status,
-        isRequired: Bool
-    ) -> Color {
+    private var iconColor: Color {
         switch status {
         case .granted:                       return Color.daisySuccess
         case .denied, .restricted:           return isRequired ? Color.daisyError : Color.daisyWarning
@@ -382,19 +363,12 @@ struct PermissionsView: View {
         }
     }
 
-    // statusBadge(...) removed in 1.0.5 — row state is communicated
-    // by `iconColor(status:isRequired:)` on the leading SF Symbol +
-    // the action button's text (Request / Open Settings… / Revoke…).
-    // Section header still surfaces "Required permission missing"
-    // when needsAttention, which is the overall warning a user
-    // glancing at Settings actually needs.
+    // The section header still surfaces "Required permission missing"
+    // when needsAttention, which is the overall warning a user glancing
+    // at Settings actually needs.
 
     @ViewBuilder
-    private func actionButton(
-        status: SystemPermissions.Status,
-        requestAction: @escaping () -> Void,
-        openSettings: @escaping () -> Void
-    ) -> some View {
+    private var actionButton: some View {
         switch status {
         case .notDetermined:
             Button("Request") { requestAction() }
