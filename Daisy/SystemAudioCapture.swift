@@ -1397,11 +1397,20 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                 routeFlipRebuilds = 0
                 routeFlipGaveUpOn = nil
             case .rebuildTap, .freshBuild:
-                let fresh = action == .freshBuild
+                let freshHost: RouteFlipCheck.FreshHost?
+                if case .freshBuild(let host) = action { freshHost = host } else { freshHost = nil }
                 routeFlipRebuilds += 1
-                log.warning("Tap silent \(Int(RouteFlipCheck.window), privacy: .public) s after the route change on \(route.description, privacy: .public) (\(tapLine, privacy: .public)) — \(fresh ? "fresh build" : "rebuilding in place", privacy: .public) (\(self.routeFlipRebuilds, privacy: .public)/\(RouteFlipCheck.maxRebuilds, privacy: .public))")
+                let how: String
+                switch freshHost {
+                case nil: how = "rebuilding in place"
+                case .preferred: how = "fresh build"
+                case .defaultOutput: how = "fresh build on the default output"
+                }
+                log.warning("Tap silent \(Int(RouteFlipCheck.window), privacy: .public) s after the route change on \(route.description, privacy: .public) (\(tapLine, privacy: .public)) — \(how, privacy: .public) (\(self.routeFlipRebuilds, privacy: .public)/\(RouteFlipCheck.maxRebuilds, privacy: .public))")
                 outputRestartInFlight = true
-                let ok = await rebuildStream(reason: "silent-after-route-change", fresh: fresh)
+                // A default output that can't host falls back to the
+                // built-in output inside `rebuildStream`.
+                let ok = await rebuildStream(reason: "silent-after-route-change", fresh: freshHost != nil, freshHost: freshHost ?? .preferred)
                 outputRestartInFlight = false
                 lastOutputRestartAt = Date()
                 log.notice("Rebuild of a tap silent after a route change: \(ok ? "ok" : "failed", privacy: .public)")
@@ -1855,7 +1864,8 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// resolved again and the tap's own format, `ingest` converting into
     /// the archive's (24.10). The scope stays the session's. No effect on
     /// ScreenCaptureKit, whose every build is fresh.
-    private func rebuildStream(reason: String, fresh: Bool = false) async -> Bool {
+    /// `freshHost`: where a fresh build hosts the aggregate.
+    private func rebuildStream(reason: String, fresh: Bool = false, freshHost: RouteFlipCheck.FreshHost = .preferred) async -> Bool {
         let generation = captureGeneration
         // Tear down the current engine cleanly. Failures here don't block
         // the rebuild — we'll just have a dangling stream the kernel
@@ -1863,12 +1873,34 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         // already dead; stopCapture then throws and that's fine.)
         await teardownEngine(reason: "rebuild (\(reason))")
         if fresh, backend == .processTap {
-            tapHostUID = nil
+            switch freshHost {
+            case .preferred:
+                tapHostUID = nil
+            case .defaultOutput:
+                tapHostUID = RouteFlipCheck.defaultOutputHostUID(
+                    defaultOutputUID: ProcessTapAudioCapture.defaultOutputDevice()?.uid,
+                    builtInUID: ProcessTapAudioCapture.builtInOutputDevice()?.uid)
+            }
             tapPinsFormat = false
         }
 
         do {
-            let engine = try await makeEngine()
+            let engine: Engine
+            var fellBackToPreferredHost = false
+            do {
+                engine = try await makeEngine()
+            } catch where backend == .processTap && generation == captureGeneration
+                        && tapHostUID != nil && tapHostUID != ProcessTapAudioCapture.builtInOutputDevice()?.uid {
+                // A host other than the built-in output — the default
+                // output after a route flip — may not host an aggregate (a
+                // Multi-Output Device) or not in the tap's layout (review
+                // 24.10). The built-in output then, fresh, not no tap.
+                log.warning("Process tap build (\(reason, privacy: .public)) on another host failed (\(error.localizedDescription, privacy: .public)) — fresh build on the preferred host")
+                tapHostUID = nil
+                tapPinsFormat = false
+                fellBackToPreferredHost = true
+                engine = try await makeEngine()
+            }
             // Did Stop/Pause land while we were building? Then this
             // engine must not be adopted — kill it here or it captures
             // forever, unreferenced.
@@ -1892,6 +1924,11 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             // remote side has been heard, that fact stands for the
             // session; the fresh-start reset still zeroes it.
             log.info("System audio capture rebuilt (\(reason, privacy: .public)\(fresh ? ", fresh" : "", privacy: .public), backend=\(self.backend.rawValue, privacy: .public))")
+            if fresh || fellBackToPreferredHost, let t = tap {
+                let asked = fellBackToPreferredHost ? "the preferred host, after the other one failed"
+                    : freshHost == .defaultOutput ? "the default output" : "the preferred host"
+                log.notice("Fresh build hosted on \(t.hostDeviceName, privacy: .public) (\(asked, privacy: .public))")
+            }
             return true
         } catch {
             log.error("System audio capture rebuild (\(reason, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
@@ -2582,10 +2619,11 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
 /// format both pinned from the call-mode route — and then the budget was
 /// gone: the move to the built-in speakers two minutes later, and the
 /// resume after a pause, got no attempt. So the second attempt is a fresh
-/// build (host resolved again, the tap's own format, the archive
-/// converting into its format), the first one too when the route moved
-/// the output's sample rate or transport, and a later move to another
-/// output device opens a new ladder.
+/// build hosted on the current default output (the tap's own format, the
+/// archive converting into its format), the first one a fresh build on
+/// the built-in output when the route moved the output's sample rate or
+/// transport, and a later move to another output device opens a new
+/// ladder.
 nonisolated enum RouteFlipCheck {
     /// Long enough for a sentence from the other side after a mute flip,
     /// short enough that a lost half hour never happens again.
@@ -2597,10 +2635,19 @@ nonisolated enum RouteFlipCheck {
         /// A new tap and aggregate on the session's host, pinned to the
         /// session's format.
         case rebuildTap
-        /// A new tap and aggregate as a fresh start would build them: the
-        /// host resolved again, the tap's own format.
-        case freshBuild
+        /// A new tap and aggregate, the tap's own format, on `host`.
+        case freshBuild(FreshHost)
         case giveUp
+    }
+
+    /// Where a fresh build hosts its aggregate.
+    enum FreshHost: Equatable {
+        /// As a fresh start would: the built-in output.
+        case preferred
+        /// The current default output — the headset itself after a flip.
+        /// The second attempt: the first, on the built-in output, already
+        /// ran into the same host as every in-place rebuild (review 24.10).
+        case defaultOutput
     }
 
     /// The parts of the default output a tap cares about.
@@ -2621,7 +2668,16 @@ nonisolated enum RouteFlipCheck {
     static func decide(changedAt: Date, lastAudibleAt: Date?, rebuilds: Int, clockChanged: Bool) -> Action {
         if let lastAudibleAt, lastAudibleAt > changedAt { return .keep }
         guard rebuilds < maxRebuilds else { return .giveUp }
-        return rebuilds > 0 || clockChanged ? .freshBuild : .rebuildTap
+        if rebuilds > 0 { return .freshBuild(.defaultOutput) }
+        return clockChanged ? .freshBuild(.preferred) : .rebuildTap
+    }
+
+    /// The host UID a fresh build on the default output asks for: the
+    /// default output, or the built-in one when there is no default. nil:
+    /// neither — the engine resolves its preferred host.
+    static func defaultOutputHostUID(defaultOutputUID: String?, builtInUID: String?) -> String? {
+        if let defaultOutputUID, !defaultOutputUID.isEmpty { return defaultOutputUID }
+        return builtInUID
     }
 
     /// A route change after the ladder gave up: another output device
