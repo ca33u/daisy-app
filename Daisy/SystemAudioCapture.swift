@@ -170,6 +170,16 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// Tap rebuilds this capture because the tap was silent after a
     /// route change; capped by `RouteFlipCheck.maxRebuilds`.
     private var routeFlipRebuilds = 0
+    /// The route the ladder last gave up on; a change to another route
+    /// opens a new ladder (24.10).
+    private var routeFlipGaveUpOn: RouteFlipCheck.RouteShape?
+    /// The default output when the live tap was built, to tell a route
+    /// change that moved the output's clock from one that didn't.
+    private var tapBuiltOnRoute: RouteFlipCheck.RouteShape?
+    /// Whether a tap build pins its format to the session's first one.
+    /// True until a fresh build (24.10): from then on the tap delivers its
+    /// own format and `ingest` converts into the archive's.
+    private var tapPinsFormat = true
     /// Seconds of silence the reopened archive starts with, so the
     /// timeline survives the switch. Touched on `outputQueue` only.
     nonisolated(unsafe) private var pendingLeadingSilence: TimeInterval = 0
@@ -276,6 +286,21 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// other side» until the end of a meeting that was recording fine).
     private var lossToastID: UUID?
     var lossNoticeShownForTesting: Bool { gaveUpNoticeShown }
+    /// Tests: archive `buffers` into `url` through `ingest`, as a running
+    /// capture would, and return the frames written.
+    func archiveForTesting(_ buffers: [AVAudioPCMBuffer], into url: URL) -> UInt64 {
+        outputQueue.sync {
+            archiveURL = url
+            archiveWriter = nil
+            archiveLeadTaken = true
+        }
+        for buffer in buffers { outputQueue.sync { ingest(buffer) } }
+        return outputQueue.sync {
+            archiveWriter = nil
+            archiveURL = nil
+            return archiveFramesWritten
+        }
+    }
     var lossToastIDForTesting: UUID? { lossToastID }
     /// Told once when a capture that had given up is live again, so the
     /// session can say so — the person was already told they'd lost the
@@ -386,6 +411,12 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     /// same queue when a rebuild has to pin the new engine to the format
     /// the session started in. Cleared on a fresh start only.
     nonisolated(unsafe) private var deliveredFormat: AVAudioFormat?
+
+    /// Converts buffers whose format differs from the open archive's into
+    /// it, so a tap built fresh mid-recording (its own rate, 24.10) keeps
+    /// writing one contiguous file. On `outputQueue` only; remade when the
+    /// incoming format changes.
+    nonisolated(unsafe) private var archiveConverter: AVAudioConverter?
 
     /// File URL to archive the captured system audio into. Set in
     /// `start(archiveURL:)`; the audio render callback lazily opens
@@ -498,6 +529,8 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             tapStallRebuilds = 0
             lastRouteChangeAt = nil
             routeFlipRebuilds = 0
+            routeFlipGaveUpOn = nil
+            tapPinsFormat = true
             gapStartedAt = nil
             displayReturnPausedBySession = false
             silenceWarningFired = false
@@ -518,6 +551,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                 pendingLeadingSilence = 0
                 archiveLastFrameEnd = 0
                 archiveResumePending = false
+                archiveConverter = nil
             }
             // Backend, tap scope and tap host are all fresh-start
             // decisions (see `backend` / `tapScope`).
@@ -532,6 +566,16 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                 ProcessTapDebugFlag.lastActiveBackend = backend.rawValue
                 ProcessTapDebugFlag.lastTapHostDevice = nil
             }
+        } else {
+            // Resume builds a tap the way a fresh start does (24.10: the
+            // tap built on resume after the AirPods flip, host and format
+            // still pinned from the call-mode route, delivered nothing,
+            // and the stall budget was long spent). The archive converts.
+            tapHostUID = nil
+            tapPinsFormat = false
+            tapStallRebuilds = 0
+            routeFlipRebuilds = 0
+            routeFlipGaveUpOn = nil
         }
         if quietDiagnostics {
             guard !Self.recordingCaptureActive else {
@@ -691,6 +735,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         case .processTap(let t):
             tap = t
             stream = nil
+            tapBuiltOnRoute = Self.outputRoute().shape
             watchTapDelivery(t)
             if !quietDiagnostics {
                 ProcessTapDebugFlag.lastTapHostDevice = t.hostDeviceName
@@ -768,7 +813,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             tapScope = scope
         }
 
-        let pinnedAudioFormat = outputQueue.sync { deliveredFormat }
+        let pinnedAudioFormat = tapPinsFormat ? outputQueue.sync { deliveredFormat } : nil
         let engine = ProcessTapAudioCapture(
             scope: scope,
             requestedHostUID: tapHostUID,
@@ -1132,6 +1177,10 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         // describes the HAL endpoint, not the downstream headphones.
         var virtualDriver: String? = nil
 
+        var shape: RouteFlipCheck.RouteShape {
+            RouteFlipCheck.RouteShape(deviceID: deviceID, sampleRate: sampleRate, bluetooth: bluetooth)
+        }
+
         var description: String {
             let endpoint = "\(name) [\(deviceID)] \(Int(sampleRate)) Hz × \(outputChannels)\(bluetooth ? " BT" : "")"
             if let virtualDriver { return "\(endpoint) virtual=\(virtualDriver) downstream=unknown" }
@@ -1307,9 +1356,11 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             log.info("Tap after 3 s: \(t.diagnosticsLine, privacy: .public)")
             guard t.buffersDelivered == 0, !outputRestartInFlight, tapStallRebuilds < 2 else { return }
             tapStallRebuilds += 1
-            log.warning("Process tap delivered nothing in 3 s (\(t.diagnosticsLine, privacy: .public)) — rebuilding")
+            log.warning("Process tap delivered nothing in 3 s (\(t.diagnosticsLine, privacy: .public)) — fresh build")
             outputRestartInFlight = true
-            let ok = await rebuildStream(reason: "tap-delivered-nothing")
+            // Fresh, not in place (24.10): the same host and pinned format
+            // again is what the tap that just delivered nothing had.
+            let ok = await rebuildStream(reason: "tap-delivered-nothing", fresh: true)
             outputRestartInFlight = false
             lastOutputRestartAt = Date()
             log.notice("Rebuild of a stalled tap: \(ok ? "ok" : "failed", privacy: .public)")
@@ -1335,7 +1386,8 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                   lastRouteChangeAt == changedAt, backend == .processTap, !outputRestartInFlight else { return }
             let route = Self.outputRoute()
             let action = RouteFlipCheck.decide(
-                changedAt: changedAt, lastAudibleAt: lastAudibleSampleAt, rebuilds: routeFlipRebuilds)
+                changedAt: changedAt, lastAudibleAt: lastAudibleSampleAt, rebuilds: routeFlipRebuilds,
+                clockChanged: RouteFlipCheck.clockChanged(from: tapBuiltOnRoute, to: route.shape))
             let tapLine = tap?.diagnosticsLine ?? "no tap"
             switch action {
             case .keep:
@@ -1343,11 +1395,13 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                 // A tap proven alive earns the full budget back: the next
                 // silent flip, an hour on, is rescued too.
                 routeFlipRebuilds = 0
-            case .rebuildTap:
+                routeFlipGaveUpOn = nil
+            case .rebuildTap, .freshBuild:
+                let fresh = action == .freshBuild
                 routeFlipRebuilds += 1
-                log.warning("Tap silent \(Int(RouteFlipCheck.window), privacy: .public) s after the route change on \(route.description, privacy: .public) (\(tapLine, privacy: .public)) — rebuilding (\(self.routeFlipRebuilds, privacy: .public)/\(RouteFlipCheck.maxRebuilds, privacy: .public))")
+                log.warning("Tap silent \(Int(RouteFlipCheck.window), privacy: .public) s after the route change on \(route.description, privacy: .public) (\(tapLine, privacy: .public)) — \(fresh ? "fresh build" : "rebuilding in place", privacy: .public) (\(self.routeFlipRebuilds, privacy: .public)/\(RouteFlipCheck.maxRebuilds, privacy: .public))")
                 outputRestartInFlight = true
-                let ok = await rebuildStream(reason: "silent-after-route-change")
+                let ok = await rebuildStream(reason: "silent-after-route-change", fresh: fresh)
                 outputRestartInFlight = false
                 lastOutputRestartAt = Date()
                 log.notice("Rebuild of a tap silent after a route change: \(ok ? "ok" : "failed", privacy: .public)")
@@ -1355,6 +1409,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                 // silent, it is rebuilt once more, then left alone.
                 if ok { armRouteFlipHearingCheck() }
             case .giveUp:
+                routeFlipGaveUpOn = route.shape
                 log.error("Tap still silent after \(self.routeFlipRebuilds, privacy: .public) rebuild(s) following a route change on \(route.description, privacy: .public) (\(tapLine, privacy: .public)) — leaving it; the other side may be lost")
             }
         }
@@ -1424,7 +1479,16 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             log.info("Default output changed — process tap keeps capturing (host device still present)")
             // …and is checked: the same headset flipping profile and back
             // can leave the tap handing over zeros (user log B, 19.10).
-            if !quietDiagnostics { armRouteFlipHearingCheck() }
+            if !quietDiagnostics {
+                // 24.10: the AirPods gave the ladder up, then the output
+                // moved to the speakers — a new route, a new ladder.
+                if RouteFlipCheck.reopensLadder(gaveUpOn: routeFlipGaveUpOn, now: Self.outputRoute().shape) {
+                    log.notice("Output moved to a device other than the one the tap gave up on — the hearing check starts over")
+                    routeFlipRebuilds = 0
+                    routeFlipGaveUpOn = nil
+                }
+                armRouteFlipHearingCheck()
+            }
             return
         }
         // Wall-clock cooldown — defer-only debounce leaks the gap
@@ -1787,13 +1851,21 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         }
     }
 
-    private func rebuildStream(reason: String) async -> Bool {
+    /// `fresh`: build the tap the way a fresh start does — the host
+    /// resolved again and the tap's own format, `ingest` converting into
+    /// the archive's (24.10). The scope stays the session's. No effect on
+    /// ScreenCaptureKit, whose every build is fresh.
+    private func rebuildStream(reason: String, fresh: Bool = false) async -> Bool {
         let generation = captureGeneration
         // Tear down the current engine cleanly. Failures here don't block
         // the rebuild — we'll just have a dangling stream the kernel
         // cleans up. (On the didStopWithError path the stream is
         // already dead; stopCapture then throws and that's fine.)
         await teardownEngine(reason: "rebuild (\(reason))")
+        if fresh, backend == .processTap {
+            tapHostUID = nil
+            tapPinsFormat = false
+        }
 
         do {
             let engine = try await makeEngine()
@@ -1819,7 +1891,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             // far side happened not to speak again before Stop. Once the
             // remote side has been heard, that fact stands for the
             // session; the fresh-start reset still zeroes it.
-            log.info("System audio capture rebuilt (\(reason, privacy: .public), backend=\(self.backend.rawValue, privacy: .public))")
+            log.info("System audio capture rebuilt (\(reason, privacy: .public)\(fresh ? ", fresh" : "", privacy: .public), backend=\(self.backend.rawValue, privacy: .public))")
             return true
         } catch {
             log.error("System audio capture rebuild (\(reason, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
@@ -2289,18 +2361,28 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         // Format guard (2026-08-10). `AVAudioFile.write(from:)` raises
         // an ObjC `NSInvalidArgumentException` — uncatchable from Swift,
         // i.e. an instant crash — when the buffer's format differs from
-        // the file's. The writer is opened once and outlives SCStream
-        // rebuilds (route change, death recovery), and while
-        // `SCStreamConfiguration` pins the rate/layout, a rebuild is
-        // exactly where a divergence could appear. The mic path already
-        // handles this by rolling a `.partN.caf`; here the archive is a
-        // single file, so we stop archiving rather than risk the crash —
-        // what's on disk stays valid and the audit reports honestly.
+        // the file's. The writer is opened once and outlives rebuilds
+        // (route change, death recovery, a fresh tap build), and a
+        // rebuild is exactly where a divergence appears. Since 24.10 the
+        // buffer is converted into the file's format; only a conversion
+        // that can't be set up or fails stops archiving — what's on disk
+        // stays valid and the audit reports honestly.
+        var toArchive = pcm
         if let writer = archiveWriter, writer.processingFormat != pcm.format {
-            log.error("System audio format changed mid-capture (\(writer.processingFormat, privacy: .public) → \(pcm.format, privacy: .public)) — closing the archive rather than writing a mismatched buffer")
-            archiveWriter = nil
-            archiveURL = nil
-            return
+            guard let converted = convertForArchive(pcm, to: writer.processingFormat) else {
+                log.error("System audio format changed mid-capture (\(writer.processingFormat, privacy: .public) → \(pcm.format, privacy: .public)) and can't be converted — closing the archive rather than writing a mismatched buffer")
+                archiveWriter = nil
+                archiveURL = nil
+                archiveConverter = nil
+                return
+            }
+            // A resampler can hold back its first frames; nothing to write yet.
+            guard converted.frameLength > 0 else { return }
+            toArchive = converted
+        } else if archiveConverter != nil {
+            // Back on the archive's format: a converter kept for a later
+            // switch would bring this switch's held-back tail with it.
+            archiveConverter = nil
         }
         // First frame after a resume: the same cut as the microphone's.
         if archiveResumePending, let writer = archiveWriter {
@@ -2309,7 +2391,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             if pad > 0 { writeArchiveSilence(seconds: pad, to: writer) }
         }
         do {
-            try archiveWriter?.write(from: pcm)
+            try archiveWriter?.write(from: toArchive)
             if archiveWriter != nil {
                 archiveLastFrameEnd = chunk.time.hostTime
                     &+ AVAudioTime.hostTime(forSeconds: Double(pcm.frameLength) / pcm.format.sampleRate)
@@ -2319,7 +2401,7 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             // archiveFramesWritten flips up only on a successful disk
             // write. Divergence between the two is the truncation
             // signal RecordingSession.stop() now toasts on.
-            archiveFramesWritten &+= UInt64(pcm.frameLength)
+            archiveFramesWritten &+= UInt64(toArchive.frameLength)
         } catch {
             // One sample's write failure shouldn't trash the whole
             // recording — log and move on. Persistent failures will
@@ -2330,6 +2412,39 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
                 firstArchiveWriteError = error.localizedDescription
             }
         }
+    }
+
+    /// `pcm` in the archive's `format`, through a converter kept across
+    /// calls so a resampler's state carries from one buffer to the next.
+    /// nil: no converter for this pair, or it failed; an empty buffer:
+    /// nothing out yet. On `outputQueue`.
+    nonisolated private func convertForArchive(_ pcm: AVAudioPCMBuffer, to format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        if archiveConverter == nil
+            || archiveConverter?.inputFormat != pcm.format
+            || archiveConverter?.outputFormat != format {
+            archiveConverter = AVAudioConverter(from: pcm.format, to: format)
+            if archiveConverter != nil {
+                log.notice("System audio format changed mid-capture (\(pcm.format, privacy: .public)) — converting into the archive's \(format, privacy: .public)")
+            }
+        }
+        guard let converter = archiveConverter else { return nil }
+        // Room to spare: a rate converter short of room drops the rest
+        // without an error.
+        let capacity = AVAudioFrameCount(Double(pcm.frameLength) * format.sampleRate / pcm.format.sampleRate * 2 + 1024)
+        guard let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return nil }
+        var consumed = false
+        var error: NSError?
+        let status = converter.convert(to: out, error: &error) { _, outStatus in
+            if consumed {
+                outStatus.pointee = .noDataNow
+                return nil
+            }
+            consumed = true
+            outStatus.pointee = .haveData
+            return pcm
+        }
+        guard status != .error, error == nil else { return nil }
+        return out
     }
 
     // MARK: - Archive-truncation telemetry (read by RecordingSession)
@@ -2459,6 +2574,18 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
 /// alive. Never ScreenCaptureKit from here — its switch restarts the
 /// archive as silence, right for a tap that never heard anything, ruinous
 /// for one that holds the meeting so far.
+///
+/// 24.10 (user log, AirPods Pro): the headset left call mode (24 kHz) for
+/// music mode (48 kHz) an hour into a call, and from that second every
+/// tap delivered no IO cycle at all. Four rebuilds in 30 s each made a new
+/// tap and aggregate — in the same configuration, the host and the 24 kHz
+/// format both pinned from the call-mode route — and then the budget was
+/// gone: the move to the built-in speakers two minutes later, and the
+/// resume after a pause, got no attempt. So the second attempt is a fresh
+/// build (host resolved again, the tap's own format, the archive
+/// converting into its format), the first one too when the route moved
+/// the output's sample rate or transport, and a later move to another
+/// output device opens a new ladder.
 nonisolated enum RouteFlipCheck {
     /// Long enough for a sentence from the other side after a mute flip,
     /// short enough that a lost half hour never happens again.
@@ -2467,13 +2594,43 @@ nonisolated enum RouteFlipCheck {
 
     enum Action: Equatable {
         case keep
+        /// A new tap and aggregate on the session's host, pinned to the
+        /// session's format.
         case rebuildTap
+        /// A new tap and aggregate as a fresh start would build them: the
+        /// host resolved again, the tap's own format.
+        case freshBuild
         case giveUp
     }
 
-    static func decide(changedAt: Date, lastAudibleAt: Date?, rebuilds: Int) -> Action {
+    /// The parts of the default output a tap cares about.
+    nonisolated struct RouteShape: Equatable {
+        var deviceID: UInt32
+        var sampleRate: Double
+        var bluetooth: Bool
+    }
+
+    /// Whether the route moved the output's clock: a new sample rate (a
+    /// headset between call and music mode) or a new transport (Bluetooth
+    /// on or off). Unknown before counts as unchanged.
+    static func clockChanged(from before: RouteShape?, to now: RouteShape) -> Bool {
+        guard let before else { return false }
+        return before.sampleRate != now.sampleRate || before.bluetooth != now.bluetooth
+    }
+
+    static func decide(changedAt: Date, lastAudibleAt: Date?, rebuilds: Int, clockChanged: Bool) -> Action {
         if let lastAudibleAt, lastAudibleAt > changedAt { return .keep }
-        return rebuilds < maxRebuilds ? .rebuildTap : .giveUp
+        guard rebuilds < maxRebuilds else { return .giveUp }
+        return rebuilds > 0 || clockChanged ? .freshBuild : .rebuildTap
+    }
+
+    /// A route change after the ladder gave up: another output device
+    /// earns a new ladder. The same device in another mode does not — a
+    /// headset flapping between call and music mode must not rebuild
+    /// forever.
+    static func reopensLadder(gaveUpOn: RouteShape?, now: RouteShape) -> Bool {
+        guard let gaveUpOn else { return false }
+        return gaveUpOn.deviceID != now.deviceID
     }
 }
 
