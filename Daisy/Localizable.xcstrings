@@ -8773,16 +8773,6 @@
         }
       }
     },
-    "Calendar-based options need access in Settings → Permissions. Daisy reads via macOS Calendar — iCloud, Exchange, and any Google accounts you've added to Calendar.app." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Для настроек на основе календаря нужен доступ в «Настройки → Разрешения». Daisy читает данные через Календарь macOS — iCloud, Exchange и любые аккаунты Google, добавленные в приложение «Календарь»."
-          }
-        }
-      }
-    },
     "Calls" : {
       "localizations" : {
         "ru" : {
@@ -21640,16 +21630,6 @@
         }
       }
     },
-    "Showing the next meeting needs calendar access in Settings → Permissions." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Чтобы показывать следующую встречу, нужен доступ к календарю в «Настройки → Разрешения»."
-          }
-        }
-      }
-    },
     "Shown in the kebab menu as `Send to {Name}`." : {
       "localizations" : {
         "ru" : {
@@ -25656,6 +25636,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Изменено вручную — вот строки, которые задаёт план"
+          }
+        }
+      }
+    },
+    "Logs" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Логи"
+          }
+        }
+      }
+    },
+    "What leaves your Mac" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Что уходит с Mac"
+          }
+        }
+      }
+    },
+    "Showing the next meeting needs a calendar in Settings → Connections → Calendar." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чтобы показывать следующую встречу, подключи календарь в «Настройки → Подключения → Календарь»."
+          }
+        }
+      }
+    },
+    "Calendar-based options need a calendar in Settings → Connections → Calendar. Daisy reads via macOS Calendar — iCloud, Exchange, and any Google accounts you've added to Calendar.app." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для настроек на основе календаря подключи календарь в «Настройки → Подключения → Календарь». Daisy читает данные через Календарь macOS — iCloud, Exchange и любые аккаунты Google, добавленные в приложение «Календарь»."
           }
         }
       }

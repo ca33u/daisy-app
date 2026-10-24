@@ -2,9 +2,9 @@
 //  ConnectionsView.swift
 //  Daisy
 //
-//  Everything that touches the outside world: Notion, the MCP server,
-//  auto-routing to other integrations. Rendered as the Connections tab
-//  inside Settings.
+//  Everything that touches the outside world: the calendars Daisy reads
+//  meetings from, Notion, the MCP server, auto-routing to other
+//  integrations. Rendered as the Connections tab inside Settings.
 //
 //  History, because this page has moved twice and the reasons matter:
 //   • Originally separate Settings tabs (Integrations / MCP server).
@@ -17,11 +17,15 @@
 //     tab strip copes with six.
 //
 //  Layout: a segmented switch in the body (NOT the toolbar — Settings
-//  owns that slot) between MCP server (incoming) and Auto-routing
-//  (outgoing: Notion + MCP integrations). External CTAs deep-link via
+//  owns that slot) between Calendar (where meetings come from), Auto-
+//  routing (outgoing: Notion + MCP integrations) and MCP server
+//  (incoming). External CTAs deep-link via
 //  `AppNavigation.shared.openInConnections(.autoRouting)` /
 //  `.mcpServer`, which lands on Settings → Connections and selects the
-//  card. Calendar SOURCES live in Settings → Permissions.
+//  card. The calendars came from Privacy in S3 (Egor 24.10.2026) as a
+//  segment of their own, first, rather than a block above the switch:
+//  each segment stays one grouped form that scrolls, and a row link
+//  picks the segment the same way for all three.
 //
 
 import SwiftUI
@@ -45,9 +49,10 @@ struct ConnectionsView: View {
     /// 1.0.7.16: Notion came back here — it's an outbound send-to
     /// destination, the same class as the MCP integrations, so it now
     /// renders as a "Notion" Section at the top of the Auto-routing
-    /// tab. Google Calendar OAuth UI stays dormant pre-verification;
-    /// when Google approves it comes back here.
-    @State private var selectedSection: ConnectionSection = .autoRouting
+    /// tab.
+    /// S3 (24.10.2026): Calendar is back, first — Apple and Google
+    /// together.
+    @State private var selectedSection: ConnectionSection = .calendar
     @State private var editingIntegration: MCPIntegration?
     @State private var mcpPortText: String = ""
     /// Disables the one-click button while the JSON merge runs. The
@@ -82,22 +87,13 @@ struct ConnectionsView: View {
     @State private var notionTestResult: TestResult = .idle
     @State private var showingNotionSettings = false
 
-    // Google account UI moved to Settings → Permissions → Calendar
-    // (build 42, 2026-05-28) — Apple Calendar and Google Calendar are
-    // both calendar sources, they belong side-by-side under
-    // Permissions. `GoogleAccountStore` is read directly by
-    // PermissionsView now.
-
     // MARK: - Body
 
     var body: some View {
-        // Two tabs since build 42: Auto-routing + MCP server. Calendar
-        // tab moved to Settings → Permissions → Calendar (both Apple
-        // EventKit and Google OAuth sources live there together so
-        // the user has ONE place that shows "where Daisy reads
-        // calendar data from"). Connections is now strictly outbound
-        // integrations: where Daisy SENDS data, not where it reads
-        // from.
+        // Three segments since S3 (24.10.2026): Calendar — both Apple
+        // EventKit and Google OAuth sources together, the ONE place that
+        // shows "where Daisy reads calendar data from" — then Auto-
+        // routing and MCP server.
         VStack(spacing: 0) {
             // The Auto-routing / MCP server switch lives in the body now,
             // not the toolbar: since 2026-09-04 this page is a tab inside
@@ -106,17 +102,19 @@ struct ConnectionsView: View {
             // it. A plain segmented picker under the strip reads as the
             // sub-level it is.
             Picker("", selection: $selectedSection) {
+                Text("Calendar").tag(ConnectionSection.calendar)
                 Text("Auto-routing").tag(ConnectionSection.autoRouting)
                 Text("MCP server").tag(ConnectionSection.mcpServer)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(maxWidth: 320)
+            .frame(maxWidth: 420)
             .padding(.top, 12)
             .padding(.bottom, 4)
 
             Group {
                 switch selectedSection {
+                case .calendar:    calendarTab
                 case .autoRouting: autoRoutingTab
                 case .mcpServer:   mcpServerTab
                 }
@@ -185,6 +183,12 @@ struct ConnectionsView: View {
     // The actual section content (mcpServerSection / autoRoutingSection)
     // is unchanged from when it lived in the stacked scroll layout.
 
+    private var calendarTab: some View {
+        Form { CalendarConnectionsSection() }
+            .formStyle(.grouped)
+            .settingsScrollTarget(.connections, settings: settings) { $0.connectionSection == .calendar }
+    }
+
     private var mcpServerTab: some View {
         Form { mcpServerSection }
             .formStyle(.grouped)
@@ -211,12 +215,10 @@ struct ConnectionsView: View {
         .settingsScrollTarget(.connections, settings: settings) { $0.connectionSection == .autoRouting }
     }
 
-    // Calendar UI moved out of Connections entirely in build 42
-    // (2026-05-28). Both Apple Calendar (EventKit) and Google Calendar
-    // (OAuth) now live in Settings → Permissions → Calendar — see
-    // PermissionsView for the unified UI. Connections is now strictly
-    // about outbound integrations (Auto-routing + MCP server).
-    // Backend (`GoogleOAuthClient` / `GoogleAccountStore` /
+    // Calendar UI left Connections in build 42 (2026-05-28) for
+    // Settings → Permissions and came back in S3 (24.10.2026) as the
+    // Calendar segment — `CalendarConnectionsSection`, Apple (EventKit)
+    // and Google (OAuth) together. Backend (`GoogleOAuthClient` / `GoogleAccountStore` /
     // `GoogleCalendarService`) is unchanged; only the UI surface moved.
 
     // MARK: - Notion destination

@@ -14,7 +14,7 @@
 //  Everything else Sentry can collect is off: sessions, breadcrumbs,
 //  network and hang tracking, tracing, swizzling.
 //
-//  Settings → About: "Crash reports: Ask every time / Never send". "Never"
+//  Settings → Privacy: "Crash reports: Ask every time / Never send". "Never"
 //  doesn't start Sentry at all — no crash handler, no connection — from the
 //  next launch. Uncaught NSExceptions are caught too: that needs method
 //  swizzling, which is on for that alone (see `configure`).

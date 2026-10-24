@@ -1190,7 +1190,7 @@ struct SettingsView: View {
     // now live in ConnectionsView. Calendar behaviour toggles came
     // back to Settings → General in 1.0.4, sitting next to the
     // auto-start trigger they conceptually neighbour; the EventKit
-    // grant + status badge are in Settings → Permissions.
+    // grant + status badge are in Settings → Connections → Calendar.
 
     // MARK: - General
 
@@ -1292,7 +1292,7 @@ struct SettingsView: View {
                 Text("Appearance")
             } footer: {
                 if !hasAnyCalendarSource {
-                    Text("Showing the next meeting needs calendar access in Settings → Permissions.")
+                    Text("Showing the next meeting needs a calendar in Settings → Connections → Calendar.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -1333,6 +1333,9 @@ struct SettingsView: View {
             } header: {
                 Text("Notifications")
             }
+
+            // ── Updates (from About, S3) ──────────────────────
+            UpdatesSettingsSection()
 
             // Auto-summary lives in the AI tab — it sits next
             // to the provider config it depends on.
@@ -1646,7 +1649,7 @@ struct SettingsView: View {
                 Text("Meetings")
             } footer: {
                 if !hasAnyCalendarSource {
-                    Text("Calendar-based options need access in Settings → Permissions. Daisy reads via macOS Calendar — iCloud, Exchange, and any Google accounts you've added to Calendar.app.")
+                    Text("Calendar-based options need a calendar in Settings → Connections → Calendar. Daisy reads via macOS Calendar — iCloud, Exchange, and any Google accounts you've added to Calendar.app.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -1857,8 +1860,7 @@ struct SettingsView: View {
     /// (`.fullAccess` granted) OR Google via direct OAuth. Gates the
     /// behaviour toggles in the Calendar section of generalTab; the
     /// underlying grant/connect affordances live elsewhere
-    /// (EventKit in Settings → Permissions, Google in Connections
-    /// once verification clears).
+    /// (both in Settings → Connections → Calendar).
     ///
     /// Reads the LIVE `CalendarService.authorizationStatus`, not the
     /// persisted `settings.calendarAccessGranted` cache. Pre-1.0.4 the

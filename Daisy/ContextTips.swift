@@ -8,7 +8,7 @@
 //
 //   • Calendar — the first time a meeting app Daisy knows launches, or on
 //     the first launch of a day after the tour, while no calendar is
-//     connected: «Подключить календарь?» → Settings → Permissions. Not on
+//     connected: «Подключить календарь?» → Settings → Connections. Not on
 //     the dictation-only path until the person records a meeting.
 //   • Summary provider — a meeting ended and no provider can write its
 //     summary (the «No summary — …» toast already says why; this is the
@@ -301,7 +301,7 @@ final class ContextTips {
         case .calendar:
             WidgetBubbleContent(
                 text: Copy.calendarAsk, actionTitle: Copy.calendarAction, autoDismiss: 20, tag: bubbleTag,
-                action: { openSettings(.privacy, row: .calendarApple) })
+                action: { openSettings(.connections, row: .calendarApple) })
         case .summaryProvider:
             WidgetBubbleContent(
                 text: Copy.summaryAsk, actionTitle: Copy.summaryAction, autoDismiss: 20, tag: bubbleTag,

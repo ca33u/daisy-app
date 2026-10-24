@@ -7,7 +7,7 @@
 //  they failed — numbers only. No text, titles, names, paths, device names
 //  and no identifier: two reports from one Mac cannot be told apart from two
 //  reports from two Macs. Off until the person agrees; asked once, after
-//  first run, and switchable in Settings → About.
+//  first run, and switchable in Settings → Privacy (About until 24.10).
 //
 //  Every event Daisy can count is in `Event` below — the whole list, here
 //  and in Docs/usage-statistics.md. daisy-api (src/usage.ts) accepts only
@@ -27,7 +27,7 @@ nonisolated enum ImprovementStats {
         /// Not asked yet: nothing is counted.
         case unasked
         case on
-        /// Switched off in Settings → About — a «no». Also every answer
+        /// Switched off in Settings → Privacy — a «no». Also every answer
         /// from before 21.10, when «Not Now» was stored as this too (see
         /// `offByChoiceKey`).
         case off
@@ -37,7 +37,7 @@ nonisolated enum ImprovementStats {
     }
 
     static let modeKey = "daisy.improvementStats.mode"
-    /// Set when the person switched it off in About: a «no», never asked
+    /// Set when the person switched it off in Settings → Privacy: a «no», never asked
     /// again. An `off` without it is an old «Not Now».
     static let offByChoiceKey = "daisy.improvementStats.offByChoice"
     /// How many times «Not Now» was pressed on the row.
@@ -49,7 +49,7 @@ nonisolated enum ImprovementStats {
 
     /// Whether the «Help make Daisy better» row is offered (Home's
     /// checklist, onboarding) — decided by Egor 21.10: not to someone who
-    /// said no in About; to someone who hasn't answered or said «Not
+    /// said no in Settings → Privacy; to someone who hasn't answered or said «Not
     /// Now», until a second «Not Now»; an old «off» from before (when
     /// «Not Now» and «no» were one) once.
     /// A «Not Now» hides the row at once; it comes back once,
@@ -74,7 +74,7 @@ nonisolated enum ImprovementStats {
         if mode != .off { mode = .notNow }
     }
 
-    /// The switch in About: on, or a «no» that is never asked again.
+    /// The switch in Settings → Privacy (named for About, where it lived until S3): on, or a «no» that is never asked again.
     static func setFromAbout(_ on: Bool) {
         mode = on ? .on : .off
         if !on { UserDefaults.standard.set(true, forKey: offByChoiceKey) }
@@ -359,7 +359,7 @@ nonisolated enum ImprovementStats {
     // Asked by a row, not a popup (Egor, 21.10): onboarding's last step
     // for a new person, Home's «Finish setting up» card for everyone else
     // — see `ImprovementConsentRow`. The modal question two minutes after
-    // launch is gone; Settings → About still switches it.
+    // launch is gone; Settings → Privacy still switches it.
 
     /// The report as it goes out, word for word.
     @MainActor
