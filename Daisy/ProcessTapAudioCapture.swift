@@ -472,7 +472,9 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
             //    audio. Converting back to the format the session started
             //    in keeps one contiguous file. Same reasoning as the mic
             //    path's converter being pinned to the first format it saw
-            //    (the 1.0.7.11 route-change fix).
+            //    (the 1.0.7.11 route-change fix). A fresh build (24.10)
+            //    passes no pinned format: its tap delivers its own rate
+            //    and `SystemAudioCapture.ingest` converts into the archive.
             let outputFormat: AVAudioFormat
             var converter: AVAudioConverter?
             if let pinned = pinnedFormat, !Self.formatsMatch(pinned, native) {
