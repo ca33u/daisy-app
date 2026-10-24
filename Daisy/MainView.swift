@@ -85,41 +85,78 @@ enum MainSection: String, Hashable, CaseIterable, Identifiable, Sendable {
 
 // MARK: - Shared navigation state
 
-/// SwiftUI TabView in SettingsView has no public selection by
-/// default. Exposing the tab enum here lets external surfaces
-/// (FirstRun CTAs, Home-screen hints) deep-link to a specific
-/// settings sub-tab, not just "Settings" in the sidebar.
+/// The tabs of Settings. Exposed here so external surfaces (the tour,
+/// Home hints, error toasts) can deep-link to a tab — and, with
+/// `AppNavigation.openInSettings(_:row:)`, to a row on it.
 ///
-/// `.integrations` and `.mcpServer` were moved out of Settings into
-/// the top-level `Connections` sidebar destination (see
-/// `ConnectionSection`). Settings now holds only the "how the
-/// recorder works" tabs — Capture / Transcription / Summary.
-enum SettingsTab: String, Hashable, Sendable {
-    /// General is the catch-all tab — audio I/O devices, sounds,
-    /// hotkey, calendar gating, screenshot toggles, the floating
-    /// widget, storage location. Was named `.capture` while it sat
-    /// alongside Notion / MCP / Integrations tabs, but those moved
-    /// to the top-level Connections destination and what remained
-    /// drifted toward "general app preferences" — hence the rename.
+/// Eight tabs since 24.10.2026, each answering one question rather
+/// than mirroring a layer of code (plan «Настройки Daisy — новая
+/// структура», 2026-10-23): General, Shortcuts, Meetings, Dictation,
+/// AI, Library, Connections, Privacy. The six before them —
+/// recording / transcription / summary / permissions, plus the «My
+/// style» page — map onto the new ones by raw value and by the
+/// deprecated statics below, so a stored or old-spelled tab still lands.
+enum SettingsTab: String, Hashable, Sendable, CaseIterable {
     case general
-    /// Recording behavior — input device, hotkeys, meeting auto-record,
-    /// and Daisy's on-screen presence (menu bar + floating widget).
-    /// Split out of the overloaded General tab in 1.0.7.16.
-    case recording
-    case transcription
-    case summary
-    /// System privacy permissions Daisy interacts with — Microphone,
-    /// Calendar, Accessibility, Screen Recording. Lives in Settings
-    /// (not Connections) because it's about local OS-level access,
-    /// not about external service integrations. macOS convention —
-    /// Granola, Wispr Flow et al. put permission dashboards here too.
-    case permissions
-    /// Where Daisy talks to other systems — Notion, MCP server, the
-    /// send-to integrations. Was a top-level sidebar destination from
-    /// 1.0.7.16 until 2026-09-04; folded back into Settings at Egor's
-    /// request: it's configured once and rarely revisited, so a sidebar
-    /// row next to Library and Notes gave it more weight than it earns.
+    case shortcuts
+    case meetings
+    case dictation
+    case ai
+    case library
     case connections
+    case privacy
+
+    /// Old raw values land on the tab that holds their content now.
+    init?(rawValue: String) {
+        switch rawValue {
+        case "general": self = .general
+        case "shortcuts": self = .shortcuts
+        case "meetings", "recording": self = .meetings
+        case "dictation", "transcription": self = .dictation
+        case "ai", "summary", "voice": self = .ai
+        case "library": self = .library
+        case "connections": self = .connections
+        case "privacy", "permissions": self = .privacy
+        default: return nil
+        }
+    }
+
+    @available(*, deprecated, renamed: "meetings")
+    static var recording: SettingsTab { .meetings }
+    @available(*, deprecated, renamed: "dictation")
+    static var transcription: SettingsTab { .dictation }
+    @available(*, deprecated, renamed: "ai")
+    static var summary: SettingsTab { .ai }
+    @available(*, deprecated, renamed: "privacy")
+    static var permissions: SettingsTab { .privacy }
+    @available(*, deprecated, renamed: "ai")
+    static var voice: SettingsTab { .ai }
+
+    var title: String {
+        switch self {
+        case .general: String(localized: "settings.tab.general", defaultValue: "General")
+        case .shortcuts: String(localized: "settings.tab.shortcuts", defaultValue: "Shortcuts")
+        case .meetings: String(localized: "settings.tab.meetings", defaultValue: "Meetings")
+        case .dictation: String(localized: "settings.tab.dictation", defaultValue: "Dictation")
+        case .ai: String(localized: "settings.tab.ai", defaultValue: "AI")
+        case .library: String(localized: "settings.tab.library", defaultValue: "Library")
+        case .connections: String(localized: "settings.tab.connections", defaultValue: "Connections")
+        case .privacy: String(localized: "settings.tab.privacy", defaultValue: "Privacy")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .general: "gearshape"
+        case .shortcuts: "keyboard"
+        case .meetings: "person.2.wave.2"
+        case .dictation: "mic"
+        case .ai: "sparkles"
+        case .library: "books.vertical"
+        case .connections: "link"
+        case .privacy: "hand.raised"
+        }
+    }
 }
 
 /// Sub-section inside the Connections page. Lets external CTAs
@@ -164,6 +201,13 @@ final class AppNavigation {
     /// SettingsView reads + clears it on appear. nil means "use the
     /// default tab".
     var pendingSettingsTab: SettingsTab?
+    /// One-shot row request riding with `pendingSettingsTab`: the form
+    /// of the row's tab takes it, scrolls to it and lights it
+    /// (`settingsScrollTarget`, SettingsRows.swift).
+    var pendingSettingsRow: SettingsRow?
+    /// The row wearing the highlight wash right now; cleared ~2 s after.
+    var highlightedSettingsRow: SettingsRow?
+    @ObservationIgnored private var highlightToken = 0
     /// One-shot «My style» tab request (the meeting card's «Manage
     /// templates…»). VoiceView reads + clears it.
     var pendingStyleTab: MyStyleTab?
@@ -198,9 +242,26 @@ final class AppNavigation {
     /// Convenience for `Open Settings → <tab>`. FirstRun + onboarding
     /// CTAs use this so the user lands exactly where the action they
     /// just read about is configured, not on the default General tab.
-    func openInSettings(_ tab: SettingsTab) {
-        pendingSettingsTab = tab
+    ///
+    /// With `row`, the tab is the row's own (a row knows where it lives)
+    /// and the page scrolls to it and lights it for a couple of seconds.
+    func openInSettings(_ tab: SettingsTab, row: SettingsRow? = nil) {
+        if let section = row?.connectionSection { pendingConnectionsSection = section }
+        pendingSettingsRow = row
+        pendingSettingsTab = row?.tab ?? tab
         section = .settings
+    }
+
+    /// Lights `row` and puts the light out ~2 s later — unless another
+    /// highlight took over meanwhile.
+    func highlight(_ row: SettingsRow) {
+        highlightToken &+= 1
+        let token = highlightToken
+        highlightedSettingsRow = row
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            if highlightToken == token { highlightedSettingsRow = nil }
+        }
     }
 
     /// Convenience for `Open Connections → <card>`. Used by FirstRun
@@ -208,6 +269,7 @@ final class AppNavigation {
     /// the Home destination-discovery banner.
     func openInConnections(_ card: ConnectionSection) {
         pendingConnectionsSection = card
+        pendingSettingsRow = nil
         pendingSettingsTab = .connections
         section = .settings
     }

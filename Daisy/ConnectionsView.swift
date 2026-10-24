@@ -188,6 +188,7 @@ struct ConnectionsView: View {
     private var mcpServerTab: some View {
         Form { mcpServerSection }
             .formStyle(.grouped)
+            .settingsScrollTarget(.connections, settings: settings) { $0.connectionSection == .mcpServer }
     }
 
     private var autoRoutingTab: some View {
@@ -200,12 +201,14 @@ struct ConnectionsView: View {
             // recordings folder.
             Section {
                 notionDestinationRow
+                    .settingsRow(.notion)
             } header: {
                 Text("Notion")
             }
             autoRoutingSection
         }
         .formStyle(.grouped)
+        .settingsScrollTarget(.connections, settings: settings) { $0.connectionSection == .autoRouting }
     }
 
     // Calendar UI moved out of Connections entirely in build 42
@@ -550,6 +553,7 @@ struct ConnectionsView: View {
                 Toggle("MCP server", isOn: $settings.mcpServerEnabled)
                     .labelsHidden()
             }
+            .settingsRow(.mcpServer)
             // One entry in the Claude app's config serves its chats,
             // Cowork and the Code tab alike; the Claude Code row is
             // only for the CLI in a terminal or an IDE.

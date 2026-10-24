@@ -387,8 +387,8 @@ struct HomeView: View {
                             title: String(localized: "Summary provider"),
                             caption: ContextTips.Copy.homeSummaryCaption,
                             status: .notDetermined,
-                            action: { AppNavigation.shared.openInSettings(.summary) },
-                            openSettings: { AppNavigation.shared.openInSettings(.summary) }
+                            action: { AppNavigation.shared.openInSettings(.ai, row: .summaryProvider) },
+                            openSettings: { AppNavigation.shared.openInSettings(.ai, row: .summaryProvider) }
                         )
                     }
                 }
@@ -420,14 +420,14 @@ struct HomeView: View {
     ///
     /// Names the consequence, not just the number: "1.9 GB free" reads as
     /// fine to anyone who doesn't know Daisy needs 3 GB to keep audio.
-    /// Tapping lands on Settings → General, where the storage location,
+    /// Tapping lands on Settings → Library, where the storage location,
     /// the audio-cache purge and bulk delete of old recordings all live —
     /// Daisy's own recordings are usually the biggest thing it can free
     /// (~0.7 GB per recorded hour).
     @ViewBuilder
     private func lowDiskRow(freeBytes: Int64) -> some View {
         Button {
-            AppNavigation.shared.openInSettings(.general)
+            AppNavigation.shared.openInSettings(.library, row: .spaceUsed)
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -780,7 +780,7 @@ struct HomeView: View {
                 .foregroundStyle(.secondary)
         default:
             Button {
-                nav.openInSettings(.summary)
+                nav.openInSettings(.ai, row: .summaryProvider)
             } label: {
                 HStack(spacing: 8) {
                     Text("Connect your ChatGPT account to see subscription limits.")
@@ -1324,7 +1324,7 @@ struct HomeView: View {
                 MeetingLoadBars(days: analytics.dayLoads)
             } else {
                 Button {
-                    nav.openInSettings(.recording)
+                    nav.openInSettings(.meetings, row: .workingHours)
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "clock.badge.questionmark")

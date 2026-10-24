@@ -59,12 +59,14 @@ struct FolderManagementSection: View {
                     Text(f.name).tag(f.slug)
                 }
             }
+            .settingsRow(.defaultMeetingProject)
             // Voice notes, screenshot notes and side notes from a meeting.
             Picker("Default project for notes", selection: $settings.defaultNoteFolderSlug) {
                 ForEach(folders.allFolders) { f in
                     Text(f.name).tag(f.slug)
                 }
             }
+            .settingsRow(.defaultNoteProject)
 
             // System (Inbox / Notes) — plain, no controls.
             ForEach(SessionFolder.system) { folder in

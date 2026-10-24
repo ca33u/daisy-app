@@ -28,7 +28,7 @@ extension DaisyAppDelegate {
         func walk(_ v: NSView) {
             let name = String(describing: type(of: v))
             if name == "NSToolbarClippedItemsIndicator", !v.isHidden { clipped = true }
-            if let control = v as? NSSegmentedControl, control.segmentCount == 6 {
+            if let control = v as? NSSegmentedControl, control.segmentCount == SettingsView.tabOrder.count {
                 groupViews.append("segmented6 w=\(Int(v.frame.width)) shown=\(!v.isHiddenOrHasHiddenAncestor && v.window != nil && v.alphaValue > 0)")
             }
             if let popup = v as? NSPopUpButton, popup.numberOfItems >= 6 {
@@ -139,7 +139,7 @@ extension DaisyAppDelegate {
                 var found: NSControl?
                 @MainActor func walk(_ v: NSView) {
                     if found == nil, !v.isHiddenOrHasHiddenAncestor {
-                        if let c = v as? NSSegmentedControl, c.segmentCount == 6 { found = c }
+                        if let c = v as? NSSegmentedControl, c.segmentCount == SettingsView.tabOrder.count { found = c }
                         if let p = v as? NSPopUpButton, p.numberOfItems >= 6 { found = p }
                     }
                     v.subviews.forEach(walk)
@@ -153,10 +153,11 @@ extension DaisyAppDelegate {
                 window.setFrame(frame, display: true)
                 try? await Task.sleep(for: .seconds(1.5))
                 guard let control = shownTabControl() else { note("PICK \(Int(width)): no tab control shown"); continue }
+                let connections = SettingsView.tabOrder.firstIndex(of: .connections) ?? 0
                 if let seg = control as? NSSegmentedControl {
-                    seg.selectedSegment = 5
+                    seg.selectedSegment = connections
                 } else if let pop = control as? NSPopUpButton {
-                    pop.selectItem(at: 5)
+                    pop.selectItem(at: connections)
                 }
                 control.sendAction(control.action, to: control.target)
                 try? await Task.sleep(for: .seconds(1))
@@ -245,7 +246,7 @@ extension DaisyAppDelegate {
                 toolbar.removeItem(at: index)
                 try? await Task.sleep(for: .seconds(1.5))
                 @MainActor func pageTabs(_ v: NSView) -> Int {
-                    ((v as? NSSegmentedControl)?.segmentCount == 6 && !v.isHiddenOrHasHiddenAncestor ? 1 : 0) + v.subviews.map(pageTabs).reduce(0, +)
+                    ((v as? NSSegmentedControl)?.segmentCount == SettingsView.tabOrder.count && !v.isHiddenOrHasHiddenAncestor ? 1 : 0) + v.subviews.map(pageTabs).reduce(0, +)
                 }
                 let inPage = window.contentView.map(pageTabs) ?? 0
                 note("DROPPED behind our back → \(tabsState(window)); tabs in page=\(inPage)")

@@ -980,8 +980,7 @@ final class CoreAudioMicRecorder {
                         actionTitle: String(localized: "Choose microphone"),
                         tag: "mic-not-connected",
                         action: {
-                            AppNavigation.shared.pendingSettingsTab = .recording
-                            AppNavigation.shared.section = .settings
+                            AppNavigation.shared.openInSettings(.meetings, row: .microphone)
                             WidgetBubbleCenter.shared.openMainWindow?()
                         }
                     ),

@@ -750,8 +750,7 @@ final class HotkeyManager {
             // Land on the tab that holds the shortcut rows, and bring
             // the window forward — the toast can be triggered from a
             // background launch where no window is open.
-            AppNavigation.shared.pendingSettingsTab = .recording
-            AppNavigation.shared.section = .settings
+            AppNavigation.shared.openInSettings(.shortcuts)
             WidgetBubbleCenter.shared.openMainWindow?()
         }
     }

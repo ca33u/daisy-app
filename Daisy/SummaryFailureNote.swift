@@ -95,8 +95,7 @@ nonisolated struct SummaryFailureNote: Codable, Equatable, Sendable {
             style: .warning,
             duration: .seconds(15)
         ) {
-            AppNavigation.shared.pendingSettingsTab = .summary
-            AppNavigation.shared.section = .settings
+            AppNavigation.shared.openInSettings(.ai, row: .summaryProvider)
         }
     }
 }

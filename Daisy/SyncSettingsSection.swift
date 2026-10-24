@@ -38,6 +38,7 @@ struct SyncSettingsSection: View {
                     if wanted { showExplanation = true } else { sync.isEnabled = false }
                 }
             ))
+            .settingsRow(.iCloudSync)
             .sheet(isPresented: $showExplanation) {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Before sync goes on").font(.title3.weight(.semibold))

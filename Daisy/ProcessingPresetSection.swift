@@ -36,6 +36,7 @@ struct ProcessingPresetSection: View {
                 }
             }
             .padding(.vertical, 4)
+            .settingsRow(.processingPlan)
             .confirmationDialog(
                 pending.map { String(localized: "Switch to “\($0.title)”?") } ?? "",
                 isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
@@ -56,6 +57,7 @@ struct ProcessingPresetSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            .settingsRow(.processLaterOnCharger)
 
             Text("The final transcript is the same full quality in every plan.")
                 .font(.caption)
