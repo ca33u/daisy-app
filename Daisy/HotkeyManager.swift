@@ -732,9 +732,14 @@ final class HotkeyManager {
         log.warning("RegisterEventHotKey failed for \(label, privacy: .public) (slot \(slot.rawValue, privacy: .public)) — OSStatus \(status, privacy: .public)")
         // Only `eventHotKeyExistsErr` means "taken"; anything else is
         // our own bug and shouldn't accuse another app of it.
+        // The row that holds this slot's shortcut, so the toast names it
+        // and lands on it; the two slots without a row of their own land
+        // on the tab.
+        let row = Self.settingsRow(for: slot)
+        let place = row?.path ?? SettingsTab.shortcuts.path
         let message = status == OSStatus(eventHotKeyExistsErr)
-            ? String(localized: "Another app is already using \(label) — Daisy can't use it as a shortcut. Pick a different one.")
-            : String(localized: "Daisy couldn't register \(label) as a shortcut. Try a different combination.")
+            ? String(localized: "Another app is already using \(label) — Daisy can't use it as a shortcut. Pick a different one in \(place).")
+            : String(localized: "Daisy couldn't register \(label) as a shortcut. Try a different combination in \(place).")
         // One toast per combination per launch. `applyAllHotkeys`
         // re-registers all seven slots on every settings change, so a
         // standing conflict would otherwise fire on each keystroke in
@@ -747,11 +752,25 @@ final class HotkeyManager {
             style: .warning,
             duration: .seconds(15)
         ) {
-            // Land on the tab that holds the shortcut rows, and bring
+            // Land on the slot's own row (its tab wins), and bring
             // the window forward — the toast can be triggered from a
             // background launch where no window is open.
-            AppNavigation.shared.openInSettings(.shortcuts)
+            AppNavigation.shared.openInSettings(.shortcuts, row: row)
             WidgetBubbleCenter.shared.openMainWindow?()
+        }
+    }
+
+    /// The Settings row a slot's shortcut is set on. Rewrite and «note
+    /// only» have none: they follow the Daisy key.
+    private static func settingsRow(for slot: HotkeySlot) -> SettingsRow? {
+        switch slot {
+        case .record: .recordHotkey
+        case .voiceNote: .daisyKey
+        case .dictation: .dictationHotkey
+        case .fixLayout: .layoutFixHotkey
+        case .markMoment: .markMomentHotkey
+        case .repasteLast: .repasteHotkey
+        case .rewrite, .noteOnly: nil
         }
     }
 

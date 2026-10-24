@@ -120,10 +120,14 @@ final class SelectionRewrite {
         guard let rewritten, !rewritten.isEmpty else {
             ImprovementStats.record(.rewriteFailed)
             PasteboardProxy.shared.giveBack(borrow)
-            ToastCenter.shared.show(
-                String(localized: "Couldn’t rewrite that — check your summary provider in Settings."),
-                style: .error
-            )
+            ToastCenter.shared.showAction(
+                String(localized: "Couldn’t rewrite that — check \(SettingsRow.summaryProvider.path)."),
+                actionLabel: String(localized: "Summary settings"),
+                style: .error,
+                duration: .seconds(8)
+            ) {
+                AppNavigation.shared.openInSettings(.ai, row: .summaryProvider)
+            }
             return
         }
 

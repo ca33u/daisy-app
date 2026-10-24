@@ -97,7 +97,7 @@ nonisolated enum AudioImportError: LocalizedError, Equatable {
         case .unreadable(let name):
             return String(localized: "Daisy couldn't read any audio from “\(name)”.")
         case .noSessionsFolder:
-            return String(localized: "Daisy couldn't write to the recordings folder. Choose its storage folder again in Settings.")
+            return String(localized: "Daisy couldn't write to the recordings folder. Choose it again in \(SettingsRow.recordingsFolder.path).")
         case .copyVerificationFailed(let name):
             return String(localized: "Copying “\(name)” didn't finish cleanly. The original was left untouched.")
         case .inCloud(let name):

@@ -2695,10 +2695,15 @@ struct SessionDetailView: View {
                         Text("Audio is no longer stored for this recording.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
-                        Text("To play future recordings here, choose 24 hours, 7 days, 30 days, or Keep forever in Settings → Privacy → Delete audio after.")
+                        Text("To play future recordings here, choose 24 hours, 7 days, 30 days, or Keep forever in \(SettingsRow.audioStorage.path).")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                             .fixedSize(horizontal: false, vertical: true)
+                        Button(SettingsRow.audioStorage.title) {
+                            AppNavigation.shared.openInSettings(.library, row: .audioStorage)
+                        }
+                        .buttonStyle(.link)
+                        .font(.caption)
                     }
                 }
             }
@@ -3106,7 +3111,14 @@ struct SessionDetailView: View {
             return
         }
         if !AppSettings.notionConfigured {
-            ToastCenter.shared.show(String(localized: "Set your Notion token in Settings → Connections first"), style: .warning)
+            ToastCenter.shared.showAction(
+                String(localized: "Set your Notion token in \(SettingsRow.notion.path) first"),
+                actionLabel: String(localized: "Open Settings"),
+                style: .warning,
+                duration: .seconds(8)
+            ) {
+                AppNavigation.shared.openInSettings(.connections, row: .notion)
+            }
             return
         }
         isRunningAction = true

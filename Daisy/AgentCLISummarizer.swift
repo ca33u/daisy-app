@@ -366,7 +366,7 @@ nonisolated struct AgentCLISummarizer: SummaryProvider {
         guard let executable else {
             throw SummaryProviderError.modelUnavailable(
                 provider: agent.displayName,
-                reason: String(localized: "Not installed, or Daisy can’t see it. Install the CLI and sign in, or set its path in Settings → Summary.")
+                reason: String(localized: "Not installed, or Daisy can’t see it. Install the CLI and sign in, or set its path in \(SettingsRow.summaryProvider.path).")
             )
         }
 

@@ -93,7 +93,7 @@ struct RecordingAudioSettingsSection: View {
             }
         } header: {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Audio diagnostics")
+                Text("Sound")
                 Text("Choose the routes Daisy will use, then verify that real signal reaches both tracks before a meeting.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)

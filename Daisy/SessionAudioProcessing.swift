@@ -1073,7 +1073,7 @@ nonisolated enum ProcessingError: LocalizedError {
         case .noAudio:
             return String(localized: "This session does not contain retained audio.")
         case .sourceUnavailable:
-            return String(localized: "Daisy couldn't write to this recording folder. Choose its storage folder again in Settings.")
+            return String(localized: "Daisy couldn't write to this recording folder. Choose it again in \(SettingsRow.recordingsFolder.path).")
         }
     }
 }

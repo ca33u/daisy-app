@@ -920,10 +920,10 @@ nonisolated enum CodexAppServerError: LocalizedError, Equatable {
             return String(localized: "Your ChatGPT plan limit has been reached. Try again after it resets.")
         }
         if value.contains("auth") || value.contains("login") || value.contains("token") {
-            return String(localized: "Your ChatGPT session expired. Connect the account again in Settings → Summary.")
+            return String(localized: "Your ChatGPT session expired. Connect the account again in \(SettingsRow.summaryProvider.path).")
         }
         if value.contains("model") && (value.contains("unavailable") || value.contains("not found")) {
-            return String(localized: "That model isn't available on this ChatGPT account. Pick another model in Settings → Summary.")
+            return String(localized: "That model isn't available on this ChatGPT account. Pick another model in \(SettingsRow.summaryProvider.path).")
         }
         return String(localized: "Codex couldn't produce this summary.")
     }

@@ -217,12 +217,12 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
         case .preMeetingBrief:
             throw SummaryProviderError.modelUnavailable(
                 provider: "Apple Intelligence",
-                reason: "Pre-meeting briefs aren't supported on Apple Intelligence yet. Switch the summary provider to Anthropic, OpenAI, Ollama, or LM Studio in Settings → Summary."
+                reason: String(localized: "Pre-meeting briefs aren't supported on Apple Intelligence yet. Switch the summary provider to Anthropic, OpenAI, Ollama, or LM Studio in \(SettingsRow.summaryProvider.path).")
             )
         case .voiceProfile:
             throw SummaryProviderError.modelUnavailable(
                 provider: "Apple Intelligence",
-                reason: "Style-profile generation isn't supported on Apple Intelligence yet. Switch the summary provider in Settings → Summary."
+                reason: String(localized: "Style-profile generation isn't supported on Apple Intelligence yet. Switch the summary provider in \(SettingsRow.summaryProvider.path).")
             )
         case .meeting(let force):
             forceFollowUp = force
@@ -344,7 +344,7 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
                msg.localizedCaseInsensitiveContains("exceeded") {
                 throw SummaryProviderError.modelUnavailable(
                     provider: "Apple Intelligence",
-                    reason: "This recording is too long for Apple Intelligence's on-device model. For long meetings, switch to Anthropic, OpenAI, or Ollama in Settings → Summary."
+                    reason: String(localized: "This recording is too long for Apple Intelligence's on-device model. For long meetings, switch to Anthropic, OpenAI, or Ollama in \(SettingsRow.summaryProvider.path).")
                 )
             }
             if msg.localizedCaseInsensitiveContains("unsupported language") ||

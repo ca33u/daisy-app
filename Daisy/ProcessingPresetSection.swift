@@ -2,7 +2,7 @@
 //  ProcessingPresetSection.swift
 //  Daisy
 //
-//  The «Обработка встреч» section in Settings → Meetings: three plans
+//  The «План обработки» section in Settings → Meetings: three plans
 //  side by side, each with the same lines, so the difference reads
 //  across a row instead of from four separate tabs. See ProcessingPreset.
 //
@@ -64,7 +64,7 @@ struct ProcessingPresetSection: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         } header: {
-            Text("Meeting processing")
+            Text("Processing plan")
         }
     }
 

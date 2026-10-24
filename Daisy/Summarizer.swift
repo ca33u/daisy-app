@@ -492,31 +492,31 @@ final class Summarizer {
                let reason = AppleIntelligenceSummarizer.currentUnavailabilityReason() {
                 return reason
             }
-            return "Apple Intelligence needs macOS 26 or later. Pick a cloud provider (Anthropic / OpenAI) in Settings → Summary instead."
+            return String(localized: "Apple Intelligence needs macOS 26 or later. Pick a cloud provider (Anthropic / OpenAI) in \(SettingsRow.summaryProvider.path) instead.")
         case .anthropic:
-            return "Anthropic API key is missing. Add it in Settings → Summary Provider."
+            return String(localized: "Anthropic API key is missing. Add it in \(SettingsRow.summaryProvider.path).")
         case .openai:
             if openAIConnectionMethod == .account {
-                return String(localized: "Connect your ChatGPT account in Settings → Summary.")
+                return String(localized: "Connect your ChatGPT account in \(SettingsRow.summaryProvider.path).")
             }
-            return "OpenAI API key is missing. Add it in Settings → Summary Provider."
+            return String(localized: "OpenAI API key is missing. Add it in \(SettingsRow.summaryProvider.path).")
         case .cursor:
             if CursorAgentService.resolveExecutable(override: cursorAgentPath) == nil {
-                return String(localized: "Cursor Agent CLI isn't installed. Install `cursor-agent`, then return to Settings → Summary.")
+                return String(localized: "Cursor Agent CLI isn't installed. Install `cursor-agent`, then return to \(SettingsRow.summaryProvider.path).")
             }
-            return String(localized: "Cursor API key is missing. Add it in Settings → Summary Provider.")
+            return String(localized: "Cursor API key is missing. Add it in \(SettingsRow.summaryProvider.path).")
         case .kimi:
-            return "Kimi API key is missing. Add it in Settings → Summary Provider."
+            return String(localized: "Kimi API key is missing. Add it in \(SettingsRow.summaryProvider.path).")
         case .gemini:
-            return String(localized: "Gemini API key is missing. Add it in Settings → Summary Provider.")
+            return String(localized: "Gemini API key is missing. Add it in \(SettingsRow.summaryProvider.path).")
         case .ollama:
-            return String(localized: "Couldn't reach Ollama at \(ollamaBaseURL). Install or open Ollama — Settings → Summary → Ollama has the install button, and the model downloads from there.")
+            return String(localized: "Couldn't reach Ollama at \(ollamaBaseURL). Install or open Ollama — \(SettingsRow.summaryProvider.path) has the install button when Ollama is chosen, and the model downloads from there.")
         case .lmStudio:
             return "Couldn't reach LM Studio at \(lmStudioBaseURL). Open the LM Studio app, load a model, then start the local server (Developer tab → Start)."
         case .mcp:
-            return "MCP summarizer isn't configured. Open Settings → Summary → MCP and set the server URL, tool name, and arguments template."
+            return String(localized: "MCP summarizer isn't configured. Open \(SettingsRow.summaryProvider.path) and set the server URL, tool name, and arguments template.")
         case .agentCLI:
-            return "Daisy can't find the \(agentCLIKind.displayName) command. Install it and sign in (run it once in Terminal), or set its full path in Settings → Summary."
+            return String(localized: "Daisy can't find the \(agentCLIKind.displayName) command. Install it and sign in (run it once in Terminal), or set its full path in \(SettingsRow.summaryProvider.path).")
         }
     }
 
@@ -832,7 +832,7 @@ private nonisolated struct UnavailableAppleIntelligenceProvider: SummaryProvider
     func summarize(transcript: String, title: String, localeHint: String?, task: SummaryTask) async throws -> MeetingSummary {
         throw SummaryProviderError.modelUnavailable(
             provider: "Apple Intelligence",
-            reason: "Apple Intelligence summaries require macOS 26 (Tahoe) or newer. Open Settings → Summary and pick Anthropic, OpenAI, or your local MCP server instead."
+            reason: String(localized: "Apple Intelligence summaries require macOS 26 (Tahoe) or newer. Open \(SettingsRow.summaryProvider.path) and pick Anthropic, OpenAI, or your local MCP server instead.")
         )
     }
 }

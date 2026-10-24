@@ -26,7 +26,8 @@ enum WhatsNew {
     // "-c": notes became a hold and the tap the layout fix (Egor 23.10).
     // "-d": the last scene says where the new tour is — someone who
     // updates never sees it otherwise (Onboarding 2.0, Egor 24.10).
-    nonisolated static let edition = "daisy-key-2026-10-d"
+    // "-e": and that Settings are eight tabs with search (S4, Egor 24.10).
+    nonisolated static let edition = "daisy-key-2026-10-e"
     nonisolated static let seenKey = "daisy.whatsNew.seenEdition"
 
     static func shouldOpen(hasShownFirstRun: Bool, defaults: UserDefaults = .standard) -> Bool {
@@ -134,6 +135,22 @@ struct WhatsNewSheet: View {
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
+                // The settings restructure came with it: someone who knew
+                // the old six tabs learns where the search is.
+                HStack(spacing: 10) {
+                    Image(systemName: "gearshape")
+                        .foregroundStyle(.secondary)
+                    Text(String(localized: "whatsNew.settings", defaultValue: "Settings are eight tabs now, with search (⌘F)"))
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    Button("Open") {
+                        AppNavigation.shared.openInSettings(.general)
+                        dismiss()
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 4)
             }
             HStack {
                 HStack(spacing: 6) {
@@ -185,7 +202,7 @@ struct WhatsNewSheet: View {
     /// suggest ⌃⌥), or the hold without the permission it needs.
     private var setup: String? {
         if settings.voiceNoteHotkey.keyCode == nil {
-            return String(localized: "You don’t have a Daisy key yet — pick one in Settings. ⌃⌥ is the simplest.")
+            return String(localized: "You don’t have a Daisy key yet — pick one in \(SettingsRow.daisyKey.path). ⌃⌥ is the simplest.")
         }
         if !DaisyKeyController.canHold {
             // Without it the key isn't registered at all — as Settings says.
