@@ -357,16 +357,12 @@ private struct PracticeScene: View {
         SceneColumn {
             TourHeading(text: OnboardingCopy.text(isStyle ? .styleTitle : .dictationTitle))
             if isStyle {
+                // Plain, a size up — a text to read, not a warning (Egor 24.10).
                 Text(OnboardingCopy.text(.stylePassage))
-                    .font(.system(size: 15))
-                    .lineSpacing(3)
+                    .font(.system(size: 17, design: .rounded))
+                    .lineSpacing(5)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(Color.daisyAccentSoft, in: UnevenRoundedRectangle(bottomTrailingRadius: 10, topTrailingRadius: 10))
-                    .overlay(alignment: .leading) {
-                        Rectangle().fill(Color.daisyAccent).frame(width: 3)
-                    }
+                    .padding(.horizontal, 4)
                     .fixedSize(horizontal: false, vertical: true)
             }
             practiceField

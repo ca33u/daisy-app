@@ -761,17 +761,17 @@ final class OnboardingTourController {
             if done { return say(OnboardingCopy.text(.dictationDone), primary: next) }
             if isListening { return say(OnboardingCopy.text(.listening)) }
             return say(OnboardingCopy.dictationBubble(dictationKey),
-                       waiting: OnboardingCopy.holdKey(dictationKey), skip: skip)
+                       waiting: "", skip: skip)
         case .style:
             if done { return say(OnboardingCopy.text(.styleDone), primary: next) }
             if isListening { return say(OnboardingCopy.text(.listening)) }
             return say(OnboardingCopy.styleBubble(dictationKey),
-                       waiting: OnboardingCopy.holdKey(dictationKey), skip: skip)
+                       waiting: "", skip: skip)
         case .daisyKey:
             if done { return say(OnboardingCopy.text(.daisyKeyDone), primary: next) }
             if isListening { return say(OnboardingCopy.text(.listening)) }
             return say(OnboardingCopy.daisyKeyBubble(daisyKey),
-                       waiting: OnboardingCopy.holdKey(daisyKey), skip: skip)
+                       waiting: "", skip: skip)
         case .meeting:
             switch meeting {
             case .choosing:

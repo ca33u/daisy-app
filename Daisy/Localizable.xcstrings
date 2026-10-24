@@ -3850,13 +3850,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "So I can type where you are. Nothing else."
+            "value" : "So I can type where you are. Nothing else"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Нужно, чтобы печатать там, где ты. Больше ни для чего."
+            "value" : "Нужно, чтобы печатать там, где ты. Больше ни для чего"
           }
         }
       }
@@ -3901,13 +3901,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hold, say it, let go. The rest is my job."
+            "value" : "Hold, say it, let go. The rest is my job"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Зажал, сказал, отпустил. Остальное — моё дело."
+            "value" : "Зажал, сказал, отпустил. Остальное — моё дело"
           }
         }
       }
@@ -3918,13 +3918,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The Daisy key."
+            "value" : "The Daisy key"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Клавиша Daisy."
+            "value" : "Клавиша Daisy"
           }
         }
       }
@@ -4037,13 +4037,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dictate."
+            "value" : "Dictate"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Продиктуй."
+            "value" : "Продиктуй"
           }
         }
       }
@@ -4088,13 +4088,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "I’m here."
+            "value" : "I’m here"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Я на месте."
+            "value" : "Я на месте"
           }
         }
       }
@@ -4122,13 +4122,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "You talk, I keep the record. All of it stays on your Mac."
+            "value" : "You talk, I keep the record. All of it stays on your Mac"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ты говоришь — я записываю. И всё остаётся на твоём Mac."
+            "value" : "Ты говоришь — я записываю. И всё остаётся на твоём Mac"
           }
         }
       }
@@ -4139,13 +4139,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hi. I’m Daisy."
+            "value" : "Hi. I’m Daisy"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Привет. Я Daisy."
+            "value" : "Привет. Я Daisy"
           }
         }
       }
@@ -4190,13 +4190,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Only for meetings, to hear the other side."
+            "value" : "Only for meetings, to hear the other side"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Только для встреч — чтобы слышать собеседника."
+            "value" : "Только для встреч — чтобы слышать собеседника"
           }
         }
       }
@@ -4207,13 +4207,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A two-minute meeting is already here."
+            "value" : "A two-minute meeting is already here"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Двухминутная встреча уже у меня."
+            "value" : "Двухминутная встреча уже у меня"
           }
         }
       }
@@ -4258,13 +4258,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Your microphone and the other side. No bot joins the call."
+            "value" : "Your microphone and the other side. No bot joins the call"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Твой микрофон и собеседник. Бот в звонок не приходит."
+            "value" : "Твой микрофон и собеседник. Бот в звонок не приходит"
           }
         }
       }
@@ -4292,13 +4292,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Play any video and press me."
+            "value" : "Play any video and press me"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Включи любое видео и нажми на меня."
+            "value" : "Включи любое видео и нажми на меня"
           }
         }
       }
@@ -4326,13 +4326,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A meeting."
+            "value" : "A meeting"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Встреча."
+            "value" : "Встреча"
           }
         }
       }
@@ -4343,13 +4343,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "600 MB, once. After that I don’t need the internet."
+            "value" : "600 MB, once. After that I don’t need the internet"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "600 МБ, один раз. Потом интернет мне не нужен."
+            "value" : "600 МБ, один раз. Потом интернет мне не нужен"
           }
         }
       }
@@ -4377,13 +4377,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "I’ll download the speech model."
+            "value" : "I’ll download the speech model"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Скачаю модель речи."
+            "value" : "Скачаю модель речи"
           }
         }
       }
@@ -4496,13 +4496,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The call moved to Thursday at three. Please send the mockups by tonight and remind Anna about the contract."
+            "value" : "The call moved to Thursday at three, so the mockups are due tonight. Please remind Anna about the contract — she promised the edits last week. And put down that Friday is the demo for Masha."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Созвон перенесли на четверг в три. Пришли, пожалуйста, макеты до вечера и напомни Анне про договор."
+            "value" : "Созвон перенесли на четверг в три, так что макеты нужны до вечера. Напомни, пожалуйста, Анне про договор — она обещала прислать правки ещё на прошлой неделе. И запиши, что в пятницу у нас демо для Маши."
           }
         }
       }
@@ -4513,13 +4513,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hold %@ and read the text above. Feeling is optional."
+            "value" : "Hold %@ and read the text above. Feeling is optional"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Зажми %@ и прочитай текст выше. Можно с выражением."
+            "value" : "Зажми %@ и прочитай текст выше. Можно с выражением"
           }
         }
       }
@@ -4530,13 +4530,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read this aloud."
+            "value" : "Read this aloud"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Прочитай вслух."
+            "value" : "Прочитай вслух"
           }
         }
       }
@@ -4581,13 +4581,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "I live above your windows. I don’t take much room."
+            "value" : "I live above your windows. I don’t take much room"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Живу поверх окон. Места занимаю мало."
+            "value" : "Живу поверх окон. Места занимаю мало"
           }
         }
       }
@@ -4615,13 +4615,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Here I am."
+            "value" : "Here I am"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Вот я."
+            "value" : "Вот я"
           }
         }
       }
@@ -4632,13 +4632,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hold, talk, text at the cursor."
+            "value" : "Hold, talk, text at the cursor"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Зажал — сказал — текст у курсора."
+            "value" : "Зажал — сказал — текст у курсора"
           }
         }
       }
@@ -4666,13 +4666,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Calls without a bot, text by voice, notes."
+            "value" : "Calls without a bot, text by voice, notes"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Звонки без бота в звонке, текст голосом, заметки."
+            "value" : "Звонки без бота в звонке, текст голосом, заметки"
           }
         }
       }

@@ -23,7 +23,8 @@ enum OnboardingCopy {
         case skipStep = "tour.skipStep"
         case skipTour = "tour.skipTour"
         case again = "tour.again"
-        /// «зажми %@» — the bubble's waiting line.
+        /// «зажми %@» — a waiting line for a step that wants one; the
+        /// hold steps go without (Egor 24.10: the body already says it).
         case holdKey = "tour.holdKey"
         case listening = "tour.listening"
         case allow = "tour.allow"

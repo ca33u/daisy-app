@@ -352,16 +352,16 @@ private final class TourBubblePanel: NSPanel {
 
 // MARK: - Card view
 
-/// The card: background silhouette, header («🌼 DAISY · 4 из 9»), Daisy's
-/// line, and the button / waiting row. Frame-based layout — the card's
-/// size is measured once per content and the panel is sized to it.
+/// The card: background silhouette, Daisy's line, and a bottom row —
+/// the buttons (or the waiting line) on the left, «4 из 9» on the right.
+/// No header: Egor (24.10) — the mark and «DAISY» said nothing the arrow
+/// doesn't. Frame-based layout — the card's size is measured once per
+/// content and the panel is sized to it.
 final class TourBubbleView: NSView {
     private enum Metrics {
         static let padTop: CGFloat = 14
         static let padBottom: CGFloat = 12
         static let padH: CGFloat = 16
-        static let headerHeight: CGFloat = 14
-        static let headerGap: CGFloat = 6
         static let rowGap: CGFloat = 10
         static let rowHeight: CGFloat = 27
         static let buttonSpacing: CGFloat = 8
@@ -382,9 +382,6 @@ final class TourBubbleView: NSView {
     private var arrowY: CGFloat = TourBubbleLayout.arrowRestY
 
     private let shape = TourBubbleShapeView()
-    private let header = NSView()
-    private let headerIcon = NSImageView()
-    private let headerName = NSTextField(labelWithString: "")
     private let counter = NSTextField(labelWithString: "")
     private let body = NSTextField(wrappingLabelWithString: "")
     private let row = NSView()
@@ -403,23 +400,10 @@ final class TourBubbleView: NSView {
 
         addSubview(shape)
 
-        headerIcon.image = NSImage(named: "DaisyMark")
-        headerIcon.imageScaling = .scaleProportionallyUpOrDown
-        headerIcon.contentTintColor = Palette.secondary
-        header.addSubview(headerIcon)
-        // «DAISY» set like the prototype's `.who`: 11 pt, uppercase,
-        // tracked out — the small-caps feel without a small-caps font.
-        headerName.attributedStringValue = NSAttributedString(string: "DAISY", attributes: [
-            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-            .foregroundColor: Palette.secondary,
-            .kern: 0.9
-        ])
-        header.addSubview(headerName)
         counter.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         counter.textColor = Palette.secondary
         counter.alignment = .right
-        header.addSubview(counter)
-        addSubview(header)
+        row.addSubview(counter)
 
         body.isSelectable = false
         body.drawsBackground = false
@@ -443,10 +427,12 @@ final class TourBubbleView: NSView {
         counter.stringValue = String(localized: "\(content.step) of \(content.total)")
         body.attributedStringValue = Self.bodyString(content.text)
 
-        row.subviews.forEach { $0.removeFromSuperview() }
+        row.subviews.forEach { if $0 !== counter { $0.removeFromSuperview() } }
         pillButtons = []
         waitingView = nil
-        if let waiting = content.waiting {
+        // An empty `waiting` keeps the buttons away without a line of its
+        // own: the body already says what to hold (Egor 24.10).
+        if let waiting = content.waiting, !waiting.isEmpty {
             let view = TourWaitingView(text: waiting)
             row.addSubview(view)
             waitingView = view
@@ -468,13 +454,22 @@ final class TourBubbleView: NSView {
         needsLayout = true
     }
 
-    private var hasRow: Bool { waitingView != nil || !pillButtons.isEmpty }
+    /// The counter is always there, so the row always is.
+    private var hasRow: Bool { true }
 
+    /// A row that opens with a ghost pill («Пропустить», «Оставить здесь»)
+    /// starts that pill's label where the body text starts: the pill has
+    /// no fill, so its left padding would read as a dent (Egor 24.10).
+    private var rowLeadingShift: CGFloat {
+        waitingView == nil && pillButtons.first.map { !$0.isPrimary } == true ? -TourPillButton.padH : 0
+    }
+
+    /// Buttons (or the waiting line) plus the counter after a gap.
     private var rowContentWidth: CGFloat {
         var items = pillButtons.map(\.fittingWidth)
         if let waitingView { items.insert(waitingView.fittingWidth, at: 0) }
-        guard !items.isEmpty else { return 0 }
-        return items.reduce(0, +) + Metrics.buttonSpacing * CGFloat(items.count - 1)
+        let left = items.reduce(0, +) + Metrics.buttonSpacing * CGFloat(max(0, items.count - 1)) + rowLeadingShift
+        return left + Metrics.buttonSpacing * 2 + ceil(counter.fittingSize.width)
     }
 
     /// Narrow for a short line («Слушаю…»), up to 340 for a paragraph.
@@ -485,7 +480,7 @@ final class TourBubbleView: NSView {
         let natural = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: 10_000, height: 10_000)).width
         let inner = min(maxInner, max(minInner, ceil(natural), rowContentWidth))
         let bodyHeight = ceil(cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: inner, height: 10_000)).height)
-        var height = Metrics.padTop + Metrics.headerHeight + Metrics.headerGap + bodyHeight + Metrics.padBottom
+        var height = Metrics.padTop + bodyHeight + Metrics.padBottom
         if hasRow { height += Metrics.rowGap + Metrics.rowHeight }
         return NSSize(width: inner + Metrics.padH * 2, height: height)
     }
@@ -503,17 +498,6 @@ final class TourBubbleView: NSView {
         let inner = card.insetBy(dx: Metrics.padH, dy: 0)
         var top = card.maxY - Metrics.padTop
 
-        header.frame = NSRect(x: inner.minX, y: top - Metrics.headerHeight, width: inner.width, height: Metrics.headerHeight)
-        headerIcon.frame = NSRect(x: 0, y: 1, width: 12, height: 12)
-        let nameSize = headerName.fittingSize
-        headerName.frame = NSRect(x: 20, y: (Metrics.headerHeight - nameSize.height) / 2, width: nameSize.width, height: nameSize.height)
-        let counterSize = counter.fittingSize
-        counter.frame = NSRect(
-            x: inner.width - counterSize.width, y: (Metrics.headerHeight - counterSize.height) / 2,
-            width: counterSize.width, height: counterSize.height
-        )
-        top -= Metrics.headerHeight + Metrics.headerGap
-
         let bodyHeight = ceil((body.cell ?? NSTextFieldCell())
             .cellSize(forBounds: NSRect(x: 0, y: 0, width: inner.width, height: 10_000)).height)
         body.preferredMaxLayoutWidth = inner.width
@@ -524,7 +508,7 @@ final class TourBubbleView: NSView {
         if hasRow {
             top -= Metrics.rowGap
             row.frame = NSRect(x: inner.minX, y: top - Metrics.rowHeight, width: inner.width, height: Metrics.rowHeight)
-            var x: CGFloat = 0
+            var x: CGFloat = rowLeadingShift
             if let waitingView {
                 waitingView.frame = NSRect(x: 0, y: 0, width: waitingView.fittingWidth, height: Metrics.rowHeight)
                 x = waitingView.fittingWidth + Metrics.buttonSpacing
@@ -533,6 +517,11 @@ final class TourBubbleView: NSView {
                 button.frame = NSRect(x: x, y: 0, width: button.fittingWidth, height: Metrics.rowHeight)
                 x += button.fittingWidth + Metrics.buttonSpacing
             }
+            let counterSize = counter.fittingSize
+            counter.frame = NSRect(
+                x: inner.width - counterSize.width, y: (Metrics.rowHeight - counterSize.height) / 2,
+                width: counterSize.width, height: counterSize.height
+            )
         }
     }
 
@@ -612,7 +601,7 @@ final class TourPillButton: NSView {
     let isPrimary: Bool
     var onPress: (() -> Void)?
     private let label: NSTextField
-    private static let padH: CGFloat = 12
+    static let padH: CGFloat = 12
 
     init(title: String, isPrimary: Bool) {
         self.title = title
