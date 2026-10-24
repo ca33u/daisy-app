@@ -4,8 +4,9 @@
 //
 //  The Whisper decode runs off the main thread. WhisperKit runs on its
 //  caller's actor, and the engine is @MainActor: until `WhisperDecoder`
-//  every live pass decoded on the UI thread (field log 24.10: 3–15 s
-//  passes, a dialog that drew its second button ten seconds late).
+//  the decoder's work between CoreML predictions ran on the UI thread
+//  (field log 24.10) — about half a second of main-thread CPU per pass,
+//  which contributes to UI jank during a meeting.
 //
 
 import Foundation
