@@ -11,9 +11,10 @@
 //  against the views (`SettingsFrameTests`: every case is anchored by
 //  exactly one `.settingsRow(.case)` in Daisy/).
 //
-//  Raw values are `<tab>.<row>` and never change — deep links and any
-//  saved reference go through them. Moving a row to another tab (S2)
-//  changes `tab` and the prefix together; the test checks they agree.
+//  Raw values are `<tab>.<row>` — deep links and any saved reference go
+//  through them. Moving a row to another tab changes `tab` and the
+//  prefix together; the test checks they agree. S2 moved «Summarize»
+//  (ai.summaryTiming → meetings.summaryTiming).
 //
 
 import SwiftUI
@@ -36,6 +37,7 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
     case repasteHotkey = "shortcuts.repaste"
     case daisyKeyMeetingCommands = "shortcuts.meetingCommands"
     case sideNotesLeaveMeeting = "shortcuts.sideNotesLeaveMeeting"
+    case daisyKeyCloudGrants = "shortcuts.cloudGrants"
 
     // Meetings
     case microphone = "meetings.microphone"
@@ -50,6 +52,7 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
     case workingHours = "meetings.workingHours"
     case showSessionAfterStop = "meetings.showSessionAfterStop"
     case screenCapture = "meetings.screenCapture"
+    case screenshotInterval = "meetings.screenshotInterval"
     case screenshotNotes = "meetings.screenshotNotes"
     case askToStop = "meetings.askToStop"
     case speakersInTranscript = "meetings.speakersInTranscript"
@@ -57,6 +60,7 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
     case splitMicVoices = "meetings.splitMicVoices"
     case removeEcho = "meetings.removeEcho"
     case knownSpeakers = "meetings.knownSpeakers"
+    case summaryTiming = "meetings.summaryTiming"
 
     // Dictation
     case dictationEngine = "dictation.engine"
@@ -72,7 +76,6 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
     // AI
     case summaryProvider = "ai.summaryProvider"
     case summaryLanguage = "ai.summaryLanguage"
-    case summaryTiming = "ai.summaryTiming"
     case protectSensitiveData = "ai.protectSensitiveData"
     case secondPass = "ai.secondPass"
     case followUpsInMyVoice = "ai.followUpsInMyVoice"
@@ -111,18 +114,19 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
              .menuBarNextMeeting, .notifications:
             .general
         case .recordHotkey, .dictationHotkey, .daisyKey, .markMomentHotkey, .repasteHotkey,
-             .daisyKeyMeetingCommands, .sideNotesLeaveMeeting:
+             .daisyKeyMeetingCommands, .sideNotesLeaveMeeting, .daisyKeyCloudGrants:
             .shortcuts
         case .microphone, .noiseReduction, .recordOtherSide, .macOutput, .processingPlan,
              .processLaterOnCharger, .meetingModel, .liveTranscript, .autoRecord, .workingHours,
-             .showSessionAfterStop, .screenCapture, .screenshotNotes, .askToStop,
-             .speakersInTranscript, .nameKnownPeople, .splitMicVoices, .removeEcho, .knownSpeakers:
+             .showSessionAfterStop, .screenCapture, .screenshotInterval, .screenshotNotes, .askToStop,
+             .speakersInTranscript, .nameKnownPeople, .splitMicVoices, .removeEcho, .knownSpeakers,
+             .summaryTiming:
             .meetings
         case .dictationEngine, .fixProductNames, .pasteViaClipboard, .livePreview,
              .transcriptionLanguage, .layoutFixer, .layoutFixAsYouType, .layoutFixSwitchesSource,
              .layoutFixHotkey:
             .dictation
-        case .summaryProvider, .summaryLanguage, .summaryTiming, .protectSensitiveData, .secondPass,
+        case .summaryProvider, .summaryLanguage, .protectSensitiveData, .secondPass,
              .followUpsInMyVoice, .morningBrief, .preMeetingBrief, .researchAttendees, .myStyle:
             .ai
         case .recordingsFolder, .spaceUsed, .deleteAudioFiles, .deleteRecordings, .audioStorage,
@@ -156,6 +160,7 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
         case .repasteHotkey: "Paste my last dictation"
         case .daisyKeyMeetingCommands: "Commands during a meeting"
         case .sideNotesLeaveMeeting: "Side notes leave the meeting"
+        case .daisyKeyCloudGrants: "Allowed to send to the cloud"
         case .microphone: "Microphone"
         case .noiseReduction: "Reduce background noise"
         case .recordOtherSide: "Record the other side"
@@ -168,6 +173,7 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
         case .workingHours: "Track working hours"
         case .showSessionAfterStop: "Open the session window when recording stops"
         case .screenCapture: "Capture what's shared on screen"
+        case .screenshotInterval: "Capture every"
         case .screenshotNotes: "Turn my screenshots into notes"
         case .askToStop: "Ask to stop when the meeting ends"
         case .speakersInTranscript: "Speakers in transcript"
@@ -223,23 +229,41 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
     var standIn: SettingsRow? {
         switch self {
         case .layoutFixAsYouType, .layoutFixSwitchesSource, .layoutFixHotkey: .layoutFixer
+        case .screenshotInterval: .screenCapture
+        // The grants list is there only once a command was allowed.
+        case .daisyKeyCloudGrants: .daisyKeyMeetingCommands
         default: nil
         }
     }
 
-    /// Whether the row is on screen given the switches that hide rows —
-    /// only the layout fixer's today. Plain values rather than
+    /// The switches that hide rows. Plain values rather than
     /// `AppSettings`, which reads the real prefs.
-    func isShown(layoutFixEnabled: Bool) -> Bool {
+    struct Switches: Equatable, Sendable {
+        var layoutFixEnabled = true
+        var screenshotsEnabled = true
+        var hasCloudGrants = true
+
+        @MainActor
+        static func current(_ settings: AppSettings) -> Switches {
+            Switches(layoutFixEnabled: settings.layoutFixEnabled,
+                     screenshotsEnabled: settings.screenshotsEnabled,
+                     hasCloudGrants: !DaisyKeyController.cloudAllowedProviders.isEmpty)
+        }
+    }
+
+    /// Whether the row is on screen given the switches that hide rows.
+    func isShown(_ switches: Switches) -> Bool {
         switch self {
-        case .layoutFixAsYouType, .layoutFixSwitchesSource, .layoutFixHotkey: layoutFixEnabled
+        case .layoutFixAsYouType, .layoutFixSwitchesSource, .layoutFixHotkey: switches.layoutFixEnabled
+        case .screenshotInterval: switches.screenshotsEnabled
+        case .daisyKeyCloudGrants: switches.hasCloudGrants
         default: true
         }
     }
 
     /// Where a link lands: the row itself, or its stand-in while hidden.
-    func target(layoutFixEnabled: Bool) -> SettingsRow {
-        isShown(layoutFixEnabled: layoutFixEnabled) ? self : (standIn ?? self)
+    func target(_ switches: Switches) -> SettingsRow {
+        isShown(switches) ? self : (standIn ?? self)
     }
 
     /// The Connections page keeps two forms behind its own switch; a row
@@ -364,7 +388,7 @@ private struct SettingsScrollTarget: ViewModifier {
         guard let pending = nav.pendingSettingsRow,
               pending.tab == tab, accepts(pending) else { return }
         nav.pendingSettingsRow = nil
-        let row = pending.target(layoutFixEnabled: settings.layoutFixEnabled)
+        let row = pending.target(.current(settings))
         Task { @MainActor in
             // The form lays out its rows a beat after it appears; a
             // scroll before that lands short.

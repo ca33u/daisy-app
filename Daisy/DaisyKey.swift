@@ -1587,7 +1587,7 @@ final class DaisyKeyController {
         UserDefaults.standard.set(true, forKey: "daisy.daisyKey.cloudAllowed.\(kind.rawValue)")
     }
 
-    /// Takes a yes back (Settings → Summary): the next command for this
+    /// Takes a yes back (Settings → Shortcuts → Daisy key): the next command for this
     /// provider asks again.
     static func revokeCloud(_ kind: SummaryProviderKind) {
         UserDefaults.standard.removeObject(forKey: "daisy.daisyKey.cloudAllowed.\(kind.rawValue)")
