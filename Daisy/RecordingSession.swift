@@ -1674,7 +1674,7 @@ final class RecordingSession {
             style: .warning,
             duration: .seconds(12)
         ) {
-            AppNavigation.shared.openInSettings(.recording)
+            AppNavigation.shared.openInSettings(.meetings, row: .microphone)
         }
     }
 
@@ -1819,7 +1819,7 @@ final class RecordingSession {
         ToastCenter.shared.show(message, style: .warning)
         WidgetBubbleCenter.shared.present(WidgetBubbleContent(text: message),
             notificationTitle: String(localized: "Prepare Daisy"))
-        AppNavigation.shared.openInSettings(.transcription)
+        AppNavigation.shared.openInSettings(.meetings, row: .meetingModel)
     }
 
     func start() async {

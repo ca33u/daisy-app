@@ -2,12 +2,17 @@
 //  SettingsView.swift
 //  Daisy
 //
-//  Four-tab settings window:
-//   • Capture        — mic toggle (always on), system audio, screenshots
-//   • Transcription  — Whisper model picker (size vs accuracy)
-//   • Summary        — provider picker (Apple / Anthropic / OpenAI)
-//                      + API keys + model per provider + auto-summarize toggle
-//   • Notion         — token + parent ID
+//  Settings, eight tabs (24.10.2026) — see `SettingsTab`:
+//   • General      — profile, appearance, notifications
+//   • Shortcuts    — the hotkeys and the Daisy key in a meeting
+//   • Meetings     — audio, processing plan, meeting transcription,
+//                    auto-record, speakers
+//   • Dictation    — engine, language, keyboard layout
+//   • AI           — summary provider and output, briefs
+//   • Library      — storage, audio retention, projects, sync, models
+//   • Connections  — ConnectionsView
+//   • Privacy      — PermissionsView
+//  Search over the rows' titles sits above the page (SettingsRows.swift).
 //
 
 import AppKit
@@ -65,7 +70,7 @@ struct SettingsView: View {
     @State private var showingStorageDeleteConfirmation = false
     @State private var storageChangeInProgress = false
     /// On-disk Whisper cache stats — populated by an off-thread
-    /// scan in `transcriptionTab.task`. `cacheRefreshTick` is the
+    /// scan in `libraryTab.task`. `cacheRefreshTick` is the
     /// nudge the task watches; we bump it after Remove unused so
     /// the UI re-reads the freshly-shrunk cache.
     @State private var cachedModelsCount: Int = 0
@@ -245,13 +250,14 @@ struct SettingsView: View {
     /// shell, so it must not run during render).
     @State private var resolvedAgentPath: String?
     @Bindable private var nav = AppNavigation.shared
+    /// The search over row titles above the page. Non-empty → the page
+    /// gives way to the matching rows (`searchResults`).
+    @State private var searchQuery = ""
+    @FocusState private var searchFocused: Bool
 
-    static let tabOrder: [SettingsTab] = [.general, .recording, .transcription, .summary, .permissions, .connections]
+    static let tabOrder: [SettingsTab] = SettingsTab.allCases
 
-    private var tabTitles: [String] {
-        [String(localized: "General"), String(localized: "Recording"), String(localized: "Transcription"),
-         String(localized: "Summary"), String(localized: "Permissions"), String(localized: "Connections")]
-    }
+    private var tabTitles: [String] { Self.tabOrder.map(\.title) }
 
     /// Fallback only: the tabs above the page, for a window whose toolbar
     /// would not take the system tab control. Segments when they fit,
@@ -270,12 +276,9 @@ struct SettingsView: View {
 
     private var settingsTabPicker: some View {
         Picker("Settings", selection: $settingsTab) {
-            Text("General").tag(SettingsTab.general)
-            Text("Recording").tag(SettingsTab.recording)
-            Text("Transcription").tag(SettingsTab.transcription)
-            Text("Summary").tag(SettingsTab.summary)
-            Text("Permissions").tag(SettingsTab.permissions)
-            Text("Connections").tag(SettingsTab.connections)
+            ForEach(Self.tabOrder, id: \.self) { tab in
+                Text(tab.title).tag(tab)
+            }
         }
         .labelsHidden()
     }
@@ -294,14 +297,21 @@ struct SettingsView: View {
         // control itself.
         VStack(spacing: 12) {
             if toolbarTabsFailed { settingsTabsHeader }
+            searchField
             Group {
-                switch settingsTab {
-                case .general:       generalTab
-                case .recording:     recordingTab
-                case .transcription: transcriptionTab
-                case .summary:       summaryTab
-                case .permissions:   PermissionsView(settings: settings)
-                case .connections:   ConnectionsView(settings: settings)
+                if !searchQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+                    searchResults
+                } else {
+                    switch settingsTab {
+                    case .general:     generalTab
+                    case .shortcuts:   shortcutsTab
+                    case .meetings:    meetingsTab
+                    case .dictation:   dictationTab
+                    case .ai:          aiTab
+                    case .library:     libraryTab
+                    case .connections: ConnectionsView(settings: settings)
+                    case .privacy:     PermissionsView(settings: settings)
+                    }
                 }
             }
             .scrollContentBackground(.hidden)
@@ -309,6 +319,9 @@ struct SettingsView: View {
         .background(WindowFinder { window in
             guard let window, !toolbarTabsInstalled else { return }
             toolbarTabs.onSelect = { index in
+                // Picking a tab — even the one already selected — puts
+                // the page back in place of a results list.
+                searchQuery = ""
                 if Self.tabOrder.indices.contains(index) { settingsTab = Self.tabOrder[index] }
             }
             toolbarTabs.onLost = { toolbarTabsFailed = true }
@@ -320,6 +333,7 @@ struct SettingsView: View {
         })
         .onChange(of: settingsTab) { _, tab in
             toolbarTabs.select(Self.tabOrder.firstIndex(of: tab) ?? 0)
+            searchQuery = ""
         }
         .onDisappear {
             toolbarTabs.uninstall()
@@ -359,6 +373,111 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Search (24.10.2026)
+
+    /// The field above every tab. ⌘F while Settings is on screen puts the
+    /// cursor in it; Escape empties it; Return opens the first match.
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search settings", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .focused($searchFocused)
+                .onSubmit {
+                    if let first = searchHits.first { openSearchHit(first) }
+                }
+                // `onExitCommand` alone does not reach a focused plain
+                // field (same finding as the Library's rename field).
+                .onKeyPress(.escape) {
+                    if searchQuery.isEmpty {
+                        searchFocused = false
+                    } else {
+                        searchQuery = ""
+                    }
+                    return .handled
+                }
+            if !searchQuery.isEmpty {
+                Button {
+                    searchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.primary.opacity(0.06))
+        )
+        .frame(maxWidth: 360)
+        .frame(maxWidth: .infinity)
+        // A hidden button carries the shortcut without needing focus —
+        // the Library's delete keys work the same way.
+        .background {
+            Button("Search settings") { searchFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .hidden()
+        }
+    }
+
+    private var searchHits: [SettingsRow] {
+        SettingsSearch.results(for: searchQuery, in: SettingsSearch.entries)
+    }
+
+    /// The flat list that stands in for the page while searching:
+    /// «Row title · Tab», in the order `SettingsSearch` ranks them.
+    @ViewBuilder
+    private var searchResults: some View {
+        let hits = searchHits
+        if hits.isEmpty {
+            VStack(spacing: 6) {
+                Text("Nothing found")
+                    .font(.headline)
+                Text("Search looks through the names of the settings.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            Form {
+                Section {
+                    ForEach(hits, id: \.self) { row in
+                        Button {
+                            openSearchHit(row)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: row.tab.systemImage)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 18)
+                                Text(row.title)
+                                Text(verbatim: "·")
+                                    .foregroundStyle(.tertiary)
+                                Text(row.tab.title)
+                                    .foregroundStyle(.secondary)
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .daisyHoverRow()
+                    }
+                }
+            }
+            .formStyle(.grouped)
+        }
+    }
+
+    private func openSearchHit(_ row: SettingsRow) {
+        searchQuery = ""
+        searchFocused = false
+        nav.openInSettings(row.tab, row: row)
+    }
+
     /// Pull any one-shot Settings-tab request from AppNavigation,
     /// apply it to local TabView selection, and clear the field so
     /// it doesn't fire again on subsequent appears. This is the
@@ -366,6 +485,8 @@ struct SettingsView: View {
     /// instead of the default Capture.
     private func consumePendingSettingsTab() {
         guard let pending = nav.pendingSettingsTab else { return }
+        // A link lands on its tab, not on a results list left open.
+        searchQuery = ""
         settingsTab = pending
         nav.pendingSettingsTab = nil
     }
@@ -1106,13 +1227,10 @@ struct SettingsView: View {
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity)
                 }
+                .settingsRow(.displayName)
             } header: {
                 Text("Profile")
             }
-
-            // How hard Daisy works during and after a meeting — three
-            // plans compared side by side (Egor, 07.10.2026).
-            ProcessingPresetSection(settings: settings)
 
             // ── Appearance ────────────────────────────────────
             // Single home for every on-screen display setting Daisy
@@ -1134,6 +1252,7 @@ struct SettingsView: View {
                     Text("Русский").tag("ru")
                 }
                 .pickerStyle(.menu)
+                .settingsRow(.interfaceLanguage)
                 .alert("Restart Daisy?", isPresented: $showLanguageRestartAlert) {
                     Button("Restart Now") { relaunchDaisy() }
                     Button("Later", role: .cancel) {}
@@ -1147,6 +1266,7 @@ struct SettingsView: View {
                     Text("Dark").tag(AppearancePreference.dark)
                 }
                 .pickerStyle(.segmented)
+                .settingsRow(.theme)
 
                 Toggle(isOn: $settings.compactMenuBarOnly) {
                     Text("Compact menu bar")
@@ -1154,9 +1274,12 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .settingsRow(.compactMenuBar)
                 Toggle("Floating widget", isOn: $settings.floatingWidgetEnabled)
+                    .settingsRow(.floatingWidget)
                 Toggle("Show next meeting in the menu bar", isOn: $settings.menuBarShowsNextMeeting)
                     .disabled(!hasAnyCalendarSource)
+                    .settingsRow(.menuBarNextMeeting)
 
                 // ("Live preview while dictating" moved BACK to
                 // Transcription in 1.0.7.31 — it is an engine/performance
@@ -1178,77 +1301,10 @@ struct SettingsView: View {
             // (Audio/mic, Shortcuts, Meetings moved to the "Recording"
             // tab in 1.0.7.16. The menu-bar / widget toggles + the live-
             // preview / live-transcript controls were pulled into the
-            // "Appearance" section above in 1.0.7.19. General is now
-            // app-level prefs: Profile, Appearance, Storage, Privacy,
-            // Notifications.)
-
-            // ── Group 2: Storage / Privacy ────────────────────
-            // Split (1.0.7.16) from one "Storage" section that conflated
-            // three things: where files live, the retention/privacy
-            // choice, and the optional Notion export.
-            Section {
-                storageRow
-                storageUsageRow
-                clearAudioCacheRow
-                // The bulk delete is the biggest single mover of the
-                // "Space used" figure sitting two rows above it, so it
-                // reports back rather than leaving a stale number on
-                // screen for as long as Settings stays open.
-                BulkDeleteRecordingsView(onDeleted: { refreshStorageUsage() })
-            } header: {
-                Text("Storage")
-            }
-
-            // ── Sync with the iPhone (backlog 9 Ф3-A) ─────────
-            // Text and metadata through the private CloudKit database;
-            // audio never leaves the device this way.
-            SyncSettingsSection()
-
-            Section {
-                // Retention / privacy posture. "Don't record audio" is the
-                // strongest stance; the rest are a time-to-live. Per-session
-                // purge fires from RecordingSession.finalizePostStop; the
-                // time options are swept by AudioRetentionSweep.
-                HStack(alignment: .center, spacing: 10) {
-                    // "Delete audio after" read wrong next to "Don't record
-                    // audio" and "Keep forever", in both languages.
-                    Text("Audio storage")
-                        .font(.callout.weight(.medium))
-                    Spacer()
-                    Picker("", selection: $settings.audioRetentionDays) {
-                        Text("Don't record audio")
-                            .tag(AppSettings.audioRetentionDoNotRecord)
-                        Text("After transcription")
-                            .tag(AppSettings.audioRetentionDeleteAfterTranscription)
-                        Text("24 hours").tag(1)
-                        Text("7 days").tag(7)
-                        Text("30 days").tag(30)
-                        Text("Keep forever").tag(0)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .fixedSize()
-                    .onChange(of: settings.audioRetentionDays) { _, new in
-                        AudioRetentionSweep.runIfNeeded(retentionDays: new)
-                        // Warn that the no-audio mode forfeits crash recovery:
-                        // with no .caf on disk, an interrupted session can't be
-                        // rebuilt — only finished sessions keep their transcript.
-                        if new == AppSettings.audioRetentionDoNotRecord {
-                            ToastCenter.shared.show(
-                                String(localized: "Audio won't be saved to disk. If a recording is interrupted — a crash or power loss — it can't be recovered; only sessions you finish keep their transcript."),
-                                style: .warning,
-                                duration: .seconds(8)
-                            )
-                        }
-                    }
-                }
-            } header: {
-                Text("Privacy")
-            }
-
-            // (Notion "Send to" moved to the Connections page in 1.0.7.16
-            // — it's an external destination, not local storage. Shortcuts
-            // and Meetings moved to the new "Recording" tab.)
+            // "Appearance" section above in 1.0.7.19. Since 24.10.2026
+            // General is Profile, Appearance and Notifications; Storage,
+            // Privacy, Sync and Projects are the Library tab, the
+            // processing plan is on Meetings.)
 
             // ── Notifications ─────────────────────────────────
             // One picker instead of four per-class toggles (2026-07
@@ -1273,33 +1329,23 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 .pickerStyle(.menu)
+                .settingsRow(.notifications)
             } header: {
                 Text("Notifications")
             }
 
-            // ── Library folders ───────────────────────────────
-            // Create / rename / delete custom Library folders. The store
-            // + sidebar already support custom folders; this is the
-            // management UI that was missing (1.0.7.24).
-            FolderManagementSection(settings: settings)
-
-            // Auto-summary lives in the Summary tab — it sits next
+            // Auto-summary lives in the AI tab — it sits next
             // to the provider config it depends on.
 
         }
         .formStyle(.grouped)
+        .settingsScrollTarget(.general, settings: settings)
     }
 
-    // MARK: - Recording tab (split out of General, 1.0.7.16)
+    // MARK: - Shortcuts tab (24.10.2026: Recording's three shortcut sections)
 
-    private var recordingTab: some View {
-        recordingTabForm
-    }
-
-    private var recordingTabForm: some View {
+    private var shortcutsTab: some View {
         Form {
-            RecordingAudioSettingsSection(settings: settings)
-
             // ── Shortcuts ─────────────────────────────────────
             // One hotkey per recording mode. Each row offers the
             // recorder ("Press keys…") AND a preset Menu — the preset is
@@ -1311,12 +1357,14 @@ struct SettingsView: View {
                     binding: $settings.recordHotkey,
                     slot: .record
                 )
+                .settingsRow(.recordHotkey)
                 shortcutRow(
                     title: "Dictation",
                     caption: "Hold to talk, release to paste",
                     binding: $settings.dictationHotkey,
                     slot: .dictation
                 )
+                .settingsRow(.dictationHotkey)
                 shortcutRow(
                     title: "Daisy key",
                     caption: "Hold and say what to do — “note to project Work: …”, “write a reply…” — or hold without a word over selected text to rewrite it in your voice. A tap fixes the keyboard layout of the selection or the word you just typed",
@@ -1324,6 +1372,7 @@ struct SettingsView: View {
                     slot: .voiceNote,
                     presets: HotkeyChoice.daisyKeyPresets
                 )
+                .settingsRow(.daisyKey)
                 // Read through the observable permission so the line goes
                 // when Accessibility is granted with Settings open.
                 if settings.voiceNoteHotkey != .none,
@@ -1340,6 +1389,7 @@ struct SettingsView: View {
                     binding: $settings.markMomentHotkey,
                     slot: .markMoment
                 )
+                .settingsRow(.markMomentHotkey)
             } header: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Shortcuts")
@@ -1366,6 +1416,7 @@ struct SettingsView: View {
                     // not the record/dictate letters the other rows use.
                     presets: HotkeyChoice.pastePresets
                 )
+                .settingsRow(.repasteHotkey)
             }
 
             // ── The Daisy key in a meeting (backlog 34 K-3) ──────────
@@ -1376,18 +1427,85 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .settingsRow(.daisyKeyMeetingCommands)
                 Toggle(isOn: $settings.sideNoteCutsFromMeeting) {
                     Text("Side notes leave the meeting")
                     Text("A side note’s lines move out of the meeting’s transcript instead of being copied")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .settingsRow(.sideNotesLeaveMeeting)
             } header: {
                 Text("The Daisy key in a meeting")
             } footer: {
                 Text("Tap for a side note, tap again to end it — it ends by itself after a minute of quiet. Hold and talk to mark a moment with a comment: the comment goes to the moment, not the transcript")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+        }
+        .formStyle(.grouped)
+        .settingsScrollTarget(.shortcuts, settings: settings)
+    }
+
+    // MARK: - Meetings tab (24.10.2026: Recording's audio and meetings,
+    // the processing plan from General, the meeting model, live tier and
+    // speakers from Transcription)
+
+    private var meetingsTab: some View {
+        Form {
+            if modelPreparation.needsAttention(settings: settings) {
+                Section {
+                    ModelPreparationView(settings: settings, preparation: modelPreparation, includeSpeakers: true)
+                }
+            }
+            RecordingAudioSettingsSection(settings: settings)
+
+            // How hard Daisy works during and after a meeting — three
+            // plans compared side by side (Egor, 07.10.2026).
+            ProcessingPresetSection(settings: settings)
+
+            // The meeting half of the old "Transcription" block: the model
+            // every recording runs on and how the live transcript keeps up.
+            Section {
+                Picker(selection: $whisper.modelID) {
+                    ForEach(WhisperEngine.availableModels, id: \.id) { model in
+                        let size = model.sizeMB >= 1000
+                            ? String(format: String(localized: "%.1f GB"), Double(model.sizeMB) / 1000.0)
+                            : String(localized: "\(model.sizeMB) MB")
+                        let name = model.id == WhisperEngine.defaultModelID
+                            // Keyed: «Модель» is feminine, while the shared
+                            // "Standard" key is «Стандартный» for the engine.
+                            ? String(localized: "model.standard", defaultValue: "Standard") : String(localized: "Most accurate")
+                        Text("\(name) · \(size)").tag(model.id)
+                    }
+                } label: {
+                    transcriptionRowLabel(
+                        "Meeting model",
+                        state: whisperBadgeState,
+                        message: whisperShortStatus
+                    )
+                }
+                .pickerStyle(.menu)
+                .disabled(modelPreparation.isRunning || RecordingSession.isCapturingOrTranscribing || SessionAudioProcessing.shared.isRunning)
+                .settingsRow(.meetingModel)
+
+                // Live-transcript tier — how the toolbar transcript updates
+                // during a meeting. Plain names: Default (was "Lite") is the
+                // sensible default; Full is heavier; Off transcribes once on
+                // Stop. The final saved transcript is always full quality,
+                // and dictation always runs live regardless of this.
+                // Same words as the plans in General (Egor, 07.10.2026),
+                // and feminine to agree with «Живая транскрипция».
+                Picker("Live transcript", selection: $settings.liveTranscriptionTier) {
+                    Text("After the meeting").tag(LiveTranscriptionTier.off)
+                    Text("Optimal").tag(LiveTranscriptionTier.lite)
+                    Text("Full · uses more memory").tag(LiveTranscriptionTier.full)
+                }
+                .pickerStyle(.menu)
+                .settingsRow(.liveTranscript)
+            } header: {
+                Text("Transcription")
             }
 
             // ── Meetings ──────────────────────────────────────
@@ -1398,6 +1516,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .settingsRow(.autoRecord)
 
                 // Only where app detection actually runs. Under
                 // "Meetings with a link" and "Off" the app-launch
@@ -1414,6 +1533,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .settingsRow(.workingHours)
                 if settings.workingHoursEnabled {
                     LabeledContent("Working day") {
                         HStack(spacing: 8) {
@@ -1447,6 +1567,7 @@ struct SettingsView: View {
                 // Applies to every recording (not just meetings) → ungated,
                 // above the calendar-only row.
                 Toggle("Open the session window when recording stops", isOn: $settings.showSessionAfterStop)
+                    .settingsRow(.showSessionAfterStop)
 
                 // Screen-content capture + on-device OCR. Off by default;
                 // needs Screen Recording permission. Reinstated with a
@@ -1457,6 +1578,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .settingsRow(.screenCapture)
                 if settings.screenshotsEnabled {
                     Picker("Capture every", selection: $settings.screenshotIntervalSec) {
                         Text("15 seconds").tag(15)
@@ -1482,6 +1604,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .settingsRow(.screenshotNotes)
 
                 // Calendar-only. Merged on/off + grace: -1 → off, 0 → ask
                 // at the scheduled end, 300 → 5 min after (the grace also
@@ -1498,6 +1621,7 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.menu)
                 .disabled(!hasAnyCalendarSource)
+                .settingsRow(.askToStop)
                 // A tester read "5 minutes after" as a timer (2026-09-15).
                 // It's a condition: the pill asks once the meeting is past
                 // its end AND the call has gone quiet; Daisy never stops
@@ -1511,356 +1635,6 @@ struct SettingsView: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
-            }
-
-            // (The "Menu bar & widget" section — compact / floating
-            // widget / show-next-meeting toggles — moved to General →
-            // "Appearance" in 1.0.7.19, consolidating every on-screen
-            // display setting in one place.)
-        }
-        .formStyle(.grouped)
-    }
-
-    /// At least one calendar source is connected — Apple EventKit
-    /// (`.fullAccess` granted) OR Google via direct OAuth. Gates the
-    /// behaviour toggles in the Calendar section of generalTab; the
-    /// underlying grant/connect affordances live elsewhere
-    /// (EventKit in Settings → Permissions, Google in Connections
-    /// once verification clears).
-    ///
-    /// Reads the LIVE `CalendarService.authorizationStatus`, not the
-    /// persisted `settings.calendarAccessGranted` cache. Pre-1.0.4 the
-    /// gate used the cached bool, which could lag behind the real
-    /// EventKit state — a tester with Apple Calendar granted in
-    /// System Settings → Privacy & Security but a stale UserDefaults
-    /// bool saw every toggle in this section disabled even though
-    /// Permissions tab correctly said "Granted". Same observable
-    /// (`@Bindable var calendarService = CalendarService.shared`) the
-    /// Permissions tab reads, so the two surfaces can't diverge.
-    private var hasAnyCalendarSource: Bool {
-        systemPermissions.calendar == .granted || googleAccount.isConnected
-    }
-
-    /// One selector standing in for the old auto-stop toggle + grace
-    /// picker. -1 = off; otherwise on, with the value as the grace (also
-    /// the rejoin window). A stored grace that isn't one of the offered
-    /// options shows as "5 minutes after" until the user re-picks.
-    private var autoStopSelection: Binding<Int> {
-        Binding(
-            get: {
-                guard settings.autoStopFromCalendar else { return -1 }
-                return settings.autoStopGraceSec == 0 ? 0 : 300
-            },
-            set: { newValue in
-                if newValue < 0 {
-                    settings.autoStopFromCalendar = false
-                } else {
-                    settings.autoStopFromCalendar = true
-                    settings.autoStopGraceSec = newValue
-                }
-            }
-        )
-    }
-
-    /// Locale-aware half-hour labels for the workday pickers. 1440 is a
-    /// useful end-of-day sentinel but Date wraps it to tomorrow's 00:00,
-    /// which is exactly the label we want.
-    private func workingTimeLabel(_ minutes: Int) -> String {
-        var calendar = Calendar.current
-        calendar.timeZone = .current
-        let day = calendar.startOfDay(for: Date())
-        let date = calendar.date(byAdding: .minute, value: minutes, to: day) ?? day
-        return date.formatted(date: .omitted, time: .shortened)
-    }
-
-    // MARK: - Transcription (Whisper)
-
-    private var transcriptionTab: some View {
-        Form {
-            if modelPreparation.needsAttention(settings: settings) {
-                Section {
-                    ModelPreparationView(settings: settings, preparation: modelPreparation, includeSpeakers: true)
-                }
-            }
-            // One "Transcription" block, two rows. Friendly names (no model
-            // IDs / engine vendor names), no helper captions, no separate
-            // status rows or buttons — each row's status (and model download
-            // progress) rides as a badge next to its label. Meetings (+
-            // voice notes) always use the Whisper model on row 1; dictation
-            // picks its engine on row 2 (Default = Whisper, reusing that
-            // model; Faster = on-device Parakeet, ~600 MB once).
-            Section {
-                Picker(selection: $whisper.modelID) {
-                    ForEach(WhisperEngine.availableModels, id: \.id) { model in
-                        let size = model.sizeMB >= 1000
-                            ? String(format: String(localized: "%.1f GB"), Double(model.sizeMB) / 1000.0)
-                            : String(localized: "\(model.sizeMB) MB")
-                        let name = model.id == WhisperEngine.defaultModelID
-                            // Keyed: «Модель» is feminine, while the shared
-                            // "Standard" key is «Стандартный» for the engine.
-                            ? String(localized: "model.standard", defaultValue: "Standard") : String(localized: "Most accurate")
-                        Text("\(name) · \(size)").tag(model.id)
-                    }
-                } label: {
-                    transcriptionRowLabel(
-                        "Meeting model",
-                        state: whisperBadgeState,
-                        message: whisperShortStatus
-                    )
-                }
-                .pickerStyle(.menu)
-                .disabled(modelPreparation.isRunning || RecordingSession.isCapturingOrTranscribing || SessionAudioProcessing.shared.isRunning)
-
-                Picker(selection: $settings.dictationEngine) {
-                    Text(DictationEngine.whisper.displayName).tag(DictationEngine.whisper)
-                    Text(DictationEngine.parakeet.displayName).tag(DictationEngine.parakeet)
-                    // Apple SpeechAnalyzer only exists on macOS 26 — hide
-                    // the option below that so users can't pick a dead end.
-                    if #available(macOS 26, *) {
-                        // Greyed out — not hidden — when Apple has no
-                        // model for the dictation language, with the
-                        // reason in the label. Selectable-but-inert was
-                        // the trap: "Apple works great on Russian" while
-                        // every word came from Whisper (2026-09-04, the
-                        // log finally proved it: installed=[en-* only]).
-                        if appleSpeechAvailability == .unsupported {
-                            Text("\(DictationEngine.appleSpeech.displayName) — not available for \(appleSpeechLanguageName)")
-                                .tag(DictationEngine.appleSpeech)
-                                .disabled(true)
-                        } else {
-                            Text(DictationEngine.appleSpeech.displayName).tag(DictationEngine.appleSpeech)
-                        }
-                    }
-                } label: {
-                    transcriptionRowLabel(
-                        "Dictation engine",
-                        state: dictationBadgeState,
-                        message: dictationShortStatus
-                    )
-                }
-                .pickerStyle(.menu)
-                // Selecting "Faster" (or reopening Settings while it's
-                // already chosen) kicks the Parakeet download so its badge
-                // shows progress — no separate button; the badge IS the
-                // download indicator. Apple needs no download here (the
-                // model ships with the OS; first use pulls it in the
-                // background from the dictation path).
-                .onChange(of: settings.dictationEngine) { _, engine in
-                    if engine == .parakeet { Task { await ParakeetEngine.shared.ensureLoaded() } }
-                    // Re-scan models on disk now so the "Models" row and
-                    // "Remove unused" reflect the new engine immediately.
-                    cacheRefreshTick &+= 1
-                    refreshStorageUsage()
-                }
-                .onChange(of: parakeet.isReady) { _, _ in
-                    // Parakeet finished downloading/loading → refresh the
-                    // models size + count without waiting for a reopen.
-                    cacheRefreshTick &+= 1
-                    refreshStorageUsage()
-                }
-                .onAppear {
-                    if settings.dictationEngine == .parakeet, !parakeet.isReady {
-                        Task { await ParakeetEngine.shared.ensureLoaded() }
-                    }
-                }
-                // Ask the framework whether Apple covers this language,
-                // re-asking whenever the engine or the language changes.
-                .task(id: appleSpeechCheckKey) { await refreshAppleSpeechLocaleSupport() }
-                if settings.dictationEngine == .appleSpeech {
-                    Text("Uses the speech model built into macOS 26 — no download, ~2× faster than Whisper, nothing added to Daisy’s size. Needs a specific language below (not Auto); otherwise dictation falls back to Whisper.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if appleSpeechAvailability == .unsupported {
-                        Text("macOS doesn’t have an Apple speech model for \(appleSpeechLanguageName) — dictation runs on Whisper instead. Everything still works; it just isn’t the faster engine.")
-                            .font(.caption)
-                            .foregroundStyle(Color.daisyWarning)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else if appleSpeechAvailability == .frameworkUnavailable {
-                        Text("Apple’s speech engine isn’t available on this Mac — dictation runs on Whisper instead.")
-                            .font(.caption)
-                            .foregroundStyle(Color.daisyWarning)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else if appleSpeechAvailability == .notInstalled {
-                        Text("macOS hasn’t downloaded the Apple speech model for \(appleSpeechLanguageName) yet — until it does, dictation runs on Whisper. Daisy asks for it in the background; adding the language in System Settings → Keyboard → Dictation usually brings it down faster.")
-                            .font(.caption)
-                            .foregroundStyle(Color.daisyWarning)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-
-                // Built-in brand layer (Egor 2026-07-25) — the only way
-                // the Faster engine (no vocabulary biasing) gets product
-                // names in Latin when you dictate in Russian & co.
-                Toggle(isOn: $settings.fixBrandNamesInDictation) {
-                    Text("Fix product names")
-                }
-                .help("Restores product names spoken in another script to their Latin spelling — «фигма» becomes Figma, «гитхаб» becomes GitHub. Applies to dictation and to recorded meetings, on every engine; your own Vocabulary rules always win.")
-
-                // Off by default (Egor 2026-09-18): dictation must never
-                // replace what the person has copied. Typed key events do
-                // that; the clipboard route is kept for apps whose
-                // as-you-type autocomplete mangles typed text.
-                Toggle(isOn: $settings.dictationPastesViaClipboard) {
-                    Text("Paste through the clipboard")
-                }
-                .help("When a field won't take a direct insert, Daisy types your dictation as keystrokes so your clipboard is never touched. Turn this on for apps that autocomplete or auto-format as you type — the text is pasted whole instead, and what you had copied comes back a few seconds later.")
-
-                // Streaming live preview for dictation (Nemotron 3.5,
-                // on-device). The badge doubles as the model-download
-                // indicator — same pattern as the Faster engine in
-                // Transcription. Preview-only: the pasted text still comes
-                // from the dictation engine picked in Transcription.
-                Toggle(isOn: $settings.dictationUseNemotronLive) {
-                    transcriptionRowLabel(
-                        "Live preview while dictating",
-                        state: nemotronBadgeState,
-                        message: nemotronShortStatus
-                    )
-                }
-                .help("Shows your words about half a second behind your speech while you hold the dictation key. The pasted text still comes from the dictation engine above. Turning this on downloads an on-device model once.")
-                .onChange(of: settings.dictationUseNemotronLive) { _, useNemotron in
-                    if useNemotron { Task { await NemotronLiveEngine.shared.ensureLoaded() } }
-                }
-                .onAppear {
-                    if settings.dictationUseNemotronLive, !nemotron.isReady {
-                        Task { await NemotronLiveEngine.shared.ensureLoaded() }
-                    }
-                }
-
-                // One transcription language for everything (meetings,
-                // voice notes, dictation). Per-mode overrides were removed
-                // 2026-06-05 — nobody set them separately, and the recorder
-                // header still offers a per-session override. Pinning a
-                // language kills auto-detect drift (e.g. a Russian opener
-                // mis-decoded as French). Voice-note / dictation locale
-                // fields stay in the model defaulting to "inherit", so this
-                // single pick drives all three modes.
-                Picker("Language", selection: $settings.defaultTranscriptionLocale) {
-                    ForEach(Transcriber.availableLocales, id: \.id) { locale in
-                        Text(locale.label).tag(locale.id)
-                    }
-                }
-                .pickerStyle(.menu)
-
-                // Live-transcript tier — how the toolbar transcript updates
-                // during a meeting. Plain names: Default (was "Lite") is the
-                // sensible default; Full is heavier; Off transcribes once on
-                // Stop. The final saved transcript is always full quality,
-                // and dictation always runs live regardless of this.
-                // Same words as the plans in General (Egor, 07.10.2026),
-                // and feminine to agree with «Живая транскрипция».
-                Picker("Live transcript", selection: $settings.liveTranscriptionTier) {
-                    Text("After the meeting").tag(LiveTranscriptionTier.off)
-                    Text("Optimal").tag(LiveTranscriptionTier.lite)
-                    Text("Full · uses more memory").tag(LiveTranscriptionTier.full)
-                }
-                .pickerStyle(.menu)
-            } header: {
-                Text("Transcription")
-            }
-
-            // ── Keyboard layout ───────────────────────────────
-            // Typed-text sibling of "Fix product names" above: same job
-            // (put the characters the user meant on screen), different
-            // input. The shortcut itself is bound in Recording →
-            // Shortcuts with the others.
-            Section {
-                // The one switch: off, nothing below runs — not the
-                // watcher, not the shortcut (Egor, 07.10.2026).
-                Toggle(isOn: $settings.layoutFixEnabled) {
-                    Text("Layout fixer")
-                    Text("Re-types text typed in the wrong keyboard layout: «ghbdtn» → «привет».")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if settings.layoutFixEnabled {
-                Toggle(isOn: $settings.layoutFixAuto) {
-                    Text("Fix the layout as I type")
-                    // The toggle's stated intent and what is actually
-                    // running are two different things, and three
-                    // conditions can silently separate them: no
-                    // Accessibility grant, a rival switcher (Caramba,
-                    // Punto) holding the keyboard, or a Mac with only
-                    // one keyboard layout installed. Onboarding has
-                    // said this since the beginning; Settings — where
-                    // people actually flip the switch — said nothing,
-                    // which is the `auto=true running=false` state a
-                    // bug report once cost a full day (audit
-                    // 2026-09-01). Same live signal, same phrasing.
-                    if let caption = layoutFixCaption {
-                        Text(caption)
-                            .font(.caption)
-                            .foregroundStyle(Color.daisyWarning)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                // Neither `LayoutAutoFix.isRunning` nor the installed
-                // layout list is Observable, and flipping the toggle
-                // re-renders this row a beat BEFORE the wiring starts
-                // the tap — so a caption rendered right now would read
-                // "not running yet" and stay wrong until something else
-                // happened to redraw. Same fix onboarding already uses:
-                // wait out the race, then force a re-read.
-                .id(layoutFixRecheck)
-                .onChange(of: settings.layoutFixAuto) { _, _ in
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(400))
-                        layoutFixRecheck &+= 1
-                    }
-                }
-                .onChange(of: systemPermissions.accessibility) { _, _ in
-                    layoutFixRecheck &+= 1
-                }
-                // Turning the master switch on starts a watcher that was
-                // already wanted; recheck after it starts, as above.
-                .onChange(of: settings.layoutFixEnabled) { _, _ in
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(400))
-                        layoutFixRecheck &+= 1
-                    }
-                }
-                .help("Corrects words that are gibberish in one layout and a real word in another, as you finish them — including the word you press Return on. Needs Accessibility access.")
-
-                Toggle(isOn: $settings.layoutFixSwitchesSource) {
-                    Text("Switch the input source after a fix")
-                }
-                .help("Otherwise the fix lands on one word and the next one goes wrong the same way.")
-
-                // The shortcut lives in Recording → Shortcuts with the
-                // others AND here: with both toggles above off, a user
-                // still had her selection re-typed in Cyrillic by the
-                // shortcut she had set in onboarding, and this section —
-                // the one she checked — never mentioned it (07.10.2026).
-                shortcutRow(
-                    title: "Fix the keyboard layout",
-                    caption: "«ghbdtn» becomes «привет» — the selection, or the word you're typing",
-                    binding: $settings.layoutFixHotkey,
-                    slot: .layoutFix,
-                    presets: HotkeyChoice.layoutFixPresets
-                )
-
-                // Undo (one press of the fix shortcut, right after a fix)
-                // teaches the exceptions list — this row is where that
-                // memory becomes visible and, if it's ever wrong, undoable
-                // itself.
-                HStack {
-                    Text("Words Daisy doesn't touch: \(layoutFixExceptions.count)")
-                        .font(.callout)
-                    Spacer()
-                    Button("Clear") {
-                        layoutFixExceptions.clear()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(layoutFixExceptions.count == 0)
-                }
-                .help("Undoing a fix (press the shortcut right after) adds the word here so Daisy leaves it alone from then on.")
-                }
-            } header: {
-                Text("Keyboard layout")
-            } footer: {
-                Text("The shortcut fixes selected text in compatible apps. Automatic fixing decides while you're still typing the word, using the spell-check dictionaries already on your Mac, so a word you finish with Return is corrected before it's sent. Nothing is stored or sent anywhere, and it stands down in password fields, terminals, IDEs, password managers and remote desktops. Needs Accessibility access.")
             }
 
             // Diarization above Language in 1.0.6: it's a structural
@@ -1921,6 +1695,7 @@ struct SettingsView: View {
                     Text("Speakers in transcript")
                 }
                 .pickerStyle(.menu)
+                .settingsRow(.speakersInTranscript)
 
                 // Moved in from the old "Speaker matching" section (merged
                 // 1.0.7.16). Same .menu style as the rest of the form.
@@ -1932,6 +1707,7 @@ struct SettingsView: View {
                     Text("Name known people")
                 }
                 .pickerStyle(.menu)
+                .settingsRow(.nameKnownPeople)
                 Text(speakerMatchModeHelp)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1943,6 +1719,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .settingsRow(.splitMicVoices)
 
                 Toggle(isOn: $settings.suppressAcousticEcho) {
                     Text("Remove echo from my mic")
@@ -1950,6 +1727,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .settingsRow(.removeEcho)
 
                 // "Use the invite's headcount" lived here until
                 // 2026-09-01. Removed rather than relabelled: the
@@ -1982,6 +1760,7 @@ struct SettingsView: View {
             // resetting the app container.
             Section {
                 speakerProfilesRow
+                    .settingsRow(.knownSpeakers)
             } header: {
                 Text("Known speakers")
             } footer: {
@@ -1990,12 +1769,425 @@ struct SettingsView: View {
                     .foregroundStyle(.tertiary)
             }
 
-            // On-disk model cache (maintenance) — kept last on the tab,
-            // after the speaker content it used to interrupt.
+        }
+        .formStyle(.grouped)
+        .settingsScrollTarget(.meetings, settings: settings)
+    }
+
+    /// At least one calendar source is connected — Apple EventKit
+    /// (`.fullAccess` granted) OR Google via direct OAuth. Gates the
+    /// behaviour toggles in the Calendar section of generalTab; the
+    /// underlying grant/connect affordances live elsewhere
+    /// (EventKit in Settings → Permissions, Google in Connections
+    /// once verification clears).
+    ///
+    /// Reads the LIVE `CalendarService.authorizationStatus`, not the
+    /// persisted `settings.calendarAccessGranted` cache. Pre-1.0.4 the
+    /// gate used the cached bool, which could lag behind the real
+    /// EventKit state — a tester with Apple Calendar granted in
+    /// System Settings → Privacy & Security but a stale UserDefaults
+    /// bool saw every toggle in this section disabled even though
+    /// Permissions tab correctly said "Granted". Same observable
+    /// (`@Bindable var calendarService = CalendarService.shared`) the
+    /// Permissions tab reads, so the two surfaces can't diverge.
+    private var hasAnyCalendarSource: Bool {
+        systemPermissions.calendar == .granted || googleAccount.isConnected
+    }
+
+    /// One selector standing in for the old auto-stop toggle + grace
+    /// picker. -1 = off; otherwise on, with the value as the grace (also
+    /// the rejoin window). A stored grace that isn't one of the offered
+    /// options shows as "5 minutes after" until the user re-picks.
+    private var autoStopSelection: Binding<Int> {
+        Binding(
+            get: {
+                guard settings.autoStopFromCalendar else { return -1 }
+                return settings.autoStopGraceSec == 0 ? 0 : 300
+            },
+            set: { newValue in
+                if newValue < 0 {
+                    settings.autoStopFromCalendar = false
+                } else {
+                    settings.autoStopFromCalendar = true
+                    settings.autoStopGraceSec = newValue
+                }
+            }
+        )
+    }
+
+    /// Locale-aware half-hour labels for the workday pickers. 1440 is a
+    /// useful end-of-day sentinel but Date wraps it to tomorrow's 00:00,
+    /// which is exactly the label we want.
+    private func workingTimeLabel(_ minutes: Int) -> String {
+        var calendar = Calendar.current
+        calendar.timeZone = .current
+        let day = calendar.startOfDay(for: Date())
+        let date = calendar.date(byAdding: .minute, value: minutes, to: day) ?? day
+        return date.formatted(date: .omitted, time: .shortened)
+    }
+
+    // MARK: - Dictation tab (24.10.2026: Transcription's dictation rows
+    // and keyboard layout)
+
+    private var dictationTab: some View {
+        Form {
+            if modelPreparation.needsAttention(settings: settings) {
+                Section {
+                    ModelPreparationView(settings: settings, preparation: modelPreparation, includeSpeakers: true)
+                }
+            }
+            // (24.10.2026: the meeting model and the live-transcript tier
+            // went to the Meetings tab; this is the dictation half.)
+            // One "Transcription" block, two rows. Friendly names (no model
+            // IDs / engine vendor names), no helper captions, no separate
+            // status rows or buttons — each row's status (and model download
+            // progress) rides as a badge next to its label. Meetings (+
+            // voice notes) always use the Whisper model on row 1; dictation
+            // picks its engine on row 2 (Default = Whisper, reusing that
+            // model; Faster = on-device Parakeet, ~600 MB once).
+            Section {
+                Picker(selection: $settings.dictationEngine) {
+                    Text(DictationEngine.whisper.displayName).tag(DictationEngine.whisper)
+                    Text(DictationEngine.parakeet.displayName).tag(DictationEngine.parakeet)
+                    // Apple SpeechAnalyzer only exists on macOS 26 — hide
+                    // the option below that so users can't pick a dead end.
+                    if #available(macOS 26, *) {
+                        // Greyed out — not hidden — when Apple has no
+                        // model for the dictation language, with the
+                        // reason in the label. Selectable-but-inert was
+                        // the trap: "Apple works great on Russian" while
+                        // every word came from Whisper (2026-09-04, the
+                        // log finally proved it: installed=[en-* only]).
+                        if appleSpeechAvailability == .unsupported {
+                            Text("\(DictationEngine.appleSpeech.displayName) — not available for \(appleSpeechLanguageName)")
+                                .tag(DictationEngine.appleSpeech)
+                                .disabled(true)
+                        } else {
+                            Text(DictationEngine.appleSpeech.displayName).tag(DictationEngine.appleSpeech)
+                        }
+                    }
+                } label: {
+                    transcriptionRowLabel(
+                        "Dictation engine",
+                        state: dictationBadgeState,
+                        message: dictationShortStatus
+                    )
+                }
+                .pickerStyle(.menu)
+                .settingsRow(.dictationEngine)
+                // Selecting "Faster" (or reopening Settings while it's
+                // already chosen) kicks the Parakeet download so its badge
+                // shows progress — no separate button; the badge IS the
+                // download indicator. Apple needs no download here (the
+                // model ships with the OS; first use pulls it in the
+                // background from the dictation path).
+                .onChange(of: settings.dictationEngine) { _, engine in
+                    if engine == .parakeet { Task { await ParakeetEngine.shared.ensureLoaded() } }
+                    // Re-scan models on disk now so the "Models" row and
+                    // "Remove unused" reflect the new engine immediately.
+                    cacheRefreshTick &+= 1
+                    refreshStorageUsage()
+                }
+                .onChange(of: parakeet.isReady) { _, _ in
+                    // Parakeet finished downloading/loading → refresh the
+                    // models size + count without waiting for a reopen.
+                    cacheRefreshTick &+= 1
+                    refreshStorageUsage()
+                }
+                .onAppear {
+                    if settings.dictationEngine == .parakeet, !parakeet.isReady {
+                        Task { await ParakeetEngine.shared.ensureLoaded() }
+                    }
+                }
+                // Ask the framework whether Apple covers this language,
+                // re-asking whenever the engine or the language changes.
+                .task(id: appleSpeechCheckKey) { await refreshAppleSpeechLocaleSupport() }
+                if settings.dictationEngine == .appleSpeech {
+                    Text("Uses the speech model built into macOS 26 — no download, ~2× faster than Whisper, nothing added to Daisy’s size. Needs a specific language below (not Auto); otherwise dictation falls back to Whisper.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if appleSpeechAvailability == .unsupported {
+                        Text("macOS doesn’t have an Apple speech model for \(appleSpeechLanguageName) — dictation runs on Whisper instead. Everything still works; it just isn’t the faster engine.")
+                            .font(.caption)
+                            .foregroundStyle(Color.daisyWarning)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if appleSpeechAvailability == .frameworkUnavailable {
+                        Text("Apple’s speech engine isn’t available on this Mac — dictation runs on Whisper instead.")
+                            .font(.caption)
+                            .foregroundStyle(Color.daisyWarning)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if appleSpeechAvailability == .notInstalled {
+                        Text("macOS hasn’t downloaded the Apple speech model for \(appleSpeechLanguageName) yet — until it does, dictation runs on Whisper. Daisy asks for it in the background; adding the language in System Settings → Keyboard → Dictation usually brings it down faster.")
+                            .font(.caption)
+                            .foregroundStyle(Color.daisyWarning)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                // Built-in brand layer (Egor 2026-07-25) — the only way
+                // the Faster engine (no vocabulary biasing) gets product
+                // names in Latin when you dictate in Russian & co.
+                Toggle(isOn: $settings.fixBrandNamesInDictation) {
+                    Text("Fix product names")
+                }
+                .settingsRow(.fixProductNames)
+                .help("Restores product names spoken in another script to their Latin spelling — «фигма» becomes Figma, «гитхаб» becomes GitHub. Applies to dictation and to recorded meetings, on every engine; your own Vocabulary rules always win.")
+
+                // Off by default (Egor 2026-09-18): dictation must never
+                // replace what the person has copied. Typed key events do
+                // that; the clipboard route is kept for apps whose
+                // as-you-type autocomplete mangles typed text.
+                Toggle(isOn: $settings.dictationPastesViaClipboard) {
+                    Text("Paste through the clipboard")
+                }
+                .settingsRow(.pasteViaClipboard)
+                .help("When a field won't take a direct insert, Daisy types your dictation as keystrokes so your clipboard is never touched. Turn this on for apps that autocomplete or auto-format as you type — the text is pasted whole instead, and what you had copied comes back a few seconds later.")
+
+                // Streaming live preview for dictation (Nemotron 3.5,
+                // on-device). The badge doubles as the model-download
+                // indicator — same pattern as the Faster engine in
+                // Transcription. Preview-only: the pasted text still comes
+                // from the dictation engine picked in Transcription.
+                Toggle(isOn: $settings.dictationUseNemotronLive) {
+                    transcriptionRowLabel(
+                        "Live preview while dictating",
+                        state: nemotronBadgeState,
+                        message: nemotronShortStatus
+                    )
+                }
+                .settingsRow(.livePreview)
+                .help("Shows your words about half a second behind your speech while you hold the dictation key. The pasted text still comes from the dictation engine above. Turning this on downloads an on-device model once.")
+                .onChange(of: settings.dictationUseNemotronLive) { _, useNemotron in
+                    if useNemotron { Task { await NemotronLiveEngine.shared.ensureLoaded() } }
+                }
+                .onAppear {
+                    if settings.dictationUseNemotronLive, !nemotron.isReady {
+                        Task { await NemotronLiveEngine.shared.ensureLoaded() }
+                    }
+                }
+
+                // One transcription language for everything (meetings,
+                // voice notes, dictation). Per-mode overrides were removed
+                // 2026-06-05 — nobody set them separately, and the recorder
+                // header still offers a per-session override. Pinning a
+                // language kills auto-detect drift (e.g. a Russian opener
+                // mis-decoded as French). Voice-note / dictation locale
+                // fields stay in the model defaulting to "inherit", so this
+                // single pick drives all three modes.
+                Picker("Language", selection: $settings.defaultTranscriptionLocale) {
+                    ForEach(Transcriber.availableLocales, id: \.id) { locale in
+                        Text(locale.label).tag(locale.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .settingsRow(.transcriptionLanguage)
+            } header: {
+                Text("Transcription")
+            }
+
+            // ── Keyboard layout ───────────────────────────────
+            // Typed-text sibling of "Fix product names" above: same job
+            // (put the characters the user meant on screen), different
+            // input. The shortcut itself is bound in Recording →
+            // Shortcuts with the others.
+            Section {
+                // The one switch: off, nothing below runs — not the
+                // watcher, not the shortcut (Egor, 07.10.2026).
+                Toggle(isOn: $settings.layoutFixEnabled) {
+                    Text("Layout fixer")
+                    Text("Re-types text typed in the wrong keyboard layout: «ghbdtn» → «привет».")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .settingsRow(.layoutFixer)
+                if settings.layoutFixEnabled {
+                Toggle(isOn: $settings.layoutFixAuto) {
+                    Text("Fix the layout as I type")
+                    // The toggle's stated intent and what is actually
+                    // running are two different things, and three
+                    // conditions can silently separate them: no
+                    // Accessibility grant, a rival switcher (Caramba,
+                    // Punto) holding the keyboard, or a Mac with only
+                    // one keyboard layout installed. Onboarding has
+                    // said this since the beginning; Settings — where
+                    // people actually flip the switch — said nothing,
+                    // which is the `auto=true running=false` state a
+                    // bug report once cost a full day (audit
+                    // 2026-09-01). Same live signal, same phrasing.
+                    if let caption = layoutFixCaption {
+                        Text(caption)
+                            .font(.caption)
+                            .foregroundStyle(Color.daisyWarning)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                // Neither `LayoutAutoFix.isRunning` nor the installed
+                // layout list is Observable, and flipping the toggle
+                // re-renders this row a beat BEFORE the wiring starts
+                // the tap — so a caption rendered right now would read
+                // "not running yet" and stay wrong until something else
+                // happened to redraw. Same fix onboarding already uses:
+                // wait out the race, then force a re-read.
+                .id(layoutFixRecheck)
+                .onChange(of: settings.layoutFixAuto) { _, _ in
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(400))
+                        layoutFixRecheck &+= 1
+                    }
+                }
+                .onChange(of: systemPermissions.accessibility) { _, _ in
+                    layoutFixRecheck &+= 1
+                }
+                // Turning the master switch on starts a watcher that was
+                // already wanted; recheck after it starts, as above.
+                .onChange(of: settings.layoutFixEnabled) { _, _ in
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(400))
+                        layoutFixRecheck &+= 1
+                    }
+                }
+                .settingsRow(.layoutFixAsYouType)
+                .help("Corrects words that are gibberish in one layout and a real word in another, as you finish them — including the word you press Return on. Needs Accessibility access.")
+
+                Toggle(isOn: $settings.layoutFixSwitchesSource) {
+                    Text("Switch the input source after a fix")
+                }
+                .settingsRow(.layoutFixSwitchesSource)
+                .help("Otherwise the fix lands on one word and the next one goes wrong the same way.")
+
+                // The shortcut lives in Recording → Shortcuts with the
+                // others AND here: with both toggles above off, a user
+                // still had her selection re-typed in Cyrillic by the
+                // shortcut she had set in onboarding, and this section —
+                // the one she checked — never mentioned it (07.10.2026).
+                shortcutRow(
+                    title: "Fix the keyboard layout",
+                    caption: "«ghbdtn» becomes «привет» — the selection, or the word you're typing",
+                    binding: $settings.layoutFixHotkey,
+                    slot: .layoutFix,
+                    presets: HotkeyChoice.layoutFixPresets
+                )
+                .settingsRow(.layoutFixHotkey)
+
+                // Undo (one press of the fix shortcut, right after a fix)
+                // teaches the exceptions list — this row is where that
+                // memory becomes visible and, if it's ever wrong, undoable
+                // itself.
+                HStack {
+                    Text("Words Daisy doesn't touch: \(layoutFixExceptions.count)")
+                        .font(.callout)
+                    Spacer()
+                    Button("Clear") {
+                        layoutFixExceptions.clear()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(layoutFixExceptions.count == 0)
+                }
+                .help("Undoing a fix (press the shortcut right after) adds the word here so Daisy leaves it alone from then on.")
+                }
+            } header: {
+                Text("Keyboard layout")
+            } footer: {
+                Text("The shortcut fixes selected text in compatible apps. Automatic fixing decides while you're still typing the word, using the spell-check dictionaries already on your Mac, so a word you finish with Return is corrected before it's sent. Nothing is stored or sent anywhere, and it stands down in password fields, terminals, IDEs, password managers and remote desktops. Needs Accessibility access.")
+            }
+
+        }
+        .formStyle(.grouped)
+        .settingsScrollTarget(.dictation, settings: settings)
+    }
+
+    // MARK: - Library tab (24.10.2026: General's storage, audio retention,
+    // projects and sync; Transcription's models)
+
+    private var libraryTab: some View {
+        Form {
+            // ── Group 2: Storage / Privacy ────────────────────
+            // Split (1.0.7.16) from one "Storage" section that conflated
+            // three things: where files live, the retention/privacy
+            // choice, and the optional Notion export.
+            Section {
+                storageRow
+                    .settingsRow(.recordingsFolder)
+                storageUsageRow
+                    .settingsRow(.spaceUsed)
+                clearAudioCacheRow
+                    .settingsRow(.deleteAudioFiles)
+                // The bulk delete is the biggest single mover of the
+                // "Space used" figure sitting two rows above it, so it
+                // reports back rather than leaving a stale number on
+                // screen for as long as Settings stays open.
+                BulkDeleteRecordingsView(onDeleted: { refreshStorageUsage() })
+                    .settingsRow(.deleteRecordings)
+            } header: {
+                Text("Storage")
+            }
+
+            Section {
+                // Retention / privacy posture. "Don't record audio" is the
+                // strongest stance; the rest are a time-to-live. Per-session
+                // purge fires from RecordingSession.finalizePostStop; the
+                // time options are swept by AudioRetentionSweep.
+                HStack(alignment: .center, spacing: 10) {
+                    // "Delete audio after" read wrong next to "Don't record
+                    // audio" and "Keep forever", in both languages.
+                    Text("Audio storage")
+                        .font(.callout.weight(.medium))
+                    Spacer()
+                    Picker("", selection: $settings.audioRetentionDays) {
+                        Text("Don't record audio")
+                            .tag(AppSettings.audioRetentionDoNotRecord)
+                        Text("After transcription")
+                            .tag(AppSettings.audioRetentionDeleteAfterTranscription)
+                        Text("24 hours").tag(1)
+                        Text("7 days").tag(7)
+                        Text("30 days").tag(30)
+                        Text("Keep forever").tag(0)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                    .onChange(of: settings.audioRetentionDays) { _, new in
+                        AudioRetentionSweep.runIfNeeded(retentionDays: new)
+                        // Warn that the no-audio mode forfeits crash recovery:
+                        // with no .caf on disk, an interrupted session can't be
+                        // rebuilt — only finished sessions keep their transcript.
+                        if new == AppSettings.audioRetentionDoNotRecord {
+                            ToastCenter.shared.show(
+                                String(localized: "Audio won't be saved to disk. If a recording is interrupted — a crash or power loss — it can't be recovered; only sessions you finish keep their transcript."),
+                                style: .warning,
+                                duration: .seconds(8)
+                            )
+                        }
+                    }
+                }
+                .settingsRow(.audioStorage)
+            } header: {
+                Text("Privacy")
+            }
+
+            // (Notion "Send to" moved to the Connections page in 1.0.7.16
+            // — it's an external destination, not local storage.)
+
+            // ── Library folders ───────────────────────────────
+            // Create / rename / delete custom Library folders. The store
+            // + sidebar already support custom folders; this is the
+            // management UI that was missing (1.0.7.24).
+            FolderManagementSection(settings: settings)
+
+            // ── Sync with the iPhone (backlog 9 Ф3-A) ─────────
+            // Text and metadata through the private CloudKit database;
+            // audio never leaves the device this way.
+            SyncSettingsSection()
+
+            // On-disk model cache (maintenance) — kept last on the tab.
             Section {
                 if isDownloadingModel { modelDownloadCancelRow }
                 modelsCacheRow
+                    .settingsRow(.speechModels)
                 downloadModelsNowRow
+                    .settingsRow(.downloadModels)
             } header: {
                 Text("Models")
             } footer: {
@@ -2006,6 +2198,7 @@ struct SettingsView: View {
 
         }
         .formStyle(.grouped)
+        .settingsScrollTarget(.library, settings: settings)
         .task(id: cacheRefreshTick) {
             // Refresh on tab open + after any cleanup. Detached so a slow
             // FileManager scan never blocks the form's first paint. Counts
@@ -2562,7 +2755,9 @@ struct SettingsView: View {
 
     // MARK: - Summary Provider
 
-    private var summaryTab: some View {
+    // MARK: - AI tab (24.10.2026: the Summary tab)
+
+    private var aiTab: some View {
         Form {
             // ONE-block summary section: Provider → credentials →
             // Model → Status → Test. Eliminates the stack of 4–5
@@ -2581,6 +2776,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .settingsRow(.summaryProvider)
                 .onAppear {
                     // If a user upgraded TO macOS 26 with an old
                     // setting OR is downgrading from 26 with
@@ -2686,6 +2882,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .settingsRow(.summaryLanguage)
                 if aiProvider,
                    let lang = SummaryLanguage(rawValue: settings.summaryLanguage),
                    !lang.supportedByAppleIntelligence {
@@ -2702,6 +2899,7 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.menu)
                 .disabled(!summarizerAvailable)
+                .settingsRow(.summaryTiming)
                 if settings.summaryTiming == .endOfDay {
                     // Not the bare "At" the morning-brief row uses: that
                     // key is still untranslated in the catalog, and this
@@ -2743,6 +2941,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                .settingsRow(.protectSensitiveData)
 
                 // Transcript-quality pass, listed before the summary
                 // knobs because it runs before them and everything below
@@ -2757,6 +2956,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                .settingsRow(.secondPass)
 
                 // The follow-up is the one part of a summary that leaves
                 // the building with the user's name on it, so it is the
@@ -2777,6 +2977,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .settingsRow(.followUpsInMyVoice)
 
                 CloudPermissionRows()
 
@@ -2786,6 +2987,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .settingsRow(.morningBrief)
                 .onChange(of: settings.morningBriefEnabled) { _, _ in
                     MorningBriefStore.rescheduleNotification(settings: settings)
                 }
@@ -2812,6 +3014,7 @@ struct SettingsView: View {
                 Toggle(isOn: $settings.preMeetingBriefEnabled) {
                     Text("Pre-meeting brief")
                 }
+                .settingsRow(.preMeetingBrief)
                 Text("Before a calendar meeting, Home shows a short brief built from your past recordings with the same people. Runs on your chosen summary provider — fully local when that provider is local.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -2821,6 +3024,7 @@ struct SettingsView: View {
                     Text("Research attendees online")
                 }
                 .disabled(!settings.preMeetingBriefEnabled || settings.anthropicAPIKey.isEmpty)
+                .settingsRow(.researchAttendees)
                 if settings.anthropicAPIKey.isEmpty {
                     Text("Needs an Anthropic API key — the brief uses Claude’s web search. Without a key the brief stays fully local.")
                         .font(.caption)
@@ -2835,8 +3039,58 @@ struct SettingsView: View {
             } header: {
                 Text("Summary output")
             }
+
+            myStyleSection
         }
         .formStyle(.grouped)
+        .settingsScrollTarget(.ai, settings: settings)
+    }
+
+    /// «My style» stays a sidebar page — a workspace with its own tabs and
+    /// cards, not a settings form (Fable, 24.10.2026). The AI tab says
+    /// where the profile stands and opens the page, the way the tour's
+    /// StyleProfileTip does.
+    private var myStyleSection: some View {
+        Section {
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("My style")
+                        .font(.callout.weight(.medium))
+                    Text(styleProfileStatus)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Spacer()
+                Button("Open") {
+                    AppNavigation.shared.pendingStyleTab = .voice
+                    AppNavigation.shared.section = .voice
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .tint(Color.daisyTextPrimary)
+            }
+            .settingsRow(.myStyle)
+        } header: {
+            Text("My style")
+        }
+    }
+
+    /// The language My style opens on, and whether its profile is built
+    /// or how far it is from the 300 words that build one.
+    private var styleProfileStatus: String {
+        let store = VoiceProfileStore.shared
+        guard let language = store.primaryLanguage else {
+            return store.hasProfile
+                ? String(localized: "Profile ready")
+                : String(localized: "No profile yet — it’s built from your dictations")
+        }
+        let name = VoiceLanguage.label(for: language)
+        if store.profile(for: language) != nil {
+            return "\(name) · " + String(localized: "Profile ready")
+        }
+        let words = min(store.effectiveWords(for: language), VoiceProfileStore.unlockWords)
+        return "\(name) · " + String(localized: "\(words) of \(VoiceProfileStore.unlockWords) words")
     }
 
     /// Inline credential / model rows for the selected provider.

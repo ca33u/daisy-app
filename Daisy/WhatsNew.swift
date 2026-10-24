@@ -110,7 +110,7 @@ struct WhatsNewSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
                     Button("Open Settings") {
-                        AppNavigation.shared.openInSettings(.recording)
+                        AppNavigation.shared.openInSettings(.shortcuts, row: .daisyKey)
                         dismiss()
                     }
                 }

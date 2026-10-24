@@ -51,6 +51,7 @@ struct PermissionsView: View {
             permissionsSection
         }
         .formStyle(.grouped)
+        .settingsScrollTarget(.privacy, settings: settings)
         .onAppear {
             permissions.refresh()
             systemAudio = ProcessTapPermission.state
@@ -72,6 +73,7 @@ struct PermissionsView: View {
                 requestAction: { Task { await permissions.requestMicrophone() } },
                 openSettings: permissions.openMicrophoneSettings
             )
+                .settingsRow(.microphoneAccess)
 
             permissionRow(
                 title: String(localized: "Accessibility"),
@@ -82,6 +84,7 @@ struct PermissionsView: View {
                 requestAction: { permissions.requestAccessibility() },
                 openSettings: permissions.openAccessibilitySettings
             )
+                .settingsRow(.accessibility)
         } header: {
             // Header names the group ("enough to dictate") and carries the
             // overall permission status badge. The on-device privacy
@@ -118,6 +121,7 @@ struct PermissionsView: View {
                 requestAction: { permissions.requestScreenRecording() },
                 openSettings: permissions.openScreenRecordingSettings
             )
+                .settingsRow(.screenRecording)
 
             permissionRow(
                 title: String(localized: "Calendar (Apple)"),
@@ -128,10 +132,12 @@ struct PermissionsView: View {
                 requestAction: { Task { await permissions.requestCalendar() } },
                 openSettings: permissions.openCalendarSettings
             )
+                .settingsRow(.calendarApple)
 
             // Google Calendar — OAuth row, same "calendar source"
             // mental model as Apple Calendar, sat side-by-side.
             googleCalendarRow
+                .settingsRow(.calendarGoogle)
 
             // "Don't remind me" — mutes Daisy's in-app warning when a
             // recording isn't capturing the other side. The macOS
@@ -158,6 +164,7 @@ struct PermissionsView: View {
                 requestAction: { permissions.requestNotifications() },
                 openSettings: permissions.openNotificationSettings
             )
+                .settingsRow(.notificationPermission)
         } header: {
             Text("Notifications")
         }

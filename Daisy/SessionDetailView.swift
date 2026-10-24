@@ -1218,15 +1218,13 @@ struct SessionDetailView: View {
                 Spacer(minLength: 8)
                 if note.languageSentence != nil {
                     Button("Choose another provider") {
-                        AppNavigation.shared.pendingSettingsTab = .summary
-                        AppNavigation.shared.section = .settings
+                        AppNavigation.shared.openInSettings(.ai, row: .summaryProvider)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 } else {
                     Button("Summary settings") {
-                        AppNavigation.shared.pendingSettingsTab = .summary
-                        AppNavigation.shared.section = .settings
+                        AppNavigation.shared.openInSettings(.ai, row: .summaryProvider)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)

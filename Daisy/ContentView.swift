@@ -389,7 +389,7 @@ struct ContentView: View {
         Menu {
             if CalendarService.shared.authorizationStatus != .fullAccess {
                 Button {
-                    AppNavigation.shared.section = .settings
+                    AppNavigation.shared.openInSettings(.privacy, row: .calendarApple)
                     openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)
                 } label: {
@@ -1106,7 +1106,7 @@ struct ContentView: View {
                 // Affordance to fix the missing config without
                 // hunting through Settings yourself.
                 Button {
-                    AppNavigation.shared.section = .settings
+                    AppNavigation.shared.openInSettings(.connections, row: .notion)
                     openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)
                 } label: {

@@ -301,11 +301,11 @@ final class ContextTips {
         case .calendar:
             WidgetBubbleContent(
                 text: Copy.calendarAsk, actionTitle: Copy.calendarAction, autoDismiss: 20, tag: bubbleTag,
-                action: { openSettings(.permissions) })
+                action: { openSettings(.privacy, row: .calendarApple) })
         case .summaryProvider:
             WidgetBubbleContent(
                 text: Copy.summaryAsk, actionTitle: Copy.summaryAction, autoDismiss: 20, tag: bubbleTag,
-                action: { openSettings(.summary) })
+                action: { openSettings(.ai, row: .summaryProvider) })
         case .project:
             nil
         }
@@ -313,8 +313,8 @@ final class ContextTips {
 
     /// Daisy's window on a Settings tab — the morning-brief pill's window
     /// dance (`StyleProfileTip.openMyStyle`).
-    static func openSettings(_ tab: SettingsTab) {
-        AppNavigation.shared.openInSettings(tab)
+    static func openSettings(_ tab: SettingsTab, row: SettingsRow? = nil) {
+        AppNavigation.shared.openInSettings(tab, row: row)
         if let open = WidgetBubbleCenter.shared.openMainWindow {
             open()
         } else {

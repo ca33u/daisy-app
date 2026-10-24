@@ -40,6 +40,7 @@ struct RecordingAudioSettingsSection: View {
     var body: some View {
         Section {
             microphonePicker
+                .settingsRow(.microphone)
 
             Toggle(isOn: $settings.microphoneNoiseSuppressionEnabled) {
                 Text("Reduce background noise")
@@ -47,12 +48,15 @@ struct RecordingAudioSettingsSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            .settingsRow(.noiseReduction)
 
             microphoneLevelRow
 
             Toggle("Record the other side", isOn: $settings.captureSystemAudio)
+                .settingsRow(.recordOtherSide)
 
             outputPicker
+                .settingsRow(.macOutput)
 
             if settings.captureSystemAudio {
                 systemAudioLevelRow
