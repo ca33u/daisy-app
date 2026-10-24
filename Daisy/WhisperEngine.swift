@@ -380,8 +380,7 @@ final class WhisperEngine {
         loadStartedAt = loadStart
         startLoadProgressClock(startedAt: loadStart, variant: variant)
         do {
-            let kit = try await Self.loadKit(folder: folder, verify: true)
-            self.kitBox = WhisperKitBox(kit)
+            self.kitBox = try await Self.loadKit(folder: folder, verify: true)
             self.loadedModelID = variant
             // Disk work; off the main actor. Nothing waits on it.
             Task.detached(priority: .utility) { Self.pruneModelRecovery() }
@@ -886,8 +885,10 @@ final class WhisperEngine {
         return total
     }
 
-    /// Off-main CoreML init — heavy CPU/Neural Engine work. Stays off
-    /// MainActor so it doesn't freeze the UI.
+    /// Off-main CoreML init — heavy CPU/Neural Engine work. `@concurrent`
+    /// is what keeps it off the MainActor: this module builds with
+    /// Approachable Concurrency, where a plain `nonisolated async`
+    /// function runs on its CALLER's actor — here, the main one.
     ///
     /// `verify` runs one short decode over silence before returning, so
     /// "loaded" means "can transcribe" and not merely "Core ML accepted
@@ -896,7 +897,7 @@ final class WhisperEngine {
     /// the warm-up the first real pass would otherwise pay) and off for
     /// the job-scoped re-transcription model, which is about to decode
     /// hours of real audio anyway and would only be paying twice.
-    nonisolated private static func loadKit(folder: URL, verify: Bool) async throws -> WhisperKit {
+    @concurrent nonisolated private static func loadKit(folder: URL, verify: Bool) async throws -> WhisperKitBox {
         // `prewarm: false` (was `true`). In WhisperKit, `prewarm` runs a
         // SEPARATE `loadModels(prewarmMode: true)` pass BEFORE the real
         // `loadModels()` — the 626 MB model is instantiated TWICE per
@@ -926,7 +927,7 @@ final class WhisperEngine {
                                               sampleLength: 8, detectLanguage: false)
             )
         }
-        return kit
+        return WhisperKitBox(kit)
     }
 
     // MARK: - In-actor semaphore
@@ -1177,7 +1178,7 @@ final class WhisperEngine {
             )
         }
         try Task.checkCancellation()
-        let box = WhisperKitBox(try await Self.loadKit(folder: folder, verify: false))
+        let box = try await Self.loadKit(folder: folder, verify: false)
         alternateModelID = requestedModelID
         alternateKitBox = box
         return box
@@ -1378,7 +1379,8 @@ final class WhisperEngine {
             // garbage on sub-200ms inputs even with our thresholds.
             if Double(chunk.count) / Self.audioSampleRate < 0.20 { continue }
             spanRanges.append((offsetSec, offsetSec + Double(chunk.count) / Self.audioSampleRate))
-            let results = try await box.kit.transcribe(audioArray: chunk, decodeOptions: options)
+            // Off the main actor — see `WhisperDecoder`.
+            let results = try await box.decoder.transcribe(chunk, options: options)
             for result in results {
                 allRaw.append((offsetSec, result.segments))
                 if !result.language.isEmpty { heardLanguages.append(result.language) }
@@ -1534,7 +1536,7 @@ final class WhisperEngine {
                         let hi = min(samples.count, Int(e * Self.audioSampleRate))
                         if hi > lo {
                             await slot.yieldToPriority()
-                            let results = try await box.kit.transcribe(audioArray: Array(samples[lo..<hi]), decodeOptions: rescueOptions)
+                            let results = try await box.decoder.transcribe(Array(samples[lo..<hi]), options: rescueOptions)
                             for result in results { pieces.append((t, result.segments)) }
                         }
                         t = e
@@ -1862,10 +1864,44 @@ final class WhisperEngine {
 }
 
 /// Sendable wrapper around the non-Sendable WhisperKit class so we can
-/// stash it in a property accessed across actor hops.
-final class WhisperKitBox: @unchecked Sendable {
+/// stash it in a property accessed across actor hops. `nonisolated` so
+/// `decoder` can reach `kit` off the main actor; the engine's slot is
+/// what keeps two decodes from sharing it at once.
+nonisolated final class WhisperKitBox: @unchecked Sendable {
     let kit: WhisperKit
     init(_ kit: WhisperKit) { self.kit = kit }
+
+    /// The decode for this model. Every pass goes through here, never
+    /// `kit.transcribe` straight from the engine.
+    var decoder: WhisperDecoder {
+        WhisperDecoder { audio, options in
+            try await self.kit.transcribe(audioArray: audio, decodeOptions: options)
+        }
+    }
+}
+
+/// One WhisperKit decode — the CoreML encoder and the token loop, the
+/// seconds-long part of a pass — run OFF the main actor.
+///
+/// WhisperKit 1.1 builds with `NonisolatedNonsendingByDefault`
+/// (SE-0461), so its `transcribe` runs on whatever actor awaits it. The
+/// engine is `@MainActor`, and until this hop every live and final pass
+/// decoded on the main thread: the 24.10 field log has all of
+/// WhisperKit's «Decoding …» lines on the UI thread, 3–15 s per live
+/// pass on a MacBook Air, and a confirmation dialog that drew its second
+/// button ten seconds after the first. `@concurrent` moves the call to
+/// the global executor; it stays in the caller's task, so cancellation
+/// still reaches the decode. Everything around it — the slot, VAD,
+/// filters, `onProgress` — stays on the main actor.
+///
+/// `body` is the seam: production wraps `WhisperKit.transcribe`, tests
+/// pass a fake that records where it ran.
+nonisolated struct WhisperDecoder: Sendable {
+    let body: @Sendable (_ audio: [Float], _ options: DecodingOptions) async throws -> [TranscriptionResult]
+
+    @concurrent func transcribe(_ audio: [Float], options: DecodingOptions) async throws -> [TranscriptionResult] {
+        try await body(audio, options)
+    }
 }
 
 #if canImport(FluidAudio)
