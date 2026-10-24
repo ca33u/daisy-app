@@ -119,7 +119,8 @@ final class WhisperEngine {
     #endif
 
     // In-actor serialization for transcribe — WhisperKit isn't thread-safe
-    // for simultaneous transcribes.
+    // for simultaneous transcribes. `reload()` takes it too, so a model
+    // switch waits for the pass in flight.
     @ObservationIgnored
     private let slot = DecodeSlot()
     private var isBusy: Bool { slot.isBusy }
@@ -172,8 +173,22 @@ final class WhisperEngine {
         loadTask = nil
     }
 
-    func reload() async {
+    /// `force`: load again even when the current model is ready —
+    /// "Download again" has just moved its files away.
+    func reload(force: Bool = false) async {
+        // Wait out a pass in flight. The load runs off the main actor, so
+        // dropping the box mid-pass would start a second CoreML init and
+        // verify decode beside that decode. Passes queued after this one
+        // decode on the reloaded model. (A load started by `ensureLoaded()`
+        // outside the slot — a session starting while the pass runs — can
+        // still overlap it; this only stops reload adding another.)
+        guard await slot.acquire() else { return }
+        defer { releaseSlot() }
         if let existing = loadTask { await existing.value }
+        // A pass that held the slot before us may already have loaded the
+        // new model through `ensureLoaded()`; loading it twice would only
+        // flip the status back to "loading".
+        if !force, isReady { return }
         stopLoadProgressClock()
         kitBox = nil
         state = .notLoaded
@@ -212,7 +227,7 @@ final class WhisperEngine {
                     Task.detached(priority: .utility) { Self.pruneModelRecovery() }
                 }
             }
-            await reload()
+            await reload(force: true)
         } catch {
             state = .failed(error.localizedDescription)
         }
@@ -1128,7 +1143,7 @@ final class WhisperEngine {
         // would have failed with `.notReady` if pressure arrived while
         // they waited on `ensureLoaded()` (review find, 2026-09-02).
         guard !isBusy else {
-            log.info("Memory pressure: keeping Whisper loaded — a decode is running")
+            log.info("Memory pressure: keeping Whisper loaded — a decode or reload is running")
             return
         }
         guard !RecordingSession.isCapturingOrTranscribing else {
@@ -1213,7 +1228,7 @@ final class WhisperEngine {
         // the echo filter's reference. Built term-by-term alongside the
         // prompt so the two can never disagree about what was sent.
         var biasSentTerms: [[String]] = []
-        if !biasTerms.isEmpty, let tokenizer = box.kit.tokenizer {
+        if !biasTerms.isEmpty, let tokenizer = box.tokenizer {
             // Cap the prompt. Whisper's decoder prompt window is ~224
             // tokens; a user who bulk-imported several hundred
             // vocabulary rules would otherwise overflow it, and what
@@ -1866,10 +1881,15 @@ final class WhisperEngine {
 /// Sendable wrapper around the non-Sendable WhisperKit class so we can
 /// stash it in a property accessed across actor hops. `nonisolated` so
 /// `decoder` can reach `kit` off the main actor; the engine's slot is
-/// what keeps two decodes from sharing it at once.
+/// what keeps two decodes from sharing it at once. `kit` is private: a
+/// `box.kit.transcribe` from the engine would compile and quietly decode
+/// on the main actor again.
 nonisolated final class WhisperKitBox: @unchecked Sendable {
-    let kit: WhisperKit
+    private let kit: WhisperKit
     init(_ kit: WhisperKit) { self.kit = kit }
+
+    /// For the vocabulary prompt — a light encode, fine on the main actor.
+    var tokenizer: (any WhisperTokenizer)? { kit.tokenizer }
 
     /// The decode for this model. Every pass goes through here, never
     /// `kit.transcribe` straight from the engine.
@@ -1885,14 +1905,17 @@ nonisolated final class WhisperKitBox: @unchecked Sendable {
 ///
 /// WhisperKit 1.1 builds with `NonisolatedNonsendingByDefault`
 /// (SE-0461), so its `transcribe` runs on whatever actor awaits it. The
-/// engine is `@MainActor`, and until this hop every live and final pass
-/// decoded on the main thread: the 24.10 field log has all of
-/// WhisperKit's «Decoding …» lines on the UI thread, 3–15 s per live
-/// pass on a MacBook Air, and a confirmation dialog that drew its second
-/// button ten seconds after the first. `@concurrent` moves the call to
-/// the global executor; it stays in the caller's task, so cancellation
-/// still reaches the decode. Everything around it — the slot, VAD,
-/// filters, `onProgress` — stays on the main actor.
+/// engine is `@MainActor`, so until this hop the decoder's own work ran
+/// on the main thread: the 24.10 field log has all of WhisperKit's
+/// «Decoding …» lines on the UI thread. The CoreML predictions are
+/// async and already left it; what stayed was the work between them —
+/// KV-cache copies, logit filters, sampling — about half a second of
+/// main-thread CPU per 30-second pass (M4), in short slices. That
+/// contributes to UI jank across a meeting; it is not one long block.
+/// `@concurrent` moves the call to the global executor; it stays in the
+/// caller's task, so cancellation still reaches the decode. Everything
+/// around it — the slot, VAD, filters, `onProgress` — stays on the main
+/// actor.
 ///
 /// `body` is the seam: production wraps `WhisperKit.transcribe`, tests
 /// pass a fake that records where it ran.
