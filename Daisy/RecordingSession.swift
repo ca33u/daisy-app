@@ -2726,7 +2726,12 @@ final class RecordingSession {
     /// live transcript view.
     func pause() async {
         guard status == .recording else { return }
+        // How long each track's pause held the main actor (24.10: a
+        // dialog drew late right after a pause, and the log could not
+        // say whether the pause itself was the wait).
+        let pauseStarted = Date()
         recorder.pause()
+        let micPaused = Date()
         // Was: `Task { await systemAudio.pause() }` — unawaited race.
         // User who pause→resume'd quickly caught `systemAudio.state`
         // still at `.capturing` (the detached pause Task hadn't
@@ -2738,6 +2743,7 @@ final class RecordingSession {
         // `status = .paused` flips only after the pause has
         // actually committed downstream.
         await systemAudio.pause()
+        let systemPaused = Date()
         // Both tracks have stopped: the shared pause moment they pad to.
         ArchiveOrigin.markPause()
         micTranscriber.pause()
@@ -2747,7 +2753,7 @@ final class RecordingSession {
         status = .paused
         // Pause cue removed — it fired mid-capture (leak window) and the
         // widget colour already signals paused (gray). See SoundEffects.
-        log.info("Session paused after \(self.elapsed, privacy: .public)s")
+        log.info("Session paused after \(self.elapsed, privacy: .public)s (mic \(Int(micPaused.timeIntervalSince(pauseStarted) * 1000), privacy: .public) ms, system audio \(Int(systemPaused.timeIntervalSince(micPaused) * 1000), privacy: .public) ms)")
     }
 
     /// Resume a paused session. Audio capture restarts; the existing

@@ -10,13 +10,15 @@
 //  24.10 (user log, AirPods Pro, call mode 24 kHz → music mode 48 kHz an
 //  hour into a call): four rebuilds in the same pinned configuration, all
 //  silent, then nothing more — not when the output moved to the speakers,
-//  not on resume. The second attempt is a fresh build, the first one too
-//  when the route moved the output's clock, and another output device
-//  opens a new ladder. A fresh tap delivers its own rate; the archive
-//  converts.
+//  not on resume. The second attempt is a fresh build hosted on the
+//  default output (the headset itself), the first one a fresh build on the
+//  built-in output when the route moved the output's clock, and another
+//  output device opens a new ladder. A fresh tap delivers its own rate;
+//  the archive converts.
 //
 
 import AVFoundation
+import CoreAudio
 import Foundation
 import Testing
 @testable import Daisy
@@ -41,8 +43,12 @@ struct RouteFlipCheckTests {
         #expect(RouteFlipCheck.decide(changedAt: changed, lastAudibleAt: nil, rebuilds: 0, clockChanged: false) == .rebuildTap)
     }
 
-    @Test func theSecondAttemptIsAFreshBuildThenItLeavesIt() {
-        #expect(RouteFlipCheck.decide(changedAt: changed, lastAudibleAt: nil, rebuilds: 1, clockChanged: false) == .freshBuild)
+    @Test func theSecondAttemptIsAFreshBuildOnTheDefaultOutputThenItLeavesIt() {
+        // Review 24.10: a fresh build on the built-in output runs into the
+        // same host as every in-place rebuild; the second goes to the
+        // headset itself.
+        #expect(RouteFlipCheck.decide(changedAt: changed, lastAudibleAt: nil, rebuilds: 1, clockChanged: false) == .freshBuild(.defaultOutput))
+        #expect(RouteFlipCheck.decide(changedAt: changed, lastAudibleAt: nil, rebuilds: 1, clockChanged: true) == .freshBuild(.defaultOutput))
         #expect(RouteFlipCheck.decide(changedAt: changed, lastAudibleAt: nil, rebuilds: 2, clockChanged: false) == .giveUp)
         #expect(RouteFlipCheck.decide(changedAt: changed, lastAudibleAt: nil, rebuilds: 2, clockChanged: true) == .giveUp)
         #expect(RouteFlipCheck.maxRebuilds == 2)
@@ -53,7 +59,56 @@ struct RouteFlipCheckTests {
         // 48 kHz music mode — the in-place rebuild would pin 24 kHz again.
         let moved = RouteFlipCheck.clockChanged(from: airPodsCall, to: airPodsMusic)
         #expect(moved)
-        #expect(RouteFlipCheck.decide(changedAt: changed, lastAudibleAt: changed.addingTimeInterval(-60), rebuilds: 0, clockChanged: moved) == .freshBuild)
+        #expect(RouteFlipCheck.decide(changedAt: changed, lastAudibleAt: changed.addingTimeInterval(-60), rebuilds: 0, clockChanged: moved) == .freshBuild(.preferred))
+    }
+
+    @Test func theDefaultOutputHostFallsBackToTheBuiltInOne() {
+        // The AirPods at 48 kHz in the 24.10 log, then the speakers themselves.
+        #expect(RouteFlipCheck.defaultOutputHostUID(defaultOutputUID: "AirPods-UID", builtInUID: "BuiltInSpeakerDevice") == "AirPods-UID")
+        #expect(RouteFlipCheck.defaultOutputHostUID(defaultOutputUID: "BuiltInSpeakerDevice", builtInUID: "BuiltInSpeakerDevice") == "BuiltInSpeakerDevice")
+        // The default gone: the built-in output; neither: the engine's own choice.
+        #expect(RouteFlipCheck.defaultOutputHostUID(defaultOutputUID: nil, builtInUID: "BuiltInSpeakerDevice") == "BuiltInSpeakerDevice")
+        #expect(RouteFlipCheck.defaultOutputHostUID(defaultOutputUID: "", builtInUID: "BuiltInSpeakerDevice") == "BuiltInSpeakerDevice")
+        #expect(RouteFlipCheck.defaultOutputHostUID(defaultOutputUID: nil, builtInUID: nil) == nil)
+    }
+
+    @Test func theTapIsReadFromTheEndOfTheInputList() {
+        // The built-in speakers have no inputs: the tap is the only buffer.
+        #expect(ProcessTapAudioCapture.tapBufferStart(bufferCount: 1, tapBuffers: 1) == 0)
+        // A headset host: its microphone first (turned off), the tap last.
+        #expect(ProcessTapAudioCapture.tapBufferStart(bufferCount: 2, tapBuffers: 1) == 1)
+        #expect(ProcessTapAudioCapture.tapBufferStart(bufferCount: 3, tapBuffers: 2) == 1)
+        #expect(ProcessTapAudioCapture.tapBufferStart(bufferCount: 0, tapBuffers: 1) == nil)
+        #expect(ProcessTapAudioCapture.tapBufferStart(bufferCount: 1, tapBuffers: 0) == nil)
+    }
+
+    @Test func aHeadsetHostIsTrustedOnlyInTheTapsLayout() {
+        let headsetMic = kAudioStreamTerminalTypeHeadsetMicrophone
+        let tap: (sampleRate: Double, channels: UInt32) = (48_000, 1)
+        func check(
+            inputs: Int = 2, hostInputs: Int = 1, lastType: UInt32 = 0, hostTypes: [UInt32] = [headsetMic],
+            last: (sampleRate: Double, channels: UInt32)? = (48_000, 1), hostRate: Double? = 48_000
+        ) -> Bool {
+            ProcessTapAudioCapture.tapIsLastInput(
+                aggregateInputStreams: inputs, hostInputStreams: hostInputs, lastStreamTerminalType: lastType,
+                hostInputTerminalTypes: hostTypes, lastStreamFormat: last, tapFormat: tap, hostSampleRate: hostRate)
+        }
+        // AirPods in music mode as the host: their microphone, then the tap.
+        #expect(check())
+        // The tap drift-compensated to the host's rate is still the tap.
+        #expect(check(last: (24_000, 1), hostRate: 24_000))
+        // The other order — the microphone last — would record the person
+        // as the other side: refused by type, or by shape.
+        #expect(!check(lastType: headsetMic))
+        #expect(!check(lastType: kAudioStreamTerminalTypeMicrophone, hostTypes: [0]))
+        #expect(!check(lastType: kAudioStreamTerminalTypeLine, hostTypes: [kAudioStreamTerminalTypeLine]))
+        #expect(!check(hostTypes: [0], last: (16_000, 1)))   // an untyped headset mic in call mode
+        #expect(!check(last: (48_000, 2)))
+        // A count that isn't the host's inputs plus the tap, or a last
+        // stream that can't be read.
+        #expect(!check(inputs: 3))
+        #expect(!check(inputs: 1))
+        #expect(!check(last: nil))
     }
 
     @Test func theClockMovesWithTheRateOrTheTransportOnly() {

@@ -460,6 +460,33 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
             }
             aggregateID = newAggregateID
 
+            // 5b. A host with inputs of its own (a headset): the tap is
+            //     read from the end of the aggregate's inputs, so check
+            //     that it is there before trusting it — the other order
+            //     would record the headset's microphone as the other side.
+            //     Refused, the build fails and the owner hosts on the
+            //     built-in output instead.
+            let hostInputs = Self.inputStreams(of: host.id)
+            if !hostInputs.isEmpty {
+                let aggregateInputs = Self.inputStreams(of: newAggregateID)
+                let last = aggregateInputs.last
+                let lastType = last.map(Self.terminalType(of:)) ?? 0
+                let lastFormat = last.flatMap(Self.virtualFormat(of:))
+                guard Self.tapIsLastInput(
+                    aggregateInputStreams: aggregateInputs.count,
+                    hostInputStreams: hostInputs.count,
+                    lastStreamTerminalType: lastType,
+                    hostInputTerminalTypes: hostInputs.map(Self.terminalType(of:)),
+                    lastStreamFormat: lastFormat,
+                    tapFormat: (native.sampleRate, native.channelCount),
+                    hostSampleRate: Self.nominalSampleRate(of: host.id)
+                ) else {
+                    throw DaisyError.audioEngineFailed(
+                        "The tap aggregate on \(host.name) has \(aggregateInputs.count) inputs for \(hostInputs.count) of the host's, the last of type \(lastType) at \(lastFormat.map { "\(Int($0.sampleRate)) Hz × \($0.channels)" } ?? "?") — not the tap's layout."
+                    )
+                }
+            }
+
             // 6. Pin the downstream format across rebuilds.
             //
             //    The archive `AVAudioFile` is opened once, from the first
@@ -517,6 +544,17 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
                 throw DaisyError.audioEngineFailed("The HAL returned no IOProc ID.")
             }
             ioProcID = procID
+
+            // 7b. A host with inputs of its own — a headset as the host
+            //     (a fresh build after a route flip, 24.10, or the
+            //     `hostOnDefaultOutput` flag) — puts its microphone into
+            //     the aggregate beside the tap. Reading it would start it,
+            //     and a Bluetooth headset whose microphone starts goes
+            //     into call mode: the very flip that silenced the tap. So
+            //     every input but the tap's is off for our IOProc, and
+            //     `deliver` reads the tap from the end of the buffer list,
+            //     where the aggregate puts its taps.
+            Self.turnOffHostInputs(aggregate: newAggregateID, procID: procID, log: log)
 
             // 8. Start IO. THIS is the call that makes macOS show the
             //    "System Audio Recording" prompt.
@@ -719,17 +757,21 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
         // covers every channel and there is a single buffer.
         let bytesPerFrame = Int(format.streamDescription.pointee.mBytesPerFrame)
         let expectedBuffers = format.isInterleaved ? 1 : Int(format.channelCount)
-        guard bytesPerFrame > 0, expectedBuffers > 0, source.count >= expectedBuffers else {
+        guard bytesPerFrame > 0,
+              let first = tapBufferStart(bufferCount: source.count, tapBuffers: expectedBuffers) else {
             return nil
         }
 
         // Smallest count across the buffers we're going to read: a short
         // channel then truncates the frame count instead of leaving a
         // tail of uninitialised memory.
+        // A buffer that isn't shaped like the tap's is not the tap's.
+        let channelsPerBuffer = format.isInterleaved ? format.channelCount : 1
         var frames = Int.max
         for index in 0..<expectedBuffers {
-            guard source[index].mData != nil else { return nil }
-            frames = min(frames, Int(source[index].mDataByteSize) / bytesPerFrame)
+            guard source[first + index].mData != nil,
+                  source[first + index].mNumberChannels == channelsPerBuffer else { return nil }
+            frames = min(frames, Int(source[first + index].mDataByteSize) / bytesPerFrame)
         }
         guard frames > 0,
               let buffer = AVAudioPCMBuffer(
@@ -742,7 +784,7 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
         let destination = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
         for index in 0..<destination.count {
             guard let dst = destination[index].mData else { return nil }
-            if index < expectedBuffers, let src = source[index].mData {
+            if index < expectedBuffers, let src = source[first + index].mData {
                 memcpy(dst, src, bytes)
             } else {
                 // Silence rather than garbage for any channel the HAL
@@ -751,6 +793,125 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
             }
         }
         return buffer
+    }
+
+    /// Where the tap's buffers start in the IOProc's input list: at the
+    /// end, after the host device's own inputs (none for the built-in
+    /// speakers; a headset's microphone, turned off, for a headset host).
+    /// nil when the list is shorter than the tap.
+    static func tapBufferStart(bufferCount: Int, tapBuffers: Int) -> Int? {
+        guard tapBuffers > 0, bufferCount >= tapBuffers else { return nil }
+        return bufferCount - tapBuffers
+    }
+
+    /// Whether the aggregate's inputs are the host's followed by the tap:
+    /// one more than the host has; the last not a microphone — neither a
+    /// microphone terminal type nor one the host's own inputs carry; and
+    /// shaped like the tap — its channel count, at the tap's rate or the
+    /// host's. An unreadable last stream is refused: a refusal costs a
+    /// headset host, a wrong yes records the person as the other side.
+    static func tapIsLastInput(
+        aggregateInputStreams: Int,
+        hostInputStreams: Int,
+        lastStreamTerminalType: UInt32,
+        hostInputTerminalTypes: [UInt32],
+        lastStreamFormat: (sampleRate: Double, channels: UInt32)?,
+        tapFormat: (sampleRate: Double, channels: UInt32),
+        hostSampleRate: Double?
+    ) -> Bool {
+        guard aggregateInputStreams == hostInputStreams + 1,
+              let lastStreamFormat,
+              lastStreamFormat.channels == tapFormat.channels,
+              lastStreamFormat.sampleRate == tapFormat.sampleRate
+                || lastStreamFormat.sampleRate == hostSampleRate else { return false }
+        let microphones: Set<UInt32> = [
+            kAudioStreamTerminalTypeMicrophone,
+            kAudioStreamTerminalTypeHeadsetMicrophone,
+            kAudioStreamTerminalTypeReceiverMicrophone,
+        ]
+        if microphones.contains(lastStreamTerminalType) { return false }
+        if lastStreamTerminalType != 0, hostInputTerminalTypes.contains(lastStreamTerminalType) { return false }
+        return true
+    }
+
+    private static func inputStreams(of device: AudioObjectID) -> [AudioObjectID] {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreams,
+            mScope: kAudioObjectPropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(device, &address, 0, nil, &size) == noErr, size > 0 else { return [] }
+        var ids = [AudioObjectID](repeating: AudioObjectID(kAudioObjectUnknown), count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        let status = ids.withUnsafeMutableBufferPointer { buffer -> OSStatus in
+            AudioObjectGetPropertyData(device, &address, 0, nil, &size, buffer.baseAddress!)
+        }
+        return status == noErr ? ids : []
+    }
+
+    private static func virtualFormat(of stream: AudioObjectID) -> (sampleRate: Double, channels: UInt32)? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioStreamPropertyVirtualFormat,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var asbd = AudioStreamBasicDescription()
+        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        guard AudioObjectGetPropertyData(stream, &address, 0, nil, &size, &asbd) == noErr else { return nil }
+        return (asbd.mSampleRate, asbd.mChannelsPerFrame)
+    }
+
+    private static func nominalSampleRate(of device: AudioObjectID) -> Double? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var rate: Float64 = 0
+        var size = UInt32(MemoryLayout<Float64>.size)
+        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &rate) == noErr, rate > 0 else { return nil }
+        return rate
+    }
+
+    private static func terminalType(of stream: AudioObjectID) -> UInt32 {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioStreamPropertyTerminalType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var type: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        AudioObjectGetPropertyData(stream, &address, 0, nil, &size, &type)
+        return type
+    }
+
+    /// Every input stream of the aggregate but the last — the tap's — off
+    /// for `procID`. Nothing to do on a host without inputs. Logs the
+    /// layout, so a device log says which buffer the tap was read from.
+    private static func turnOffHostInputs(aggregate: AudioObjectID, procID: AudioDeviceIOProcID, log: Logger) {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyIOProcStreamUsage,
+            mScope: kAudioObjectPropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(aggregate, &address, 0, nil, &size) == noErr,
+              size >= UInt32(MemoryLayout<AudioHardwareIOProcStreamUsage>.size) else { return }
+        let raw = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(size), alignment: MemoryLayout<AudioHardwareIOProcStreamUsage>.alignment)
+        defer { raw.deallocate() }
+        raw.initializeMemory(as: UInt8.self, repeating: 0, count: Int(size))
+        let usage = raw.assumingMemoryBound(to: AudioHardwareIOProcStreamUsage.self)
+        usage.pointee.mIOProc = unsafeBitCast(procID, to: UnsafeMutableRawPointer.self)
+        guard AudioObjectGetPropertyData(aggregate, &address, 0, nil, &size, raw) == noErr else { return }
+        let streams = Int(usage.pointee.mNumberStreams)
+        guard streams > 1,
+              let offset = MemoryLayout<AudioHardwareIOProcStreamUsage>.offset(of: \.mStreamIsOn),
+              offset + streams * MemoryLayout<UInt32>.size <= Int(size) else { return }
+        let flags = (raw + offset).assumingMemoryBound(to: UInt32.self)
+        for index in 0..<streams { flags[index] = index == streams - 1 ? 1 : 0 }
+        let status = AudioObjectSetPropertyData(aggregate, &address, 0, nil, size, raw)
+        log.info("Tap aggregate has \(streams, privacy: .public) input streams, the tap last (checked) — the host's \(streams - 1, privacy: .public) off for the tap's IOProc (status \(status, privacy: .public))")
     }
 
     /// Single-shot `AVAudioConverter` pull, same shape as
@@ -862,6 +1023,13 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
         }
         let name = stringProperty(defaultID, kAudioObjectPropertyName) ?? uid
         return (defaultID, uid, name)
+    }
+
+    /// The current default output, for a fresh build hosted on it (24.10).
+    static func defaultOutputDevice() -> (id: AudioDeviceID, uid: String, name: String)? {
+        let id = defaultOutputDeviceID()
+        guard id != kAudioObjectUnknown, let uid = stringProperty(id, kAudioDevicePropertyDeviceUID) else { return nil }
+        return (id, uid, stringProperty(id, kAudioObjectPropertyName) ?? uid)
     }
 
     static func builtInOutputDevice() -> (id: AudioDeviceID, uid: String, name: String)? {
