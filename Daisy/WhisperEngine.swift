@@ -159,8 +159,36 @@ final class WhisperEngine {
 
     // MARK: - Lifecycle
 
+    /// Whether WhisperKit can decode on this Mac at all. Not on an Intel
+    /// Mac (Sentry DAISY-MAC-2, 1.0.8.43 on a MacBookPro16,1): ArgmaxCore's
+    /// `FloatType` is `Float` on macOS x86_64 and `Float16` everywhere else,
+    /// and `MLMultiArray(shape:dataType: .float16, initialValue:)` fills the
+    /// IOSurface it allocated for 2-byte halves with 4-byte floats — every
+    /// decode's first KV-cache array writes twice its size and the app
+    /// dies in `TextDecoder.prepareDecoderInputs` (EXC_BAD_ACCESS at the
+    /// end of the buffer). Argmax lists Intel Macs as unsupported
+    /// (argmax-oss-swift#92). Compile-time, like `FloatType`: the x86_64
+    /// slice crashes on Intel and under Rosetta alike, and the arm64 slice
+    /// never does. Until a fixed WhisperKit (business/projects/daisy plan,
+    /// 27.10), nothing on x86_64 loads or decodes Whisper.
+    nonisolated static let runsOnThisMac: Bool = {
+        #if arch(x86_64)
+        return false
+        #else
+        return true
+        #endif
+    }()
+
     func ensureLoaded() async {
         if isReady { return }
+        guard Self.runsOnThisMac else {
+            // No 626 MB download for a model that can't decode here.
+            if state != .failed(WhisperEngineError.unsupportedMac.localizedDescription) {
+                log.error("Whisper is not loaded on this Mac: WhisperKit can't decode on x86_64")
+                state = .failed(WhisperEngineError.unsupportedMac.localizedDescription)
+            }
+            return
+        }
         if let existing = loadTask {
             await existing.value
             return
@@ -198,6 +226,9 @@ final class WhisperEngine {
     }
 
     func downloadAgain() async {
+        // On an Intel Mac there's nothing to repair: the model can't decode
+        // here, and parking the folder would only throw away a good model.
+        guard Self.runsOnThisMac else { await ensureLoaded(); return }
         guard !RecordingSession.isCapturingOrTranscribing,
               !SessionAudioProcessing.shared.isRunning, !isBusy else { return }
         if let existing = loadTask { await existing.value }
@@ -913,6 +944,8 @@ final class WhisperEngine {
     /// the job-scoped re-transcription model, which is about to decode
     /// hours of real audio anyway and would only be paying twice.
     @concurrent nonisolated private static func loadKit(folder: URL, verify: Bool) async throws -> WhisperKitBox {
+        // `verify` decodes — on x86_64 that's the crash (`runsOnThisMac`).
+        guard runsOnThisMac else { throw WhisperEngineError.unsupportedMac }
         // `prewarm: false` (was `true`). In WhisperKit, `prewarm` runs a
         // SEPARATE `loadModels(prewarmMode: true)` pass BEFORE the real
         // `loadModels()` — the 626 MB model is instantiated TWICE per
@@ -1082,6 +1115,7 @@ final class WhisperEngine {
         // speech detector still loading and decode the whole file as one
         // span, where the lost-speech rescue looped (24.09). Wait for the
         // detector first, before taking the decoder from anyone.
+        guard Self.runsOnThisMac else { throw WhisperEngineError.unsupportedMac }
         if profile == .full { _ = await prepareSpeechDetection() }
         // A dictation is someone waiting at a text field with the key
         // just released; it goes ahead of everything else in the line,
@@ -1121,6 +1155,7 @@ final class WhisperEngine {
         biasTerms: [String] = [],
         onProgress: (@MainActor (Double) -> Void)? = nil
     ) async throws -> [WhisperSegment] {
+        guard Self.runsOnThisMac else { throw WhisperEngineError.unsupportedMac }
         // Same as the pass above: spans need the detector loaded.
         if profile == .full { _ = await prepareSpeechDetection() }
         try await acquireSlot()
@@ -1976,8 +2011,12 @@ nonisolated enum WhisperEngineError: LocalizedError {
     case notReady
     case unsupportedModel(String)
     case notEnoughDiskSpace
+    /// An Intel Mac — see `WhisperEngine.runsOnThisMac`.
+    case unsupportedMac
     var errorDescription: String? {
         switch self {
+        case .unsupportedMac:
+            return String(localized: "This needs a Mac with Apple silicon (M1 or newer): the speech model doesn’t run on Intel Macs yet.")
         case .notReady: return String(localized: "Whisper model isn't loaded yet. Open \(SettingsRow.meetingModel.path).")
         case .unsupportedModel(let id):
             return String(localized: "The transcription model \(id) is not supported.")

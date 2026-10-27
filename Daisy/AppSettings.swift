@@ -1383,12 +1383,23 @@ final class AppSettings {
         // Dictation engine: read the new enum key; if absent, migrate
         // once from the legacy `dictationUseParakeet` bool (true→Parakeet,
         // else Whisper). New installs default to Whisper.
+        var engine: DictationEngine
         if let raw = defaults.string(forKey: Self.k_dictationEngine),
-           let engine = DictationEngine(rawValue: raw) {
-            self.dictationEngine = engine
+           let stored = DictationEngine(rawValue: raw) {
+            engine = stored
         } else {
-            self.dictationEngine = defaults.bool(forKey: Self.k_dictationUseParakeet) ? .parakeet : .whisper
+            engine = defaults.bool(forKey: Self.k_dictationUseParakeet) ? .parakeet : .whisper
         }
+        // Whisper can't decode on an Intel Mac (`WhisperEngine.runsOnThisMac`,
+        // 27.10): dictation on it would be refused on every press, so this
+        // run uses Faster (Parakeet). Not written back: the stored choice
+        // stays Whisper, so the same prefs read natively (an Apple silicon
+        // Mac that ran Daisy once under Rosetta, a test run) keep it. A
+        // choice made in Settings is stored as usual.
+        if !WhisperEngine.runsOnThisMac, engine == .whisper {
+            engine = .parakeet
+        }
+        self.dictationEngine = engine
         // Defaults to false (Whisper live preview) when the key is absent.
         self.dictationUseNemotronLive = defaults.bool(forKey: Self.k_dictationUseNemotronLive)
         // "Polish dictation in my voice" was removed 2026-09-12; its key

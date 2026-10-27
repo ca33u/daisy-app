@@ -518,6 +518,7 @@ enum LogReporter {
         Generated:  \(Date().formatted(date: .abbreviated, time: .standard))
         App:        \(appVersionString)
         macOS:      \(ProcessInfo.processInfo.operatingSystemVersionString)
+        Mac:        \(hardwareLine())
         Permissions: mic=\(label(permissions.microphone)) screenRec=\(label(permissions.screenRecording)) sysAudioRec=\(ProcessTapPermission.currentDiagnosticsLabel) accessibility=\(label(permissions.accessibility)) calendar=\(label(permissions.calendar)) notifications=\(label(permissions.notifications))
         Audio:      captureSystemAudio=\(settings.captureSystemAudio) liveTier=\(settings.liveTranscriptionTier) dictationEngine=\(settings.dictationEngine.rawValue) nemotronLivePreview=\(settings.dictationUseNemotronLive)
         Disk:       \(diskLine())
@@ -537,6 +538,48 @@ enum LogReporter {
         Updates:    \(updaterLine())
         ─────────────────────────────────────────────────
         """
+    }
+
+    /// The Mac and the slice of Daisy running on it (field 27.10: a crash
+    /// that only an Intel Mac has — `WhisperEngine.runsOnThisMac` — and no
+    /// report could say which Macs people had). `x86_64` under
+    /// `rosetta=yes` is an Apple silicon Mac running the Intel slice, which
+    /// crashes the same way.
+    private static func hardwareLine() -> String {
+        func sysctlString(_ name: String) -> String? {
+            var size = 0
+            guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+            var buffer = [UInt8](repeating: 0, count: size)
+            guard sysctlbyname(name, &buffer, &size, nil, 0) == 0 else { return nil }
+            return String(decoding: buffer.prefix { $0 != 0 }, as: UTF8.self)
+        }
+        // Apple: `sysctl.proc_translated` missing (ENOENT) means native.
+        var translated: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        let rosetta: Bool?
+        if sysctlbyname("sysctl.proc_translated", &translated, &size, nil, 0) == 0 {
+            rosetta = translated == 1
+        } else {
+            rosetta = errno == ENOENT ? false : nil
+        }
+        return hardwareLine(model: sysctlString("hw.model"), binaryArch: binaryArch,
+                            rosetta: rosetta, whisperRuns: WhisperEngine.runsOnThisMac)
+    }
+
+    nonisolated static var binaryArch: String {
+        #if arch(arm64)
+        return "arm64"
+        #elseif arch(x86_64)
+        return "x86_64"
+        #else
+        return "unknown"
+        #endif
+    }
+
+    nonisolated static func hardwareLine(model: String?, binaryArch: String, rosetta: Bool?, whisperRuns: Bool) -> String {
+        let rosettaText = rosetta.map { $0 ? "yes" : "no" } ?? "?"
+        return "\(model ?? "?") binary=\(binaryArch) rosetta=\(rosettaText)"
+            + (whisperRuns ? "" : " whisper=UNSUPPORTED (WhisperKit can't decode on x86_64)")
     }
 
     /// What Apple's speech stack actually offers for the dictation

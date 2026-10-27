@@ -75,7 +75,9 @@ final class ModelPreparation {
     /// finish onboarding at all.
     func canFinish(settings: AppSettings, includeSpeakers: Bool) -> Bool {
         !isRunning && preparedKey == key(settings: settings, includeSpeakers: includeSpeakers)
-            && WhisperEngine.shared.isReady
+            // On an Intel Mac Whisper never loads (`runsOnThisMac`); what
+            // has to be ready there is the dictation engine, never Whisper.
+            && (WhisperEngine.runsOnThisMac ? WhisperEngine.shared.isReady : settings.dictationEngine != .whisper)
             && (!settings.dictationUseNemotronLive || NemotronLiveEngine.shared.isReady)
             && (settings.dictationEngine != .parakeet || ParakeetEngine.shared.isReady)
     }
@@ -87,8 +89,12 @@ final class ModelPreparation {
     /// failed engine, or a model the chosen engines need that is not on disk.
     func needsAttention(settings: AppSettings) -> Bool {
         if isRunning || error != nil { return true }
-        if case .failed = WhisperEngine.shared.state { return true }
-        if WhisperEngine.cachedModelFolder(variant: WhisperEngine.shared.modelID) == nil { return true }
+        if WhisperEngine.runsOnThisMac {
+            if case .failed = WhisperEngine.shared.state { return true }
+            if WhisperEngine.cachedModelFolder(variant: WhisperEngine.shared.modelID) == nil { return true }
+        } else if settings.dictationEngine == .whisper {
+            return true
+        }
         if settings.dictationEngine == .parakeet {
             if case .failed = ParakeetEngine.shared.state { return true }
             if !ParakeetEngine.hasCompleteModel() { return true }
@@ -134,18 +140,33 @@ final class ModelPreparation {
         defer { isRunning = false; stage = ""; Self.activePreparations -= 1 }
         if !settings.hasShownFirstRun { UserDefaults.standard.set(true, forKey: "daisy.preparation.started") }
         let whisper = WhisperEngine.shared
-        stage = String(localized: "Preparing speech recognition…")
-        if downloadAgain { await whisper.downloadAgain() }
-        else { await whisper.ensureLoaded() }
-        guard whisper.isReady else {
-            if case .failed(let reason) = whisper.state { error = reason }
-            else { error = String(localized: "The speech model is not ready. Try again.") }
+        // An Intel Mac skips Whisper and its speech detector altogether
+        // (`runsOnThisMac`): only the dictation engine is prepared, and it
+        // has to be one that runs there.
+        let whisperRunsHere = WhisperEngine.runsOnThisMac
+        if !whisperRunsHere, settings.dictationEngine == .whisper {
+            error = String(localized: "Dictation can’t start: on an Intel Mac it needs Faster or Apple dictation ready. Check \(SettingsRow.dictationEngine.path).")
             return
+        }
+        if whisperRunsHere {
+            stage = String(localized: "Preparing speech recognition…")
+            if downloadAgain { await whisper.downloadAgain() }
+            else { await whisper.ensureLoaded() }
+            guard whisper.isReady else {
+                if case .failed(let reason) = whisper.state { error = reason }
+                else { error = String(localized: "The speech model is not ready. Try again.") }
+                return
+            }
         }
         // Optional from here on: a miss is a notice, not a failure.
         if steppedAside { noteSteppedAside(); return }
-        stage = String(localized: "Preparing speech detection…")
-        let speechDetectionReady = await whisper.prepareSpeechDetection()
+        let speechDetectionReady: Bool
+        if whisperRunsHere {
+            stage = String(localized: "Preparing speech detection…")
+            speechDetectionReady = await whisper.prepareSpeechDetection()
+        } else {
+            speechDetectionReady = true
+        }
         if !speechDetectionReady {
             notice = String(localized: "Speech detection isn’t downloaded yet — Daisy works without it and will fetch it when the network is back.")
         }
@@ -179,7 +200,8 @@ final class ModelPreparation {
             }
         }
         if steppedAside { noteSteppedAside(); return }
-        if includeSpeakers && (settings.diarizeRemoteSpeakers || settings.diarizeMicrophone) {
+        // Speaker separation is for meetings, which an Intel Mac can't record.
+        if includeSpeakers && whisperRunsHere && (settings.diarizeRemoteSpeakers || settings.diarizeMicrophone) {
             stage = String(localized: "Preparing speaker separation…")
             await DiarizationEngine.shared.ensureLoaded()
             if !DiarizationEngine.shared.isAvailable {
@@ -242,7 +264,7 @@ struct ModelPreparationView: View {
                     Task { await preparation.prepare(settings: settings, includeSpeakers: includeSpeakers) }
                 }
                 .disabled(preparation.isRunning)
-                if preparation.error != nil || whisperFailed {
+                if (preparation.error != nil || whisperFailed) && WhisperEngine.runsOnThisMac {
                     Button("Download speech model again") {
                         Task { await preparation.prepare(settings: settings, includeSpeakers: includeSpeakers, downloadAgain: true) }
                     }
@@ -250,8 +272,10 @@ struct ModelPreparationView: View {
                 }
             }
             if preparation.error != nil || whisperFailed {
-                Text("Downloading again keeps the previous model files for diagnostics and needs additional free space.")
-                    .font(.caption).foregroundStyle(.secondary)
+                if WhisperEngine.runsOnThisMac {
+                    Text("Downloading again keeps the previous model files for diagnostics and needs additional free space.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Button("Export Logs…") { LogReporter.exportLogs(settings: settings) }
             }
         }

@@ -1955,7 +1955,11 @@ struct SettingsView: View {
             // model; Faster = on-device Parakeet, ~600 MB once).
             Section {
                 Picker(selection: $settings.dictationEngine) {
-                    Text(DictationEngine.whisper.displayName).tag(DictationEngine.whisper)
+                    // Not on an Intel Mac: Whisper can't decode there
+                    // (`WhisperEngine.runsOnThisMac`).
+                    if WhisperEngine.runsOnThisMac {
+                        Text(DictationEngine.whisper.displayName).tag(DictationEngine.whisper)
+                    }
                     Text(DictationEngine.parakeet.displayName).tag(DictationEngine.parakeet)
                     // Apple SpeechAnalyzer only exists on macOS 26 — hide
                     // the option below that so users can't pick a dead end.
@@ -2477,6 +2481,11 @@ struct SettingsView: View {
         // (Not Parakeet: that's a separate download the person didn't
         // ask for.)
         if settings.dictationEngine == .appleSpeech,
+           appleSpeechAvailability == .unsupported || appleSpeechAvailability == .frameworkUnavailable,
+           !WhisperEngine.runsOnThisMac {
+            // An Intel Mac has no Whisper to fall back on: Faster.
+            settings.dictationEngine = .parakeet
+        } else if settings.dictationEngine == .appleSpeech,
            appleSpeechAvailability == .unsupported || appleSpeechAvailability == .frameworkUnavailable {
             settings.dictationEngine = .whisper
             ToastCenter.shared.show(

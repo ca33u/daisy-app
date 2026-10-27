@@ -953,6 +953,11 @@ final class DaisyKeyController {
     /// Holds a late cancel ended: their words count, their silence isn't
     /// a rewrite — it was the other shortcut.
     private var endedByChord: [UUID: Date] = [:]
+    /// Presses whose capture was refused at key-down because nothing can
+    /// transcribe it on this Mac (Intel, `WhisperEngine.runsOnThisMac`).
+    /// Tap or hold isn't known yet then; the release decides: a tap still
+    /// fixes the layout (no speech model needed), a hold says why.
+    private var refusedStarts: Set<UUID> = []
     private var holdCap: Task<Void, Never>?
 
     private init() {}
@@ -1058,6 +1063,16 @@ final class DaisyKeyController {
                 tell(String(localized: "Stop the note first"))
             }
         case .capturing:
+            if refusedStarts.remove(press.token) != nil {
+                if isTap {
+                    tapCaptureFinished(token: press.token, on: session)
+                } else {
+                    holdAbandoned(token: press.token)
+                    tell(RecordingSession.dictationNeedsFastEngineMessage, style: .warning,
+                         action: (String(localized: "Open Settings"), { AppNavigation.shared.openInSettings(.dictation, row: .dictationEngine) }))
+                }
+                return
+            }
             if isTap {
                 session.markDaisyKeyTap(press.token)
             } else if !isWorking, Self.captures(press.token, on: session) || session.sideDictation.map({ Self.captures(press.token, on: $0) }) == true {
@@ -1144,6 +1159,11 @@ final class DaisyKeyController {
     /// the microphone opened (the key let go while a speech model was
     /// loading), or its words couldn't be transcribed. Nothing is
     /// understood — its bookkeeping goes and the flower settles.
+    /// See `refusedStarts`.
+    func startRefused(token: UUID) {
+        refusedStarts.insert(token)
+    }
+
     func holdAbandoned(token: UUID) {
         holds.removeValue(forKey: token)?.context.cancel()
         endedByChord.removeValue(forKey: token)

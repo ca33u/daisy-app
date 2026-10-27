@@ -663,7 +663,8 @@ final class OnboardingTourController {
             // One standard model on everything (Egor 24.10): dictation on
             // the engine that shares the meeting model.
             WhisperEngine.shared.modelID = WhisperEngine.defaultModelID
-            settings.dictationEngine = .whisper
+            // An Intel Mac can't run Whisper (`runsOnThisMac`): Faster.
+            settings.dictationEngine = WhisperEngine.runsOnThisMac ? .whisper : .parakeet
             settings.dictationUseNemotronLive = false
         }
         guard !preparation.isRunning, ModelPreparation.activePreparations == 0,

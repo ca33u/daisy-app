@@ -31,12 +31,19 @@ enum DictationModelGate {
         var failedRecently: Bool
     }
 
-    static func plan(engine: DictationEngine, parakeet: Parakeet, appleSpeechReady: Bool) -> Plan {
+    /// `whisperRunsHere`: false on an Intel Mac (`WhisperEngine.runsOnThisMac`).
+    /// There Whisper is no fallback, so a Parakeet that isn't ready is
+    /// waited for whatever it's doing — downloading, or failed a minute
+    /// ago — rather than refused; the wait shows its progress and letting
+    /// go cancels it.
+    static func plan(engine: DictationEngine, parakeet: Parakeet, appleSpeechReady: Bool,
+                     whisperRunsHere: Bool = true) -> Plan {
         switch engine {
         case .whisper:
             return .whisper
         case .parakeet:
             if parakeet.isReady { return .none }
+            if !whisperRunsHere { return .loadParakeet }
             // A first-ever ~600 MB download isn't worth holding the key
             // for; Whisper takes this one and Parakeet is there next time.
             if parakeet.isDownloading || parakeet.failedRecently { return .whisper }
@@ -50,7 +57,12 @@ enum DictationModelGate {
     /// A dictation is started from another app, so the hover tooltip
     /// never shows; this pill is where the wait is visible. It also says
     /// what ends it: the key is held, and letting go cancels.
-    static func waitCaption(whisper state: WhisperEngine.LoadState?, loadProgress: Double) -> String {
+    static func waitCaption(whisper state: WhisperEngine.LoadState?, loadProgress: Double,
+                            parakeet: ParakeetEngine.LoadState? = nil) -> String {
+        if case .downloading(let progress) = parakeet {
+            let percent = Int((min(max(progress, 0), 1) * 100).rounded())
+            return String(localized: "Downloading the speech model · \(percent)% · let go to cancel")
+        }
         switch state {
         case .downloading(let progress):
             let percent = Int((min(max(progress, 0), 1) * 100).rounded())

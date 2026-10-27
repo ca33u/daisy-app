@@ -1,6 +1,16 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Dictation can’t start: on an Intel Mac it needs Faster or Apple dictation ready. Check %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Диктовка не запустилась: на Intel-маке нужна готовая модель «Быстрее» или Apple. Проверь %@."
+          }
+        }
+      }
+    },
     "I’ve cancelled it — the speech model is still getting ready. Dictation will work once it’s done." : {
       "localizations" : {
         "ru" : {
@@ -937,6 +947,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выдели текст, зажми %@ и ничего не говори. Daisy перепишет выделенное так, как пишешь ты."
+          }
+        }
+      }
+    },
+    "This needs a Mac with Apple silicon (M1 or newer): the speech model doesn’t run on Intel Macs yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для этого нужен Mac на Apple silicon (M1 или новее): модель речи пока не работает на Intel-маках."
           }
         }
       }

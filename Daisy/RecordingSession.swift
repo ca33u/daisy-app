@@ -1793,16 +1793,22 @@ final class RecordingSession {
         /// The speech model isn't on disk and there's no network to
         /// fetch it. Nothing `start()` could wait for would change that.
         case modelCannotLoad
+        /// Whisper can't decode on this Mac at all (Intel —
+        /// `WhisperEngine.runsOnThisMac`). Not a repair: Settings can't fix
+        /// it, so it's said, not sent there.
+        case macUnsupported
 
         static func decide(
             hasShownFirstRun: Bool,
             whisperState: WhisperEngine.LoadState,
             modelIsCached: Bool,
             isOnline: Bool,
-            whisperRequired: Bool = true
+            whisperRequired: Bool = true,
+            whisperRunsHere: Bool = true
         ) -> StartPreflight {
             guard hasShownFirstRun else { return .onboardingIncomplete }
             guard whisperRequired else { return .proceed }
+            if !whisperRunsHere { return .macUnsupported }
             if case .ready = whisperState { return .proceed }
             if !modelIsCached && !isOnline { return .modelCannotLoad }
             return .proceed
@@ -1846,6 +1852,50 @@ final class RecordingSession {
         AppNavigation.shared.openInSettings(.meetings, row: .meetingModel)
     }
 
+    /// Whisper can't run on this Mac (`WhisperEngine.runsOnThisMac`): where
+    /// the person is — toast in the window, the pill (or a notification)
+    /// for a key pressed in another app. Nothing to open: no setting fixes it.
+    private func presentWhisperUnsupportedOnThisMac() {
+        let message = WhisperEngineError.unsupportedMac.localizedDescription
+        ToastCenter.shared.show(message, style: .warning)
+        WidgetBubbleCenter.shared.present(WidgetBubbleContent(text: message),
+            notificationTitle: String(localized: "Daisy"))
+    }
+
+    static var dictationNeedsFastEngineMessage: String {
+        String(localized: "Dictation can’t start: on an Intel Mac it needs Faster or Apple dictation ready. Check \(SettingsRow.dictationEngine.path).")
+    }
+
+    /// A dictation refused on an Intel Mac: Whisper can't run there, and
+    /// the dictation engine that can wasn't ready. Says which row fixes it,
+    /// with a button; a screenshot note claimed at key-down gets its pill
+    /// back, and a Daisy-key press doesn't leave its bookkeeping behind.
+    private func refuseDictationOnUnsupportedMac() {
+        if let pending = pendingScreenshotNote {
+            pendingScreenshotNote = nil
+            ScreenshotNoteCapture.shared.restorePending(pending)
+        }
+        let purpose = dictationPurpose
+        dictationPurpose = .paste
+        switch purpose {
+        case .daisyKeyTap(let token):
+            // A tap needs no speech model: it still fixes the layout.
+            DaisyKeyController.shared.tapCaptureFinished(token: token, on: self)
+            return
+        case .daisyKeyHold(let token):
+            // Refused at key-down, before a tap is known: the key's
+            // release decides — a tap fixes the layout, a hold says why.
+            DaisyKeyController.shared.startRefused(token: token)
+            return
+        case .paste:
+            break
+        }
+        var content = WidgetBubbleContent(text: Self.dictationNeedsFastEngineMessage)
+        content.actionTitle = String(localized: "Open Settings")
+        content.action = { AppNavigation.shared.openInSettings(.dictation, row: .dictationEngine) }
+        WidgetBubbleCenter.shared.present(content, notificationTitle: String(localized: "Daisy"))
+    }
+
     /// The same words on the widget's pill, with the way to Settings as a
     /// button instead of opening it — for a moment the person is in another
     /// app and didn't ask for a window (a dictation's release, a dictation
@@ -1886,7 +1936,8 @@ final class RecordingSession {
             // at all; whether it does is decided after `.preparing`
             // (`dictationModelPlan`), where a Whisper that can't load
             // still refuses it the same way.
-            whisperRequired: !(pendingMode == .dictation && settings.dictationEngine != .whisper)
+            whisperRequired: !(pendingMode == .dictation && settings.dictationEngine != .whisper),
+            whisperRunsHere: WhisperEngine.runsOnThisMac
         )
         switch preflight {
         case .proceed:
@@ -1899,6 +1950,16 @@ final class RecordingSession {
             clearPendingStart()
             log.error("Start refused — speech model not cached and offline")
             presentSpeechModelUnavailable()
+            return
+        case .macUnsupported:
+            let wasDictation = pendingMode == .dictation
+            clearPendingStart()
+            log.error("Start refused — Whisper can't decode on this Mac (x86_64)")
+            if wasDictation {
+                refuseDictationOnUnsupportedMac()
+            } else {
+                presentWhisperUnsupportedOnThisMac()
+            }
             return
         }
         // If a previous Stop's summary task is still in flight, the
@@ -2209,6 +2270,23 @@ final class RecordingSession {
             case .whisper:
                 break
             }
+        }
+
+        // A fast-engine dictation that turned out to need Whisper after all
+        // (Parakeet downloading or failed, Apple's model not installed) on
+        // a Mac where Whisper can't run: said plainly, not «repair it».
+        if needsWhisper && !WhisperEngine.runsOnThisMac {
+            if dictationPurpose == .paste {
+                await failFast(Self.dictationNeedsFastEngineMessage)
+            } else {
+                // A Daisy-key press, likely still held: no failure state —
+                // a tap still has its layout fix to do. Back to idle.
+                dictationReleasedWhilePreparing = false
+                await unwindStart()
+                status = .idle
+            }
+            refuseDictationOnUnsupportedMac()
+            return
         }
 
         if needsWhisper {
@@ -3705,6 +3783,7 @@ final class RecordingSession {
             return Date().timeIntervalSince(at) < ParakeetEngine.failureBackoff
         }()
         let needsDiskCheck = engine == .parakeet && !parakeet.isReady && !isDownloading && !failedRecently
+            && WhisperEngine.runsOnThisMac
         var appleSpeechReady = false
         if engine == .appleSpeech, #available(macOS 26, *) {
             let localeID = settings.dictationLocale.isEmpty
@@ -3719,7 +3798,8 @@ final class RecordingSession {
             parakeet: .init(isReady: parakeet.isReady, isDownloading: isDownloading,
                             hasCompleteModel: needsDiskCheck && ParakeetEngine.hasCompleteModel(),
                             failedRecently: failedRecently),
-            appleSpeechReady: appleSpeechReady
+            appleSpeechReady: appleSpeechReady,
+            whisperRunsHere: WhisperEngine.runsOnThisMac
         )
     }
 
@@ -3747,7 +3827,8 @@ final class RecordingSession {
                     let engine = WhisperEngine.shared
                     WidgetBubbleCenter.shared.updateLiveCaption(
                         DictationModelGate.waitCaption(whisper: whisper ? engine.state : nil,
-                                                       loadProgress: engine.loadProgress)
+                                                       loadProgress: engine.loadProgress,
+                                                       parakeet: whisper ? nil : ParakeetEngine.shared.state)
                     )
                     try? await Task.sleep(for: .milliseconds(250))
                 }
