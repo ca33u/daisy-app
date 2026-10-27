@@ -1,6 +1,46 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "I’ve cancelled it — the speech model is still getting ready. Dictation will work once it’s done." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отменила — модель речи ещё готовится. Диктовка заработает, как только модель будет готова."
+          }
+        }
+      }
+    },
+    "Downloading the speech model · %lld%% · let go to cancel" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скачиваю модель речи · %lld%% · отпусти клавишу — отменю"
+          }
+        }
+      }
+    },
+    "Getting the speech model ready · about %lld%% · let go to cancel" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Готовлю модель речи · около %lld%% · отпусти клавишу — отменю"
+          }
+        }
+      }
+    },
+    "Getting the speech model ready · let go to cancel" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Готовлю модель речи · отпусти клавишу — отменю"
+          }
+        }
+      }
+    },
     "demo" : {
       "localizations" : {
         "ru" : {

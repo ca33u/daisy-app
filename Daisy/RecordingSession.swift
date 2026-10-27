@@ -891,7 +891,11 @@ final class RecordingSession {
 
     /// Set when the dictation key is released while `start()` is still
     /// in `.preparing` — i.e. the person let go before the engine
-    /// finished loading. Consumed by `startDictationHotkey` the moment
+    /// finished loading. Since 27.10 it cancels the start
+    /// (`requestDictationStartCancel`): a model wait ends at once and the
+    /// microphone never opens. Only a start that got past every check
+    /// before the release landed (a Daisy-key hold let go before
+    /// `.preparing`) still sees it in `startDictationHotkey` the moment
     /// `start()` returns, which then stops immediately.
     ///
     /// Without it the release was simply dropped (`stopDictationHotkey`
@@ -905,6 +909,24 @@ final class RecordingSession {
     @ObservationIgnored
     // internal for RecordingSession+Hotkeys.swift
     var dictationReleasedWhilePreparing = false
+
+    /// Ends the model wait `start()` is suspended in, when that start is a
+    /// dictation (`awaitStartStep`). Set only for the duration of a wait.
+    @ObservationIgnored
+    private var cancelStartWait: (@MainActor () -> Void)?
+
+    /// The dictation key came up (or came down again) while this start was
+    /// still waiting for a speech model: the microphone isn't open yet, so
+    /// there is nothing to transcribe — the start is dropped now instead of
+    /// spinning until the model is ready and then stopping at once (field
+    /// report 27.10: «иконка крутится … никак не могу её остановить»).
+    /// Before `.preparing` the flag alone does it: the first model wait
+    /// checks it, and with no wait `start()` checks it before the
+    /// microphone opens.
+    func requestDictationStartCancel() {
+        dictationReleasedWhilePreparing = true
+        cancelStartWait?()
+    }
 
     /// A dictation held while the previous recording is still being
     /// finished runs HERE — a second session of its own, with its own
@@ -1776,9 +1798,11 @@ final class RecordingSession {
             hasShownFirstRun: Bool,
             whisperState: WhisperEngine.LoadState,
             modelIsCached: Bool,
-            isOnline: Bool
+            isOnline: Bool,
+            whisperRequired: Bool = true
         ) -> StartPreflight {
             guard hasShownFirstRun else { return .onboardingIncomplete }
+            guard whisperRequired else { return .proceed }
             if case .ready = whisperState { return .proceed }
             if !modelIsCached && !isOnline { return .modelCannotLoad }
             return .proceed
@@ -1822,6 +1846,19 @@ final class RecordingSession {
         AppNavigation.shared.openInSettings(.meetings, row: .meetingModel)
     }
 
+    /// The same words on the widget's pill, with the way to Settings as a
+    /// button instead of opening it — for a moment the person is in another
+    /// app and didn't ask for a window (a dictation's release, a dictation
+    /// start they let go of).
+    func presentSpeechModelNotReadyPill() {
+        var content = WidgetBubbleContent(
+            text: String(localized: "The speech model is not ready. Open \(SettingsRow.meetingModel.path) to prepare or repair it.")
+        )
+        content.actionTitle = String(localized: "Open Settings")
+        content.action = { AppNavigation.shared.openInSettings(.meetings, row: .meetingModel) }
+        WidgetBubbleCenter.shared.present(content, notificationTitle: String(localized: "Prepare Daisy"))
+    }
+
     func start() async {
         let fromCalendar = nextStartFromCalendar
         nextStartFromCalendar = false
@@ -1844,7 +1881,12 @@ final class RecordingSession {
             hasShownFirstRun: settings.hasShownFirstRun || OnboardingTourController.shared.isActive,
             whisperState: whisperState,
             modelIsCached: modelIsCached,
-            isOnline: NetworkMonitor.shared.isOnline
+            isOnline: NetworkMonitor.shared.isOnline,
+            // A dictation on Parakeet or Apple's engine may not need Whisper
+            // at all; whether it does is decided after `.preparing`
+            // (`dictationModelPlan`), where a Whisper that can't load
+            // still refuses it the same way.
+            whisperRequired: !(pendingMode == .dictation && settings.dictationEngine != .whisper)
         )
         switch preflight {
         case .proceed:
@@ -2137,100 +2179,124 @@ final class RecordingSession {
 
         status = .preparing
 
-        // First-record explainer toast.
-        //
-        // If Whisper isn't yet `.ready`, the user is about to wait
-        // 1-3 minutes while the 626 MB model downloads + CoreML loads.
-        // The widget centre + tooltip surface the live progress, but
-        // a one-shot toast at the moment of click gives the user a
-        // concrete "how long" so they don't think the app is hung.
-        // Skip the toast when prewarm has already finished — most
-        // sessions land in `.ready` here, and a "model is loading"
-        // toast on a sub-second startup would be noise.
-        switch WhisperEngine.shared.state {
-        case .notLoaded, .downloading, .loading:
-            ToastCenter.shared.show(
-                String(localized: "Setting up transcription model — first run only, about 1–3 minutes"),
-                style: .info
-            )
-        case .ready, .failed:
-            break
-        }
-
-        // Make sure Whisper is ready before we tap the mic — otherwise the
-        // user sees "Recording…" with nothing happening. Each early-exit
-        // path below goes through `failFast(_:)` so we don't leak the
-        // sandbox ticket from `makeSessionDirectory()` or the half-
-        // started transcribers — pre-1.0.3 these `return`s left
-        // `sessionsFolderTicket` retained until the next start/reset.
-        await WhisperEngine.shared.ensureLoaded()
-        // Cold-restart race: the very first model load right after an app
-        // restart can briefly land not-ready or transiently failed, which
-        // surfaced as a red "Try again" button that just works on the second
-        // tap (Egor 2026-06-16). Auto-do that retry — up to twice, letting
-        // the in-flight load settle between attempts (a second ensureLoaded
-        // re-runs performLoad once the first task has cleared). Only the
-        // not-ready path pays this; a warm engine skips it entirely.
-        var whisperRetries = 0
-        while !WhisperEngine.shared.isReady && whisperRetries < 2 {
-            // A hard `.failed` after a completed load is a broken model or
-            // a CoreML refusal, and repeating a full large-v3 load twice
-            // more just triples the wait under "1–3 minutes". One retry
-            // covers the cold-restart race; the second only ever ran for
-            // deterministic failures.
-            if case .failed = WhisperEngine.shared.state, whisperRetries >= 1 { break }
-            whisperRetries += 1
-            try? await Task.sleep(for: .milliseconds(300))
-            await WhisperEngine.shared.ensureLoaded()
-        }
-        if case .failed(let msg) = WhisperEngine.shared.state {
-            // We waited and retried; it still can't load. This is the
-            // "loading is impossible" case (no disk, offline with no
-            // cache, a broken download) — the one refusal worth pointing
-            // at the repair screen, and worth a notification for a
-            // calendar auto-start nobody is watching.
-            await failFast(String(localized: "Whisper model failed to load: \(msg)"))
-            presentSpeechModelUnavailable()
-            return
-        }
-        guard WhisperEngine.shared.isReady else {
-            await failFast(String(localized: "Whisper model isn't ready yet — try again in a moment."))
-            return
-        }
-
-        // Fast dictation engine. Parakeet is NOT preloaded at launch
-        // (Whisper is), so on the first dictation after every launch it
-        // sits in `.notLoaded` — and 1.0.7.71 refused the whole dictation
-        // for that. Wait for it the way Whisper is waited for above, but
-        // only when the model is COMPLETE on disk and not mid-download:
-        // a cached load is a few seconds, while a first-ever ~600 MB
-        // download is not worth holding the hotkey for. (The hotkey
-        // handler already kicked that download off; it'll be ready next
-        // time, and `finishDictation` goes straight to Whisper for this
-        // one.) `hasCompleteModel`, not `cachedModelCount`: the folder
-        // exists from the first second of a download, so the count is
-        // 1 exactly when waiting would be wrong. Never a refusal — the
-        // Whisper fallback makes a failed Parakeet a slower dictation,
-        // not a lost one.
-        if currentMode == .dictation, settings.dictationEngine == .parakeet,
-           !ParakeetEngine.shared.isReady {
-            switch ParakeetEngine.shared.state {
-            case .downloading:
-                break
-            case .failed where ParakeetEngine.shared.lastFailureAt.map({ Date().timeIntervalSince($0) < ParakeetEngine.failureBackoff }) == true:
-                // Failed within the last few minutes — don't pay the
-                // load again on every dictation; Whisper takes this one.
-                log.info("Parakeet failed recently — skipping the reload for this dictation")
-            case .notLoaded, .loading, .failed:
-                if ParakeetEngine.hasCompleteModel() {
-                    await ParakeetEngine.shared.ensureLoaded()
-                    if case .failed(let reason) = ParakeetEngine.shared.state {
-                        log.warning("Parakeet unavailable for this dictation — Whisper fallback: \(reason, privacy: .public)")
-                    }
+        // What this start waits for before the microphone opens. A
+        // meeting, a voice note and a Whisper dictation need Whisper; a
+        // dictation on Parakeet or Apple's engine needs only its own
+        // engine (field report 27.10: a dictation on a ready Parakeet sat
+        // behind a meeting model that couldn't load — the widget spun for
+        // a minute and the start was refused). Whisper stays the
+        // fallback: a Parakeet that can't load, or an Apple model that
+        // isn't installed, sends this dictation to Whisper as before.
+        // Parakeet is NOT preloaded at launch (Whisper is), so the first
+        // dictation after a launch usually finds it `.notLoaded`: a cached
+        // load is a few seconds and worth waiting for, a first-ever
+        // ~600 MB download is not (`DictationModelGate`).
+        var needsWhisper = true
+        if currentMode == .dictation {
+            switch await dictationModelPlan() {
+            case .none:
+                needsWhisper = false
+            case .loadParakeet:
+                guard await awaitStartStep({ await ParakeetEngine.shared.ensureLoaded() }, whisper: false) else {
+                    await abandonDictationStart(waitedForWhisper: false)
+                    return
                 }
-            case .ready:
+                if ParakeetEngine.shared.isReady {
+                    needsWhisper = false
+                } else if case .failed(let reason) = ParakeetEngine.shared.state {
+                    log.warning("Parakeet unavailable for this dictation — Whisper fallback: \(reason, privacy: .public)")
+                }
+            case .whisper:
                 break
             }
+        }
+
+        if needsWhisper {
+            // First-record explainer toast.
+            //
+            // If Whisper isn't yet `.ready`, the user is about to wait
+            // 1-3 minutes while the 626 MB model downloads + CoreML loads.
+            // The widget centre + tooltip surface the live progress, but
+            // a one-shot toast at the moment of click gives the user a
+            // concrete "how long" so they don't think the app is hung.
+            // Skip the toast when prewarm has already finished — most
+            // sessions land in `.ready` here, and a "model is loading"
+            // toast on a sub-second startup would be noise. A dictation
+            // gets the caption over the widget instead (`awaitStartStep`):
+            // it's started from another app, where a window toast is
+            // invisible.
+            if currentMode != .dictation {
+                switch WhisperEngine.shared.state {
+                case .notLoaded, .downloading, .loading:
+                    ToastCenter.shared.show(
+                        String(localized: "Setting up transcription model — first run only, about 1–3 minutes"),
+                        style: .info
+                    )
+                case .ready, .failed:
+                    break
+                }
+            }
+
+            // Make sure Whisper is ready before we tap the mic — otherwise the
+            // user sees "Recording…" with nothing happening. A failure exits
+            // through `failFast(_:)`, a dictation let go of through
+            // `abandonDictationStart` — both unwind the same way
+            // (`unwindStart`), so nothing half-started is left behind.
+            if !WhisperEngine.shared.isReady {
+                guard await awaitStartStep({ await WhisperEngine.shared.ensureLoaded() }) else {
+                    await abandonDictationStart(waitedForWhisper: true)
+                    return
+                }
+            }
+            // Cold-restart race: the very first model load right after an app
+            // restart can briefly land not-ready or transiently failed, which
+            // surfaced as a red "Try again" button that just works on the second
+            // tap (Egor 2026-06-16). Auto-do that retry — up to twice, letting
+            // the in-flight load settle between attempts (a second ensureLoaded
+            // re-runs performLoad once the first task has cleared). Only the
+            // not-ready path pays this; a warm engine skips it entirely.
+            var whisperRetries = 0
+            while !WhisperEngine.shared.isReady && whisperRetries < 2 {
+                // A hard `.failed` after a completed load is a broken model or
+                // a CoreML refusal, and repeating a full large-v3 load twice
+                // more just triples the wait under "1–3 minutes". One retry
+                // covers the cold-restart race; the second only ever ran for
+                // deterministic failures.
+                if case .failed = WhisperEngine.shared.state, whisperRetries >= 1 { break }
+                whisperRetries += 1
+                guard await awaitStartStep({
+                    try? await Task.sleep(for: .milliseconds(300))
+                    await WhisperEngine.shared.ensureLoaded()
+                }) else {
+                    await abandonDictationStart(waitedForWhisper: true)
+                    return
+                }
+            }
+            if case .failed(let msg) = WhisperEngine.shared.state {
+                // We waited and retried; it still can't load. This is the
+                // "loading is impossible" case (no disk, offline with no
+                // cache, a broken download) — the one refusal worth pointing
+                // at the repair screen, and worth a notification for a
+                // calendar auto-start nobody is watching.
+                await failFast(String(localized: "Whisper model failed to load: \(msg)"))
+                presentSpeechModelUnavailable()
+                return
+            }
+            guard WhisperEngine.shared.isReady else {
+                await failFast(String(localized: "Whisper model isn't ready yet — try again in a moment."))
+                return
+            }
+        }
+
+        // The dictation key came up before `.preparing` (the stored-audio
+        // yield, the microphone prompt) and no model wait was needed to
+        // notice: drop the start before the microphone opens. Only the
+        // dictation key — a Daisy-key hold let go here still runs as
+        // before (start, then stop), where a silent hold over a selection
+        // is the rewrite gesture.
+        if currentMode == .dictation, dictationReleasedWhilePreparing, dictationPurpose == .paste {
+            await abandonDictationStart(waitedForWhisper: nil)
+            return
         }
 
         // Session directory for archive + screenshots.
@@ -3625,6 +3691,146 @@ final class RecordingSession {
     private func failFast(_ message: String) async {
         log.error("Session start failed: \(message, privacy: .public)")
         ImprovementStats.record(.recordingFailed)
+        await unwindStart()
+        status = .failed(message)
+    }
+
+    /// What `start()` waits for when it is a dictation (`DictationModelGate`).
+    private func dictationModelPlan() async -> DictationModelGate.Plan {
+        let engine = settings.dictationEngine
+        let parakeet = ParakeetEngine.shared
+        let isDownloading: Bool = { if case .downloading = parakeet.state { return true }; return false }()
+        let failedRecently: Bool = {
+            guard case .failed = parakeet.state, let at = parakeet.lastFailureAt else { return false }
+            return Date().timeIntervalSince(at) < ParakeetEngine.failureBackoff
+        }()
+        let needsDiskCheck = engine == .parakeet && !parakeet.isReady && !isDownloading && !failedRecently
+        var appleSpeechReady = false
+        if engine == .appleSpeech, #available(macOS 26, *) {
+            let localeID = settings.dictationLocale.isEmpty
+                ? settings.defaultTranscriptionLocale
+                : settings.dictationLocale
+            if localeID != "auto", !localeID.isEmpty {
+                appleSpeechReady = await AppleSpeechLiveEngine.availability(locale: Locale(identifier: localeID)) == .ready
+            }
+        }
+        return DictationModelGate.plan(
+            engine: engine,
+            parakeet: .init(isReady: parakeet.isReady, isDownloading: isDownloading,
+                            hasCompleteModel: needsDiskCheck && ParakeetEngine.hasCompleteModel(),
+                            failedRecently: failedRecently),
+            appleSpeechReady: appleSpeechReady
+        )
+    }
+
+    /// One wait inside `start()` — a model load, a retry — that a
+    /// dictation can walk away from. Returns false when the dictation was
+    /// cancelled (`requestDictationStartCancel`); the step itself runs on
+    /// in its own task, so a model that's loading keeps loading for the
+    /// next press. A meeting's or a voice note's wait is not cancellable
+    /// here and returns true when the step is done.
+    ///
+    /// While a dictation waits, the caption over the widget says what
+    /// for and how far along (`DictationModelGate.waitCaption`) — after a
+    /// short delay, so a warm engine answering at once flashes nothing.
+    private func awaitStartStep(
+        _ step: @escaping @MainActor () async -> Void,
+        whisper: Bool = true
+    ) async -> Bool {
+        let cancellable = currentMode == .dictation
+        if cancellable && dictationReleasedWhilePreparing { return false }
+        var captionTask: Task<Void, Never>?
+        if cancellable {
+            captionTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(400))
+                while !Task.isCancelled {
+                    let engine = WhisperEngine.shared
+                    WidgetBubbleCenter.shared.updateLiveCaption(
+                        DictationModelGate.waitCaption(whisper: whisper ? engine.state : nil,
+                                                       loadProgress: engine.loadProgress)
+                    )
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+            }
+        }
+        await StartStepGate.wait(for: step) { cancel in
+            if cancellable { cancelStartWait = cancel }
+        }
+        cancelStartWait = nil
+        if let captionTask {
+            captionTask.cancel()
+            WidgetBubbleCenter.shared.hideLiveCaption()
+        }
+        return !(cancellable && dictationReleasedWhilePreparing)
+    }
+
+    /// A dictation start dropped while it waited for a model: everything a
+    /// failed start unwinds, but back to idle and without a failure — the
+    /// person let go of the key. A Daisy-key tap still fixes the layout
+    /// (its capture is thrown away anyway); a hold or a dictation says why
+    /// nothing was written.
+    /// `waitedForWhisper`: which engine the start was waiting for (nil —
+    /// none, the key came up before any wait). The pill promises «it'll
+    /// work once ready» only while that engine really is on its way; a
+    /// model that failed gets the way to repair it; a ready one — an
+    /// accidental tap — says nothing.
+    private func abandonDictationStart(waitedForWhisper: Bool?) async {
+        log.info("Dictation start cancelled before the microphone opened — any model load goes on in the background")
+        let purpose = dictationPurpose
+        dictationPurpose = .paste
+        dictationReleasedWhilePreparing = false
+        await unwindStart()
+        status = .idle
+        switch purpose {
+        case .daisyKeyTap(let token):
+            DaisyKeyController.shared.tapCaptureFinished(token: token, on: self)
+            return
+        case .daisyKeyHold(let token):
+            DaisyKeyController.shared.holdAbandoned(token: token)
+        case .paste:
+            break
+        }
+        enum Wait { case onItsWay, failed, ready }
+        let wait: Wait = {
+            switch waitedForWhisper {
+            case .none:
+                return .ready
+            case .some(true):
+                switch WhisperEngine.shared.state {
+                case .ready: return .ready
+                case .failed: return .failed
+                case .notLoaded, .downloading, .loading: return .onItsWay
+                }
+            case .some(false):
+                switch ParakeetEngine.shared.state {
+                case .ready: return .ready
+                // Whisper takes the next one if Parakeet can't — so it's
+                // Whisper's state that says what the next press meets.
+                case .failed:
+                    switch WhisperEngine.shared.state {
+                    case .ready: return .ready
+                    case .failed: return .failed
+                    case .notLoaded, .downloading, .loading: return .onItsWay
+                    }
+                case .notLoaded, .downloading, .loading: return .onItsWay
+                }
+            }
+        }()
+        switch wait {
+        case .onItsWay:
+            _ = WidgetBubbleCenter.shared.show(WidgetBubbleContent(
+                text: String(localized: "I’ve cancelled it — the speech model is still getting ready. Dictation will work once it’s done."),
+                autoDismiss: 6
+            ))
+        case .failed:
+            presentSpeechModelNotReadyPill()
+        case .ready:
+            break
+        }
+    }
+
+    /// Everything a start that didn't make it to recording leaves behind.
+    private func unwindStart() async {
         // A screenshot note claimed at key-down would otherwise die
         // with the failed start: its pill sits frozen (claim paused the
         // countdown) and the note can never be dictated into. Give the
@@ -3666,7 +3872,6 @@ final class RecordingSession {
         micArchiveURL = nil
         systemArchiveURL = nil
         startedAt = nil
-        status = .failed(message)
     }
 
     // MARK: - Thermal / low-power auto-downgrade
@@ -4024,5 +4229,33 @@ final class RecordingSession {
     func releaseSessionsFolderTicket() {
         sessionsFolderTicket?.release()
         sessionsFolderTicket = nil
+    }
+}
+
+/// What `RecordingSession.awaitStartStep` suspends on: it resumes when the
+/// step finishes or when the cancel handed out is called, whichever comes
+/// first — the other finds it already open. A cancelled step runs on in
+/// its own task (a model keeps loading for the next press).
+final class StartStepGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    private func open() {
+        continuation?.resume()
+        continuation = nil
+    }
+
+    static func wait(
+        for step: @escaping @MainActor () async -> Void,
+        cancelHandle: (@escaping @MainActor () -> Void) -> Void
+    ) async {
+        let gate = StartStepGate()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            gate.continuation = continuation
+            cancelHandle { gate.open() }
+            Task { @MainActor in
+                await step()
+                gate.open()
+            }
+        }
     }
 }

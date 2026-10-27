@@ -1140,6 +1140,17 @@ final class DaisyKeyController {
 
     // MARK: From finishDictation
 
+    /// A hold that came to nothing: its dictation start was dropped before
+    /// the microphone opened (the key let go while a speech model was
+    /// loading), or its words couldn't be transcribed. Nothing is
+    /// understood — its bookkeeping goes and the flower settles.
+    func holdAbandoned(token: UUID) {
+        holds.removeValue(forKey: token)?.context.cancel()
+        endedByChord.removeValue(forKey: token)
+        cancelled.removeValue(forKey: token)
+        DaisyKeyIndicator.shared.settle()
+    }
+
     /// The tap's half-second is gone. A tap outside a recording fixes the keyboard layout — of the
     /// selection, or the word just typed — as the layout-fix shortcut
     /// does (Egor 23.10: notes are a hold now, the tap no longer starts

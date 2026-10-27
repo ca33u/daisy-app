@@ -1008,6 +1008,14 @@ final class Transcriber {
 
     private func kickLiveTranscribe() {
         guard isRunning, transcribeTask == nil, !allSamples.isEmpty else { return }
+        // A dictation on Parakeet or Apple's engine no longer waits for
+        // Whisper to load (field report 27.10), so its live timer can tick
+        // with no model in memory — and `WhisperEngine.transcribe` would
+        // start (or join) a full model load mid-dictation. Skip the window:
+        // its text never reaches a fast engine's paste. The same holds for
+        // the seconds a meeting's model is swapped mid-recording
+        // (`reload()` on a model change): the final pass covers the gap.
+        guard WhisperEngine.shared.isReady else { return }
 
         // Slice the rolling 30 s tail, but skip audio we've already
         // committed — no point re-transcribing settled text.

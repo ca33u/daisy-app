@@ -74,6 +74,12 @@ extension RecordingSession {
         // fast engine produces text, or logs why not and Whisper takes
         // over.
         var fastText: String? = nil
+        // The fast engine threw (as opposed to hearing nothing): the one
+        // miss worth telling the person about when Whisper can't stand in.
+        var fastEngineFailed = false
+        // A clip too short to be speech: Parakeet throws on anything under
+        // ~0.3 s (FluidAudio's floor), and a tap is not a failure to report.
+        let longEnoughToBeSpeech = samples.count >= 4_800
         switch settings.dictationEngine {
         case .whisper:
             break
@@ -98,6 +104,7 @@ extension RecordingSession {
                         log.info("Dictation fast-engine miss: Parakeet returned empty — Whisper fallback")
                     }
                 } catch {
+                    fastEngineFailed = longEnoughToBeSpeech
                     log.warning("Dictation fast-engine miss: Parakeet error \(error.localizedDescription, privacy: .public) — Whisper fallback")
                 }
             }
@@ -122,6 +129,7 @@ extension RecordingSession {
                                 log.info("Dictation fast-engine miss: Apple SpeechAnalyzer returned empty — Whisper fallback")
                             }
                         } catch {
+                            fastEngineFailed = longEnoughToBeSpeech
                             log.warning("Dictation fast-engine miss: Apple SpeechAnalyzer error \(error.localizedDescription, privacy: .public) — Whisper fallback")
                         }
                     } else {
@@ -136,6 +144,11 @@ extension RecordingSession {
         }
 
         let engineUsed: String
+        // Speech was captured but nothing could transcribe it (the fast
+        // engine threw, Whisper isn't loaded). Not the same as silence: a
+        // Daisy-key hold must not read it as a silent hold — that would
+        // send the selection off to be rewritten.
+        var couldNotTranscribe = false
         if let fastText, !fastText.isEmpty {
             transcriptText = fastText
             engineUsed = settings.dictationEngine == .appleSpeech ? "apple_speech" : settings.dictationEngine.rawValue
@@ -149,13 +162,30 @@ extension RecordingSession {
             // fallback retry) instead of `.full`: this decode blocks the
             // paste, and full-width search on a few seconds of speech is
             // latency without measurable quality gain.
-            let dictFinalState = signposter.beginInterval("dictation_final_pass", id: signposter.makeSignpostID())
-            let t_dictFinal = Date()
-            await micTranscriber.runFinalPass(profile: .dictationFinal, biasTerms: DictationDictionary.shared.biasTerms())
-            signposter.endInterval("dictation_final_pass", dictFinalState)
-            log.info("post-stop dictation_final_pass: \(ms(t_dictFinal), privacy: .public)ms")
-            transcriptText = fullTranscriptText
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            //
+            // A fast-engine dictation no longer waits for Whisper at its
+            // start (field report 27.10), so the fallback may find it not
+            // loaded. It is NOT loaded here: this is the key's release, a
+            // load can take a minute (or fail, as in that report), and
+            // `.stopping` takes no key. Most misses are silence — a tap, a
+            // silent Daisy-key hold over a selection — with nothing to
+            // lose; a fast engine that threw says so on the pill.
+            if WhisperEngine.shared.isReady {
+                let dictFinalState = signposter.beginInterval("dictation_final_pass", id: signposter.makeSignpostID())
+                let t_dictFinal = Date()
+                await micTranscriber.runFinalPass(profile: .dictationFinal, biasTerms: DictationDictionary.shared.biasTerms())
+                signposter.endInterval("dictation_final_pass", dictFinalState)
+                log.info("post-stop dictation_final_pass: \(ms(t_dictFinal), privacy: .public)ms")
+                transcriptText = fullTranscriptText
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                log.info("Dictation fallback skipped: Whisper isn't loaded (fast engine \(fastEngineFailed ? "failed" : "heard nothing", privacy: .public))")
+                if fastEngineFailed {
+                    couldNotTranscribe = true
+                    presentSpeechModelNotReadyPill()
+                }
+                transcriptText = ""
+            }
         }
 
         // Local usage stats (powers the Home words/min · total words ·
@@ -240,6 +270,13 @@ extension RecordingSession {
             if let dir = sessionDirectory { try? FileManager.default.removeItem(at: dir) }
             releaseSessionsFolderTicket()
             reset()
+            if couldNotTranscribe {
+                // Words were said and lost to the engine — the pill says
+                // why. Neither a note nor a rewrite of the selection.
+                log.info("Daisy key hold: nothing could transcribe it — dropped, no note, no rewrite")
+                DaisyKeyController.shared.holdAbandoned(token: token)
+                return
+            }
             await DaisyKeyController.shared.holdFinished(token: token, transcript: transcriptText, samples: samples, durationSec: durSec)
             return
         }

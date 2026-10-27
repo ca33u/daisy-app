@@ -249,13 +249,28 @@ extension RecordingSession {
         // model finished loading — which is what 1.0.7.71 shipped, saved
         // only by `start()` refusing everything at the time.
         if let side = sideDictation, side.isDictating || side.pendingMode == .dictation || side.startingMode == .dictation {
-            return  // a repeat press of a key already held
+            // The dictation key down again while its own start is still
+            // waiting for a model: its release was lost (a hold key's
+            // key-up can go missing), so this press is the only way left to
+            // say «stop» — the start is dropped. Otherwise a repeat press
+            // of a key already held.
+            if purpose == .paste, side.startingMode == .dictation, side.dictationPurpose == .paste {
+                side.requestDictationStartCancel()
+            }
+            return
         }
         // Another start is already under way on this session (the other
         // of the dictation and Daisy keys, pressed within its wait): this
         // one would overwrite that start's purpose — a Daisy hold pasted,
         // a dictation kept as a note (review 21.10). The first press wins.
-        if isStarting || startingMode != nil { return }
+        // The dictation key over its own dictation's start cancels it, as
+        // above.
+        if isStarting || startingMode != nil {
+            if purpose == .paste, startingMode == .dictation, dictationPurpose == .paste {
+                requestDictationStartCancel()
+            }
+            return
+        }
         // The previous recording is still being finished (final pass,
         // summary). Starting here would reset this session and cancel
         // that; the dictation goes to a session of its own instead.
@@ -403,8 +418,8 @@ extension RecordingSession {
         //     Both are non-nil only while a start is in flight, so
         //     it's a precise tell rather than a widened net.
         //
-        // Record the intent; `startDictationHotkey` acts on it the
-        // moment `start()` returns.
+        // Since 27.10 this cancels the start: a model wait ends now and
+        // the microphone never opens (`requestDictationStartCancel`).
         if let side = sideDictation, side.isDictating || side.pendingMode == .dictation || side.startingMode == .dictation,
            side.ownsDictationCapture(token) {
             await side.stopDictationHotkey(daisyKeyToken: token)
@@ -412,7 +427,7 @@ extension RecordingSession {
         }
         guard ownsDictationCapture(token) else { return }
         if status == .preparing || pendingMode == .dictation || startingMode == .dictation {
-            dictationReleasedWhilePreparing = true
+            requestDictationStartCancel()
             return
         }
         guard currentMode == .dictation else { return }
