@@ -494,6 +494,13 @@ enum LogReporter {
     /// degraded because of it. See
     /// `ScreenRecordingPermission.diagnosticsLine`.
     ///
+    /// `sysAudioRec=` is the System Audio Recording permission the process
+    /// tap needs — not readable from macOS, so it's what Daisy's own probe
+    /// last heard (`ProcessTapPermission.diagnosticsLabel`). It says whether
+    /// the tap could have recorded at all: `notAsked` / `denied(probe)` mean
+    /// ScreenCaptureKit, so `screenRec=` is the one that counts. A grant
+    /// revoked later only shows as a silent tap in the log.
+    ///
     /// `Devices:` is the full input/output inventory, and it earns the
     /// space for the same reason: `Route:` and `Mic device:` describe
     /// the three devices we ended up on, not the field they were chosen
@@ -511,7 +518,7 @@ enum LogReporter {
         Generated:  \(Date().formatted(date: .abbreviated, time: .standard))
         App:        \(appVersionString)
         macOS:      \(ProcessInfo.processInfo.operatingSystemVersionString)
-        Permissions: mic=\(label(permissions.microphone)) screenRec=\(label(permissions.screenRecording)) accessibility=\(label(permissions.accessibility)) calendar=\(label(permissions.calendar)) notifications=\(label(permissions.notifications))
+        Permissions: mic=\(label(permissions.microphone)) screenRec=\(label(permissions.screenRecording)) sysAudioRec=\(ProcessTapPermission.currentDiagnosticsLabel) accessibility=\(label(permissions.accessibility)) calendar=\(label(permissions.calendar)) notifications=\(label(permissions.notifications))
         Audio:      captureSystemAudio=\(settings.captureSystemAudio) liveTier=\(settings.liveTranscriptionTier) dictationEngine=\(settings.dictationEngine.rawValue) nemotronLivePreview=\(settings.dictationUseNemotronLive)
         Disk:       \(diskLine())
         ScreenRec:  \(ScreenRecordingPermission.diagnosticsLine())

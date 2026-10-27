@@ -93,6 +93,35 @@ enum ProcessTapPermission {
         peak > heardThreshold ? .granted : .denied
     }
 
+    /// The `sysAudioRec=` field of the log report's `Permissions:` line
+    /// (field report 27.10: a meeting recorded only the person's voice,
+    /// and the report couldn't say whether this permission was the
+    /// reason). macOS has no API to read it, so this is what Daisy's own
+    /// probe last heard, and says so:
+    /// - `n/a` — no process tap here (macOS before 14.4, or the tap is
+    ///   switched off), so the permission plays no part;
+    /// - `notAsked` — no probe has answered: never run, or its tone or tap
+    ///   couldn't start (logged under TapPermission). The tap isn't used
+    ///   until a probe hears its tone, so recordings go through
+    ///   ScreenCaptureKit and `screenRec=` is what matters;
+    /// - `denied(probe)` — the last probe heard zeros: refused, or not
+    ///   answered in time (the sheet's timeout, «I've answered» pressed
+    ///   with the macOS dialog still open, the tour step left mid-probe).
+    ///   The tap stays off and ScreenCaptureKit records;
+    /// - `granted(probe)` — the last probe heard its tone; recordings use
+    ///   the tap. A grant revoked later in System Settings still reads
+    ///   `granted(probe)` until the next probe; only a silent tap in the
+    ///   log shows it then.
+    nonisolated static func diagnosticsLabel(available: Bool, asked: Bool, denied: Bool) -> String {
+        guard available else { return "n/a" }
+        guard asked else { return "notAsked" }
+        return denied ? "denied(probe)" : "granted(probe)"
+    }
+
+    static var currentDiagnosticsLabel: String {
+        diagnosticsLabel(available: isAvailable, asked: asked, denied: denied)
+    }
+
     /// Record what a probe found. `asked` becomes true either way.
     static func record(_ outcome: Outcome) {
         switch outcome {
