@@ -1,6 +1,16 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Couldn’t reach Ollama at %@. Open Ollama (or run `ollama serve`) and try again. (%@)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не получилось достучаться до Ollama по адресу %@. Открой Ollama (или запусти `ollama serve`) и попробуй ещё раз. (%@)"
+          }
+        }
+      }
+    },
     "Dictation can’t start: on an Intel Mac it needs Faster or Apple dictation ready. Check %@." : {
       "localizations" : {
         "ru" : {
@@ -67,6 +77,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Пример встречи из знакомства с Daisy. Удали, когда захочешь."
+          }
+        }
+      }
+    },
+    "Ollama didn’t finish the summary in %lld min — this model is too slow for a meeting this long. Choose a smaller model, or a cloud provider, in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ollama не успела написать саммари за %lld мин — эта модель слишком медленная для такой длинной встречи. Выбери модель поменьше или облачного провайдера в «%@»."
           }
         }
       }

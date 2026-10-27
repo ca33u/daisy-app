@@ -53,6 +53,65 @@ nonisolated struct OllamaAPISummarizer: SummaryProvider {
         self.urlSession = urlSession
     }
 
+    /// The `/api/chat` body. `think: false` (field report 27.10): thinking
+    /// models — the qwen3.5 the catalogue recommends among them — reason
+    /// before they answer, ~1,400 tokens for a short meeting on an M4 at
+    /// ~13 tokens/s, all of it thrown away; a summary needs the JSON only.
+    /// Safe on every model and server: Ollama rejects only `think: true` on
+    /// a model that can't think, and servers that predate the field ignore
+    /// it. `thinkingOff: false` leaves the field out.
+    static func chatBody(model: String, system: String, user: String, numCtx: Int, thinkingOff: Bool) -> [String: Any] {
+        var body: [String: Any] = [
+            "model": model,
+            "messages": [
+                ["role": "system", "content": system],
+                ["role": "user", "content": user]
+            ],
+            "format": "json",
+            "stream": false,
+            "options": [
+                "num_ctx": numCtx,
+                // Some Ollama versions default num_predict to 128 —
+                // mid-sentence truncation of the JSON. 4k covers the
+                // largest summary the schema can produce.
+                "num_predict": 4_096,
+                "temperature": 0.4
+            ]
+        ]
+        if thinkingOff { body["think"] = false }
+        return body
+    }
+
+    /// How long to wait for the whole answer (`stream: false` sends nothing
+    /// until it's done). Was a flat 180 s, and a 4B model on an M4 Air read
+    /// the prompt at ~130 tokens/s and wrote at ~13 (field report 27.10):
+    /// a half-hour meeting is 15–20k tokens, two minutes of reading before
+    /// the first word. 5 minutes, plus a second per 40 prompt tokens, at
+    /// most 30 minutes — a summary runs after the meeting, nobody waits at
+    /// it, and giving up is the only outcome worse than slow.
+    static func timeout(promptChars: Int) -> TimeInterval {
+        let tokens = Double(LocalContextGuard.estimatedTokens(promptChars: promptChars))
+        return min(1_800, 300 + tokens / 40)
+    }
+
+    /// A transport failure in words that match it: a timeout is a model too
+    /// slow for this meeting, not «Ollama isn't running» (which is what the
+    /// 27.10 report said while Ollama answered every probe).
+    static func transportError(_ error: Error, baseURL: URL, timeout: TimeInterval,
+                               serverAnswers: Bool) -> SummaryProviderError {
+        if (error as? URLError)?.code == .timedOut, serverAnswers {
+            let minutes = Int((timeout / 60).rounded())
+            return .modelUnavailable(
+                provider: "Ollama",
+                reason: String(localized: "Ollama didn’t finish the summary in \(minutes) min — this model is too slow for a meeting this long. Choose a smaller model, or a cloud provider, in \(SettingsRow.summaryProvider.path).")
+            )
+        }
+        return .modelUnavailable(
+            provider: "Ollama",
+            reason: String(localized: "Couldn’t reach Ollama at \(baseURL.absoluteString). Open Ollama (or run `ollama serve`) and try again. (\(error.localizedDescription))")
+        )
+    }
+
     /// "Is Ollama actually running and answering?" probe via `/api/tags`.
     /// Cheap (no model load, just a directory listing). Returns false on
     /// any network error or non-2xx status — Settings UI flips the
@@ -111,47 +170,31 @@ nonisolated struct OllamaAPISummarizer: SummaryProvider {
         if estTokens > 131_072 {
             log.warning("Ollama prompt (~\(estTokens) tokens) exceeds the 128k ceiling — the summary may be truncated. Consider a cloud provider for this recording.")
         }
-        let body: [String: Any] = [
-            "model": model,
-            "messages": [
-                ["role": "system", "content": systemPrompt],
-                ["role": "user",   "content": userPrompt]
-            ],
-            "format": "json",
-            "stream": false,
-            "options": [
-                "num_ctx": numCtx,
-                // Some Ollama versions default num_predict to 128 —
-                // mid-sentence truncation of the JSON. 4k covers the
-                // largest summary the schema can produce.
-                "num_predict": 4_096,
-                "temperature": 0.4
-            ]
-        ]
-
-        var request = URLRequest(url: baseURL.appendingPathComponent("api/chat"))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // Big timeout — Ollama on M-series Mac can take 30-60s for a
-        // 30-min meeting through llama3.2:8b. cold-loaded models add
-        // another ~10s on first call.
-        request.timeoutInterval = 180
-        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
-
-        let (data, response): (Data, URLResponse)
-        do {
-            (data, response) = try await urlSession.data(for: request)
-        } catch {
-            // Localhost network errors usually mean Ollama is not
-            // running. Translate to a friendlier provider error so
-            // the UI can suggest the fix ("Open Terminal, run
-            // `ollama serve`") instead of dumping the raw network
-            // error.
-            throw SummaryProviderError.modelUnavailable(
-                provider: "Ollama",
-                reason: "Couldn't reach Ollama at \(baseURL.absoluteString). Make sure `ollama serve` is running, then try again. (\(error.localizedDescription))"
-            )
+        let timeout = Self.timeout(promptChars: promptChars)
+        func send(thinkingOff: Bool) async throws -> (Data, URLResponse) {
+            var request = URLRequest(url: baseURL.appendingPathComponent("api/chat"))
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = timeout
+            request.httpBody = try JSONSerialization.data(
+                withJSONObject: Self.chatBody(model: model, system: systemPrompt, user: userPrompt,
+                                              numCtx: numCtx, thinkingOff: thinkingOff),
+                options: [])
+            do {
+                return try await urlSession.data(for: request)
+            } catch {
+                // A withdrawn summary is not a connection problem: async
+                // URLSession throws `.cancelled`, and only CancellationError
+                // reads as harmless upstream.
+                if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+                // A timeout from a server that no longer answers at all is
+                // «couldn't reach», not «too slow».
+                let answers = (error as? URLError)?.code == .timedOut ? await isReady() : false
+                throw Self.transportError(error, baseURL: baseURL, timeout: timeout, serverAnswers: answers)
+            }
         }
+
+        let (data, response) = try await send(thinkingOff: true)
         guard let http = response as? HTTPURLResponse else {
             throw SummaryProviderError.invalidResponse(provider: "Ollama")
         }
@@ -228,9 +271,9 @@ nonisolated struct OllamaAPISummarizer: SummaryProvider {
     /// and a 256K context so a long meeting doesn't need chunking.
     /// User can override in Settings.
     ///
-    /// It is a thinking-capable model, which is fine here: Ollama puts
-    /// the reasoning trace in `message.thinking`, so `message.content`
-    /// is still the bare JSON `format: "json"` asked for.
+    /// It is a thinking-capable model; the summary request switches the
+    /// thinking off (`think: false`, see `chatBody`) — on an M4 Air its
+    /// ~1,400 reasoning tokens took longer than the answer.
     static let defaultModelID = "qwen3.5:4b"
 
     /// Default base URL. Stock Ollama binds here.
