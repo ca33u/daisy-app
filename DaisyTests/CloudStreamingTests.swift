@@ -68,14 +68,26 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-@Suite("Cloud summary streaming", .serialized)
+/// Spend from the stubs goes to `StubProtocol.spends`, never to the real
+/// ledger (UserDefaults.standard) — for the whole suite, cleared after it.
+struct RecordsLedgerSpendLocally: SuiteTrait, TestScoping {
+    func provideScope(for test: Test, testCase: Test.Case?, performing function: @concurrent @Sendable () async throws -> Void) async throws {
+        TokenLedgerSink.testRecorder = { kind, model, spend in StubProtocol.spends.append((kind, model, spend)) }
+        defer { TokenLedgerSink.testRecorder = nil }
+        try await function()
+    }
+}
+
+extension Trait where Self == RecordsLedgerSpendLocally {
+    static var recordsLedgerSpendLocally: Self { Self() }
+}
+
+@Suite("Cloud summary streaming", .serialized, .recordsLedgerSpendLocally)
 struct CloudStreamingTests {
     private func session(_ responses: [(Int, String)]) -> URLSession {
         StubProtocol.responses = responses.map { (status: $0.0, body: $0.1) }
         StubProtocol.failAfterBody = nil
         StubProtocol.spends = []
-        // Spend from these stubs must never reach the real ledger.
-        TokenLedgerSink.testRecorder = { kind, model, spend in StubProtocol.spends.append((kind, model, spend)) }
         StubProtocol.requests = []
         StubProtocol.bodies = []
         let config = URLSessionConfiguration.ephemeral
@@ -555,6 +567,43 @@ struct CloudStreamingTests {
         #expect(recorded.spend.inputTokens == 30000 && recorded.spend.outputTokens == 900)
     }
 
+    /// DeepSeek's stream as its docs show it: `"usage": null` on every
+    /// chunk but the last, reasoning in `reasoning_content` (never the
+    /// summary), and the cache hit inside `prompt_tokens_details`.
+    @Test("DeepSeek: its real stream shape — null usage until the end, reasoning deltas skipped, input less the cache")
+    func deepseekStreamShape() async throws {
+        var sse = ""
+        func chunk(_ delta: [String: Any], finish: String? = nil) {
+            var choice: [String: Any] = ["index": 0, "delta": delta, "finish_reason": finish ?? NSNull()]
+            choice["logprobs"] = NSNull()
+            let object: [String: Any] = ["id": "x", "object": "chat.completion.chunk", "model": "deepseek-flash",
+                                         "choices": [choice], "usage": NSNull()]
+            sse += "data: " + String(decoding: try! JSONSerialization.data(withJSONObject: object), as: UTF8.self) + "\n\n"
+        }
+        sse += ": keep-alive\n\n"
+        chunk(["role": "assistant", "content": "", "reasoning_content": "Let me think about the plan."])
+        var rest = Substring(summaryJSON)
+        while !rest.isEmpty {
+            chunk(["content": String(rest.prefix(25))]); rest = rest.dropFirst(25)
+        }
+        chunk([:], finish: "stop")
+        let usage: [String: Any] = ["prompt_tokens": 30_000, "completion_tokens": 900, "total_tokens": 30_900,
+                                    "prompt_tokens_details": ["cached_tokens": 12_000],
+                                    "prompt_cache_hit_tokens": 12_000, "prompt_cache_miss_tokens": 18_000,
+                                    "completion_tokens_details": ["reasoning_tokens": 0]]
+        let last: [String: Any] = ["id": "x", "object": "chat.completion.chunk", "model": "deepseek-flash",
+                                   "choices": [], "usage": usage]
+        sse += "data: " + String(decoding: try JSONSerialization.data(withJSONObject: last), as: UTF8.self) + "\n\n"
+        sse += "data: [DONE]\n\n"
+
+        let summary = try await deepseek([(200, sse)])
+        #expect(summary.summary == "Launch plan agreed.", "the reasoning delta is not the summary")
+        let spend = try #require(StubProtocol.spends.first).spend
+        #expect(spend.inputTokens == 30_000 - 12_000)
+        #expect(spend.cachedInputTokens == 12_000)
+        #expect(spend.outputTokens == 900)
+    }
+
     @Test("DeepSeek: a plain-text 401, an empty balance, a retired model and its own finish reasons in words")
     func deepseekErrors() async throws {
         do {
@@ -570,8 +619,15 @@ struct CloudStreamingTests {
         } catch SummaryProviderError.modelUnavailable(_, let reason) {
             #expect(reason.contains("platform.deepseek.com"))
         }
-        let gone = DeepSeekAPISummarizer.worded(status: 400, body: #"{"error":{"message":"Model Not Exist"}}"#, model: "deepseek-old")
+        let gone = DeepSeekAPISummarizer.worded(status: 400, body: #"{"error":{"message":"Model Not Exist","type":"invalid_request_error"}}"#, model: "deepseek-old")
         guard case .modelUnavailable(_, let why) = gone, why.contains("deepseek-old") else { Issue.record("\(gone)"); return }
+        // A 400 that merely mentions the model is not «no such model».
+        let other = DeepSeekAPISummarizer.worded(status: 400, body: "max_tokens is larger than the model allows", model: "deepseek-flash")
+        guard case .httpError(_, 400, _) = other else { Issue.record("\(other)"); return }
+        let tooLong = DeepSeekAPISummarizer.worded(
+            status: 400, body: #"{"error":{"message":"This model's maximum context length is 1048576 tokens. However, you requested 1100000 tokens."}}"#,
+            model: "deepseek-flash")
+        guard case .modelUnavailable(_, let long) = tooLong, long.contains("DeepSeek Flash") else { Issue.record("\(tooLong)"); return }
         let params = DeepSeekAPISummarizer.worded(status: 422, body: "Invalid Parameters", model: "deepseek-flash")
         guard case .httpError(_, 422, _) = params else { Issue.record("\(params)"); return }
         for finish in ["insufficient_system_resource", "aborted"] {
@@ -647,6 +703,7 @@ struct CloudStreamingTests {
 }
 
 /// The parts of the YandexGPT provider that need no network.
+@MainActor
 struct YandexProviderTests {
     @Test func folderIDIsCleanedAndAWholeURIAccepted() {
         #expect(YandexAPISummarizer.normalizedFolderID(" b1g4abc5def \n") == "b1g4abc5def")
@@ -794,7 +851,6 @@ struct YandexProviderTests {
         }
     }
 
-    @MainActor
     @Test func theDaisyKeyStartsWithoutCloudAccessForYandex() throws {
         // A fresh install's prefs: no grant until the person says yes.
         let suite = "daisy.tests.daisyKeyCloud.\(UUID().uuidString)"

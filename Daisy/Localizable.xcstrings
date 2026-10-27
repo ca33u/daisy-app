@@ -25625,6 +25625,16 @@
         }
       }
     },
+    "this meeting is longer than %@ can read." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "встреча длиннее, чем помещается в %@."
+          }
+        }
+      }
+    },
     "Sent to DeepSeek over HTTPS, using your API key." : {
       "localizations" : {
         "ru" : {
@@ -25710,7 +25720,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Транскрипты отправляются в DeepSeek по HTTPS с использованием твоего собственного API-ключа. Создай его на platform.deepseek.com/api_keys — он хранится в Keychain macOS. Политика конфиденциальности DeepSeek разрешает использовать запросы для обучения его моделей. Для саммари Daisy выключает у DeepSeek режим рассуждений. Около $0.01 за час встречи на DeepSeek Flash."
+            "value" : "Транскрипты отправляются в DeepSeek по HTTPS с использованием твоего собственного API-ключа. Создай его на platform.deepseek.com/api_keys — он хранится в Keychain macOS. По политике конфиденциальности DeepSeek может использовать запросы для обучения своих моделей. Для саммари Daisy выключает у DeepSeek режим рассуждений. Около $0.01 за час встречи на DeepSeek Flash."
           }
         }
       }

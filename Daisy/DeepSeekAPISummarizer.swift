@@ -161,9 +161,12 @@ nonisolated struct DeepSeekAPISummarizer: SummaryProvider {
             return .modelUnavailable(provider: providerName, reason: String(localized: "the balance has run out. Top it up at platform.deepseek.com and try again."))
         case 429:
             return .modelUnavailable(provider: providerName, reason: String(localized: "too many requests. Try again in a minute."))
-        case 400 where lowered.contains("model") && ["not exist", "not found", "unknown"].contains(where: { lowered.contains($0) }),
-             404:
+        // DeepSeek's own body for an unknown model is «Model Not Exist».
+        case 400 where lowered.contains("model not exist"), 404:
             return .modelUnavailable(provider: providerName, reason: String(localized: "no model \(model) — it may have been retired. Pick another model in \(SettingsRow.summaryProvider.path)."))
+        // The window check before sending estimates; the server counts.
+        case 400 where lowered.contains("context length") || lowered.contains("maximum context"):
+            return .modelUnavailable(provider: providerName, reason: String(localized: "this meeting is longer than \(plainName(for: model)) can read."))
         default:
             return .httpError(provider: providerName, status: status, body: body)
         }

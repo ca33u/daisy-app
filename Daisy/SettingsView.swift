@@ -3117,9 +3117,9 @@ struct SettingsView: View {
                 Toggle(isOn: $settings.preMeetingBriefResearchOnline) {
                     Text("Research attendees online")
                 }
-                .disabled(!settings.preMeetingBriefEnabled || settings.anthropicAPIKey.isEmpty)
+                .disabled(!settings.preMeetingBriefEnabled || settings.anthropicAPIKey.isBlank)
                 .settingsRow(.researchAttendees)
-                if settings.anthropicAPIKey.isEmpty {
+                if settings.anthropicAPIKey.isBlank {
                     Text("Needs an Anthropic API key — the brief uses Claude’s web search. Without a key the brief stays fully local.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
