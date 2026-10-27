@@ -525,6 +525,84 @@ struct CloudStreamingTests {
         }
     }
 
+    // MARK: - DeepSeek's own API (27.10.2026)
+
+    private func deepseek(_ responses: [(Int, String)], model: String = DeepSeekAPISummarizer.defaultModelID,
+                          transcript: String? = nil) async throws -> MeetingSummary {
+        try await DeepSeekAPISummarizer(model: model, urlSession: session(responses), apiKeyOverride: "sk-test")
+            .summarize(transcript: transcript ?? twoHourTranscript, title: "Launch", localeHint: "ru", task: .meeting(forceFollowUp: false))
+    }
+
+    @Test("DeepSeek: thinking off, Bearer key, usage to the ledger, only documented parameters")
+    func deepseekRequest() async throws {
+        let summary = try await deepseek([(200, openAISSE(summaryJSON, finish: "stop"))])
+        #expect(summary.summary == "Launch plan agreed.")
+        let request = try #require(StubProtocol.requests.first)
+        #expect(request.url?.absoluteString == "https://api.deepseek.com/chat/completions")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer sk-test")
+        #expect(request.timeoutInterval == 300)
+        let body = try requestJSON()
+        #expect(body["model"] as? String == "deepseek-flash")
+        #expect((body["thinking"] as? [String: Any])?["type"] as? String == "disabled")
+        #expect(body["stream"] as? Bool == true)
+        #expect((body["stream_options"] as? [String: Any])?["include_usage"] as? Bool == true)
+        #expect(body["max_tokens"] as? Int == 8192)
+        for unsent in ["temperature", "response_format", "max_completion_tokens", "reasoning_effort"] {
+            #expect(body[unsent] == nil, "\(unsent)")
+        }
+        let recorded = try #require(StubProtocol.spends.first)
+        #expect(recorded.kind == .deepseek && recorded.model == "deepseek-flash")
+        #expect(recorded.spend.inputTokens == 30000 && recorded.spend.outputTokens == 900)
+    }
+
+    @Test("DeepSeek: a plain-text 401, an empty balance, a retired model and its own finish reasons in words")
+    func deepseekErrors() async throws {
+        do {
+            _ = try await deepseek([(401, "Authentication Fails (governor)")])
+            Issue.record("expected the key message")
+        } catch SummaryProviderError.modelUnavailable(_, let reason) {
+            #expect(reason.contains("API key"))
+        }
+        #expect(StubProtocol.requests.count == 1, "a 401 is not retried")
+        do {
+            _ = try await deepseek([(402, #"{"error":{"message":"Insufficient Balance"}}"#)])
+            Issue.record("expected the balance message")
+        } catch SummaryProviderError.modelUnavailable(_, let reason) {
+            #expect(reason.contains("platform.deepseek.com"))
+        }
+        let gone = DeepSeekAPISummarizer.worded(status: 400, body: #"{"error":{"message":"Model Not Exist"}}"#, model: "deepseek-old")
+        guard case .modelUnavailable(_, let why) = gone, why.contains("deepseek-old") else { Issue.record("\(gone)"); return }
+        let params = DeepSeekAPISummarizer.worded(status: 422, body: "Invalid Parameters", model: "deepseek-flash")
+        guard case .httpError(_, 422, _) = params else { Issue.record("\(params)"); return }
+        for finish in ["insufficient_system_resource", "aborted"] {
+            do {
+                _ = try await deepseek([(200, openAISSE(summaryJSON, finish: finish))])
+                Issue.record("expected streamInterrupted for \(finish)")
+            } catch SummaryProviderError.streamInterrupted {
+            }
+            #expect(StubProtocol.spends.count == 1, "billed before the throw: \(finish)")
+        }
+    }
+
+    @Test("DeepSeek: past the 1M window is refused before sending; a timeout is not retried")
+    func deepseekWindowAndTimeout() async throws {
+        let huge = String(repeating: twoHourTranscript + "\n\n", count: 25)
+        #expect(LocalContextGuard.estimatedTokens(promptChars: huge.count) > 1_048_576 - 8192)
+        do {
+            _ = try await deepseek([], transcript: huge)
+            Issue.record("expected a refusal")
+        } catch SummaryProviderError.modelUnavailable(_, let reason) {
+            #expect(reason.contains("DeepSeek Flash") && !reason.contains("recommended"))
+        }
+        #expect(StubProtocol.requests.isEmpty)
+        do {
+            _ = try await deepseek([(-1001, ""), (200, openAISSE(summaryJSON, finish: "stop"))])
+            Issue.record("expected a timeout")
+        } catch SummaryProviderError.timedOut(_, _, false) {
+        }
+        #expect(StubProtocol.requests.count == 1)
+    }
+
     @Test("YandexGPT: no folder ID — not ready, and nothing is sent")
     func yandexNeedsFolder() async throws {
         let provider = YandexAPISummarizer(folderID: "  ", urlSession: session([]), apiKeyOverride: "AQVNtest")
@@ -613,6 +691,32 @@ struct YandexProviderTests {
         #expect(estimate.hasPricedUsage)
     }
 
+    @Test func deepseekIsACloudProviderEverywhere() async throws {
+        #expect(!SummaryProviderKind.deepseek.isLocal)
+        #expect(SummaryProviderKind.deepseek.requiresAPIKey)
+        #expect(TokenLedger.isBilled(.deepseek))
+        #expect(SummaryProviderKind.deepseek.displayName == "DeepSeek")
+        #expect(await DeepSeekAPISummarizer(apiKeyOverride: "sk-test").isReady())
+        // Retired names move on, and the stored choice is written back.
+        #expect(DeepSeekAPISummarizer(model: "deepseek-chat").model == "deepseek-flash")
+        #expect(DeepSeekAPISummarizer.resolvedModelID("deepseek-reasoner") == "deepseek-flash")
+        #expect(DeepSeekAPISummarizer.resolvedModelID("deepseek-v4-pro") == "deepseek-v4-pro")
+        let suite = "daisy.tests.deepseekModel.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("deepseek-v4-flash", forKey: "daisy.deepseekModel")
+        #expect(DeepSeekAPISummarizer.storedModelID(key: "daisy.deepseekModel", defaults: defaults) == "deepseek-flash")
+        #expect(defaults.string(forKey: "daisy.deepseekModel") == "deepseek-flash")
+        // Priced at peak: 1M in + 1M out on Flash is $1.50.
+        let spend = TokenSpend(inputTokens: 1_000_000, outputTokens: 1_000_000)
+        let estimate = TokenCostEstimator.estimate(provider: .deepseek, model: "deepseek-flash", spend: spend)
+        #expect(estimate.hasPricedUsage && abs(estimate.usd - 1.50) < 1e-9, "\(estimate.usd)")
+        // A cache hit at DeepSeek's own rate: + $0.006 per 1M.
+        let cached = TokenSpend(inputTokens: 1_000_000, outputTokens: 1_000_000, cachedInputTokens: 1_000_000)
+        let withCache = TokenCostEstimator.estimate(provider: .deepseek, model: "deepseek-flash", spend: cached)
+        #expect(abs(withCache.usd - 1.506) < 1e-9, "\(withCache.usd)")
+    }
+
     @Test func yandexIsACloudProviderEverywhere() {
         #expect(!SummaryProviderKind.yandex.isLocal)
         #expect(SummaryProviderKind.yandex.requiresAPIKey)
@@ -676,13 +780,14 @@ struct YandexProviderTests {
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
         let strings = try #require(json?["strings"] as? [String: [String: Any]])
         let keys = strings.keys.filter {
-            ["Yandex", "GigaChat", "cloud.ru", "Key Secret", "it may have been retired", "too many requests"].contains(where: $0.contains)
+            ["Yandex", "GigaChat", "DeepSeek", "deepseek", "cloud.ru", "Key Secret", "it may have been retired",
+             "too many requests", "the balance has run out", "ran out of capacity"].contains(where: $0.contains)
         }
         #expect(keys.count >= 8)
         for key in keys {
             let ru = (((strings[key]?["localizations"] as? [String: Any])?["ru"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String
             #expect(ru != nil, "no Russian for \(key)")
-            for word in ["Russia", "Росс", "РФ"] {
+            for word in ["Russia", "Росс", "РФ", "China", "Китай", "КНР"] {
                 #expect(!key.localizedCaseInsensitiveContains(word), "\(key)")
                 #expect(!(ru ?? "").localizedCaseInsensitiveContains(word), "\(key)")
             }
@@ -697,6 +802,7 @@ struct YandexProviderTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         #expect(!DaisyKeyController.cloudAllowed(.yandex, defaults: defaults))
         #expect(!DaisyKeyController.cloudAllowed(.gigachat, defaults: defaults))
+        #expect(!DaisyKeyController.cloudAllowed(.deepseek, defaults: defaults))
         defaults.set(true, forKey: "daisy.daisyKey.cloudAllowed.yandex")
         #expect(DaisyKeyController.cloudAllowed(.yandex, defaults: defaults), "the grant is per provider, under its raw value")
     }

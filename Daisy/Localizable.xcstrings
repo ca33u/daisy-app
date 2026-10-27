@@ -25625,6 +25625,106 @@
         }
       }
     },
+    "Sent to DeepSeek over HTTPS, using your API key." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправляется в DeepSeek по HTTPS с использованием твоего API-ключа."
+          }
+        }
+      }
+    },
+    "DeepSeek API key is missing. Add it in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отсутствует API-ключ DeepSeek. Добавь его в «%@»."
+          }
+        }
+      }
+    },
+    "DeepSeek API key" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "API-ключ DeepSeek"
+          }
+        }
+      }
+    },
+    "DeepSeek Flash (recommended)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DeepSeek Flash (рекомендуется)"
+          }
+        }
+      }
+    },
+    "DeepSeek V4 Pro (hardest meetings, priciest)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DeepSeek V4 Pro (самые сложные встречи, дороже всех)"
+          }
+        }
+      }
+    },
+    "the API key wasn’t accepted. Check it in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "API-ключ не принят. Проверь его в «%@»."
+          }
+        }
+      }
+    },
+    "the balance has run out. Top it up at platform.deepseek.com and try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "на балансе закончились деньги. Пополни его на platform.deepseek.com и попробуй ещё раз."
+          }
+        }
+      }
+    },
+    "the server ran out of capacity and stopped it" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "серверу не хватило мощностей, и он его остановил"
+          }
+        }
+      }
+    },
+    "Transcripts are sent to DeepSeek over HTTPS using your own API key. Create one at platform.deepseek.com/api_keys — it’s stored in your macOS Keychain. DeepSeek’s privacy policy allows using requests to train its models. Daisy turns DeepSeek’s thinking off for summaries. About $0.01 per hour of meeting on DeepSeek Flash." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Транскрипты отправляются в DeepSeek по HTTPS с использованием твоего собственного API-ключа. Создай его на platform.deepseek.com/api_keys — он хранится в Keychain macOS. Политика конфиденциальности DeepSeek разрешает использовать запросы для обучения его моделей. Для саммари Daisy выключает у DeepSeek режим рассуждений. Около $0.01 за час встречи на DeepSeek Flash."
+          }
+        }
+      }
+    },
+    "the server stopped it" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "сервер его остановил"
+          }
+        }
+      }
+    },
     "Sent to GigaChat over HTTPS, using your API key." : {
       "localizations" : {
         "ru" : {

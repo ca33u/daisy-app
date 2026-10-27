@@ -195,6 +195,10 @@ struct DaisyTests {
             let estimate = TokenCostEstimator.estimate(provider: .gigachat, model: model, spend: spend)
             #expect(estimate.hasPricedUsage, "unpriced GigaChat model: \(model)")
         }
+        for model in DeepSeekAPISummarizer.availableModels.map(\.id) {
+            let estimate = TokenCostEstimator.estimate(provider: .deepseek, model: model, spend: spend)
+            #expect(estimate.hasPricedUsage, "unpriced DeepSeek model: \(model)")
+        }
     }
 
     @Test("Saved Claude models move to their same-tier successors, once")

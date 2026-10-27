@@ -471,6 +471,18 @@ nonisolated enum TokenCostEstimator {
             if id == "gigachat/gigachat-2-max" {
                 return Price(input: 4.666700, output: 4.666700, cachedInput: 4.666700, cacheWrite: 0, webSearch: 0)
             }
+        case .deepseek:
+            // api-docs.deepseek.com/quick_start/pricing, 2026-10-27, per 1M.
+            // Off-peak is half price; peak is 01–04 and 06–10 UTC on
+            // weekdays outside Chinese holidays. Always the PEAK price: the
+            // ledger may read high off-peak, never low. A cache hit is
+            // DeepSeek's own discounted rate (prompt_tokens_details.cached_tokens).
+            if id == "deepseek-flash" {
+                return Price(input: 0.30, output: 1.20, cachedInput: 0.006, cacheWrite: 0, webSearch: 0)
+            }
+            if id == "deepseek-v4-pro" {
+                return Price(input: 1.32, output: 3.96, cachedInput: 0.044, cacheWrite: 0, webSearch: 0)
+            }
         case .kimi:
             // platform.kimi.ai, 2026-07-31. K3's cached input is a tenth
             // of input; K2.7 Code publishes $0.19 cached. K2.6 has no
@@ -1135,7 +1147,7 @@ final class TokenLedger {
     /// rather than showing a number we'd be inventing.
     nonisolated static func isBilled(_ kind: SummaryProviderKind) -> Bool {
         switch kind {
-        case .anthropic, .openai, .cursor, .kimi, .gemini, .yandex, .gigachat: return true
+        case .anthropic, .openai, .cursor, .kimi, .gemini, .yandex, .gigachat, .deepseek: return true
         case .appleIntelligence, .ollama, .lmStudio, .mcp, .agentCLI: return false
         }
     }

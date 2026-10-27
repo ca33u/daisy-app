@@ -125,7 +125,7 @@ nonisolated enum CloudStreaming {
     }
 }
 
-// MARK: - OpenAI-compatible summary (OpenAI, Kimi, Gemini)
+// MARK: - OpenAI-compatible summary (OpenAI, Kimi, Gemini, YandexGPT, GigaChat, DeepSeek)
 
 extension CloudStreaming {
     /// Stream an OpenAI-compatible chat completion and return its text,
@@ -168,6 +168,13 @@ extension CloudStreaming {
         // GigaChat's own word for a filtered answer.
         case "content_filter", "blacklist":
             throw SummaryProviderError.refused(provider: provider)
+        // DeepSeek's: the server stopped the answer itself.
+        case "insufficient_system_resource":
+            throw SummaryProviderError.streamInterrupted(
+                provider: provider, message: String(localized: "the server ran out of capacity and stopped it"))
+        case "aborted":
+            throw SummaryProviderError.streamInterrupted(
+                provider: provider, message: String(localized: "the server stopped it"))
         default:
             break
         }

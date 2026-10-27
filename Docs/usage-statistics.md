@@ -114,10 +114,10 @@ The rest are counted from Daisy 1.0.8.35.
 
 `<provider>` is the kind of summary provider, never the model, key or
 account:
-- `apple`, `anthropic`, `openai`, `openai_account` (a ChatGPT account), `gemini`, `cursor`, `kimi`, `yandex`, `gigachat`;
+- `apple`, `anthropic`, `openai`, `openai_account` (a ChatGPT account), `gemini`, `cursor`, `kimi`, `yandex`, `gigachat`, `deepseek`;
 - `ollama`, `lmstudio`, `mcp`, `agent_cli`.
 
-`yandex` (YandexGPT) and `gigachat` (GigaChat) are sent from Daisy 1.0.8.45.
+`yandex` (YandexGPT), `gigachat` (GigaChat) and `deepseek` (DeepSeek) are sent from Daisy 1.0.8.45.
 
 **What travels with the counts:**
 - the app version and build;

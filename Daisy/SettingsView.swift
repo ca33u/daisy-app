@@ -3275,6 +3275,23 @@ struct SettingsView: View {
             }
             .pickerStyle(.menu)
 
+        case .deepseek:
+            LabeledContent("API key") {
+                SecureField("", text: $settings.deepseekAPIKey, prompt: Text("sk-…"))
+                    .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+            }
+            Picker("Model", selection: $summarizer.deepseekModel) {
+                ForEach(DeepSeekAPISummarizer.availableModels, id: \.id) { item in
+                    Text(item.label).tag(item.id)
+                }
+                if !DeepSeekAPISummarizer.availableModels.contains(where: { $0.id == summarizer.deepseekModel }) {
+                    Text(String(localized: "Custom: \(summarizer.deepseekModel)")).tag(summarizer.deepseekModel)
+                }
+            }
+            .pickerStyle(.menu)
+
         case .kimi:
             LabeledContent("API key") {
                 SecureField("", text: $settings.kimiAPIKey, prompt: Text("sk-…"))
@@ -3686,6 +3703,7 @@ struct SettingsView: View {
             return settings.yandexAPIKey.isBlank
                 || YandexAPISummarizer.normalizedFolderID(summarizer.yandexFolderID) == nil
         case .gigachat: return settings.gigachatAPIKey.isBlank
+        case .deepseek: return settings.deepseekAPIKey.isBlank
         case .ollama: return summarizer.ollamaBaseURL.isEmpty || summarizer.ollamaModel.isEmpty
         case .lmStudio: return summarizer.lmStudioBaseURL.isEmpty || summarizer.lmStudioModel.isEmpty
         case .mcp:
@@ -3726,6 +3744,10 @@ struct SettingsView: View {
             // No country (Egor, 27.10). cloud.ru is named only as where
             // the key is made.
             return String(localized: "Transcripts are sent to GigaChat over HTTPS using your own API key. To make one at console.cloud.ru: Users → Service accounts → Create account (level: Project), open the account, then Create API key, choose the Foundation Models service and save the Key Secret — it’s shown once. The key is stored in your macOS Keychain. Roughly $0.02 (about 2 ₽) per hour of meeting on GigaChat-3-Pro.")
+        case .deepseek:
+            // No country (Egor, 27.10). The training line is DeepSeek's
+            // policy, as Gemini's footer states Google's for a free key.
+            return String(localized: "Transcripts are sent to DeepSeek over HTTPS using your own API key. Create one at platform.deepseek.com/api_keys — it’s stored in your macOS Keychain. DeepSeek’s privacy policy allows using requests to train its models. Daisy turns DeepSeek’s thinking off for summaries. About $0.01 per hour of meeting on DeepSeek Flash.")
         case .kimi:
             return String(localized: "Transcripts are sent to Moonshot over HTTPS using your own API key — and Moonshot's documentation states that requests to its international endpoint are processed in China. Create a key at platform.kimi.ai — it's stored in your macOS Keychain. Cheapest of the cloud providers here: roughly $0.005–0.02 per summary on K2.6.")
         case .ollama:
