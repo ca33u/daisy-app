@@ -3670,22 +3670,22 @@ struct SettingsView: View {
         if summaryTestResult == .testing { return true }
         switch summarizer.providerKind {
         case .appleIntelligence: return true
-        case .anthropic: return settings.anthropicAPIKey.isEmpty
+        case .anthropic: return settings.anthropicAPIKey.isBlank
         case .openai:
             if summarizer.openAIConnectionMethod == .account {
                 return !openAIAccount.isConnected || summarizer.openAIAccountModel.isEmpty
             }
-            return settings.openaiAPIKey.isEmpty
+            return settings.openaiAPIKey.isBlank
         case .cursor:
             guard CursorAgentService.resolveExecutable(override: summarizer.cursorAgentPath) != nil,
                   !summarizer.cursorModel.isEmpty else { return true }
-            return settings.cursorAPIKey.isEmpty
-        case .kimi: return settings.kimiAPIKey.isEmpty
-        case .gemini: return settings.geminiAPIKey.isEmpty
+            return settings.cursorAPIKey.isBlank
+        case .kimi: return settings.kimiAPIKey.isBlank
+        case .gemini: return settings.geminiAPIKey.isBlank
         case .yandex:
-            return settings.yandexAPIKey.isEmpty
+            return settings.yandexAPIKey.isBlank
                 || YandexAPISummarizer.normalizedFolderID(summarizer.yandexFolderID) == nil
-        case .gigachat: return settings.gigachatAPIKey.isEmpty
+        case .gigachat: return settings.gigachatAPIKey.isBlank
         case .ollama: return summarizer.ollamaBaseURL.isEmpty || summarizer.ollamaModel.isEmpty
         case .lmStudio: return summarizer.lmStudioBaseURL.isEmpty || summarizer.lmStudioModel.isEmpty
         case .mcp:
@@ -3725,7 +3725,7 @@ struct SettingsView: View {
         case .gigachat:
             // No country (Egor, 27.10). cloud.ru is named only as where
             // the key is made.
-            return String(localized: "Transcripts are sent to GigaChat over HTTPS using your own API key. Create one at console.cloud.ru → Users → Service accounts → Create API key, with the Foundation Models service — it’s stored in your macOS Keychain. Roughly $0.02 (about 2 ₽) per hour of meeting on GigaChat-3-Pro.")
+            return String(localized: "Transcripts are sent to GigaChat over HTTPS using your own API key. To make one at console.cloud.ru: Users → Service accounts → Create account (level: Project), open the account, then Create API key, choose the Foundation Models service and save the Key Secret — it’s shown once. The key is stored in your macOS Keychain. Roughly $0.02 (about 2 ₽) per hour of meeting on GigaChat-3-Pro.")
         case .kimi:
             return String(localized: "Transcripts are sent to Moonshot over HTTPS using your own API key — and Moonshot's documentation states that requests to its international endpoint are processed in China. Create a key at platform.kimi.ai — it's stored in your macOS Keychain. Cheapest of the cloud providers here: roughly $0.005–0.02 per summary on K2.6.")
         case .ollama:

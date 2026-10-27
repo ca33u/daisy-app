@@ -1242,8 +1242,13 @@ final class AppSettings {
 
     @MainActor
     private static func persist(_ value: String, account: String, label: String) {
+        // (Settings checks fields with `isBlank`, so spaces alone don't
+        // count as a key there either.)
         do {
-            try KeychainStore.set(value, account: account)
+            // A pasted key often brings a newline or a space with it, and
+            // `Bearer <key>\n` is a 401. The field may keep what was typed;
+            // the Keychain, which every provider reads, gets the key.
+            try KeychainStore.set(value.trimmingCharacters(in: .whitespacesAndNewlines), account: account)
         } catch {
             Self.log.error("Keychain write failed for \(label, privacy: .public): \(error.localizedDescription, privacy: .public)")
             ToastCenter.shared.show(String(localized: "Couldn’t save \(label) — try again."), style: .error)
@@ -1800,7 +1805,7 @@ final class AppSettings {
     }
 
     var hasNotionCredentials: Bool {
-        !notionToken.isEmpty && !notionParentID.isEmpty
+        !notionToken.isBlank && !notionParentID.isBlank
     }
 
     /// Static convenience for places (Toolbar actions in
@@ -2158,4 +2163,10 @@ enum SummaryLanguage: String, CaseIterable, Identifiable, Sendable {
         case .ru, .uk, .pl: return false
         }
     }
+}
+
+extension String {
+    /// Empty once spaces and newlines are trimmed — how a pasted secret is
+    /// judged, since `persist` stores it trimmed.
+    nonisolated var isBlank: Bool { trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 }

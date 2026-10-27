@@ -165,7 +165,8 @@ extension CloudStreaming {
         switch stream.finishReason {
         case "length":
             throw SummaryProviderError.outputTruncated(provider: provider)
-        case "content_filter":
+        // GigaChat's own word for a filtered answer.
+        case "content_filter", "blacklist":
             throw SummaryProviderError.refused(provider: provider)
         default:
             break

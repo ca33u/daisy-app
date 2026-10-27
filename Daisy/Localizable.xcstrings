@@ -25655,22 +25655,12 @@
         }
       }
     },
-    "GigaChat-3-Pro (recommended)" : {
+    "the API key wasn’t accepted. Check it in %@ — it’s the Key Secret shown once when the key was made, and the key needs the Foundation Models service." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "GigaChat-3-Pro (рекомендуется)"
-          }
-        }
-      }
-    },
-    "the API key wasn’t accepted. Check it in %@ — the key is the Key Secret shown once when it was made." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "API-ключ не принят. Проверь его в «%@»: нужен Key Secret, который показывается один раз при создании ключа."
+            "value" : "API-ключ не принят. Проверь его в «%@»: нужен Key Secret, который показывается один раз при создании ключа, и у ключа должен быть выбран сервис Foundation Models."
           }
         }
       }
@@ -25705,12 +25695,12 @@
         }
       }
     },
-    "Transcripts are sent to GigaChat over HTTPS using your own API key. Create one at console.cloud.ru → Users → Service accounts → Create API key, with the Foundation Models service — it’s stored in your macOS Keychain. Roughly $0.02 (about 2 ₽) per hour of meeting on GigaChat-3-Pro." : {
+    "Transcripts are sent to GigaChat over HTTPS using your own API key. To make one at console.cloud.ru: Users → Service accounts → Create account (level: Project), open the account, then Create API key, choose the Foundation Models service and save the Key Secret — it’s shown once. The key is stored in your macOS Keychain. Roughly $0.02 (about 2 ₽) per hour of meeting on GigaChat-3-Pro." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Транскрипты отправляются в GigaChat по HTTPS с использованием твоего собственного API-ключа. Создай его на console.cloud.ru → «Пользователи» → «Сервисные аккаунты» → «Создать API-ключ», сервис Foundation Models — он хранится в Keychain macOS. Примерно $0.02 (около 2 ₽) за час встречи на GigaChat-3-Pro."
+            "value" : "Транскрипты отправляются в GigaChat по HTTPS с использованием твоего собственного API-ключа. Как создать ключ на console.cloud.ru: «Пользователи» → «Сервисные аккаунты» → «Создать аккаунт» (уровень «Проект»), открой аккаунт, затем «Создать API-ключ», выбери сервис Foundation Models и сохрани Key Secret — он показывается один раз. Ключ хранится в Keychain macOS. Примерно $0.02 (около 2 ₽) за час встречи на GigaChat-3-Pro."
           }
         }
       }

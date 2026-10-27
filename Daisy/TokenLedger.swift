@@ -1148,8 +1148,17 @@ final class TokenLedger {
 /// `TokenLedger` is `@MainActor`. Never throws, never blocks the call it
 /// is measuring, and drops empty spends.
 nonisolated enum TokenLedgerSink {
+    /// Tests only: when set, spend goes here instead of the real ledger,
+    /// which writes UserDefaults.standard — the person's own prefs, since
+    /// the test host is the app.
+    nonisolated(unsafe) static var testRecorder: (@Sendable (SummaryProviderKind, String, TokenSpend) -> Void)?
+
     static func record(provider: SummaryProviderKind, model: String, spend: TokenSpend) {
         guard !spend.isEmpty else { return }
+        if let testRecorder {
+            testRecorder(provider, model, spend)
+            return
+        }
         Task { @MainActor in
             TokenLedger.shared.record(provider: provider, model: model, spend: spend)
         }

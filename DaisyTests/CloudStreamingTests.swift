@@ -21,6 +21,8 @@ import Testing
 final class StubProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var responses: [(status: Int, body: String)] = []
     nonisolated(unsafe) static var failAfterBody: URLError.Code?
+    /// What the summarizers handed the token ledger (see `session`).
+    nonisolated(unsafe) static var spends: [(kind: SummaryProviderKind, model: String, spend: TokenSpend)] = []
     nonisolated(unsafe) static var requests: [URLRequest] = []
     nonisolated(unsafe) static var bodies: [Data] = []
 
@@ -71,6 +73,9 @@ struct CloudStreamingTests {
     private func session(_ responses: [(Int, String)]) -> URLSession {
         StubProtocol.responses = responses.map { (status: $0.0, body: $0.1) }
         StubProtocol.failAfterBody = nil
+        StubProtocol.spends = []
+        // Spend from these stubs must never reach the real ledger.
+        TokenLedgerSink.testRecorder = { kind, model, spend in StubProtocol.spends.append((kind, model, spend)) }
         StubProtocol.requests = []
         StubProtocol.bodies = []
         let config = URLSessionConfiguration.ephemeral
@@ -435,9 +440,9 @@ struct CloudStreamingTests {
             .summarize(transcript: transcript ?? twoHourTranscript, title: "Launch", localeHint: "ru", task: .meeting(forceFollowUp: false))
     }
 
-    @Test("GigaChat: Bearer key to cloud.ru, the owner/model id, only documented parameters")
+    @Test("GigaChat: Bearer key to cloud.ru, the owner/model id, only documented parameters, usage to the ledger")
     func gigachatRequest() async throws {
-        let summary = try await gigachat([(200, yandexSSE(summaryJSON, finish: "stop"))])
+        let summary = try await gigachat([(200, openAISSE(summaryJSON, finish: "stop"))])
         #expect(summary.summary == "Launch plan agreed.")
         let request = try #require(StubProtocol.requests.first)
         #expect(request.url?.absoluteString == "https://foundation-models.api.cloud.ru/v1/chat/completions")
@@ -446,7 +451,12 @@ struct CloudStreamingTests {
         let body = try requestJSON()
         #expect(body["model"] as? String == "GigaChat/GigaChat-3-Pro")
         #expect(body["stream"] as? Bool == true)
+        #expect((body["stream_options"] as? [String: Any])?["include_usage"] as? Bool == true)
         #expect(body["max_tokens"] as? Int == 8192)
+        // The usage chunk reached the ledger path, under GigaChat.
+        let recorded = try #require(StubProtocol.spends.first)
+        #expect(recorded.kind == .gigachat && recorded.model == "GigaChat/GigaChat-3-Pro")
+        #expect(recorded.spend.inputTokens == 30000 && recorded.spend.outputTokens == 900)
         for unsent in ["temperature", "response_format", "max_completion_tokens", "reasoning_effort", "thinking"] {
             #expect(body[unsent] == nil, "\(unsent)")
         }
@@ -471,9 +481,14 @@ struct CloudStreamingTests {
         let balance = GigaChatAPISummarizer.worded(status: 402, body: #"{"message":"insufficient balance"}"#, model: "GigaChat/GigaChat-3-Pro")
         guard case .modelUnavailable(_, let reason) = balance else { Issue.record("\(balance)"); return }
         #expect(reason.contains("console.cloud.ru"))
+        // «insufficient permissions» is about the key, not money.
+        let permissions = GigaChatAPISummarizer.worded(status: 403, body: #"{"message":"insufficient permissions"}"#, model: "GigaChat/GigaChat-3-Pro")
+        guard case .modelUnavailable(_, let perm) = permissions, perm.contains("Foundation Models") else {
+            Issue.record("\(permissions)"); return
+        }
         // A balance refusal that also names the key is still the balance.
         for (status, body) in [(402, "insufficient balance for api key"), (402, "payment required"),
-                               (403, "authorization failed: недостаточно средств")] {
+                               (403, "authorization failed: недостаточно средств"), (403, "insufficient funds")] {
             let worded = GigaChatAPISummarizer.worded(status: status, body: body, model: "GigaChat/GigaChat-3-Pro")
             guard case .modelUnavailable(_, let why) = worded, why.contains("console.cloud.ru") else {
                 Issue.record("\(status) \(body): \(worded)"); continue
@@ -501,6 +516,12 @@ struct CloudStreamingTests {
             _ = try await gigachat([(-999, "")])
             Issue.record("expected CancellationError")
         } catch is CancellationError {
+        }
+        do {
+            // GigaChat's own finish reason for a filtered answer.
+            _ = try await gigachat([(200, yandexSSE(summaryJSON, finish: "blacklist"))])
+            Issue.record("expected refused")
+        } catch SummaryProviderError.refused {
         }
     }
 
@@ -654,7 +675,9 @@ struct YandexProviderTests {
             .appendingPathComponent("Daisy/Localizable.xcstrings")
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
         let strings = try #require(json?["strings"] as? [String: [String: Any]])
-        let keys = strings.keys.filter { $0.contains("Yandex") || $0.contains("GigaChat") }
+        let keys = strings.keys.filter {
+            ["Yandex", "GigaChat", "cloud.ru", "Key Secret", "it may have been retired", "too many requests"].contains(where: $0.contains)
+        }
         #expect(keys.count >= 8)
         for key in keys {
             let ru = (((strings[key]?["localizations"] as? [String: Any])?["ru"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String

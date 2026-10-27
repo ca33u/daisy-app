@@ -169,15 +169,16 @@ nonisolated struct GigaChatAPISummarizer: SummaryProvider {
             return .httpError(provider: providerName, status: status, body: body)
         }
         // Balance before key: a balance refusal may also mention the key.
-        if status == 402 || (status == 403 && ["balance", "баланс", "insufficient", "funds", "средств"].contains(where: { lowered.contains($0) })) {
+        // Only money words — «insufficient permissions» is about the key.
+        if status == 402 || (status == 403 && Self.namesEmptyBalance(lowered)) {
             return .modelUnavailable(provider: providerName, reason: String(localized: "the cloud.ru balance has run out. Top it up at console.cloud.ru and try again."))
         }
         if (400...403).contains(status), lowered.contains("api key") || lowered.contains("authorization") {
-            return .modelUnavailable(provider: providerName, reason: String(localized: "the API key wasn’t accepted. Check it in \(SettingsRow.summaryProvider.path) — the key is the Key Secret shown once when it was made."))
+            return .modelUnavailable(provider: providerName, reason: String(localized: "the API key wasn’t accepted. Check it in \(SettingsRow.summaryProvider.path) — it’s the Key Secret shown once when the key was made, and the key needs the Foundation Models service."))
         }
         switch status {
         case 401, 403:
-            return .modelUnavailable(provider: providerName, reason: String(localized: "the API key wasn’t accepted. Check it in \(SettingsRow.summaryProvider.path) — the key is the Key Secret shown once when it was made."))
+            return .modelUnavailable(provider: providerName, reason: String(localized: "the API key wasn’t accepted. Check it in \(SettingsRow.summaryProvider.path) — it’s the Key Secret shown once when the key was made, and the key needs the Foundation Models service."))
         case 429:
             return .modelUnavailable(provider: providerName, reason: String(localized: "too many requests. Try again in a minute."))
         case 404:
@@ -185,6 +186,11 @@ nonisolated struct GigaChatAPISummarizer: SummaryProvider {
         default:
             return .httpError(provider: providerName, status: status, body: body)
         }
+    }
+
+    private static func namesEmptyBalance(_ lowered: String) -> Bool {
+        ["insufficient balance", "insufficient funds", "insufficient_balance", "insufficient_funds",
+         "баланс", "недостаточно средств"].contains { lowered.contains($0) }
     }
 
     // MARK: - Endpoint
@@ -203,7 +209,8 @@ nonisolated struct GigaChatAPISummarizer: SummaryProvider {
     /// about eight times the input price — and no structured output; it
     /// would only add a worse, dearer choice.
     static let availableModels: [(id: String, label: String)] = [
-        ("GigaChat/GigaChat-3-Pro", String(localized: "GigaChat-3-Pro (recommended)")),
+        // No «(recommended)»: there is nothing to recommend it over.
+        ("GigaChat/GigaChat-3-Pro", "GigaChat-3-Pro"),
     ]
 
     static let defaultModelID = "GigaChat/GigaChat-3-Pro"
