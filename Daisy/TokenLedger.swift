@@ -436,19 +436,24 @@ nonisolated enum TokenCostEstimator {
             }
         case .yandex:
             // aistudio.yandex.ru/docs/ru/ai-studio/pricing, 2026-10-27:
-            // the USD list (without VAT, what non-residents pay), per 1K
-            // tokens ×1000. Dollars because the ledger counts dollars
-            // (Egor, 27.10); someone billed in roubles pays 0.50/1.20 ₽
-            // per 1K on Alice with VAT. Alice and Qwen publish no cached
-            // price, so a cached token is priced as input — the ledger
-            // must never under-report.
-            if id.hasPrefix("aliceai-llm") {
+            // the USD column (without VAT, what non-residents pay), per 1K
+            // tokens ×1000. The page lists it for all three; every figure
+            // is its rouble price ÷ 1.22 (VAT) ÷ 100 (₽ per $), i.e. the
+            // page's own conversion, not ours. Dollars because the ledger
+            // counts dollars (Egor, 27.10); someone billed in roubles pays
+            // 0.50/1.20 ₽ per 1K on Alice with VAT. Alice and Qwen publish
+            // no cached price, so a cached token is priced as input — the
+            // ledger must never under-report. Exact ids, without a
+            // `/latest` branch: a prefix would also catch Alice AI LLM
+            // Flash, a different price.
+            let base = YandexAPISummarizer.baseID(id)
+            if base == "aliceai-llm" {
                 return Price(input: 4.09836, output: 9.836064, cachedInput: 4.09836, cacheWrite: 0, webSearch: 0)
             }
-            if id.hasPrefix("qwen3.6") {
+            if base == "qwen3.6-35b-a3b" {
                 return Price(input: 1.639344, output: 2.459016, cachedInput: 1.639344, cacheWrite: 0, webSearch: 0)
             }
-            if id.hasPrefix("deepseek-v4.1-flash") {
+            if base == "deepseek-v4.1-flash" {
                 return Price(input: 2.459016, output: 4.09836, cachedInput: 0.614754, cacheWrite: 0, webSearch: 0)
             }
         case .kimi:

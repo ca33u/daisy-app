@@ -1610,8 +1610,8 @@ final class DaisyKeyController {
     nonisolated static let progressTag = "daisy-key-progress"
 
     /// Whether commands may go to this cloud provider (one yes each).
-    static func cloudAllowed(_ kind: SummaryProviderKind) -> Bool {
-        UserDefaults.standard.bool(forKey: "daisy.daisyKey.cloudAllowed.\(kind.rawValue)")
+    static func cloudAllowed(_ kind: SummaryProviderKind, defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: "daisy.daisyKey.cloudAllowed.\(kind.rawValue)")
     }
 
     static func allowCloud(_ kind: SummaryProviderKind) {
@@ -1626,7 +1626,7 @@ final class DaisyKeyController {
 
     /// The cloud providers commands have a yes for.
     static var cloudAllowedProviders: [SummaryProviderKind] {
-        SummaryProviderKind.allCases.filter(cloudAllowed)
+        SummaryProviderKind.allCases.filter { cloudAllowed($0) }
     }
 
     /// The summary a held note asked for: the summary provider, with the

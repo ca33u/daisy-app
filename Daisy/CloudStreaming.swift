@@ -51,12 +51,18 @@ nonisolated enum CloudStreaming {
             do {
                 (bytes, response) = try await session.bytes(for: request)
             } catch {
-                if CloudHTTPRetry.isTransient(error), attempt < maxAttempts {
+                if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+                // Not a timeout: no headers in `timeoutInterval` may mean
+                // the server took the request and is still generating, and
+                // a retry would bill the same answer again (up to three
+                // times, ~15 min). Only a connection that never opened is
+                // retried (review find, 27.10.2026).
+                if CloudHTTPRetry.isTransient(error), (error as? URLError)?.code != .timedOut, attempt < maxAttempts {
                     log.warning("\(provider, privacy: .public): stream didn't open (\(error.localizedDescription, privacy: .public)) — retry \(attempt, privacy: .public)/\(maxAttempts, privacy: .public)")
                     try await Task.sleep(for: .seconds(CloudHTTPRetry.backoff(attempt)))
                     continue
                 }
-                throw timeoutWorded(error, provider: provider, request: request)
+                throw timeoutWorded(error, provider: provider, request: request, midAnswer: false)
             }
             guard let http = response as? HTTPURLResponse else {
                 throw SummaryProviderError.invalidResponse(provider: provider)
@@ -68,6 +74,8 @@ nonisolated enum CloudStreaming {
                 continue
             }
             let body = await readBody(bytes)
+            // readBody swallows its errors; a cancel during it is still a cancel.
+            try Task.checkCancellation()
             // .private: a 4xx body can quote the prompt, which is someone's meeting.
             log.error("\(provider, privacy: .public) HTTP \(http.statusCode, privacy: .public): \(body, privacy: .private)")
             throw SummaryProviderError.httpError(provider: provider, status: http.statusCode, body: body)
@@ -75,11 +83,13 @@ nonisolated enum CloudStreaming {
     }
 
     /// A `URLError.timedOut` becomes `SummaryProviderError.timedOut`, so
-    /// the person reads «sent nothing for 5 min — timed out» rather than
-    /// a bare system string; anything else passes through (27.10.2026).
-    static func timeoutWorded(_ error: any Error, provider: String, request: URLRequest) -> any Error {
+    /// the person reads a timeout rather than a bare system string;
+    /// anything else passes through (27.10.2026). `midAnswer`: the stream
+    /// had started — a stall, where a faster model helps — rather than no
+    /// answer at all.
+    static func timeoutWorded(_ error: any Error, provider: String, request: URLRequest, midAnswer: Bool) -> any Error {
         guard (error as? URLError)?.code == .timedOut else { return error }
-        return SummaryProviderError.timedOut(provider: provider, seconds: Int(request.timeoutInterval))
+        return SummaryProviderError.timedOut(provider: provider, seconds: Int(request.timeoutInterval), midAnswer: midAnswer)
     }
 
     /// An error body, capped — it's for a message, not for parsing.
@@ -129,9 +139,12 @@ extension CloudStreaming {
             try await forEachData(in: bytes) { stream.consume($0) }
         } catch {
             TokenLedgerSink.record(provider: kind, model: model, spend: spend(stream.completionJSON))
+            // A withdrawn summary is not a failure (Summarizer only lets
+            // CancellationError through quietly).
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw CancellationError() }
             log.error("\(provider, privacy: .public) stream broke off: \(error.localizedDescription, privacy: .public)")
             if (error as? URLError)?.code == .timedOut {
-                throw timeoutWorded(error, provider: provider, request: request)
+                throw timeoutWorded(error, provider: provider, request: request, midAnswer: true)
             }
             throw SummaryProviderError.streamInterrupted(provider: provider, message: error.localizedDescription)
         }

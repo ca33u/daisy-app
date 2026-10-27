@@ -329,10 +329,11 @@ enum SummaryProviderError: LocalizedError {
     case refused(provider: String)
     /// A streamed answer broke off after it had started.
     case streamInterrupted(provider: String, message: String)
-    /// Nothing arrived for `seconds` — before the answer started or in
-    /// the middle of it. Its own case so it reads as a timeout, not as
-    /// a server that can't be reached (the Ollama lesson, 27.10.2026).
-    case timedOut(provider: String, seconds: Int)
+    /// Nothing arrived for `seconds` — before the answer started
+    /// (`midAnswer` false: no answer at all) or in the middle of it (a
+    /// stall). Its own case so it reads as a timeout, not as a server
+    /// that can't be reached (the Ollama lesson, 27.10.2026).
+    case timedOut(provider: String, seconds: Int, midAnswer: Bool)
     /// The provider can't write the meeting's language — Apple
     /// Intelligence and Russian (backlog 32 A-3). Its own case so the
     /// session's no-summary banner can offer the one fix, another
@@ -362,8 +363,11 @@ enum SummaryProviderError: LocalizedError {
             return String(localized: "\(p) declined to summarize this transcript.")
         case .streamInterrupted(let p, let message):
             return String(localized: "\(p): the answer stopped halfway — \(message). Try again.")
-        case .timedOut(let p, let seconds):
+        case .timedOut(let p, let seconds, let midAnswer):
             let minutes = max(1, seconds / 60)
+            if !midAnswer {
+                return String(localized: "\(p): couldn’t get an answer in \(minutes) min — the request timed out. Try again in a few minutes.")
+            }
             return String(localized: "\(p) sent nothing for \(minutes) min — the request timed out. Try again; if it happens again, pick a faster model in \(SettingsRow.summaryProvider.path).")
         case .unsupportedLanguage(let p, let code):
             return AppleIntelligenceLanguageGate.cannotWritePhrase(provider: p, languageCode: code)

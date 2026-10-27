@@ -14,9 +14,13 @@ import Testing
 @testable import Daisy
 
 /// Serves one canned response per request, in order, and records what
-/// was asked.
+/// was asked. A negative status fails the request with that `URLError`
+/// code before any response (−1001 timed out, −999 cancelled);
+/// `failAfterBody` fails the next successful one after its body, as a
+/// stream that breaks off mid-answer.
 final class StubProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var responses: [(status: Int, body: String)] = []
+    nonisolated(unsafe) static var failAfterBody: URLError.Code?
     nonisolated(unsafe) static var requests: [URLRequest] = []
     nonisolated(unsafe) static var bodies: [Data] = []
 
@@ -43,10 +47,19 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
             Self.bodies.append(request.httpBody ?? Data())
         }
         let next: (status: Int, body: String) = Self.responses.isEmpty ? (status: 500, body: "no stub") : Self.responses.removeFirst()
+        if next.status < 0 {
+            client?.urlProtocol(self, didFailWithError: URLError(URLError.Code(rawValue: next.status)))
+            return
+        }
         let response = HTTPURLResponse(url: request.url!, statusCode: next.status, httpVersion: "HTTP/1.1",
                                        headerFields: ["Content-Type": "text/event-stream"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(next.body.utf8))
+        if let code = Self.failAfterBody {
+            Self.failAfterBody = nil
+            client?.urlProtocol(self, didFailWithError: URLError(code))
+            return
+        }
         client?.urlProtocolDidFinishLoading(self)
     }
 
@@ -57,6 +70,7 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
 struct CloudStreamingTests {
     private func session(_ responses: [(Int, String)]) -> URLSession {
         StubProtocol.responses = responses.map { (status: $0.0, body: $0.1) }
+        StubProtocol.failAfterBody = nil
         StubProtocol.requests = []
         StubProtocol.bodies = []
         let config = URLSessionConfiguration.ephemeral
@@ -370,6 +384,50 @@ struct CloudStreamingTests {
         guard case .httpError(_, 400, _) = both else { Issue.record("\(both)"); return }
     }
 
+    @Test("A timeout before the answer is not retried and says no answer came; mid-answer it says the model stalled")
+    func timeouts() async throws {
+        do {
+            _ = try await yandex([(-1001, ""), (200, yandexSSE(summaryJSON, finish: "stop"))])
+            Issue.record("expected a timeout")
+        } catch let error as SummaryProviderError {
+            guard case .timedOut(_, 300, false) = error else { Issue.record("\(error)"); return }
+            #expect(error.localizedDescription.contains("couldn’t get an answer") || error.localizedDescription.contains("не удалось получить ответ"))
+        }
+        #expect(StubProtocol.requests.count == 1, "a timeout may still be generating — a retry would bill it twice")
+
+        do {
+            let s = session([(200, yandexSSE("{\"summary\":\"Launch", finish: "stop").components(separatedBy: "\n\n").first! + "\n\n")])
+            StubProtocol.failAfterBody = .timedOut
+            _ = try await YandexAPISummarizer(folderID: "b1gtest", urlSession: s, apiKeyOverride: "AQVNtest")
+                .summarize(transcript: twoHourTranscript, title: "Launch", localeHint: "ru", task: .meeting(forceFollowUp: false))
+            Issue.record("expected a stall")
+        } catch let error as SummaryProviderError {
+            guard case .timedOut(_, 300, true) = error else { Issue.record("\(error)"); return }
+            #expect(error.localizedDescription.contains("faster model") || error.localizedDescription.contains("побыстрее"))
+        }
+        // A connection that never opened is still retried.
+        _ = try await yandex([(-1004, ""), (200, yandexSSE(summaryJSON, finish: "stop"))])
+        #expect(StubProtocol.requests.count == 2)
+    }
+
+    @Test("A withdrawn summary is CancellationError — opening, mid-stream, on every OpenAI-compatible path")
+    func cancellation() async throws {
+        do {
+            _ = try await yandex([(-999, "")])
+            Issue.record("expected CancellationError")
+        } catch is CancellationError {
+        }
+        #expect(StubProtocol.requests.count == 1)
+        do {
+            let s = session([(200, yandexSSE("{\"summary\":\"x", finish: "stop").components(separatedBy: "\n\n").first! + "\n\n")])
+            StubProtocol.failAfterBody = .cancelled
+            _ = try await KimiAPISummarizer(urlSession: s, apiKeyOverride: "test")
+                .summarize(transcript: twoHourTranscript, title: "Launch", localeHint: "en", task: .meeting(forceFollowUp: false))
+            Issue.record("expected CancellationError")
+        } catch is CancellationError {
+        }
+    }
+
     @Test("YandexGPT: no folder ID — not ready, and nothing is sent")
     func yandexNeedsFolder() async throws {
         let provider = YandexAPISummarizer(folderID: "  ", urlSession: session([]), apiKeyOverride: "AQVNtest")
@@ -393,10 +451,21 @@ struct CloudStreamingTests {
             _ = try await yandex([], transcript: long)
             Issue.record("expected a refusal")
         } catch SummaryProviderError.modelUnavailable(_, let reason) {
+            #expect(reason.contains("Alice AI LLM") && !reason.contains("recommended") && !reason.contains("рекоменд"))
+            // Digits only: the number is grouped for the reader («122,880»).
+            #expect(reason.filter(\.isNumber).contains("\(131_072 - 8192)"), "the room is the window less the answer: \(reason)")
             #expect(reason.contains("DeepSeek V4.1 Flash"))
         }
         #expect(StubProtocol.requests.isEmpty)
-        // DeepSeek's 1M takes the same meeting.
+        // Past even DeepSeek's 1M: no suggestion to pick what is picked.
+        let huge = String(repeating: twoHourTranscript + "\n\n", count: 25)
+        do {
+            _ = try await yandex([], model: "deepseek-v4.1-flash", transcript: huge)
+            Issue.record("expected a refusal")
+        } catch SummaryProviderError.modelUnavailable(_, let reason) {
+            #expect(!reason.contains("Pick") && !reason.contains("Выбери"), "\(reason)")
+        }
+        // DeepSeek's 1M takes the three-copy meeting.
         _ = try await yandex([(200, yandexSSE(summaryJSON, finish: "stop"))], model: "deepseek-v4.1-flash", transcript: long)
         #expect(try requestJSON()["max_tokens"] as? Int == 16_384)
     }
@@ -448,13 +517,88 @@ struct YandexProviderTests {
     @Test func aTimeoutReadsAsATimeout() {
         var request = URLRequest(url: YandexAPISummarizer.endpoint)
         request.timeoutInterval = 300
-        let worded = CloudStreaming.timeoutWorded(URLError(.timedOut), provider: "YandexGPT", request: request)
-        guard case SummaryProviderError.timedOut(_, 300)? = worded as? SummaryProviderError else {
+        let worded = CloudStreaming.timeoutWorded(URLError(.timedOut), provider: "YandexGPT", request: request, midAnswer: true)
+        guard case SummaryProviderError.timedOut(_, 300, true)? = worded as? SummaryProviderError else {
             Issue.record("\(worded)"); return
         }
         #expect(worded.localizedDescription.contains("5 min") || worded.localizedDescription.contains("5 мин"))
-        let other = CloudStreaming.timeoutWorded(URLError(.notConnectedToInternet), provider: "YandexGPT", request: request)
+        let other = CloudStreaming.timeoutWorded(URLError(.notConnectedToInternet), provider: "YandexGPT", request: request, midAnswer: false)
         #expect((other as? URLError)?.code == .notConnectedToInternet)
+    }
+
+    @Test func folderIDIsASCIIOnly() {
+        // «b1g» with a Cyrillic «с» and «о» typed on the Russian layout.
+        #expect(YandexAPISummarizer.normalizedFolderID("b1gсоde") == nil)
+        #expect(YandexAPISummarizer.normalizedFolderID("b1gcode") == "b1gcode")
+    }
+
+    @Test func stream_optionsRefusalIsRecognisedHoweverWritten() {
+        for body in ["Unknown field: stream_options", "STREAM_OPTIONS is not supported", "unknown field streamOptions",
+                     "include_usage: unsupported"] {
+            #expect(YandexAPISummarizer.refusesStreamOptions(body), "\(body)")
+        }
+        #expect(!YandexAPISummarizer.refusesStreamOptions("messages array cannot be empty"))
+    }
+
+    @Test func aStoredRetiredModelIsWrittenBack() throws {
+        let suite = "daisy.tests.yandexModel.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        #expect(YandexAPISummarizer.storedModelID(key: "daisy.yandexModel", defaults: defaults) == "aliceai-llm")
+        #expect(defaults.string(forKey: "daisy.yandexModel") == nil, "nothing stored, nothing written")
+        defaults.set("yandexgpt-5-lite", forKey: "daisy.yandexModel")
+        #expect(YandexAPISummarizer.storedModelID(key: "daisy.yandexModel", defaults: defaults) == "aliceai-llm")
+        #expect(defaults.string(forKey: "daisy.yandexModel") == "aliceai-llm")
+        defaults.set("qwen3.6-35b-a3b", forKey: "daisy.yandexModel")
+        #expect(YandexAPISummarizer.storedModelID(key: "daisy.yandexModel", defaults: defaults) == "qwen3.6-35b-a3b")
+    }
+
+    @Test func pricesMatchExactIDsOnly() {
+        let spend = TokenSpend(inputTokens: 1_000_000, outputTokens: 0)
+        #expect(TokenCostEstimator.estimate(provider: .yandex, model: "aliceai-llm", spend: spend).hasPricedUsage)
+        #expect(!TokenCostEstimator.estimate(provider: .yandex, model: "aliceai-llm-flash", spend: spend).hasPricedUsage)
+    }
+
+    /// No country in the UI (Egor, 27.10) — read from the catalog, so the
+    /// Russian is checked too, whatever language the test host runs in.
+    @Test func noCountryInEitherLanguage() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Daisy/Localizable.xcstrings")
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+        let strings = try #require(json?["strings"] as? [String: [String: Any]])
+        let keys = strings.keys.filter { $0.contains("Yandex") || $0.contains("YandexGPT") }
+        #expect(keys.count >= 4)
+        for key in keys {
+            let ru = (((strings[key]?["localizations"] as? [String: Any])?["ru"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String
+            #expect(ru != nil, "no Russian for \(key)")
+            for word in ["Russia", "Росс", "РФ"] {
+                #expect(!key.localizedCaseInsensitiveContains(word), "\(key)")
+                #expect(!(ru ?? "").localizedCaseInsensitiveContains(word), "\(key)")
+            }
+        }
+    }
+
+    @MainActor
+    @Test func theDaisyKeyStartsWithoutCloudAccessForYandex() throws {
+        // A fresh install's prefs: no grant until the person says yes.
+        let suite = "daisy.tests.daisyKeyCloud.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        #expect(!DaisyKeyController.cloudAllowed(.yandex, defaults: defaults))
+        defaults.set(true, forKey: "daisy.daisyKey.cloudAllowed.yandex")
+        #expect(DaisyKeyController.cloudAllowed(.yandex, defaults: defaults), "the grant is per provider, under its raw value")
+    }
+
+    @Test func aLatestBranchIsTheSameModel() {
+        let model = YandexAPISummarizer.resolvedModelID("gpt://b1g/aliceai-llm/latest")
+        #expect(model == "aliceai-llm/latest")
+        #expect(YandexAPISummarizer.contextTokens(for: model) == 131_072)
+        #expect(YandexAPISummarizer.answerTokens(for: model) == 8192)
+        #expect(YandexAPISummarizer.plainName(for: model) == "Alice AI LLM")
+        let spend = TokenSpend(inputTokens: 1_000_000, outputTokens: 0)
+        #expect(TokenCostEstimator.estimate(provider: .yandex, model: model, spend: spend).hasPricedUsage)
+        #expect(YandexAPISummarizer.resolvedModelID("gpt-oss-120b/latest") == "aliceai-llm")
+        #expect(YandexAPISummarizer.resolvedModelID("yandexgpt-5-lite/latest@ft123") == "yandexgpt-5-lite/latest@ft123")
     }
 }
 

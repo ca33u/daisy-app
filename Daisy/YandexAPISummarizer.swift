@@ -95,21 +95,27 @@ nonisolated struct YandexAPISummarizer: SummaryProvider {
             throw SummaryProviderError.missingAPIKey(provider: Self.providerName)
         }
         guard let folder = Self.normalizedFolderID(folderID) else {
-            throw SummaryProviderError.modelUnavailable(provider: Self.providerName, reason: Self.missingFolderMessage)
+            throw SummaryProviderError.modelUnavailable(
+                provider: Self.providerName,
+                reason: String(localized: "a folder ID is needed too. Copy it from the folder name at the top of AI Studio and paste it in \(SettingsRow.summaryProvider.path)."))
         }
 
         let systemPrompt = SummaryPrompt.systemInstructions(localeHint: localeHint, task: task)
         let userPrompt = SummaryPrompt.userPrompt(title: title, transcript: trimmed, task: task)
 
         // Refuse before paying for a 400: the context window is the
-        // prompt AND the answer.
+        // prompt AND the answer, so the room for the meeting is the window
+        // less the answer budget.
         let answerTokens = Self.answerTokens(for: model)
         if let window = Self.contextTokens(for: model) {
             let approx = LocalContextGuard.estimatedTokens(promptChars: systemPrompt.count + userPrompt.count)
-            if approx + answerTokens > window {
-                throw SummaryProviderError.modelUnavailable(
-                    provider: Self.providerName,
-                    reason: String(localized: "This meeting is longer than \(Self.label(for: model)) can read (about \(approx) tokens of \(window)). Pick DeepSeek V4.1 Flash in \(SettingsRow.summaryProvider.path)."))
+            let room = window - answerTokens
+            if approx > room {
+                let name = Self.plainName(for: model)
+                let reason = Self.baseID(model) == Self.longestModelID
+                    ? String(localized: "this meeting is longer than \(name) can read (about \(approx) tokens of \(room)).")
+                    : String(localized: "this meeting is longer than \(name) can read (about \(approx) tokens of \(room)). Pick DeepSeek V4.1 Flash in \(SettingsRow.summaryProvider.path).")
+                throw SummaryProviderError.modelUnavailable(provider: Self.providerName, reason: reason)
             }
         }
 
@@ -127,7 +133,7 @@ nonisolated struct YandexAPISummarizer: SummaryProvider {
 
         do {
             return try await send(body, apiKey: apiKey, folder: folder)
-        } catch SummaryProviderError.httpError(_, 400, let message) where message.contains("stream_options") {
+        } catch SummaryProviderError.httpError(_, 400, let message) where Self.refusesStreamOptions(message) {
             // Without it the stream may carry no usage, and this
             // summary's spend goes unrecorded — said in the log, and
             // checked on a live key (plan step 0).
@@ -187,19 +193,28 @@ nonisolated struct YandexAPISummarizer: SummaryProvider {
     static func worded(status: Int, body: String, model: String) -> SummaryProviderError {
         let lowered = body.lowercased()
         // Left as it came: `summarize` drops the parameter and retries.
-        if status == 400, lowered.contains("stream_options") {
+        if status == 400, refusesStreamOptions(body) {
             return .httpError(provider: providerName, status: status, body: body)
         }
+        // The reasons follow «YandexGPT: » (the case's own prefix).
         switch status {
         case 401, 403:
-            return .modelUnavailable(provider: providerName, reason: String(localized: "YandexGPT didn’t accept the API key or the folder ID. Check both in \(SettingsRow.summaryProvider.path)."))
+            return .modelUnavailable(provider: providerName, reason: String(localized: "the API key or the folder ID wasn’t accepted. Check both in \(SettingsRow.summaryProvider.path)."))
         case 429:
-            return .modelUnavailable(provider: providerName, reason: String(localized: "YandexGPT is busy: an account without a subscription runs two requests at a time. Try again in a minute."))
+            return .modelUnavailable(provider: providerName, reason: String(localized: "too many requests — an account without a subscription runs two at a time. Try again in a minute."))
         case 400 where namesMissingModel(lowered), 404 where namesMissingModel(lowered):
-            return .modelUnavailable(provider: providerName, reason: String(localized: "YandexGPT has no model \(model) for this folder — Yandex may have retired it. Pick another model in \(SettingsRow.summaryProvider.path)."))
+            return .modelUnavailable(provider: providerName, reason: String(localized: "no model \(model) for this folder — Yandex may have retired it. Pick another model in \(SettingsRow.summaryProvider.path)."))
         default:
             return .httpError(provider: providerName, status: status, body: body)
         }
+    }
+
+    /// A 400 that refuses `stream_options` — by its name, by the field
+    /// inside it, or with the underscore dropped. One check, lowercased,
+    /// for both the retry and the wording.
+    static func refusesStreamOptions(_ body: String) -> Bool {
+        let lowered = body.lowercased()
+        return ["stream_options", "streamoptions", "include_usage"].contains { lowered.contains($0) }
     }
 
     /// A 400 about the model itself, not about a limit that mentions the
@@ -223,7 +238,9 @@ nonisolated struct YandexAPISummarizer: SummaryProvider {
         if value.hasPrefix("gpt://") {
             value = String(value.dropFirst("gpt://".count).prefix { $0 != "/" })
         }
-        guard !value.isEmpty, value.allSatisfy({ $0.isLetter || $0.isNumber }) else { return nil }
+        // ASCII only: a Cyrillic look-alike typed on the Russian layout
+        // («с», «о», «е») would pass `isLetter` and fail at Yandex.
+        guard !value.isEmpty, value.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else { return nil }
         return value
     }
 
@@ -244,10 +261,23 @@ nonisolated struct YandexAPISummarizer: SummaryProvider {
 
     static let defaultModelID = "aliceai-llm"
 
+    /// The model to suggest when a meeting doesn't fit.
+    static let longestModelID = "deepseek-v4.1-flash"
+
+    /// The model's name without the picker's hint («(recommended)»).
+    static func plainName(for model: String) -> String {
+        switch baseID(model) {
+        case "aliceai-llm": "Alice AI LLM"
+        case "qwen3.6-35b-a3b": "Qwen3.6 35B"
+        case "deepseek-v4.1-flash": "DeepSeek V4.1 Flash"
+        default: model
+        }
+    }
+
     /// Context window in tokens (concepts/generation/models), nil for an
     /// id Daisy doesn't list — no guess, no refusal.
     static func contextTokens(for model: String) -> Int? {
-        switch model {
+        switch baseID(model) {
         case "aliceai-llm": 131_072
         case "qwen3.6-35b-a3b": 262_144
         case "deepseek-v4.1-flash": 1_048_576
@@ -260,11 +290,7 @@ nonisolated struct YandexAPISummarizer: SummaryProvider {
     /// needed elsewhere (8192, Kimi). Yandex publishes no per-model
     /// output cap — step 0.
     static func answerTokens(for model: String) -> Int {
-        model == "aliceai-llm" ? 8192 : 16_384
-    }
-
-    static func label(for model: String) -> String {
-        availableModels.first { $0.id == model }?.label ?? model
+        baseID(model) == "aliceai-llm" ? 8192 : 16_384
     }
 
     /// Ids Yandex switches off, and what each becomes. Only ones that are
@@ -278,15 +304,36 @@ nonisolated struct YandexAPISummarizer: SummaryProvider {
         "deepseek-v4-flash": "deepseek-v4.1-flash",
     ]
 
+    /// The stored model as Summarizer starts with it, written back when a
+    /// retired id moved on — so the picker and the next launch agree.
+    static func storedModelID(key: String, defaults: UserDefaults) -> String {
+        let stored = defaults.string(forKey: key)
+        let resolved = resolvedModelID(stored ?? defaultModelID)
+        if let stored, stored != resolved {
+            defaults.set(resolved, forKey: key)
+        }
+        return resolved
+    }
+
+    /// The model without a version branch: Yandex's URIs can end in
+    /// `/latest` or `/rc` (`aliceai-llm/latest`), and the window, the
+    /// price and a retirement belong to the model, not to the branch.
+    static func baseID(_ model: String) -> String {
+        String(model.prefix { $0 != "/" })
+    }
+
     /// A stored or typed model as the request should carry it: the
     /// suffix of a whole `gpt://<folder>/<model>` URI, moved past any
-    /// retired id.
+    /// retired id — a retired model's `/latest` goes with it.
     static func resolvedModelID(_ stored: String) -> String {
         var id = stored.trimmingCharacters(in: .whitespacesAndNewlines)
         if id.hasPrefix("gpt://") {
             id = id.dropFirst("gpt://".count).split(separator: "/", maxSplits: 1).dropFirst().first.map(String.init) ?? ""
         }
         if id.isEmpty { return defaultModelID }
-        return retiredModels[id] ?? id
+        // A fine-tune (`<base>/latest@<suffix>`) is the person's own
+        // model: never swapped for a stock successor.
+        if id.contains("@") { return id }
+        return retiredModels[baseID(id)] ?? id
     }
 }

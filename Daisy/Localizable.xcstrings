@@ -25625,6 +25625,76 @@
         }
       }
     },
+    "a folder ID is needed too. Copy it from the folder name at the top of AI Studio and paste it in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "нужен ещё ID каталога. Скопируй его у названия каталога вверху AI Studio и вставь в «%@»."
+          }
+        }
+      }
+    },
+    "this meeting is longer than %@ can read (about %lld tokens of %lld)." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "встреча длиннее, чем помещается в %1$@ (примерно %2$lld токенов из %3$lld)."
+          }
+        }
+      }
+    },
+    "this meeting is longer than %@ can read (about %lld tokens of %lld). Pick DeepSeek V4.1 Flash in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "встреча длиннее, чем помещается в %1$@ (примерно %2$lld токенов из %3$lld). Выбери DeepSeek V4.1 Flash в «%4$@»."
+          }
+        }
+      }
+    },
+    "the API key or the folder ID wasn’t accepted. Check both in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "API-ключ или ID каталога не приняты. Проверь оба в «%@»."
+          }
+        }
+      }
+    },
+    "too many requests — an account without a subscription runs two at a time. Try again in a minute." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "слишком много запросов — аккаунт без подписки выполняет только два одновременно. Попробуй ещё раз через минуту."
+          }
+        }
+      }
+    },
+    "no model %@ for this folder — Yandex may have retired it. Pick another model in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "нет модели %1$@ для этого каталога — возможно, Яндекс её отключил. Выбери другую модель в «%2$@»."
+          }
+        }
+      }
+    },
+    "%@: couldn’t get an answer in %lld min — the request timed out. Try again in a few minutes." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@: не удалось получить ответ за %2$lld мин — время ожидания истекло. Попробуй ещё раз через несколько минут."
+          }
+        }
+      }
+    },
     "Sent to Yandex over HTTPS, using your API key." : {
       "localizations" : {
         "ru" : {
@@ -25645,52 +25715,12 @@
         }
       }
     },
-    "This meeting is longer than %@ can read (about %lld tokens of %lld). Pick DeepSeek V4.1 Flash in %@." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Эта встреча длиннее, чем помещается в %1$@ (примерно %2$lld токенов из %3$lld). Выбери DeepSeek V4.1 Flash в «%4$@»."
-          }
-        }
-      }
-    },
     "YandexGPT also needs a folder ID. Copy it from the folder name at the top of AI Studio and paste it in %@." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Для YandexGPT нужен ещё ID каталога. Скопируй его у названия каталога вверху AI Studio и вставь в «%@»."
-          }
-        }
-      }
-    },
-    "YandexGPT didn’t accept the API key or the folder ID. Check both in %@." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "YandexGPT не принял API-ключ или ID каталога. Проверь оба в «%@»."
-          }
-        }
-      }
-    },
-    "YandexGPT is busy: an account without a subscription runs two requests at a time. Try again in a minute." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "YandexGPT занят: аккаунт без подписки выполняет только два запроса одновременно. Попробуй ещё раз через минуту."
-          }
-        }
-      }
-    },
-    "YandexGPT has no model %@ for this folder — Yandex may have retired it. Pick another model in %@." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "У YandexGPT нет модели %1$@ для этого каталога — возможно, Яндекс её отключил. Выбери другую модель в «%2$@»."
           }
         }
       }

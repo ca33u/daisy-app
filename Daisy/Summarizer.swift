@@ -472,12 +472,7 @@ final class Summarizer {
             ?? GeminiAPISummarizer.defaultModelID
         // Yandex answers a retired model with 400 and no fallback: a
         // stored retired id moves to its successor here, every launch.
-        let storedYandexModel = UserDefaults.standard.string(forKey: Self.kYandexModel)
-        let yandexModel = YandexAPISummarizer.resolvedModelID(storedYandexModel ?? YandexAPISummarizer.defaultModelID)
-        if let storedYandexModel, storedYandexModel != yandexModel {
-            UserDefaults.standard.set(yandexModel, forKey: Self.kYandexModel)
-        }
-        self.yandexModel = yandexModel
+        self.yandexModel = YandexAPISummarizer.storedModelID(key: Self.kYandexModel, defaults: .standard)
         self.yandexFolderID = UserDefaults.standard.string(forKey: Self.kYandexFolderID) ?? ""
         self.ollamaModel = UserDefaults.standard.string(forKey: Self.kOllamaModel)
             ?? OllamaAPISummarizer.defaultModelID

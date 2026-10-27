@@ -117,6 +117,8 @@ account:
 - `apple`, `anthropic`, `openai`, `openai_account` (a ChatGPT account), `gemini`, `cursor`, `kimi`, `yandex`;
 - `ollama`, `lmstudio`, `mcp`, `agent_cli`.
 
+`yandex` (YandexGPT) is sent from Daisy 1.0.8.45.
+
 **What travels with the counts:**
 - the app version and build;
 - `channel`: `beta` or `stable`;
