@@ -428,6 +428,82 @@ struct CloudStreamingTests {
         }
     }
 
+    // MARK: - GigaChat through cloud.ru (27.10.2026)
+
+    private func gigachat(_ responses: [(Int, String)], transcript: String? = nil) async throws -> MeetingSummary {
+        try await GigaChatAPISummarizer(urlSession: session(responses), apiKeyOverride: "secret")
+            .summarize(transcript: transcript ?? twoHourTranscript, title: "Launch", localeHint: "ru", task: .meeting(forceFollowUp: false))
+    }
+
+    @Test("GigaChat: Bearer key to cloud.ru, the owner/model id, only documented parameters")
+    func gigachatRequest() async throws {
+        let summary = try await gigachat([(200, yandexSSE(summaryJSON, finish: "stop"))])
+        #expect(summary.summary == "Launch plan agreed.")
+        let request = try #require(StubProtocol.requests.first)
+        #expect(request.url?.absoluteString == "https://foundation-models.api.cloud.ru/v1/chat/completions")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer secret")
+        #expect(request.timeoutInterval == 300)
+        let body = try requestJSON()
+        #expect(body["model"] as? String == "GigaChat/GigaChat-3-Pro")
+        #expect(body["stream"] as? Bool == true)
+        #expect(body["max_tokens"] as? Int == 8192)
+        for unsent in ["temperature", "response_format", "max_completion_tokens", "reasoning_effort", "thinking"] {
+            #expect(body[unsent] == nil, "\(unsent)")
+        }
+    }
+
+    @Test("GigaChat: a refused stream_options is dropped and sent once more; a bad key (a 400 here) and an empty balance are said in words")
+    func gigachatErrors() async throws {
+        let refusal = #"{"code":"InvalidArgument","message":"unknown field stream_options"}"#
+        _ = try await gigachat([(400, refusal), (200, yandexSSE(summaryJSON, finish: "stop"))])
+        #expect(StubProtocol.requests.count == 2)
+        #expect(try requestJSON(1)["stream_options"] == nil)
+
+        do {
+            // What cloud.ru answered to a made-up key, 27.10.
+            _ = try await gigachat([(400, #"{"message":"invalid api key secret","code":"InvalidArgument"}"#)])
+            Issue.record("expected the key message")
+        } catch SummaryProviderError.modelUnavailable(_, let reason) {
+            #expect(reason.contains("Key Secret"))
+        }
+        #expect(StubProtocol.requests.count == 1, "a 400 is not retried")
+
+        let balance = GigaChatAPISummarizer.worded(status: 402, body: #"{"message":"insufficient balance"}"#, model: "GigaChat/GigaChat-3-Pro")
+        guard case .modelUnavailable(_, let reason) = balance else { Issue.record("\(balance)"); return }
+        #expect(reason.contains("console.cloud.ru"))
+        // A balance refusal that also names the key is still the balance.
+        for (status, body) in [(402, "insufficient balance for api key"), (402, "payment required"),
+                               (403, "authorization failed: недостаточно средств")] {
+            let worded = GigaChatAPISummarizer.worded(status: status, body: body, model: "GigaChat/GigaChat-3-Pro")
+            guard case .modelUnavailable(_, let why) = worded, why.contains("console.cloud.ru") else {
+                Issue.record("\(status) \(body): \(worded)"); continue
+            }
+        }
+        let missing = GigaChatAPISummarizer.worded(status: 404, body: "not found", model: "GigaChat/GigaChat-9")
+        guard case .modelUnavailable(_, let gone) = missing else { Issue.record("\(missing)"); return }
+        #expect(gone.contains("GigaChat/GigaChat-9"))
+        let other = GigaChatAPISummarizer.worded(status: 400, body: "messages array cannot be empty", model: "GigaChat/GigaChat-3-Pro")
+        guard case .httpError(_, 400, _) = other else { Issue.record("\(other)"); return }
+    }
+
+    @Test("GigaChat: a meeting past 262K is refused before sending; a cancel is CancellationError")
+    func gigachatWindowAndCancel() async throws {
+        let long = String(repeating: twoHourTranscript + "\n\n", count: 7)
+        #expect(LocalContextGuard.estimatedTokens(promptChars: long.count) > 262_144 - 8192)
+        do {
+            _ = try await gigachat([], transcript: long)
+            Issue.record("expected a refusal")
+        } catch SummaryProviderError.modelUnavailable(_, let reason) {
+            #expect(reason.contains("GigaChat-3-Pro") && !reason.contains("recommended"))
+        }
+        #expect(StubProtocol.requests.isEmpty)
+        do {
+            _ = try await gigachat([(-999, "")])
+            Issue.record("expected CancellationError")
+        } catch is CancellationError {
+        }
+    }
+
     @Test("YandexGPT: no folder ID — not ready, and nothing is sent")
     func yandexNeedsFolder() async throws {
         let provider = YandexAPISummarizer(folderID: "  ", urlSession: session([]), apiKeyOverride: "AQVNtest")
@@ -504,6 +580,18 @@ struct YandexProviderTests {
         guard case .httpError(_, 500, _) = server else { Issue.record("500: \(server)"); return }
     }
 
+    @Test func gigachatIsACloudProviderEverywhere() async {
+        #expect(!SummaryProviderKind.gigachat.isLocal)
+        #expect(SummaryProviderKind.gigachat.requiresAPIKey)
+        #expect(TokenLedger.isBilled(.gigachat))
+        #expect(SummaryProviderKind.gigachat.displayName == "GigaChat")
+        #expect(await GigaChatAPISummarizer(apiKeyOverride: "secret").isReady())
+        #expect(GigaChatAPISummarizer(model: "  ").model == GigaChatAPISummarizer.defaultModelID)
+        let spend = TokenSpend(inputTokens: 1_000_000, outputTokens: 1_000_000)
+        let estimate = TokenCostEstimator.estimate(provider: .gigachat, model: "GigaChat/GigaChat-3-Pro", spend: spend)
+        #expect(estimate.hasPricedUsage)
+    }
+
     @Test func yandexIsACloudProviderEverywhere() {
         #expect(!SummaryProviderKind.yandex.isLocal)
         #expect(SummaryProviderKind.yandex.requiresAPIKey)
@@ -535,9 +623,9 @@ struct YandexProviderTests {
     @Test func stream_optionsRefusalIsRecognisedHoweverWritten() {
         for body in ["Unknown field: stream_options", "STREAM_OPTIONS is not supported", "unknown field streamOptions",
                      "include_usage: unsupported"] {
-            #expect(YandexAPISummarizer.refusesStreamOptions(body), "\(body)")
+            #expect(CloudStreaming.refusesStreamOptions(body), "\(body)")
         }
-        #expect(!YandexAPISummarizer.refusesStreamOptions("messages array cannot be empty"))
+        #expect(!CloudStreaming.refusesStreamOptions("messages array cannot be empty"))
     }
 
     @Test func aStoredRetiredModelIsWrittenBack() throws {
@@ -566,8 +654,8 @@ struct YandexProviderTests {
             .appendingPathComponent("Daisy/Localizable.xcstrings")
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
         let strings = try #require(json?["strings"] as? [String: [String: Any]])
-        let keys = strings.keys.filter { $0.contains("Yandex") || $0.contains("YandexGPT") }
-        #expect(keys.count >= 4)
+        let keys = strings.keys.filter { $0.contains("Yandex") || $0.contains("GigaChat") }
+        #expect(keys.count >= 8)
         for key in keys {
             let ru = (((strings[key]?["localizations"] as? [String: Any])?["ru"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String
             #expect(ru != nil, "no Russian for \(key)")
@@ -585,6 +673,7 @@ struct YandexProviderTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         #expect(!DaisyKeyController.cloudAllowed(.yandex, defaults: defaults))
+        #expect(!DaisyKeyController.cloudAllowed(.gigachat, defaults: defaults))
         defaults.set(true, forKey: "daisy.daisyKey.cloudAllowed.yandex")
         #expect(DaisyKeyController.cloudAllowed(.yandex, defaults: defaults), "the grant is per provider, under its raw value")
     }

@@ -348,6 +348,9 @@ final class Summarizer {
     var yandexModel: String {
         didSet { UserDefaults.standard.set(yandexModel, forKey: Self.kYandexModel) }
     }
+    var gigachatModel: String {
+        didSet { UserDefaults.standard.set(gigachatModel, forKey: Self.kGigaChatModel) }
+    }
     var yandexFolderID: String {
         didSet {
             UserDefaults.standard.set(yandexFolderID, forKey: Self.kYandexFolderID)
@@ -434,6 +437,7 @@ final class Summarizer {
     private static let kGeminiModel = "daisy.geminiModel"
     private static let kYandexModel = "daisy.yandexModel"
     private static let kYandexFolderID = "daisy.yandexFolderID"
+    private static let kGigaChatModel = "daisy.gigachatModel"
     private static let kOllamaModel = "daisy.ollamaModel"
     private static let kOllamaBaseURL = "daisy.ollamaBaseURL"
     private static let kAgentCLIKind = "daisy.agentCLIKind"
@@ -474,6 +478,8 @@ final class Summarizer {
         // stored retired id moves to its successor here, every launch.
         self.yandexModel = YandexAPISummarizer.storedModelID(key: Self.kYandexModel, defaults: .standard)
         self.yandexFolderID = UserDefaults.standard.string(forKey: Self.kYandexFolderID) ?? ""
+        self.gigachatModel = UserDefaults.standard.string(forKey: Self.kGigaChatModel)
+            ?? GigaChatAPISummarizer.defaultModelID
         self.ollamaModel = UserDefaults.standard.string(forKey: Self.kOllamaModel)
             ?? OllamaAPISummarizer.defaultModelID
         self.ollamaBaseURL = UserDefaults.standard.string(forKey: Self.kOllamaBaseURL)
@@ -533,6 +539,8 @@ final class Summarizer {
                 return YandexAPISummarizer.missingFolderMessage
             }
             return String(localized: "YandexGPT API key is missing. Add it in \(SettingsRow.summaryProvider.path).")
+        case .gigachat:
+            return String(localized: "GigaChat API key is missing. Add it in \(SettingsRow.summaryProvider.path).")
         case .ollama:
             return String(localized: "Couldn't reach Ollama at \(ollamaBaseURL). Install or open Ollama — \(SettingsRow.summaryProvider.path) has the install button when Ollama is chosen, and the model downloads from there.")
         case .lmStudio:
@@ -733,7 +741,7 @@ final class Summarizer {
     var providerIsEffectivelyLocal: Bool {
         switch providerKind {
         case .appleIntelligence: return true
-        case .anthropic, .openai, .cursor, .kimi, .gemini, .yandex: return false
+        case .anthropic, .openai, .cursor, .kimi, .gemini, .yandex, .gigachat: return false
         case .ollama:
             return Self.isLoopbackURL(URL(string: ollamaBaseURL))
                 && !OllamaAPISummarizer.isCloudModel(ollamaModel)
@@ -792,6 +800,8 @@ final class Summarizer {
             return GeminiAPISummarizer(model: geminiModel)
         case .yandex:
             return YandexAPISummarizer(model: yandexModel, folderID: yandexFolderID)
+        case .gigachat:
+            return GigaChatAPISummarizer(model: gigachatModel)
         case .ollama:
             // Parse base URL with fallback to default if user typed
             // something malformed. Both adapters tolerate a missing

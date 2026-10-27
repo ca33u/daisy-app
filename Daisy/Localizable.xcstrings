@@ -25625,6 +25625,96 @@
         }
       }
     },
+    "Sent to GigaChat over HTTPS, using your API key." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправляется в GigaChat по HTTPS с использованием твоего API-ключа."
+          }
+        }
+      }
+    },
+    "GigaChat API key is missing. Add it in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отсутствует API-ключ GigaChat. Добавь его в «%@»."
+          }
+        }
+      }
+    },
+    "GigaChat API key" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "API-ключ GigaChat"
+          }
+        }
+      }
+    },
+    "GigaChat-3-Pro (recommended)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GigaChat-3-Pro (рекомендуется)"
+          }
+        }
+      }
+    },
+    "the API key wasn’t accepted. Check it in %@ — the key is the Key Secret shown once when it was made." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "API-ключ не принят. Проверь его в «%@»: нужен Key Secret, который показывается один раз при создании ключа."
+          }
+        }
+      }
+    },
+    "the cloud.ru balance has run out. Top it up at console.cloud.ru and try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "на балансе cloud.ru закончились деньги. Пополни его на console.cloud.ru и попробуй ещё раз."
+          }
+        }
+      }
+    },
+    "too many requests. Try again in a minute." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "слишком много запросов. Попробуй ещё раз через минуту."
+          }
+        }
+      }
+    },
+    "no model %@ — it may have been retired. Pick another model in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "нет модели %1$@ — возможно, её отключили. Выбери другую модель в «%2$@»."
+          }
+        }
+      }
+    },
+    "Transcripts are sent to GigaChat over HTTPS using your own API key. Create one at console.cloud.ru → Users → Service accounts → Create API key, with the Foundation Models service — it’s stored in your macOS Keychain. Roughly $0.02 (about 2 ₽) per hour of meeting on GigaChat-3-Pro." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Транскрипты отправляются в GigaChat по HTTPS с использованием твоего собственного API-ключа. Создай его на console.cloud.ru → «Пользователи» → «Сервисные аккаунты» → «Создать API-ключ», сервис Foundation Models — он хранится в Keychain macOS. Примерно $0.02 (около 2 ₽) за час встречи на GigaChat-3-Pro."
+          }
+        }
+      }
+    },
     "a folder ID is needed too. Copy it from the folder name at the top of AI Studio and paste it in %@." : {
       "localizations" : {
         "ru" : {

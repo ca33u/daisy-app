@@ -42,6 +42,10 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
     /// user's API key and folder ID. Added 2026-10-27 for Russian-speaking
     /// users (Egor); see YandexAPISummarizer's header.
     case yandex
+    /// GigaChat through cloud.ru Foundation Models' OpenAI-compatible
+    /// endpoint, on the user's API key. Added 2026-10-27 (Egor); see
+    /// GigaChatAPISummarizer's header for why cloud.ru and not Sber's API.
+    case gigachat
     /// Ollama (https://ollama.com) on `127.0.0.1:11434` via its native
     /// `/api/chat` REST endpoint. Build 40 added this as a first-class
     /// provider after the pre-PH audit caught the MCP-shim disguise:
@@ -78,6 +82,7 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
         case .cursor: return String(localized: "Cursor")
         case .kimi: return String(localized: "Kimi API (Moonshot)")
         case .yandex: return "YandexGPT"
+        case .gigachat: return "GigaChat"
         case .ollama: return String(localized: "Ollama (local)")
         case .lmStudio: return String(localized: "LM Studio (local)")
         case .mcp: return String(localized: "Custom MCP server (advanced)")
@@ -93,6 +98,7 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
         case .cursor: return String(localized: "Cursor")
         case .kimi: return String(localized: "Kimi")
         case .yandex: return "YandexGPT"
+        case .gigachat: return "GigaChat"
         case .gemini: return "Gemini"
         case .ollama: return String(localized: "Ollama")
         case .lmStudio: return String(localized: "LM Studio")
@@ -109,7 +115,7 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
 
     var requiresAPIKey: Bool {
         self == .anthropic || self == .openai || self == .cursor || self == .kimi || self == .gemini
-            || self == .yandex
+            || self == .yandex || self == .gigachat
     }
 
     /// Six-words-ish, parallel structure so users can compare
@@ -136,6 +142,8 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
             // The same words as the other cloud providers: no country
             // (Egor, 27.10 — not for Yandex, GigaChat or DeepSeek).
             return String(localized: "Sent to Yandex over HTTPS, using your API key.")
+        case .gigachat:
+            return String(localized: "Sent to GigaChat over HTTPS, using your API key.")
         case .ollama:
             return String(localized: "Sent to your local Ollama on 127.0.0.1 — stays on your Mac.")
         case .lmStudio:

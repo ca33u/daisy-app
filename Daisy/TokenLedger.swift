@@ -456,6 +456,21 @@ nonisolated enum TokenCostEstimator {
             if base == "deepseek-v4.1-flash" {
                 return Price(input: 2.459016, output: 4.09836, cachedInput: 0.614754, cacheWrite: 0, webSearch: 0)
             }
+        case .gigachat:
+            // cloud.ru publishes roubles only (foundation-models.api.cloud.ru
+            // /v1/models, prompt/generated_tokens_cost per 1M, 2026-10-27).
+            // These dollars are a FIXED CONVERSION, not a published USD
+            // price: ₽ ÷ 1.22 ÷ 100, the convention Yandex's own USD column
+            // uses (Egor, 27.10). The page doesn't say whether its roubles
+            // include VAT; if they don't, this reads ~18% low — checked on a
+            // live key's bill (plan step 0). No cached price: cached input
+            // is priced as input.
+            if id == "gigachat/gigachat-3-pro" {
+                return Price(input: 0.598607, output: 1.445820, cachedInput: 0.598607, cacheWrite: 0, webSearch: 0)
+            }
+            if id == "gigachat/gigachat-2-max" {
+                return Price(input: 4.666700, output: 4.666700, cachedInput: 4.666700, cacheWrite: 0, webSearch: 0)
+            }
         case .kimi:
             // platform.kimi.ai, 2026-07-31. K3's cached input is a tenth
             // of input; K2.7 Code publishes $0.19 cached. K2.6 has no
@@ -1120,7 +1135,7 @@ final class TokenLedger {
     /// rather than showing a number we'd be inventing.
     nonisolated static func isBilled(_ kind: SummaryProviderKind) -> Bool {
         switch kind {
-        case .anthropic, .openai, .cursor, .kimi, .gemini, .yandex: return true
+        case .anthropic, .openai, .cursor, .kimi, .gemini, .yandex, .gigachat: return true
         case .appleIntelligence, .ollama, .lmStudio, .mcp, .agentCLI: return false
         }
     }

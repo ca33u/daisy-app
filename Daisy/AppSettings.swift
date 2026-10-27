@@ -1198,6 +1198,12 @@ final class AppSettings {
             Task { @MainActor in await Summarizer.shared.refreshAvailability() }
         }
     }
+    var gigachatAPIKey: String {
+        didSet {
+            Self.persist(gigachatAPIKey, account: SecretKey.gigachatAPIKey, label: String(localized: "GigaChat API key"))
+            Task { @MainActor in await Summarizer.shared.refreshAvailability() }
+        }
+    }
 
     /// The secrets `init` deliberately did not look for in the old
     /// keychain. Runs after launch, off the main thread; a value found
@@ -1214,6 +1220,7 @@ final class AppSettings {
             (SecretKey.kimiAPIKey, \.kimiAPIKey),
             (SecretKey.geminiAPIKey, \.geminiAPIKey),
             (SecretKey.yandexAPIKey, \.yandexAPIKey),
+            (SecretKey.gigachatAPIKey, \.gigachatAPIKey),
         ].filter { self[keyPath: $0.1].isEmpty }
         guard !wanted.isEmpty else { return }
         Task.detached(priority: .utility) { [weak self] in
@@ -1762,6 +1769,7 @@ final class AppSettings {
         self.cursorAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.cursorAPIKey) ?? ""
         self.geminiAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.geminiAPIKey) ?? ""
         self.yandexAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.yandexAPIKey) ?? ""
+        self.gigachatAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.gigachatAPIKey) ?? ""
         self.kimiAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.kimiAPIKey) ?? ""
 
         // Reconcile substrate to the policy ONCE at launch — but ONLY

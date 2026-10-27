@@ -92,6 +92,14 @@ nonisolated enum CloudStreaming {
         return SummaryProviderError.timedOut(provider: provider, seconds: Int(request.timeoutInterval), midAnswer: midAnswer)
     }
 
+    /// A 400 that refuses `stream_options` — by its name, by the field
+    /// inside it, or with the underscore dropped. One lowercased check for
+    /// the providers that resend without it (YandexGPT, GigaChat).
+    static func refusesStreamOptions(_ body: String) -> Bool {
+        let lowered = body.lowercased()
+        return ["stream_options", "streamoptions", "include_usage"].contains { lowered.contains($0) }
+    }
+
     /// An error body, capped — it's for a message, not for parsing.
     private static func readBody(_ bytes: URLSession.AsyncBytes) async -> String {
         var data = Data()

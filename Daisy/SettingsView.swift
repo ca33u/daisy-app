@@ -3258,6 +3258,23 @@ struct SettingsView: View {
             }
             .pickerStyle(.menu)
 
+        case .gigachat:
+            LabeledContent("API key") {
+                SecureField("", text: $settings.gigachatAPIKey, prompt: Text(verbatim: "Key Secret"))
+                    .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+            }
+            Picker("Model", selection: $summarizer.gigachatModel) {
+                ForEach(GigaChatAPISummarizer.availableModels, id: \.id) { item in
+                    Text(item.label).tag(item.id)
+                }
+                if !GigaChatAPISummarizer.availableModels.contains(where: { $0.id == summarizer.gigachatModel }) {
+                    Text(String(localized: "Custom: \(summarizer.gigachatModel)")).tag(summarizer.gigachatModel)
+                }
+            }
+            .pickerStyle(.menu)
+
         case .kimi:
             LabeledContent("API key") {
                 SecureField("", text: $settings.kimiAPIKey, prompt: Text("sk-…"))
@@ -3668,6 +3685,7 @@ struct SettingsView: View {
         case .yandex:
             return settings.yandexAPIKey.isEmpty
                 || YandexAPISummarizer.normalizedFolderID(summarizer.yandexFolderID) == nil
+        case .gigachat: return settings.gigachatAPIKey.isEmpty
         case .ollama: return summarizer.ollamaBaseURL.isEmpty || summarizer.ollamaModel.isEmpty
         case .lmStudio: return summarizer.lmStudioBaseURL.isEmpty || summarizer.lmStudioModel.isEmpty
         case .mcp:
@@ -3704,6 +3722,10 @@ struct SettingsView: View {
         case .yandex:
             // No country (Egor, 27.10): the same words as the others.
             return String(localized: "Transcripts are sent to Yandex over HTTPS using your own API key. Daisy asks Yandex not to log them (x-data-logging-enabled: false) — Yandex says requests sent that way aren’t used to improve its service. Create a key at aistudio.yandex.ru → Create API key — it’s stored in your macOS Keychain; the folder ID is next to the folder name at the top of AI Studio. Roughly $0.10 (about 12 ₽) per hour of meeting on Alice AI LLM.")
+        case .gigachat:
+            // No country (Egor, 27.10). cloud.ru is named only as where
+            // the key is made.
+            return String(localized: "Transcripts are sent to GigaChat over HTTPS using your own API key. Create one at console.cloud.ru → Users → Service accounts → Create API key, with the Foundation Models service — it’s stored in your macOS Keychain. Roughly $0.02 (about 2 ₽) per hour of meeting on GigaChat-3-Pro.")
         case .kimi:
             return String(localized: "Transcripts are sent to Moonshot over HTTPS using your own API key — and Moonshot's documentation states that requests to its international endpoint are processed in China. Create a key at platform.kimi.ai — it's stored in your macOS Keychain. Cheapest of the cloud providers here: roughly $0.005–0.02 per summary on K2.6.")
         case .ollama:

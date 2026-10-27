@@ -133,7 +133,7 @@ nonisolated struct YandexAPISummarizer: SummaryProvider {
 
         do {
             return try await send(body, apiKey: apiKey, folder: folder)
-        } catch SummaryProviderError.httpError(_, 400, let message) where Self.refusesStreamOptions(message) {
+        } catch SummaryProviderError.httpError(_, 400, let message) where CloudStreaming.refusesStreamOptions(message) {
             // Without it the stream may carry no usage, and this
             // summary's spend goes unrecorded — said in the log, and
             // checked on a live key (plan step 0).
@@ -193,7 +193,7 @@ nonisolated struct YandexAPISummarizer: SummaryProvider {
     static func worded(status: Int, body: String, model: String) -> SummaryProviderError {
         let lowered = body.lowercased()
         // Left as it came: `summarize` drops the parameter and retries.
-        if status == 400, refusesStreamOptions(body) {
+        if status == 400, CloudStreaming.refusesStreamOptions(body) {
             return .httpError(provider: providerName, status: status, body: body)
         }
         // The reasons follow «YandexGPT: » (the case's own prefix).
@@ -207,14 +207,6 @@ nonisolated struct YandexAPISummarizer: SummaryProvider {
         default:
             return .httpError(provider: providerName, status: status, body: body)
         }
-    }
-
-    /// A 400 that refuses `stream_options` — by its name, by the field
-    /// inside it, or with the underscore dropped. One check, lowercased,
-    /// for both the retry and the wording.
-    static func refusesStreamOptions(_ body: String) -> Bool {
-        let lowered = body.lowercased()
-        return ["stream_options", "streamoptions", "include_usage"].contains { lowered.contains($0) }
     }
 
     /// A 400 about the model itself, not about a limit that mentions the

@@ -191,6 +191,10 @@ struct DaisyTests {
             let estimate = TokenCostEstimator.estimate(provider: .yandex, model: model, spend: spend)
             #expect(estimate.hasPricedUsage, "unpriced YandexGPT model: \(model)")
         }
+        for model in GigaChatAPISummarizer.availableModels.map(\.id) {
+            let estimate = TokenCostEstimator.estimate(provider: .gigachat, model: model, spend: spend)
+            #expect(estimate.hasPricedUsage, "unpriced GigaChat model: \(model)")
+        }
     }
 
     @Test("Saved Claude models move to their same-tier successors, once")
