@@ -434,6 +434,23 @@ nonisolated enum TokenCostEstimator {
                 // The ≤200K-token tier; a meeting transcript stays under it.
                 return Price(input: 2, output: 12, cachedInput: 0.20, cacheWrite: 0, webSearch: 0)
             }
+        case .yandex:
+            // aistudio.yandex.ru/docs/ru/ai-studio/pricing, 2026-10-27:
+            // the USD list (without VAT, what non-residents pay), per 1K
+            // tokens ×1000. Dollars because the ledger counts dollars
+            // (Egor, 27.10); someone billed in roubles pays 0.50/1.20 ₽
+            // per 1K on Alice with VAT. Alice and Qwen publish no cached
+            // price, so a cached token is priced as input — the ledger
+            // must never under-report.
+            if id.hasPrefix("aliceai-llm") {
+                return Price(input: 4.09836, output: 9.836064, cachedInput: 4.09836, cacheWrite: 0, webSearch: 0)
+            }
+            if id.hasPrefix("qwen3.6") {
+                return Price(input: 1.639344, output: 2.459016, cachedInput: 1.639344, cacheWrite: 0, webSearch: 0)
+            }
+            if id.hasPrefix("deepseek-v4.1-flash") {
+                return Price(input: 2.459016, output: 4.09836, cachedInput: 0.614754, cacheWrite: 0, webSearch: 0)
+            }
         case .kimi:
             // platform.kimi.ai, 2026-07-31. K3's cached input is a tenth
             // of input; K2.7 Code publishes $0.19 cached. K2.6 has no
@@ -1098,7 +1115,7 @@ final class TokenLedger {
     /// rather than showing a number we'd be inventing.
     nonisolated static func isBilled(_ kind: SummaryProviderKind) -> Bool {
         switch kind {
-        case .anthropic, .openai, .cursor, .kimi, .gemini: return true
+        case .anthropic, .openai, .cursor, .kimi, .gemini, .yandex: return true
         case .appleIntelligence, .ollama, .lmStudio, .mcp, .agentCLI: return false
         }
     }

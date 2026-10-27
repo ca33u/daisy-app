@@ -341,6 +341,19 @@ final class Summarizer {
     var geminiModel: String {
         didSet { UserDefaults.standard.set(geminiModel, forKey: Self.kGeminiModel) }
     }
+    /// YandexGPT's model suffix and the folder ID the key belongs to. The
+    /// folder ID is not a secret (it is in every request's model URI), so
+    /// it lives here rather than in the Keychain; it decides readiness,
+    /// hence the refresh.
+    var yandexModel: String {
+        didSet { UserDefaults.standard.set(yandexModel, forKey: Self.kYandexModel) }
+    }
+    var yandexFolderID: String {
+        didSet {
+            UserDefaults.standard.set(yandexFolderID, forKey: Self.kYandexFolderID)
+            Task { await refreshAvailability() }
+        }
+    }
     var openaiModel: String {
         didSet { UserDefaults.standard.set(openaiModel, forKey: Self.kOpenAIModel) }
     }
@@ -419,6 +432,8 @@ final class Summarizer {
     private static let kOpenAIModel = "daisy.openaiModel"
     private static let kKimiModel = "daisy.kimiModel"
     private static let kGeminiModel = "daisy.geminiModel"
+    private static let kYandexModel = "daisy.yandexModel"
+    private static let kYandexFolderID = "daisy.yandexFolderID"
     private static let kOllamaModel = "daisy.ollamaModel"
     private static let kOllamaBaseURL = "daisy.ollamaBaseURL"
     private static let kAgentCLIKind = "daisy.agentCLIKind"
@@ -455,6 +470,15 @@ final class Summarizer {
             ?? KimiAPISummarizer.defaultModelID
         self.geminiModel = UserDefaults.standard.string(forKey: Self.kGeminiModel)
             ?? GeminiAPISummarizer.defaultModelID
+        // Yandex answers a retired model with 400 and no fallback: a
+        // stored retired id moves to its successor here, every launch.
+        let storedYandexModel = UserDefaults.standard.string(forKey: Self.kYandexModel)
+        let yandexModel = YandexAPISummarizer.resolvedModelID(storedYandexModel ?? YandexAPISummarizer.defaultModelID)
+        if let storedYandexModel, storedYandexModel != yandexModel {
+            UserDefaults.standard.set(yandexModel, forKey: Self.kYandexModel)
+        }
+        self.yandexModel = yandexModel
+        self.yandexFolderID = UserDefaults.standard.string(forKey: Self.kYandexFolderID) ?? ""
         self.ollamaModel = UserDefaults.standard.string(forKey: Self.kOllamaModel)
             ?? OllamaAPISummarizer.defaultModelID
         self.ollamaBaseURL = UserDefaults.standard.string(forKey: Self.kOllamaBaseURL)
@@ -509,6 +533,11 @@ final class Summarizer {
             return String(localized: "Kimi API key is missing. Add it in \(SettingsRow.summaryProvider.path).")
         case .gemini:
             return String(localized: "Gemini API key is missing. Add it in \(SettingsRow.summaryProvider.path).")
+        case .yandex:
+            if YandexAPISummarizer.normalizedFolderID(yandexFolderID) == nil {
+                return YandexAPISummarizer.missingFolderMessage
+            }
+            return String(localized: "YandexGPT API key is missing. Add it in \(SettingsRow.summaryProvider.path).")
         case .ollama:
             return String(localized: "Couldn't reach Ollama at \(ollamaBaseURL). Install or open Ollama — \(SettingsRow.summaryProvider.path) has the install button when Ollama is chosen, and the model downloads from there.")
         case .lmStudio:
@@ -709,7 +738,7 @@ final class Summarizer {
     var providerIsEffectivelyLocal: Bool {
         switch providerKind {
         case .appleIntelligence: return true
-        case .anthropic, .openai, .cursor, .kimi, .gemini: return false
+        case .anthropic, .openai, .cursor, .kimi, .gemini, .yandex: return false
         case .ollama:
             return Self.isLoopbackURL(URL(string: ollamaBaseURL))
                 && !OllamaAPISummarizer.isCloudModel(ollamaModel)
@@ -766,6 +795,8 @@ final class Summarizer {
             return KimiAPISummarizer(model: kimiModel)
         case .gemini:
             return GeminiAPISummarizer(model: geminiModel)
+        case .yandex:
+            return YandexAPISummarizer(model: yandexModel, folderID: yandexFolderID)
         case .ollama:
             // Parse base URL with fallback to default if user typed
             // something malformed. Both adapters tolerate a missing

@@ -114,7 +114,7 @@ The rest are counted from Daisy 1.0.8.35.
 
 `<provider>` is the kind of summary provider, never the model, key or
 account:
-- `apple`, `anthropic`, `openai`, `openai_account` (a ChatGPT account), `gemini`, `cursor`, `kimi`;
+- `apple`, `anthropic`, `openai`, `openai_account` (a ChatGPT account), `gemini`, `cursor`, `kimi`, `yandex`;
 - `ollama`, `lmstudio`, `mcp`, `agent_cli`.
 
 **What travels with the counts:**

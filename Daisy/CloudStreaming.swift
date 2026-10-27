@@ -56,7 +56,7 @@ nonisolated enum CloudStreaming {
                     try await Task.sleep(for: .seconds(CloudHTTPRetry.backoff(attempt)))
                     continue
                 }
-                throw error
+                throw timeoutWorded(error, provider: provider, request: request)
             }
             guard let http = response as? HTTPURLResponse else {
                 throw SummaryProviderError.invalidResponse(provider: provider)
@@ -72,6 +72,14 @@ nonisolated enum CloudStreaming {
             log.error("\(provider, privacy: .public) HTTP \(http.statusCode, privacy: .public): \(body, privacy: .private)")
             throw SummaryProviderError.httpError(provider: provider, status: http.statusCode, body: body)
         }
+    }
+
+    /// A `URLError.timedOut` becomes `SummaryProviderError.timedOut`, so
+    /// the person reads «sent nothing for 5 min — timed out» rather than
+    /// a bare system string; anything else passes through (27.10.2026).
+    static func timeoutWorded(_ error: any Error, provider: String, request: URLRequest) -> any Error {
+        guard (error as? URLError)?.code == .timedOut else { return error }
+        return SummaryProviderError.timedOut(provider: provider, seconds: Int(request.timeoutInterval))
     }
 
     /// An error body, capped — it's for a message, not for parsing.
@@ -122,6 +130,9 @@ extension CloudStreaming {
         } catch {
             TokenLedgerSink.record(provider: kind, model: model, spend: spend(stream.completionJSON))
             log.error("\(provider, privacy: .public) stream broke off: \(error.localizedDescription, privacy: .public)")
+            if (error as? URLError)?.code == .timedOut {
+                throw timeoutWorded(error, provider: provider, request: request)
+            }
             throw SummaryProviderError.streamInterrupted(provider: provider, message: error.localizedDescription)
         }
         // Billable even when the answer proves unusable: record first.

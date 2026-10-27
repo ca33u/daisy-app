@@ -95,6 +95,9 @@ nonisolated struct AnthropicAPISummarizer: SummaryProvider {
             // Bill what was generated before the break, then report it.
             TokenLedgerSink.recordAnthropic(model: model, json: stream.messageJSON)
             log.error("Anthropic stream broke off: \(error.localizedDescription, privacy: .public)")
+            if (error as? URLError)?.code == .timedOut {
+                throw CloudStreaming.timeoutWorded(error, provider: "Anthropic", request: request)
+            }
             throw SummaryProviderError.streamInterrupted(provider: "Anthropic", message: error.localizedDescription)
         }
 

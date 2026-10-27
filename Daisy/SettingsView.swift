@@ -3235,6 +3235,29 @@ struct SettingsView: View {
             }
             .pickerStyle(.menu)
 
+        case .yandex:
+            LabeledContent("API key") {
+                SecureField("", text: $settings.yandexAPIKey, prompt: Text("AQVN…"))
+                    .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+            }
+            LabeledContent("Folder ID") {
+                TextField("", text: $summarizer.yandexFolderID, prompt: Text("b1g…"))
+                    .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+            }
+            Picker("Model", selection: $summarizer.yandexModel) {
+                ForEach(YandexAPISummarizer.availableModels, id: \.id) { item in
+                    Text(item.label).tag(item.id)
+                }
+                if !YandexAPISummarizer.availableModels.contains(where: { $0.id == summarizer.yandexModel }) {
+                    Text(String(localized: "Custom: \(summarizer.yandexModel)")).tag(summarizer.yandexModel)
+                }
+            }
+            .pickerStyle(.menu)
+
         case .kimi:
             LabeledContent("API key") {
                 SecureField("", text: $settings.kimiAPIKey, prompt: Text("sk-…"))
@@ -3642,6 +3665,9 @@ struct SettingsView: View {
             return settings.cursorAPIKey.isEmpty
         case .kimi: return settings.kimiAPIKey.isEmpty
         case .gemini: return settings.geminiAPIKey.isEmpty
+        case .yandex:
+            return settings.yandexAPIKey.isEmpty
+                || YandexAPISummarizer.normalizedFolderID(summarizer.yandexFolderID) == nil
         case .ollama: return summarizer.ollamaBaseURL.isEmpty || summarizer.ollamaModel.isEmpty
         case .lmStudio: return summarizer.lmStudioBaseURL.isEmpty || summarizer.lmStudioModel.isEmpty
         case .mcp:
@@ -3675,6 +3701,9 @@ struct SettingsView: View {
             return String(localized: "Transcripts are sent to Cursor through its Agent CLI using your API key, stored in macOS Keychain and passed only through `CURSOR_API_KEY`. Every run uses an empty temporary folder, never passes `--force`, and installs deny rules for shell, file reads/writes, and MCP.")
         case .gemini:
             return String(localized: "Transcripts are sent to Google over HTTPS using your own API key. Create one at aistudio.google.com/apikey — it's stored in your macOS Keychain. On a paid-tier key Google doesn't use your data to train its models; on a free-tier key it may. Roughly $0.01–0.03 per summary on 3.8 Flash.")
+        case .yandex:
+            // No country (Egor, 27.10): the same words as the others.
+            return String(localized: "Transcripts are sent to Yandex over HTTPS using your own API key. Daisy asks Yandex not to log them (x-data-logging-enabled: false) — Yandex says requests sent that way aren’t used to improve its service. Create a key at aistudio.yandex.ru → Create API key — it’s stored in your macOS Keychain; the folder ID is next to the folder name at the top of AI Studio. Roughly $0.10 (about 12 ₽) per hour of meeting on Alice AI LLM.")
         case .kimi:
             return String(localized: "Transcripts are sent to Moonshot over HTTPS using your own API key — and Moonshot's documentation states that requests to its international endpoint are processed in China. Create a key at platform.kimi.ai — it's stored in your macOS Keychain. Cheapest of the cloud providers here: roughly $0.005–0.02 per summary on K2.6.")
         case .ollama:

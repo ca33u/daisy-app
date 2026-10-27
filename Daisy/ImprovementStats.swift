@@ -221,6 +221,7 @@ nonisolated enum ImprovementStats {
             case .gemini: return "gemini"
             case .cursor: return "cursor"
             case .kimi: return "kimi"
+            case .yandex: return "yandex"
             case .ollama: return "ollama"
             case .lmStudio: return "lmstudio"
             case .mcp: return "mcp"
@@ -238,7 +239,7 @@ nonisolated enum ImprovementStats {
     /// Every counter name, as daisy-api's src/usage.ts lists them and
     /// Docs/usage-statistics.md publishes them. A test keeps `Event` to it.
     static let publishedNames: Set<String> = {
-        let providers = ["apple", "anthropic", "openai", "openai_account", "gemini", "cursor", "kimi",
+        let providers = ["apple", "anthropic", "openai", "openai_account", "gemini", "cursor", "kimi", "yandex",
                          "ollama", "lmstudio", "mcp", "agent_cli"]
         return Set([
             "recording.started", "recording.started.calendar", "recording.saved",

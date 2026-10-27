@@ -38,6 +38,10 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
     /// residency caveat the other cloud providers don't — see
     /// `privacyTag` and KimiAPISummarizer's header.
     case kimi
+    /// YandexGPT — Yandex AI Studio's OpenAI-compatible endpoint, on the
+    /// user's API key and folder ID. Added 2026-10-27 for Russian-speaking
+    /// users (Egor); see YandexAPISummarizer's header.
+    case yandex
     /// Ollama (https://ollama.com) on `127.0.0.1:11434` via its native
     /// `/api/chat` REST endpoint. Build 40 added this as a first-class
     /// provider after the pre-PH audit caught the MCP-shim disguise:
@@ -73,6 +77,7 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
         case .gemini: return String(localized: "Google Gemini API")
         case .cursor: return String(localized: "Cursor")
         case .kimi: return String(localized: "Kimi API (Moonshot)")
+        case .yandex: return "YandexGPT"
         case .ollama: return String(localized: "Ollama (local)")
         case .lmStudio: return String(localized: "LM Studio (local)")
         case .mcp: return String(localized: "Custom MCP server (advanced)")
@@ -87,6 +92,7 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
         case .openai: return String(localized: "OpenAI")
         case .cursor: return String(localized: "Cursor")
         case .kimi: return String(localized: "Kimi")
+        case .yandex: return "YandexGPT"
         case .gemini: return "Gemini"
         case .ollama: return String(localized: "Ollama")
         case .lmStudio: return String(localized: "LM Studio")
@@ -103,6 +109,7 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
 
     var requiresAPIKey: Bool {
         self == .anthropic || self == .openai || self == .cursor || self == .kimi || self == .gemini
+            || self == .yandex
     }
 
     /// Six-words-ish, parallel structure so users can compare
@@ -125,6 +132,10 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
             // choosing where their meetings go deserves to read it here
             // rather than find out later.
             return String(localized: "Sent to Moonshot over HTTPS, using your API key — processed in China.")
+        case .yandex:
+            // The same words as the other cloud providers: no country
+            // (Egor, 27.10 — not for Yandex, GigaChat or DeepSeek).
+            return String(localized: "Sent to Yandex over HTTPS, using your API key.")
         case .ollama:
             return String(localized: "Sent to your local Ollama on 127.0.0.1 — stays on your Mac.")
         case .lmStudio:
@@ -318,6 +329,10 @@ enum SummaryProviderError: LocalizedError {
     case refused(provider: String)
     /// A streamed answer broke off after it had started.
     case streamInterrupted(provider: String, message: String)
+    /// Nothing arrived for `seconds` — before the answer started or in
+    /// the middle of it. Its own case so it reads as a timeout, not as
+    /// a server that can't be reached (the Ollama lesson, 27.10.2026).
+    case timedOut(provider: String, seconds: Int)
     /// The provider can't write the meeting's language — Apple
     /// Intelligence and Russian (backlog 32 A-3). Its own case so the
     /// session's no-summary banner can offer the one fix, another
@@ -347,6 +362,9 @@ enum SummaryProviderError: LocalizedError {
             return String(localized: "\(p) declined to summarize this transcript.")
         case .streamInterrupted(let p, let message):
             return String(localized: "\(p): the answer stopped halfway — \(message). Try again.")
+        case .timedOut(let p, let seconds):
+            let minutes = max(1, seconds / 60)
+            return String(localized: "\(p) sent nothing for \(minutes) min — the request timed out. Try again; if it happens again, pick a faster model in \(SettingsRow.summaryProvider.path).")
         case .unsupportedLanguage(let p, let code):
             return AppleIntelligenceLanguageGate.cannotWritePhrase(provider: p, languageCode: code)
                 + " "

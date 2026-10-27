@@ -291,6 +291,171 @@ struct CloudStreamingTests {
             .summarize(transcript: twoHourTranscript, title: "Launch", localeHint: "en", task: .meeting(forceFollowUp: false))
         #expect(try requestJSON()["reasoning_effort"] as? String == "low")
     }
+
+    // MARK: - YandexGPT (27.10.2026)
+
+    /// No usage chunk: these runs must not add spend to the real token
+    /// ledger (`TokenLedger.shared` writes UserDefaults.standard).
+    private func yandexSSE(_ content: String, finish: String) -> String {
+        var out = ""
+        var rest = Substring(content)
+        while !rest.isEmpty {
+            let piece = rest.prefix(20); rest = rest.dropFirst(20)
+            let chunk = ["choices": [["index": 0, "delta": ["content": String(piece)]]]]
+            out += "data: " + String(decoding: try! JSONSerialization.data(withJSONObject: chunk), as: UTF8.self) + "\n\n"
+        }
+        out += "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"\(finish)\"}]}\n\n"
+        return out + "data: [DONE]\n\n"
+    }
+
+    private func yandex(_ responses: [(Int, String)], model: String = YandexAPISummarizer.defaultModelID,
+                        folder: String = "b1gtest", transcript: String? = nil) async throws -> MeetingSummary {
+        try await YandexAPISummarizer(model: model, folderID: folder, urlSession: session(responses), apiKeyOverride: "AQVNtest")
+            .summarize(transcript: transcript ?? twoHourTranscript, title: "Launch", localeHint: "ru", task: .meeting(forceFollowUp: false))
+    }
+
+    @Test("YandexGPT: key, folder and no-logging header on the request; only documented parameters")
+    func yandexRequest() async throws {
+        let summary = try await yandex([(200, yandexSSE(summaryJSON, finish: "stop"))])
+        #expect(summary.summary == "Launch plan agreed.")
+        let request = try #require(StubProtocol.requests.first)
+        #expect(request.url == YandexAPISummarizer.endpoint)
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Api-Key AQVNtest")
+        #expect(request.value(forHTTPHeaderField: "OpenAI-Project") == "b1gtest")
+        #expect(request.value(forHTTPHeaderField: "x-data-logging-enabled") == "false")
+        #expect(request.timeoutInterval == 300)
+        let body = try requestJSON()
+        #expect(body["model"] as? String == "gpt://b1gtest/aliceai-llm")
+        #expect(body["stream"] as? Bool == true)
+        #expect(body["max_tokens"] as? Int == 8192)
+        for unsent in ["temperature", "response_format", "max_completion_tokens", "reasoning_effort", "thinking"] {
+            #expect(body[unsent] == nil, "\(unsent)")
+        }
+    }
+
+    @Test("YandexGPT: a refused stream_options is dropped and the request sent once more")
+    func yandexStreamOptionsFallback() async throws {
+        let refusal = #"{"error":{"message":"Unknown field: stream_options","type":"invalid_request_error"}}"#
+        let summary = try await yandex([(400, refusal), (200, yandexSSE(summaryJSON, finish: "stop"))])
+        #expect(summary.summary == "Launch plan agreed.")
+        #expect(StubProtocol.requests.count == 2)
+        #expect(try requestJSON(0)["stream_options"] != nil)
+        #expect(try requestJSON(1)["stream_options"] == nil)
+    }
+
+    @Test("YandexGPT: a length stop is cut off; a bad key and a retired model say so in words")
+    func yandexErrors() async throws {
+        do {
+            _ = try await yandex([(200, yandexSSE("{\"summary\":\"cut", finish: "length"))])
+            Issue.record("expected outputTruncated")
+        } catch SummaryProviderError.outputTruncated {
+        }
+        do {
+            _ = try await yandex([(401, #"{"error":{"message":"Failed to authenticate","type":"authentication_error"}}"#)])
+            Issue.record("expected the key message")
+        } catch SummaryProviderError.modelUnavailable(_, let reason) {
+            #expect(reason.contains("folder ID") || reason.contains("ID каталога"))
+        }
+        #expect(StubProtocol.requests.count == 1, "a 401 is not retried")
+        do {
+            _ = try await yandex([(400, #"{"error":{"message":"Model gpt://b1gtest/aliceai-llm not found"}}"#)])
+            Issue.record("expected the retired-model message")
+        } catch SummaryProviderError.modelUnavailable(_, let reason) {
+            #expect(reason.contains("aliceai-llm"))
+        }
+        #expect(StubProtocol.requests.count == 1, "a 400 is not retried")
+        // A refusal that names stream_options AND the model is still the
+        // stream_options case, not a retirement.
+        let both = YandexAPISummarizer.worded(status: 400, body: "unknown parameter stream_options for model aliceai-llm", model: "aliceai-llm")
+        guard case .httpError(_, 400, _) = both else { Issue.record("\(both)"); return }
+    }
+
+    @Test("YandexGPT: no folder ID — not ready, and nothing is sent")
+    func yandexNeedsFolder() async throws {
+        let provider = YandexAPISummarizer(folderID: "  ", urlSession: session([]), apiKeyOverride: "AQVNtest")
+        #expect(await provider.isReady() == false)
+        do {
+            _ = try await provider.summarize(transcript: twoHourTranscript, title: "Launch", localeHint: "ru", task: .meeting(forceFollowUp: false))
+            Issue.record("expected the folder message")
+        } catch SummaryProviderError.modelUnavailable {
+        }
+        #expect(StubProtocol.requests.isEmpty)
+        #expect(await YandexAPISummarizer(folderID: "b1gtest", apiKeyOverride: "AQVNtest").isReady())
+    }
+
+    @Test("YandexGPT: a meeting longer than the model's window is refused before anything is sent")
+    func yandexContextWindow() async throws {
+        // ~386K characters ≈ 128.6K tokens at 3 per token, plus the
+        // system prompt: past Alice's 131,072 less the 8,192-token answer.
+        let long = String(repeating: twoHourTranscript + "\n\n", count: 3)
+        #expect(LocalContextGuard.estimatedTokens(promptChars: long.count) > 131_072 - 8192)
+        do {
+            _ = try await yandex([], transcript: long)
+            Issue.record("expected a refusal")
+        } catch SummaryProviderError.modelUnavailable(_, let reason) {
+            #expect(reason.contains("DeepSeek V4.1 Flash"))
+        }
+        #expect(StubProtocol.requests.isEmpty)
+        // DeepSeek's 1M takes the same meeting.
+        _ = try await yandex([(200, yandexSSE(summaryJSON, finish: "stop"))], model: "deepseek-v4.1-flash", transcript: long)
+        #expect(try requestJSON()["max_tokens"] as? Int == 16_384)
+    }
+}
+
+/// The parts of the YandexGPT provider that need no network.
+struct YandexProviderTests {
+    @Test func folderIDIsCleanedAndAWholeURIAccepted() {
+        #expect(YandexAPISummarizer.normalizedFolderID(" b1g4abc5def \n") == "b1g4abc5def")
+        #expect(YandexAPISummarizer.normalizedFolderID("gpt://b1g4abc/aliceai-llm") == "b1g4abc")
+        #expect(YandexAPISummarizer.normalizedFolderID("") == nil)
+        #expect(YandexAPISummarizer.normalizedFolderID("b1g abc") == nil)
+        #expect(YandexAPISummarizer.normalizedFolderID("gpt:///aliceai-llm") == nil)
+    }
+
+    @Test func retiredModelsMoveOnAndOthersStay() {
+        #expect(YandexAPISummarizer.resolvedModelID("yandexgpt-5-lite") == "aliceai-llm")
+        #expect(YandexAPISummarizer.resolvedModelID("gpt-oss-120b") == "aliceai-llm")
+        #expect(YandexAPISummarizer.resolvedModelID("deepseek-v4-flash") == "deepseek-v4.1-flash")
+        #expect(YandexAPISummarizer.resolvedModelID("gpt://b1g/qwen3.6-35b-a3b") == "qwen3.6-35b-a3b")
+        #expect(YandexAPISummarizer.resolvedModelID("my-own-model") == "my-own-model")
+        #expect(YandexAPISummarizer.resolvedModelID("  ") == "aliceai-llm")
+        for model in YandexAPISummarizer.availableModels.map(\.id) {
+            #expect(YandexAPISummarizer.resolvedModelID(model) == model)
+            #expect(YandexAPISummarizer.contextTokens(for: model) != nil, "\(model)")
+        }
+    }
+
+    @Test func httpFailuresInWords() {
+        let busy = YandexAPISummarizer.worded(status: 429, body: "", model: "aliceai-llm")
+        guard case .modelUnavailable = busy else { Issue.record("429: \(busy)"); return }
+        // A 400 about a limit that mentions the model is not a retirement.
+        let limit = YandexAPISummarizer.worded(status: 400, body: "max_tokens exceeds the model limit", model: "aliceai-llm")
+        guard case .httpError(_, 400, _) = limit else { Issue.record("limit: \(limit)"); return }
+        let server = YandexAPISummarizer.worded(status: 500, body: "oops", model: "aliceai-llm")
+        guard case .httpError(_, 500, _) = server else { Issue.record("500: \(server)"); return }
+    }
+
+    @Test func yandexIsACloudProviderEverywhere() {
+        #expect(!SummaryProviderKind.yandex.isLocal)
+        #expect(SummaryProviderKind.yandex.requiresAPIKey)
+        #expect(TokenLedger.isBilled(.yandex))
+        // No country (Egor, 27.10) — in English or Russian.
+        for word in ["Russia", "Росс", "РФ"] {
+            #expect(!SummaryProviderKind.yandex.privacyTag.localizedCaseInsensitiveContains(word))
+        }
+    }
+
+    @Test func aTimeoutReadsAsATimeout() {
+        var request = URLRequest(url: YandexAPISummarizer.endpoint)
+        request.timeoutInterval = 300
+        let worded = CloudStreaming.timeoutWorded(URLError(.timedOut), provider: "YandexGPT", request: request)
+        guard case SummaryProviderError.timedOut(_, 300)? = worded as? SummaryProviderError else {
+            Issue.record("\(worded)"); return
+        }
+        #expect(worded.localizedDescription.contains("5 min") || worded.localizedDescription.contains("5 мин"))
+        let other = CloudStreaming.timeoutWorded(URLError(.notConnectedToInternet), provider: "YandexGPT", request: request)
+        #expect((other as? URLError)?.code == .notConnectedToInternet)
+    }
 }
 
 /// `reasoning_effort: "low"` only where the model takes it — a 400 would

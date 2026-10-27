@@ -25625,6 +25625,146 @@
         }
       }
     },
+    "Sent to Yandex over HTTPS, using your API key." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправляется в Яндекс по HTTPS с использованием твоего API-ключа."
+          }
+        }
+      }
+    },
+    "%@ sent nothing for %lld min — the request timed out. Try again; if it happens again, pick a faster model in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "От %1$@ ничего не приходило %2$lld мин — время ожидания истекло. Попробуй ещё раз; если повторится, выбери модель побыстрее в «%3$@»."
+          }
+        }
+      }
+    },
+    "This meeting is longer than %@ can read (about %lld tokens of %lld). Pick DeepSeek V4.1 Flash in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эта встреча длиннее, чем помещается в %1$@ (примерно %2$lld токенов из %3$lld). Выбери DeepSeek V4.1 Flash в «%4$@»."
+          }
+        }
+      }
+    },
+    "YandexGPT also needs a folder ID. Copy it from the folder name at the top of AI Studio and paste it in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для YandexGPT нужен ещё ID каталога. Скопируй его у названия каталога вверху AI Studio и вставь в «%@»."
+          }
+        }
+      }
+    },
+    "YandexGPT didn’t accept the API key or the folder ID. Check both in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "YandexGPT не принял API-ключ или ID каталога. Проверь оба в «%@»."
+          }
+        }
+      }
+    },
+    "YandexGPT is busy: an account without a subscription runs two requests at a time. Try again in a minute." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "YandexGPT занят: аккаунт без подписки выполняет только два запроса одновременно. Попробуй ещё раз через минуту."
+          }
+        }
+      }
+    },
+    "YandexGPT has no model %@ for this folder — Yandex may have retired it. Pick another model in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У YandexGPT нет модели %1$@ для этого каталога — возможно, Яндекс её отключил. Выбери другую модель в «%2$@»."
+          }
+        }
+      }
+    },
+    "Alice AI LLM (recommended)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alice AI LLM (рекомендуется)"
+          }
+        }
+      }
+    },
+    "Qwen3.6 35B (long meetings)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Qwen3.6 35B (длинные встречи)"
+          }
+        }
+      }
+    },
+    "DeepSeek V4.1 Flash (very long meetings)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DeepSeek V4.1 Flash (очень длинные встречи)"
+          }
+        }
+      }
+    },
+    "YandexGPT API key is missing. Add it in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отсутствует API-ключ YandexGPT. Добавь его в «%@»."
+          }
+        }
+      }
+    },
+    "YandexGPT API key" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "API-ключ YandexGPT"
+          }
+        }
+      }
+    },
+    "Folder ID" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID каталога"
+          }
+        }
+      }
+    },
+    "Transcripts are sent to Yandex over HTTPS using your own API key. Daisy asks Yandex not to log them (x-data-logging-enabled: false) — Yandex says requests sent that way aren’t used to improve its service. Create a key at aistudio.yandex.ru → Create API key — it’s stored in your macOS Keychain; the folder ID is next to the folder name at the top of AI Studio. Roughly $0.10 (about 12 ₽) per hour of meeting on Alice AI LLM." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Транскрипты отправляются в Яндекс по HTTPS с использованием твоего собственного API-ключа. Daisy просит Яндекс не логировать их (x-data-logging-enabled: false) — по словам Яндекса, такие запросы не используются для улучшения сервиса. Создай ключ на aistudio.yandex.ru → «Создать API-ключ» — он хранится в Keychain macOS; ID каталога — рядом с названием каталога вверху AI Studio. Примерно $0.10 (около 12 ₽) за час встречи на Alice AI LLM."
+          }
+        }
+      }
+    },
     "Couldn't reach Ollama at %@. Install or open Ollama — %@ has the install button when Ollama is chosen, and the model downloads from there." : {
       "localizations" : {
         "ru" : {

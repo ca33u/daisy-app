@@ -1192,6 +1192,12 @@ final class AppSettings {
             Task { @MainActor in await Summarizer.shared.refreshAvailability() }
         }
     }
+    var yandexAPIKey: String {
+        didSet {
+            Self.persist(yandexAPIKey, account: SecretKey.yandexAPIKey, label: String(localized: "YandexGPT API key"))
+            Task { @MainActor in await Summarizer.shared.refreshAvailability() }
+        }
+    }
 
     /// The secrets `init` deliberately did not look for in the old
     /// keychain. Runs after launch, off the main thread; a value found
@@ -1207,6 +1213,7 @@ final class AppSettings {
             (SecretKey.cursorAPIKey, \.cursorAPIKey),
             (SecretKey.kimiAPIKey, \.kimiAPIKey),
             (SecretKey.geminiAPIKey, \.geminiAPIKey),
+            (SecretKey.yandexAPIKey, \.yandexAPIKey),
         ].filter { self[keyPath: $0.1].isEmpty }
         guard !wanted.isEmpty else { return }
         Task.detached(priority: .utility) { [weak self] in
@@ -1754,6 +1761,7 @@ final class AppSettings {
         self.openaiAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.openaiAPIKey) ?? ""
         self.cursorAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.cursorAPIKey) ?? ""
         self.geminiAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.geminiAPIKey) ?? ""
+        self.yandexAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.yandexAPIKey) ?? ""
         self.kimiAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.kimiAPIKey) ?? ""
 
         // Reconcile substrate to the policy ONCE at launch — but ONLY

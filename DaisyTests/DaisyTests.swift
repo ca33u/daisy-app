@@ -187,6 +187,10 @@ struct DaisyTests {
             let estimate = TokenCostEstimator.estimate(provider: .gemini, model: model, spend: spend)
             #expect(estimate.hasPricedUsage, "unpriced Gemini model: \(model)")
         }
+        for model in YandexAPISummarizer.availableModels.map(\.id) {
+            let estimate = TokenCostEstimator.estimate(provider: .yandex, model: model, spend: spend)
+            #expect(estimate.hasPricedUsage, "unpriced YandexGPT model: \(model)")
+        }
     }
 
     @Test("Saved Claude models move to their same-tier successors, once")

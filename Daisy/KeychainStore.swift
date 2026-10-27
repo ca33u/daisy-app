@@ -255,6 +255,7 @@ nonisolated enum SecretKey {
     static let cursorAPIKey = "cursor.api_key"
     static let kimiAPIKey = "kimi.api_key"
     static let geminiAPIKey = "gemini.api_key"
+    static let yandexAPIKey = "yandex.api_key"
     /// Google OAuth refresh token — long-lived, used to mint new
     /// access tokens. Cleared on Disconnect (after a revoke roundtrip
     /// to Google so the consent grant is gone server-side too).
@@ -275,6 +276,7 @@ nonisolated enum SecretKey {
         cursorAPIKey,
         kimiAPIKey,
         geminiAPIKey,
+        yandexAPIKey,
         googleRefreshToken,
         googleEmail,
     ]
