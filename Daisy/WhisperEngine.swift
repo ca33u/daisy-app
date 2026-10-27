@@ -928,13 +928,7 @@ final class WhisperEngine {
         // still warm the decoder off the critical path via
         // `warmUpIfNeeded()` (Phase 4 in `performLoad`), so first-decode
         // latency is unchanged.
-        let config = WhisperKitConfig(
-            modelFolder: folder.path,
-            prewarm: false,
-            load: true,
-            download: false
-        )
-        let kit = try await WhisperKit(config)
+        let kit = try await WhisperKit(kitConfig(folder: folder))
         if verify {
             _ = try await kit.transcribe(
                 audioArray: [Float](repeating: 0, count: 16_000),
@@ -943,6 +937,38 @@ final class WhisperEngine {
             )
         }
         return WhisperKitBox(kit)
+    }
+
+    /// The config `loadKit` hands WhisperKit, split out so tests can pin it.
+    ///
+    /// `tokenizerFolder` is set explicitly. Left nil (and Daisy passes no
+    /// `downloadBase` either), WhisperKit's Hub client falls back to
+    /// `~/Documents/huggingface`: it looks for the tokenizer there BEFORE
+    /// the model folder, tries only the first folder that has a
+    /// `tokenizer.json` — so a model folder with the tokenizer inside never
+    /// got its turn — and downloads it there when that load fails. Under macOS privacy controls ~/Documents is a
+    /// protected folder — with Daisy's access to it denied, reading the
+    /// tokenizer and deleting its `.metadata` files both fail, and every
+    /// load ended in "Invalid metadata: Could not remove corrupted metadata
+    /// file … no permission" (field report 2026-10-27), which "Download
+    /// speech model again" couldn't cure because it only parks the model
+    /// folder. Pointed at our own base, the search becomes Application
+    /// Support → the model folder (our mirror ships the tokenizer inside),
+    /// and a Hub fallback downloads into Application Support too (a model
+    /// folder without the tokenizer — WhisperKit's own download, or any
+    /// from before the mirror — fetches it once; offline, the reconnect
+    /// retry picks it up). The old `~/Documents/huggingface/models/openai`
+    /// folder is left alone — never read, moved or deleted. Should the
+    /// Application Support lookup ever fail, the model folder stands in
+    /// rather than letting nil send the tokenizer back to ~/Documents.
+    nonisolated static func kitConfig(folder: URL) -> WhisperKitConfig {
+        WhisperKitConfig(
+            modelFolder: folder.path,
+            tokenizerFolder: modelsDownloadBase() ?? folder,
+            prewarm: false,
+            load: true,
+            download: false
+        )
     }
 
     // MARK: - In-actor semaphore
