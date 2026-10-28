@@ -186,6 +186,9 @@ struct MeetingSummarySchemaTests {
 
 @Suite("Agent process runner")
 struct AgentProcessRunnerTests {
+    // Timeouts here are generous on purpose: these tests check the pipes,
+    // not the timeout, and a child `cat` under a busy machine (the release
+    // run, 28.10, beside another project's build) missed 2 s.
     @Test("Transcript travels through stdin and scratch folder is deleted")
     func stdinAndCleanup() async throws {
         let runner = try AgentProcessRunner(executable: .testCat)
@@ -193,7 +196,7 @@ struct AgentProcessRunnerTests {
         let result = try await runner.run(.init(
             arguments: [],
             stdin: Data(transcript.utf8),
-            timeout: 2
+            timeout: 10
         ))
 
         #expect(result.stdoutText == transcript)
@@ -206,7 +209,7 @@ struct AgentProcessRunnerTests {
         let result = try await runner.run(.init(
             arguments: [.literal("1"), .literal("10000")],
             stdin: Data(),
-            timeout: 2,
+            timeout: 10,
             stdoutLimit: 128,
             stderrLimit: 128
         ))
@@ -277,7 +280,7 @@ struct AgentProcessRunnerTests {
         let result = try await runner.run(.init(
             arguments: [.literal(".cursor/cli.json")],
             stdin: Data(),
-            timeout: 1,
+            timeout: 10,
             inputFiles: [".cursor/cli.json": Data("deny-policy".utf8)]
         ))
         #expect(result.stdoutText == "deny-policy")
@@ -304,7 +307,7 @@ struct AgentProcessRunnerTests {
             stdin: Data(),
             environment: ["OPENAI_API_KEY": "SECRET_TOKEN"],
             removingEnvironmentVariables: ["OPENAI_API_KEY"],
-            timeout: 1
+            timeout: 10
         ))
 
         #expect(!result.stdoutText.contains("SECRET_TOKEN"))
@@ -319,7 +322,7 @@ struct AgentProcessRunnerTests {
             _ = try await runner.run(.init(
                 arguments: [.literal("needle"), .literal(sentinel)],
                 stdin: Data(),
-                timeout: 1
+                timeout: 10
             ))
             Issue.record("Expected grep to fail for a missing file")
         } catch let error as AgentProcessRunnerError {
@@ -338,7 +341,7 @@ struct AgentProcessRunnerTests {
                     let result = try await runner.run(.init(
                         arguments: [],
                         stdin: Data(payload.utf8),
-                        timeout: 2
+                        timeout: 10
                     ))
                     #expect(!FileManager.default.fileExists(atPath: result.temporaryDirectory.path))
                     return result.stdoutText

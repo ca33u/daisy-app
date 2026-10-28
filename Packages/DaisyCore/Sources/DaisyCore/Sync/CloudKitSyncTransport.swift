@@ -44,7 +44,7 @@ public nonisolated enum SyncError: LocalizedError {
 }
 
 public final class CloudKitSyncTransport: SyncTransport, @unchecked Sendable {
-    public static let defaultContainerID = "iCloud.app.essazanov.Daisy"
+    nonisolated public static let defaultContainerID = "iCloud.app.essazanov.Daisy"
     static let zoneName = "DaisySessions"
     static let sessionType = "Session"
     static let fileType = "SessionFile"

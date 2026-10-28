@@ -24,6 +24,7 @@ import CryptoKit
 import DaisyCore
 import Foundation
 import Observation
+import Security
 import os
 
 @MainActor
@@ -60,8 +61,31 @@ final class SyncCoordinator {
 
     /// The server versions outlive a relaunch, so the first push after
     /// launch is not refused and followed by a full zone download.
-    private let transport = CloudKitSyncTransport(versionsURL: (SessionsFolder.defaultBase() ?? FileManager.default.temporaryDirectory)
-        .appendingPathComponent("Daisy/sync-versions.json"))
+    ///
+    /// Lazy, and only behind `cloudKitAvailable` (Sentry 156682704, 27.10):
+    /// `CKContainer(identifier:)` traps — EXC_BREAKPOINT inside CloudKit —
+    /// for a container the app's signature doesn't list, and as a stored
+    /// property this ran on the first touch of `shared`, at every launch,
+    /// sync on or off. A build of the public repo without Daisy's
+    /// provisioning profile died at launch.
+    @ObservationIgnored private lazy var transport = CloudKitSyncTransport(
+        versionsURL: (SessionsFolder.defaultBase() ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("Daisy/sync-versions.json"))
+
+    /// Whether this copy of Daisy may use its iCloud container at all.
+    nonisolated static let cloudKitAvailable: Bool = {
+        guard let task = SecTaskCreateFromSelf(nil) else { return false }
+        let value = SecTaskCopyValueForEntitlement(task, "com.apple.developer.icloud-container-identifiers" as CFString, nil)
+        return entitles(value, container: CloudKitSyncTransport.defaultContainerID)
+    }()
+
+    nonisolated static func entitles(_ value: Any?, container: String) -> Bool {
+        (value as? [String])?.contains(container) ?? false
+    }
+
+    nonisolated static var unavailableMessage: String {
+        String(localized: "This copy of Daisy isn’t signed for iCloud, so sync can’t run. The release from mydaisy.io can.")
+    }
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "Sync")
     @ObservationIgnored private var engine: SessionSyncEngine?
     @ObservationIgnored private var pending: Task<Void, Never>?
@@ -124,6 +148,10 @@ final class SyncCoordinator {
 
     func syncNow() async {
         guard isEnabled, !inFlight else { return }
+        guard Self.cloudKitAvailable else {
+            status = .failed(Self.unavailableMessage)
+            return
+        }
         guard let ticket = SessionsFolder.acquireBase() else { return }
         defer { ticket.release() }
         inFlight = true
@@ -150,6 +178,9 @@ final class SyncCoordinator {
     /// J-0: "Delete my data from iCloud" — the server side of the sync,
     /// and this Mac's memory of it. Nothing local is touched.
     func eraseCloudData() async throws {
+        // Throw, not return: the Settings sheet reads «no error» as
+        // «Deleted», and nothing was.
+        guard Self.cloudKitAvailable else { throw SyncError.cloud(Self.unavailableMessage) }
         guard let ticket = SessionsFolder.acquireBase() else { return }
         defer { ticket.release() }
         pending?.cancel()
@@ -161,6 +192,10 @@ final class SyncCoordinator {
 
     /// The person deleted a session here: remember it for the next pass.
     func markDeleted(_ id: String) {
+        // An unentitled build never syncs, so it has no deletion to carry;
+        // a signed build syncing the same folder later sees the session
+        // gone from disk and asks the person, as for any other gap.
+        guard Self.cloudKitAvailable else { return }
         guard let ticket = SessionsFolder.acquireBase() else { return }
         defer { ticket.release() }
         engine(for: ticket.url).markDeleted(id)

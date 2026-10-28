@@ -971,6 +971,16 @@
         }
       }
     },
+    "This copy of Daisy isn’t signed for iCloud, so sync can’t run. The release from mydaisy.io can." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эта копия Daisy не подписана для iCloud, поэтому синхронизация недоступна. В версии с mydaisy.io она работает."
+          }
+        }
+      }
+    },
     "This needs a Mac with Apple silicon (M1 or newer): the speech model doesn’t run on Intel Macs yet." : {
       "localizations" : {
         "ru" : {

@@ -38,6 +38,10 @@ struct SyncSettingsSection: View {
                     if wanted { showExplanation = true } else { sync.isEnabled = false }
                 }
             ))
+            // A copy not signed for Daisy's iCloud container (a build of the
+            // public repo) can't sync; say so instead of a privacy sheet
+            // that ends in a failure.
+            .disabled(!SyncCoordinator.cloudKitAvailable)
             .settingsRow(.iCloudSync)
             .sheet(isPresented: $showExplanation) {
                 VStack(alignment: .leading, spacing: 16) {
@@ -54,6 +58,11 @@ struct SyncSettingsSection: View {
                 }
                 .padding(24)
                 .frame(width: 520)
+            }
+            if !SyncCoordinator.cloudKitAvailable {
+                Text(SyncCoordinator.unavailableMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             HStack(alignment: .firstTextBaseline) {
                 Text(statusLine)
@@ -73,7 +82,7 @@ struct SyncSettingsSection: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .tint(Color.daisyTextPrimary)
-                    .disabled(erasing)
+                    .disabled(erasing || !SyncCoordinator.cloudKitAvailable)
                     .confirmationDialog("Delete everything Daisy put in your iCloud?", isPresented: $confirmErase, titleVisibility: .visible) {
                         Button("Delete from iCloud", role: .destructive) {
                             erasing = true
