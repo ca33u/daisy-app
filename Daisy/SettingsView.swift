@@ -235,6 +235,10 @@ struct SettingsView: View {
     /// probe, false shows the install button and keeps probing every
     /// 5 s, true shows the download list (backlog 33).
     @State private var ollamaReachable: Bool?
+    /// Daisy is starting Ollama right now / its last start didn't bring the
+    /// server up (`OllamaLauncher`).
+    @State private var ollamaStarting = false
+    @State private var ollamaStartFailed = false
     /// Bumped after a download lands so the installed list is re-read.
     @State private var ollamaRefreshTick = 0
     /// Owns the user-added meeting-app list; @Observable, so the rows
@@ -3429,6 +3433,7 @@ struct SettingsView: View {
             // list appears by itself once Ollama is running — no
             // relaunch (backlog 33 У-2).
             .task(id: "\(summarizer.ollamaBaseURL)|\(ollamaRefreshTick)") {
+                ollamaStartFailed = false
                 while !Task.isCancelled {
                     let models = await OllamaAPISummarizer.fetchInstalledModelsIfReachable(baseURL: ollamaBaseURLValue)
                     let wasReachable = ollamaReachable
@@ -3438,6 +3443,21 @@ struct SettingsView: View {
                         if wasReachable != true { await summarizer.refreshAvailability() }
                         return
                     }
+                    // Installed but not running (after a restart it isn't a
+                    // login item): start it rather than wait for the person.
+                    let base = ollamaBaseURLValue
+                    if OllamaLauncher.isLoopback(base), OllamaLauncher.isInstalled {
+                        // After a failed start the next tries (one probe each
+                        // within the minute) keep the failure line instead of
+                        // flashing the spinner every five seconds.
+                        if !ollamaStartFailed { ollamaStarting = true }
+                        let started = await OllamaLauncher.shared.ensureRunning(baseURL: base, probe: { url in
+                            await OllamaAPISummarizer.fetchInstalledModelsIfReachable(baseURL: url) != nil
+                        })
+                        ollamaStarting = false
+                        ollamaStartFailed = !started && !Task.isCancelled
+                        if started { continue }
+                    }
                     try? await Task.sleep(for: .seconds(5))
                 }
             }
@@ -3445,7 +3465,11 @@ struct SettingsView: View {
             // Mac: the way in. A remote host that doesn't answer is the
             // person's server, not something to install here (review 20.10).
             if ollamaReachable == false, ollamaBaseURLIsLoopback {
-                ollamaInstallRows
+                if OllamaLauncher.isLoopback(ollamaBaseURLValue), OllamaLauncher.isInstalled {
+                    ollamaStartingRows
+                } else {
+                    ollamaInstallRows
+                }
                 LabeledContent("Model tag") {
                     TextField("", text: $summarizer.ollamaModel, prompt: Text(OllamaAPISummarizer.defaultModelID))
                         .textFieldStyle(.roundedBorder)
@@ -3775,6 +3799,31 @@ struct SettingsView: View {
     private var ollamaBaseURLIsLoopback: Bool {
         let host = ollamaBaseURLValue.host()?.lowercased() ?? ""
         return host.isEmpty || host == "127.0.0.1" || host == "localhost" || host == "::1" || host == "[::1]"
+    }
+
+    /// Ollama.app is on this Mac but its server isn't answering: Daisy is
+    /// starting it (`OllamaLauncher`), with a button for the case it doesn't
+    /// come up by itself.
+    @ViewBuilder
+    private var ollamaStartingRows: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if ollamaStartFailed && !ollamaStarting {
+                Text("Daisy couldn’t start Ollama. Open it yourself — the list of models appears here once it answers.")
+                    .foregroundStyle(Color.daisyWarningText)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("Ollama is installed but not running — Daisy is starting it…")
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Button("Open Ollama") {
+                if let url = OllamaLauncher.installedAppURL() { NSWorkspace.shared.open(url) }
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(.vertical, 4)
     }
 
     /// Backlog 33 У-2 (а): no Ollama answering — the way in, without

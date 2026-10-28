@@ -300,6 +300,8 @@ final class Summarizer {
     // MARK: - Observable
 
     private(set) var availability: AvailabilityState = .unknown
+    @ObservationIgnored private var availabilityGeneration = 0
+    @ObservationIgnored private var appliedAvailabilityGeneration = 0
     private(set) var isSummarizing = false
     private(set) var lastSummary: MeetingSummary?
 
@@ -504,8 +506,18 @@ final class Summarizer {
     // MARK: - Availability
 
     func refreshAvailability() async {
+        // An Ollama check can now take ~20 s while Daisy starts it (review
+        // 28.10). A cancelled check (Settings closed, a brief's timeout)
+        // says nothing; an answer older than one already applied, or for
+        // a provider the person has since left, is dropped — but a newer
+        // check that was cancelled doesn't silence an older correct one.
+        availabilityGeneration &+= 1
+        let generation = availabilityGeneration
+        let kind = providerKind
         let provider = makeProvider()
         let ready = await provider.isReady()
+        guard !Task.isCancelled, kind == providerKind, generation > appliedAvailabilityGeneration else { return }
+        appliedAvailabilityGeneration = generation
         if ready {
             availability = .available
         } else {

@@ -11,6 +11,16 @@
         }
       }
     },
+    "Daisy couldn’t start Ollama. Open it yourself — the list of models appears here once it answers." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не получилось запустить Ollama. Открой её вручную — список моделей появится здесь, как только она ответит."
+          }
+        }
+      }
+    },
     "Dictation can’t start: on an Intel Mac it needs Faster or Apple dictation ready. Check %@." : {
       "localizations" : {
         "ru" : {
@@ -87,6 +97,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ollama не успела написать саммари за %lld мин — эта модель слишком медленная для такой длинной встречи. Выбери модель поменьше или облачного провайдера в «%@»."
+          }
+        }
+      }
+    },
+    "Ollama is installed but not running — Daisy is starting it…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ollama установлена, но не запущена — Daisy её запускает…"
+          }
+        }
+      }
+    },
+    "Open Ollama" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть Ollama"
           }
         }
       }

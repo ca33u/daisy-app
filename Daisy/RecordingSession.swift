@@ -2606,6 +2606,16 @@ final class RecordingSession {
 
         startedAt = nowStarted
         status = .recording
+        // Ollama as the provider and not answering right now (after a
+        // restart it isn't running, and the launch-time check may have
+        // given up before it came up): ask again now, which starts it.
+        // `stop()` reads the cached availability and must not wait 20 s
+        // for a launch, so it has to be settled before the meeting ends
+        // (review 28.10).
+        if currentMode == .meeting, settings.autoSummarize,
+           summarizer.providerKind == .ollama, summarizer.availability != .available {
+            Task { [summarizer] in await summarizer.refreshAvailability() }
+        }
         // The recording's own log excerpt, kept in its folder from here
         // on (B-3): the Info lines a report sent hours later has lost.
         // Not for dictation — seconds long, and its folder is a sidecar.

@@ -43,14 +43,20 @@ nonisolated struct OllamaAPISummarizer: SummaryProvider {
 
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "OllamaSummarizer")
 
+    /// Starts Ollama when it's installed and not answering; injectable so a
+    /// test never reaches the real app.
+    let launcher: OllamaLauncher
+
     init(
         baseURL: URL = URL(string: "http://127.0.0.1:11434")!,
         model: String = defaultModelID,
-        urlSession: URLSession = .shared
+        urlSession: URLSession = .shared,
+        launcher: OllamaLauncher = .shared
     ) {
         self.baseURL = baseURL
         self.model = model
         self.urlSession = urlSession
+        self.launcher = launcher
     }
 
     /// The `/api/chat` body. `think: false` (field report 27.10): thinking
@@ -117,16 +123,29 @@ nonisolated struct OllamaAPISummarizer: SummaryProvider {
     /// any network error or non-2xx status — Settings UI flips the
     /// provider pill to "unavailable" so the user knows before they
     /// record a 45-minute meeting.
+    ///
+    /// No answer from Ollama on this Mac starts it, when it's installed, and
+    /// waits for it (`OllamaLauncher`, 28.10) — after a restart it isn't
+    /// running and isn't a login item.
     func isReady() async -> Bool {
-        var request = URLRequest(url: baseURL.appendingPathComponent("api/tags"))
-        request.httpMethod = "GET"
-        request.timeoutInterval = 2 // tight — Ollama on localhost responds <50ms
-        do {
-            let (_, response) = try await urlSession.data(for: request)
-            guard let http = response as? HTTPURLResponse else { return false }
-            return (200..<300).contains(http.statusCode)
-        } catch {
-            return false
+        let probe = Self.probe(urlSession: urlSession)
+        if await probe(baseURL) { return true }
+        return await launcher.ensureRunning(baseURL: baseURL, probe: probe)
+    }
+
+    /// One `/api/tags` round trip: does a server answer at this address?
+    static func probe(urlSession: URLSession) -> @Sendable (URL) async -> Bool {
+        { baseURL in
+            var request = URLRequest(url: baseURL.appendingPathComponent("api/tags"))
+            request.httpMethod = "GET"
+            request.timeoutInterval = 2 // tight — Ollama on localhost responds <50ms
+            do {
+                let (_, response) = try await urlSession.data(for: request)
+                guard let http = response as? HTTPURLResponse else { return false }
+                return (200..<300).contains(http.statusCode)
+            } catch {
+                return false
+            }
         }
     }
 
@@ -187,9 +206,27 @@ nonisolated struct OllamaAPISummarizer: SummaryProvider {
                 // URLSession throws `.cancelled`, and only CancellationError
                 // reads as harmless upstream.
                 if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+                // Nobody listening (Ollama quit, or never started since the
+                // restart): start it and ask once more.
+                if let code = (error as? URLError)?.code, code == .cannotConnectToHost || code == .networkConnectionLost {
+                    let started = await launcher.ensureRunning(baseURL: baseURL, probe: Self.probe(urlSession: urlSession))
+                    if Task.isCancelled { throw CancellationError() }
+                    if started {
+                        do {
+                            return try await urlSession.data(for: request)
+                        } catch {
+                            if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+                            throw Self.transportError(error, baseURL: baseURL, timeout: timeout,
+                                                      serverAnswers: (error as? URLError)?.code == .timedOut)
+                        }
+                    }
+                }
                 // A timeout from a server that no longer answers at all is
                 // «couldn't reach», not «too slow».
-                let answers = (error as? URLError)?.code == .timedOut ? await isReady() : false
+                // The plain probe, not isReady(): that one starts Ollama and
+                // waits, and a restarted server would then read «too slow».
+                let answers = (error as? URLError)?.code == .timedOut
+                    ? await Self.probe(urlSession: urlSession)(baseURL) : false
                 throw Self.transportError(error, baseURL: baseURL, timeout: timeout, serverAnswers: answers)
             }
         }
