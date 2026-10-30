@@ -1,6 +1,106 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "The Daisy local model isn’t on this Mac yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Локальной модели Daisy пока нет на этом Mac."
+          }
+        }
+      }
+    },
+    "Daisy couldn’t read the local model’s files. Download the model again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не получилось прочитать файлы локальной модели. Скачай модель заново."
+          }
+        }
+      }
+    },
+    "This meeting is too long for the local model on this Mac. Choose a cloud provider for it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эта встреча слишком длинная для локальной модели на этом Mac. Выбери для неё облачного провайдера."
+          }
+        }
+      }
+    },
+    "Daisy asked the local model for a summary format it can’t follow." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Локальная модель не может выдать саммари в том формате, который просит Daisy."
+          }
+        }
+      }
+    },
+    "The local model ran out of room before it finished the summary." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Локальной модели не хватило места, чтобы дописать саммари."
+          }
+        }
+      }
+    },
+    "The summary was cancelled." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Саммари отменено."
+          }
+        }
+      }
+    },
+    "The Daisy local model needs a Mac with Apple silicon." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Локальной модели Daisy нужен Mac на Apple silicon."
+          }
+        }
+      }
+    },
+    "The local model’s helper is from another version of Daisy. Quit Daisy and open it again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Помощник локальной модели — от другой версии Daisy. Закрой Daisy и открой заново."
+          }
+        }
+      }
+    },
+    "The local model stopped before it finished. Try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Локальная модель остановилась, не закончив. Попробуй ещё раз."
+          }
+        }
+      }
+    },
+    "The local model failed: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ошибка локальной модели: %@"
+          }
+        }
+      }
+    },
     "Couldn’t reach Ollama at %@. Open Ollama (or run `ollama serve`) and try again. (%@)" : {
       "localizations" : {
         "ru" : {

@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B9AA0000000000000000000B /* DaisyLLMEngine in Frameworks */ = {isa = PBXBuildFile; productRef = B9AA0000000000000000000C /* DaisyLLMEngine */; };
+		B9AA0000000000000000000F /* DaisyLLMKit in Frameworks */ = {isa = PBXBuildFile; productRef = B9AA0000000000000000000E /* DaisyLLMKit */; };
+		B9AA00000000000000000011 /* DaisyLLM.xpc in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = B9AA00000000000000000001 /* DaisyLLM.xpc */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B9AA00000000000000000015 /* DaisyLLMKit in Frameworks */ = {isa = PBXBuildFile; productRef = B9AA00000000000000000014 /* DaisyLLMKit */; };
 		B9895A7E2FBC19FC0028BF24 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = B9895A7D2FBC19FC0028BF24 /* Sparkle */; };
 		B9BBC7332FB863E90016C22C /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = B9BBC7322FB863E90016C22C /* FluidAudio */; };
 		B9D5000000000000000000D3 /* DaisyDesign in Frameworks */ = {isa = PBXBuildFile; productRef = B9D5000000000000000000D2 /* DaisyDesign */; };
@@ -16,6 +20,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		B9AA00000000000000000012 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B9F5F1142FB74D9F00E26A7A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B9AA00000000000000000004;
+			remoteInfo = DaisyLLM;
+		};
 		B9F5F12A2FB74DA000E26A7A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = B9F5F1142FB74D9F00E26A7A /* Project object */;
@@ -25,12 +36,45 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		B9AA00000000000000000010 /* Embed XPC Services */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/XPCServices";
+			dstSubfolderSpec = 16;
+			files = (
+				B9AA00000000000000000011 /* DaisyLLM.xpc in Embed XPC Services */,
+			);
+			name = "Embed XPC Services";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		B9AA00000000000000000001 /* DaisyLLM.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = DaisyLLM.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
 		B9F5F11C2FB74D9F00E26A7A /* Daisy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Daisy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B9F5F1292FB74DA000E26A7A /* DaisyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DaisyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		B9AA00000000000000000003 /* Exceptions for "DaisyLLM" folder in "DaisyLLM" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = B9AA00000000000000000004 /* DaisyLLM */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		B9AA00000000000000000002 /* DaisyLLM */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				B9AA00000000000000000003 /* Exceptions for "DaisyLLM" folder in "DaisyLLM" target */,
+			);
+			path = DaisyLLM;
+			sourceTree = "<group>";
+		};
 		B9F5F11E2FB74D9F00E26A7A /* Daisy */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Daisy;
@@ -44,6 +88,15 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		B9AA00000000000000000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B9AA0000000000000000000B /* DaisyLLMEngine in Frameworks */,
+				B9AA00000000000000000015 /* DaisyLLMKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B9F5F1192FB74D9F00E26A7A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -54,6 +107,7 @@
 				B9F5F19B2FB75DA300E26A7A /* WhisperKit in Frameworks */,
 				B9D5000000000000000000D3 /* DaisyDesign in Frameworks */,
 				B9D5000000000000000000D5 /* DaisyCore in Frameworks */,
+				B9AA0000000000000000000F /* DaisyLLMKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -72,6 +126,7 @@
 			children = (
 				B9F5F11E2FB74D9F00E26A7A /* Daisy */,
 				B9F5F12C2FB74DA000E26A7A /* DaisyTests */,
+				B9AA00000000000000000002 /* DaisyLLM */,
 				B9F5F11D2FB74D9F00E26A7A /* Products */,
 			);
 			sourceTree = "<group>";
@@ -81,6 +136,7 @@
 			children = (
 				B9F5F11C2FB74D9F00E26A7A /* Daisy.app */,
 				B9F5F1292FB74DA000E26A7A /* DaisyTests.xctest */,
+				B9AA00000000000000000001 /* DaisyLLM.xpc */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -88,6 +144,30 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		B9AA00000000000000000004 /* DaisyLLM */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B9AA00000000000000000008 /* Build configuration list for PBXNativeTarget "DaisyLLM" */;
+			buildPhases = (
+				B9AA00000000000000000005 /* Sources */,
+				B9AA00000000000000000006 /* Frameworks */,
+				B9AA00000000000000000007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B9AA00000000000000000002 /* DaisyLLM */,
+			);
+			name = DaisyLLM;
+			packageProductDependencies = (
+				B9AA0000000000000000000C /* DaisyLLMEngine */,
+				B9AA00000000000000000014 /* DaisyLLMKit */,
+			);
+			productName = DaisyLLM;
+			productReference = B9AA00000000000000000001 /* DaisyLLM.xpc */;
+			productType = "com.apple.product-type.xpc-service";
+		};
 		B9F5F11B2FB74D9F00E26A7A /* Daisy */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = B9F5F13D2FB74DA000E26A7A /* Build configuration list for PBXNativeTarget "Daisy" */;
@@ -96,10 +176,12 @@
 				B9F5F1192FB74D9F00E26A7A /* Frameworks */,
 				B9F5F11A2FB74D9F00E26A7A /* Resources */,
 				B9F6100000000000000001 /* Russian strings Sparkle is missing */,
+				B9AA00000000000000000010 /* Embed XPC Services */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				B9AA00000000000000000013 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				B9F5F11E2FB74D9F00E26A7A /* Daisy */,
@@ -112,6 +194,7 @@
 				B9E5E2000000000000000002 /* Sentry */,
 				B9D5000000000000000000D2 /* DaisyDesign */,
 				B9D5000000000000000000D4 /* DaisyCore */,
+				B9AA0000000000000000000E /* DaisyLLMKit */,
 			);
 			productName = Daisy;
 			productReference = B9F5F11C2FB74D9F00E26A7A /* Daisy.app */;
@@ -150,6 +233,9 @@
 				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 2700;
 				TargetAttributes = {
+					B9AA00000000000000000004 = {
+						CreatedOnToolsVersion = 26.2;
+					};
 					B9F5F11B2FB74D9F00E26A7A = {
 						CreatedOnToolsVersion = 26.2;
 					};
@@ -175,6 +261,7 @@
 				B9895A7C2FBC19FC0028BF24 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				B9E5E2000000000000000001 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				B9D5000000000000000000D1 /* XCLocalSwiftPackageReference "Packages/DaisyCore" */,
+				B9AA0000000000000000000D /* XCLocalSwiftPackageReference "Packages/DaisyLLM" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B9F5F11D2FB74D9F00E26A7A /* Products */;
@@ -183,11 +270,19 @@
 			targets = (
 				B9F5F11B2FB74D9F00E26A7A /* Daisy */,
 				B9F5F1282FB74DA000E26A7A /* DaisyTests */,
+				B9AA00000000000000000004 /* DaisyLLM */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		B9AA00000000000000000007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B9F5F11A2FB74D9F00E26A7A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -226,6 +321,13 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		B9AA00000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B9F5F1182FB74D9F00E26A7A /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -243,6 +345,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		B9AA00000000000000000013 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B9AA00000000000000000004 /* DaisyLLM */;
+			targetProxy = B9AA00000000000000000012 /* PBXContainerItemProxy */;
+		};
 		B9F5F12B2FB74DA000E26A7A /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = B9F5F11B2FB74D9F00E26A7A /* Daisy */;
@@ -251,6 +358,70 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		B9AA00000000000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 162;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = LW64FQXZCU;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = DaisyLLM/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Daisy Local Model";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.8.45;
+				ONLY_ACTIVE_ARCH = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = app.essazanov.Daisy.LLM;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		B9AA0000000000000000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 162;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = LW64FQXZCU;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = DaisyLLM/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Daisy Local Model";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.8.45;
+				ONLY_ACTIVE_ARCH = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = app.essazanov.Daisy.LLM;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 		B9F5F13B2FB74DA000E26A7A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -496,6 +667,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		B9AA00000000000000000008 /* Build configuration list for PBXNativeTarget "DaisyLLM" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B9AA00000000000000000009 /* Debug */,
+				B9AA0000000000000000000A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		B9F5F1172FB74D9F00E26A7A /* Build configuration list for PBXProject "Daisy" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -526,6 +706,10 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		B9AA0000000000000000000D /* XCLocalSwiftPackageReference "Packages/DaisyLLM" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/DaisyLLM;
+		};
 		B9D5000000000000000000D1 /* XCLocalSwiftPackageReference "Packages/DaisyCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/DaisyCore;
@@ -568,6 +752,18 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		B9AA0000000000000000000C /* DaisyLLMEngine */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DaisyLLMEngine;
+		};
+		B9AA0000000000000000000E /* DaisyLLMKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DaisyLLMKit;
+		};
+		B9AA00000000000000000014 /* DaisyLLMKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DaisyLLMKit;
+		};
 		B9895A7D2FBC19FC0028BF24 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = B9895A7C2FBC19FC0028BF24 /* XCRemoteSwiftPackageReference "Sparkle" */;

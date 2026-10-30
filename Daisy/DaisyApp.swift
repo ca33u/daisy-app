@@ -28,6 +28,10 @@ struct DaisyApp: App {
     @State private var floatingPanel: FloatingPanelController
 
     init() {
+        // `--daisy-llm-smoke`: run the local model once and exit, before
+        // anything below starts (DaisyLLMSmoke). Returns at once otherwise.
+        DaisyLLMSmoke.runIfRequested()
+
         // A write to a pipe whose reader has gone (a Codex app server or an
         // agent CLI that exited) raises SIGPIPE, and its default action ends
         // the whole app. Ignored from launch, the write fails with EPIPE and

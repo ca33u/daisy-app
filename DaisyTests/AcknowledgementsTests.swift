@@ -20,7 +20,9 @@ struct AcknowledgementsTests {
     @Test func theAppCarriesItsAcknowledgements() throws {
         let text = try shipped()
         for name in ["WhisperKit", "FluidAudio", "Sparkle", "Sentry", "Silero VAD", "OpenAI Whisper",
-                     "Parakeet TDT 0.6B v3", "CC BY 4.0", "OpenMDW 1.1", "Fluid Inference speaker models"] {
+                     "Parakeet TDT 0.6B v3", "CC BY 4.0", "OpenMDW 1.1", "Fluid Inference speaker models",
+                     // DaisyLLM.xpc, the local summary model's helper.
+                     "MLX Swift", "MLX Swift LM", "XGrammar", "swift-transformers"] {
             #expect(text.contains(name), "\(name)")
         }
     }
@@ -34,8 +36,9 @@ struct AcknowledgementsTests {
         let pins = try #require(json?["pins"] as? [[String: Any]])
         for pin in pins {
             let identity = pin["identity"] as? String ?? ""
-            // Not linked into Daisy.app (a WhisperKit command-line dependency).
-            if identity == "swift-argument-parser" { continue }
+            // Not linked into Daisy.app: a WhisperKit command-line dependency,
+            // and mlx-swift-lm's macros, which Daisy doesn't use.
+            if identity == "swift-argument-parser" || identity == "swift-syntax" { continue }
             let state = pin["state"] as? [String: Any] ?? [:]
             let pinned = (state["version"] as? String) ?? (state["revision"] as? String) ?? "?"
             #expect(text.contains(pinned), "\(identity) \(pinned) — run scripts/acknowledgements.py")

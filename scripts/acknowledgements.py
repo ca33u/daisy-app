@@ -37,7 +37,12 @@ def pinned(identity):
 
 # Package identity → checkout folder; each must sit at its pinned revision,
 # or the file would carry old texts under a new label.
-FOLDERS = {"argmax-oss-swift": "argmax-oss-swift", "fluidaudio": "FluidAudio", "sparkle": "Sparkle", "sentry-cocoa": "sentry-cocoa"}
+FOLDERS = {"argmax-oss-swift": "argmax-oss-swift", "fluidaudio": "FluidAudio", "sparkle": "Sparkle", "sentry-cocoa": "sentry-cocoa",
+           # The local summary model's helper, DaisyLLM.xpc (plan 2026-10-28, Л-1).
+           "mlx-swift": "mlx-swift", "mlx-swift-lm": "mlx-swift-lm", "swift-transformers": "swift-transformers",
+           "swift-jinja": "swift-jinja", "swift-huggingface": "swift-huggingface", "swift-collections": "swift-collections",
+           "swift-crypto": "swift-crypto", "swift-asn1": "swift-asn1", "swift-numerics": "swift-numerics",
+           "yyjson": "yyjson", "eventsource": "EventSource"}
 for identity, folder in FOLDERS.items():
     path = CHECKOUTS / folder
     head = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
@@ -148,6 +153,39 @@ license_text, _ = mirror_file("FluidInference/speaker-diarization-coreml", "LICE
 parts.append(section(f"Fluid Inference speaker models — LICENSE (revision {revision})", license_text))
 parts.append(section("OpenAI Whisper — MIT", MIT_OPENAI))
 parts.append(section("Silero VAD — MIT", MIT_SILERO))
+
+# The local summary model runs in Daisy's helper DaisyLLM.xpc, which links
+# MLX and the tokenizer; Daisy itself links neither. swift-syntax is
+# resolved for mlx-swift-lm's macros, which Daisy doesn't use or link.
+parts.append(section(f"MLX Swift (mlx-swift {pinned('mlx-swift')}) — MIT", read("mlx-swift", "LICENSE")))
+acknowledgments = read("mlx-swift", "ACKNOWLEDGMENTS.md")
+parts.append(section("MLX Swift third-party software (PocketFFT, metal-cpp)",
+                     acknowledgments[acknowledgments.index("# Third-Party Software"):].strip()))
+parts.append(section("MLX (bundled in mlx-swift) — MIT", read("mlx-swift", "Source/Cmlx/mlx/LICENSE")))
+parts.append(section("MLX C (bundled in mlx-swift) — MIT", read("mlx-swift", "Source/Cmlx/mlx-c/LICENSE")))
+parts.append(section("{fmt} (bundled in mlx-swift) — MIT", read("mlx-swift", "Source/Cmlx/fmt/LICENSE")))
+parts.append(section("JSON for Modern C++ (bundled in mlx-swift) — MIT", read("mlx-swift", "Source/Cmlx/json/LICENSE.MIT")))
+parts.append(section(f"MLX Swift LM (mlx-swift-lm {pinned('mlx-swift-lm')}) — MIT", read("mlx-swift-lm", "LICENSE")))
+parts.append(section("XGrammar (bundled in mlx-swift-lm) — Apache 2.0, NOTICE",
+                     read("mlx-swift-lm", "Libraries/MLXCXGrammar/xgrammar/NOTICE")))
+parts.append(section("XGrammar — LICENSE", read("mlx-swift-lm", "Libraries/MLXCXGrammar/xgrammar/LICENSE")))
+picojson = read("mlx-swift-lm", "Libraries/MLXCXGrammar/xgrammar/3rdparty/picojson/picojson.h")
+picojson = "\n".join(line[3:] if line.startswith(" * ") else line.lstrip(" *")
+                     for line in picojson[:picojson.index("*/")].splitlines()[1:]).strip()
+parts.append(section("picojson (bundled in XGrammar) — BSD 2-Clause", picojson))
+parts.append(section("DLPack headers (bundled in XGrammar) — Apache 2.0, Copyright (c) 2017 by Contributors",
+                     "The Apache License, Version 2.0 text is in the XGrammar section above."))
+parts.append(section(f"swift-transformers {pinned('swift-transformers')} (Hugging Face) — Apache 2.0", read("swift-transformers", "LICENSE")))
+parts.append(section(f"swift-jinja {pinned('swift-jinja')} (Hugging Face) — Apache 2.0", read("swift-jinja", "LICENSE")))
+parts.append(section(f"swift-huggingface {pinned('swift-huggingface')} — Apache 2.0", read("swift-huggingface", "LICENSE")))
+parts.append(section(f"Swift Collections {pinned('swift-collections')} — Apache 2.0 with Runtime Library Exception", read("swift-collections", "LICENSE.txt")))
+parts.append(section(f"Swift Crypto {pinned('swift-crypto')} — Apache 2.0", read("swift-crypto", "LICENSE.txt")))
+parts.append(section("Swift Crypto — NOTICE", read("swift-crypto", "NOTICE.txt")))
+parts.append(section(f"Swift ASN.1 {pinned('swift-asn1')} — Apache 2.0", read("swift-asn1", "LICENSE.txt")))
+parts.append(section("Swift ASN.1 — NOTICE", read("swift-asn1", "NOTICE.txt")))
+parts.append(section(f"Swift Numerics {pinned('swift-numerics')} — Apache 2.0 with Runtime Library Exception", read("swift-numerics", "LICENSE.txt")))
+parts.append(section(f"yyjson {pinned('yyjson')} — MIT", read("yyjson", "LICENSE")))
+parts.append(section(f"EventSource {pinned('eventsource')} — MIT", read("EventSource", "LICENSE.md")))
 
 OUT.write_text("".join(parts).rstrip() + "\n", encoding="utf-8")
 print(f"wrote {OUT.relative_to(ROOT)} ({OUT.stat().st_size} bytes)")
