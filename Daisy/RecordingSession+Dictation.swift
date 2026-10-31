@@ -353,6 +353,12 @@ extension RecordingSession {
         // «nothing was transcribed», which reads as silence.
         if !couldNotTranscribe {
             DictationPaste.shared.handle(transcript: transcriptText)
+            // The drop lands with the words — not over a recording, whose
+            // mic would hear it, and not for an empty dictation.
+            if settings.recordingSoundsEnabled, !dictatesOverLiveRecording,
+               !transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                SoundEffects.playDictationDone()
+            }
         }
         if let dir = sessionDirectory {
             try? FileManager.default.removeItem(at: dir)

@@ -2721,7 +2721,7 @@ final class RecordingSession {
         installThermalDowngrade(startedTier: tier)
         if settings.recordingSoundsEnabled, !overLiveRecording {
             if case .daisyKeyHold(let token) = dictationPurpose {
-                // A Daisy-key capture purrs once it's a hold: a tap's
+                // A Daisy-key capture plays its drop once it's a hold: a tap's
                 // half-second, or ⌃⌥ that turned out to be ⌃⌥⌘R, makes no
                 // sound (22.10).
                 Task { [weak self] in
