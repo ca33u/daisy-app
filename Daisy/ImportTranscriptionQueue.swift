@@ -374,11 +374,15 @@ final class ImportTranscriptionQueue {
         let passes = finishing ? Self.finishingPasses(for: session, isMeeting: isMeeting) : nil
         let summaryOnDisk = FileManager.default.fileExists(
             atPath: session.directoryURL.appendingPathComponent("summary.json").path)
+        // Only the rest of a finish (the final pass already ran): no
+        // transcription, voices or names steps left to show.
+        let restOnly = finishing && job.finalPassDoneKind != nil
         SessionStore.shared.beginProcessing(job.sessionID, plan: ProcessingPlan(
-            voices: job.diarize,
-            namesAndTerms: passes != nil,
+            voices: job.diarize && !restOnly,
+            namesAndTerms: passes != nil && !restOnly,
             screenText: finishing && ProcessingPlan.hasScreenshots(in: session.directoryURL),
-            summary: finishing && isMeeting && (RecordingSession.current?.settings.autoSummarize ?? false) && !summaryOnDisk
+            summary: finishing && isMeeting && (RecordingSession.current?.settings.autoSummarize ?? false) && !summaryOnDisk,
+            transcription: !restOnly
         ))
         defer { SessionStore.shared.endProcessing(job.sessionID) }
         if finishing, let kind = job.finalPassDoneKind {
@@ -644,6 +648,10 @@ final class ImportTranscriptionQueue {
         await SessionStore.shared.refresh()
         guard let session = SessionStore.shared.sessions.first(where: { $0.id == sessionID }),
               !session.transcriptText.isEmpty,
+              // Nobody heard (headings and screenshot links only): end
+              // quietly, as finalize does — `Summarizer` would refuse it
+              // and the refusal would read as a failed summary.
+              TranscriptSpeech.hasSpeech(session.transcriptText),
               !FileManager.default.fileExists(atPath: session.directoryURL.appendingPathComponent("summary.json").path)
         else { return }
         // A provider that can't run is a reason the meeting has no

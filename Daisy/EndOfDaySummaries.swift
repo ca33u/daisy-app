@@ -244,6 +244,9 @@ final class EndOfDaySummaries {
             // Screenshot links and headings only: `Summarizer` refuses
             // them, and a refusal every night would read as a failure.
             .filter { TranscriptSpeech.hasSpeech($0.transcriptText) }
+            // Its final pass or a queue job is still on it: the transcript
+            // is a draft, and the summary waits for the real one.
+            .filter { !SessionStore.shared.isProcessing($0.id) }
             // Newest first, because anything that stops the pass early
             // — the failure breaker, a recording starting, the user
             // switching the setting off — should cost the OLDEST work,

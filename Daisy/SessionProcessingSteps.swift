@@ -30,6 +30,9 @@ struct ProcessingPlan: Equatable {
     var screenText: Bool
     /// A summary will be made.
     var summary: Bool
+    /// The transcript still has to be made — false when a queue job only
+    /// finishes what comes after an already-run final pass.
+    var transcription = true
     /// A meeting over an hour runs names and terms after the summary
     /// (`RecordingSession.polishAfterSummaryThreshold`).
     var namesAfterSummary = false
@@ -47,7 +50,7 @@ struct ProcessingPlan: Equatable {
     var steps: [Step] {
         Self.pipelineOrder(namesAfterSummary: namesAfterSummary).filter { step in
             switch step {
-            case .transcription: true
+            case .transcription: transcription
             case .voices: voices
             case .namesAndTerms: namesAndTerms
             case .screenText: screenText
