@@ -245,6 +245,11 @@ extension RecordingSession {
             await bailRotated(stage: "after final_pass")
             return
         }
+        // The microphone's lines are the archive's now — when the pass
+        // really replaced them from it (not a buffer fallback, a partial
+        // pass, or live lines kept): dictations held during the recording
+        // are then cut on its timeline (`DictationHolds`).
+        linesAreOnArchiveTimeline = micTranscriber.linesAreFromArchive
 
         // ── Stage 1b: Vocabulary + brand corrections ─────────────────
         //
@@ -1849,8 +1854,9 @@ extension RecordingSession {
         let base = meetingDir.deletingLastPathComponent()   // …/Daisy/Sessions
         let meetingID = meetingDir.lastPathComponent
         // Uncut: when side notes are set to cut, `segments` no longer has
-        // the very lines each note is made of.
-        let allSegments = uncutSegments
+        // the very lines each note is made of. A dictation held meanwhile
+        // was said to a text field, not to the note: still left out.
+        let allSegments = DictationHoldCut.removing(uncutSegments, holds: cutDictationHolds)
         let displayName = settings.userDisplayName
         let stamp = ISO8601DateFormatter()
         stamp.formatOptions = [.withInternetDateTime]
@@ -1965,7 +1971,8 @@ extension RecordingSession {
     /// stay in the meeting too. The audio excerpt is the one Stop sliced.
     func finishSideNoteCuts() {
         guard settings.sideNoteCutsFromMeeting, !writtenSideNotes.isEmpty else { return }
-        let lines = uncutSegments
+        // A dictation held meanwhile stays out of the note, as at Stop.
+        let lines = DictationHoldCut.removing(uncutSegments, holds: cutDictationHolds)
         let displayName = settings.userDisplayName
         for note in writtenSideNotes where !cutSideNoteWindows.contains(note.window) {
             let covered = lines.filter { Self.sideNote(note.window, covers: $0) }.sorted { $0.startSec < $1.startSec }

@@ -517,6 +517,23 @@ final class RecordingSession {
     }
     var daisyCommandSpans: [DaisyCommandSpan] = []
 
+    /// Dictations held over THIS recording (a meeting or a voice note),
+    /// on its media clock: their spans are cut from its microphone lines
+    /// (`DictationHolds`). Written to `dictation-holds.json` as each hold
+    /// ends, so the final pass, the queue and a later retranscribe cut
+    /// the same words.
+    var dictationHolds: [DictationHold] = []
+    /// The same holds on the live clock, for the live lines (in memory
+    /// only — see THE CLOCKS in `DictationHolds`).
+    var liveDictationHolds: [DictationHold] = []
+    /// Where the dictation key went down over this recording; `nil` when
+    /// no such hold is open. Cut live up to now, so the dictated words
+    /// never show in the meeting's transcript.
+    var openDictationHoldStart: DictationHoldMark?
+    /// The final pass has replaced the live lines: the transcribers' lines
+    /// are on the archives' timeline from here on, and so are the cuts.
+    var linesAreOnArchiveTimeline = false
+
     // Re-exported recorder state.
     var elapsed: TimeInterval { recorder.elapsed }
     /// The recording's own clock as a date: `startedAt` plus media time.
@@ -569,7 +586,12 @@ final class RecordingSession {
             return _segmentsCache
         }
         let merged = uncutSegments
-        _segmentsCache = cuts == nil ? merged : merged.filter { !isCutFromMeeting($0) }
+        if cuts == nil {
+            _segmentsCache = merged
+        } else {
+            let holds = DictationHoldCut.merged(cutDictationHolds, margin: DictationHoldCut.margin)
+            _segmentsCache = merged.filter { !isCutFromMeeting($0, dictationSpans: holds) }
+        }
         _segmentsCacheMicVersion = micV
         _segmentsCacheSysVersion = sysV
         _segmentsCacheCuts = cuts
@@ -591,16 +613,23 @@ final class RecordingSession {
     /// Part of every segment cache's key, so a new moment or a closed
     /// side note re-derives the transcript.
     var transcriptCutsKey: Int? {
-        guard currentMode == .meeting else { return nil }
-        let comments = momentMarkers.filter { $0.commentStart != nil }
-        let notes = cutSideNoteWindows
-        guard !comments.isEmpty || !notes.isEmpty || !daisyCommandSpans.isEmpty else { return nil }
+        // Dictations cut from a meeting and from a voice note alike; the
+        // rest belongs to meetings.
+        let holds = cutDictationHolds
+        let isMeeting = currentMode == .meeting
+        let comments = isMeeting ? momentMarkers.filter { $0.commentStart != nil } : []
+        let notes = isMeeting ? cutSideNoteWindows : []
+        let commands = isMeeting ? daisyCommandSpans : []
+        guard !comments.isEmpty || !notes.isEmpty || !commands.isEmpty || !holds.isEmpty else { return nil }
         var hasher = Hasher()
+        for hold in holds {
+            hasher.combine(hold)
+        }
         for marker in comments {
             hasher.combine(marker.commentStart)
             hasher.combine(marker.commentEnd)
         }
-        for command in daisyCommandSpans {
+        for command in commands {
             hasher.combine(command.span)
         }
         for window in notes {
@@ -610,9 +639,24 @@ final class RecordingSession {
         return hasher.finalize()
     }
 
-    /// A moment's comment, a command said to Daisy, or a cut side note's
-    /// line (the same lines the note copied).
-    private func isCutFromMeeting(_ segment: TranscriptSegment) -> Bool {
+    /// The dictation spans cut from this recording: every finished hold,
+    /// and an open one running on to the end of whatever is heard (it
+    /// gets its real end at the release). Meetings and voice notes only.
+    var cutDictationHolds: [DictationHold] {
+        guard currentMode != .dictation else { return [] }
+        let onTimeline = linesAreOnArchiveTimeline
+        let closed = onTimeline ? dictationHolds : liveDictationHolds
+        guard let open = openDictationHoldStart else { return closed }
+        return closed + [DictationHold(startSec: onTimeline ? open.timeline : open.live, endSec: .greatestFiniteMagnitude)]
+    }
+
+    /// A dictation's line, a moment's comment, a command said to Daisy, or
+    /// a cut side note's line (the same lines the note copied).
+    /// `dictationSpans`: `cutDictationHolds`, already widened and merged.
+    private func isCutFromMeeting(_ segment: TranscriptSegment, dictationSpans: [DictationHold]) -> Bool {
+        if segment.source == .microphone, !dictationSpans.isEmpty,
+           DictationHoldCut.isCut(start: segment.startSec, end: segment.endSec, by: dictationSpans) { return true }
+        guard currentMode == .meeting else { return false }
         if momentMarkers.contains(where: { $0.owns(segment) }) { return true }
         if daisyCommandSpans.contains(where: { MomentMarker.isComment(segment, from: $0.span.start, to: $0.span.end) }) { return true }
         return cutSideNoteWindows.contains { Self.sideNote($0, covers: segment) }
@@ -936,6 +980,20 @@ final class RecordingSession {
     /// a minute later). Made on first need, kept for the next one.
     /// The floating widget shows it while it dictates.
     var sideDictation: RecordingSession?
+    /// On a side dictation: the session whose recording (a meeting or a
+    /// voice note) this dictation was held over — the dictation key during
+    /// a recording (31.10). `nil` for one held while the previous
+    /// recording finishes. Weak: the main session owns its side.
+    weak var dictationHost: RecordingSession?
+    /// This side dictation runs while its host still captures (recording
+    /// or paused). It then keeps out of the host's way: the archive clock
+    /// (`ArchiveOrigin`) stays the host's, no start sound (the host's
+    /// microphone would record it, and over speakers the call hears it),
+    /// no screenshots (the host takes them).
+    var dictatesOverLiveRecording: Bool {
+        guard isDictationSidecar, let host = dictationHost else { return false }
+        return host.status == .recording || host.status == .paused
+    }
     /// What this dictation's text is for: pasted (an ordinary dictation)
     /// or handed to the Daisy key (backlog 34). Set by every dictation
     /// start before `start()`, read and reset by `finishDictation`.
@@ -2413,6 +2471,10 @@ final class RecordingSession {
         // same media time afterwards.
         momentMarkers = []
         daisyCommandSpans = []
+        dictationHolds = []
+        liveDictationHolds = []
+        openDictationHoldStart = nil
+        linesAreOnArchiveTimeline = false
 
         // Tell SessionStore which visible folder is live. Refresh can show it,
         // but interrupted-recording recovery and every bulk-delete path must
@@ -2526,13 +2588,20 @@ final class RecordingSession {
             micTranscriber.onDictationLiveText = nil
         }
         micTranscriber.start(consuming: micAudio, startedAt: nowStarted, tier: tier)
-        // The common clock every archive aligns to, before any track starts.
-        ArchiveOrigin.mark()
+        // A dictation held over a live recording is a second capture on
+        // the same microphone (its own AUHAL unit — CoreAudio shares an
+        // input device between units, and Daisy takes no hog mode and
+        // writes no device property), not one of the recording's tracks.
+        let overLiveRecording = dictatesOverLiveRecording
+        // The common clock every archive aligns to, before any track
+        // starts — the host's, while it records.
+        if !overLiveRecording { ArchiveOrigin.mark() }
         do {
             try recorder.start(
                 archiveURL: micArchive,
                 preferredDeviceUID: settings.selectedMicDeviceUID,
-                noiseSuppressionEnabled: settings.microphoneNoiseSuppressionEnabled
+                noiseSuppressionEnabled: settings.microphoneNoiseSuppressionEnabled,
+                alignsToArchiveOrigin: !overLiveRecording
             )
         } catch {
             await failFast(error.localizedDescription)
@@ -2633,7 +2702,7 @@ final class RecordingSession {
         }
         if currentMode == .meeting { ImprovementStats.record(.recordingStarted(fromCalendar: fromCalendar)) }
         installThermalDowngrade(startedTier: tier)
-        if settings.recordingSoundsEnabled {
+        if settings.recordingSoundsEnabled, !overLiveRecording {
             if case .daisyKeyHold(let token) = dictationPurpose {
                 // A Daisy-key capture purrs once it's a hold: a tap's
                 // half-second, or ⌃⌥ that turned out to be ⌃⌥⌘R, makes no
@@ -2649,7 +2718,7 @@ final class RecordingSession {
         }
 
         // Optional screenshots.
-        if settings.screenshotsEnabled, let dir {
+        if settings.screenshotsEnabled, !overLiveRecording, let dir {
             let screenshotsDir = dir.appendingPathComponent("screenshots", isDirectory: true)
             await screenshots.start(
                 intervalSec: settings.screenshotIntervalSec,
@@ -3112,8 +3181,24 @@ final class RecordingSession {
         // Caption down at key-up, not after the decode: the dictation
         // final pass runs INLINE below, and a caption that lingers
         // through it reads as "still listening". Harmless no-op for
-        // meetings/voice notes (no caption was ever shown).
-        WidgetBubbleCenter.shared.hideLiveCaption()
+        // meetings/voice notes (no caption was ever shown) — except one
+        // stopped while a side dictation's caption is up, which stays.
+        if sideDictation?.isDictating != true {
+            WidgetBubbleCenter.shared.hideLiveCaption()
+        }
+        // A dictation held over a recording: its span ends here, whichever
+        // way this stop came (the key's release closes it first; the
+        // widget's Stop on the dictation doesn't go through the key). And
+        // the recording stopping under a dictation still held ends that
+        // dictation's span at the recording's last moment.
+        if isDictationSidecar {
+            dictationHost?.closeDictationHold()
+        } else {
+            // Kept only while that dictation still runs: an open span
+            // with no dictation behind it (its start was refused and the
+            // key-up was lost) is no reason to cut the meeting.
+            closeDictationHold(keep: sideDictation?.isDictating == true)
+        }
         // …and cut the sink in the same breath. The transcriber keeps
         // streaming until `stopCapture()` far below (after the audio
         // teardown awaits), and a streaming engine landing one more
@@ -3977,6 +4062,10 @@ final class RecordingSession {
         sessionDirectory = nil
         momentMarkers = []
         daisyCommandSpans = []
+        dictationHolds = []
+        liveDictationHolds = []
+        openDictationHoldStart = nil
+        linesAreOnArchiveTimeline = false
         micArchiveURL = nil
         systemArchiveURL = nil
         startedAt = nil
@@ -4053,7 +4142,10 @@ final class RecordingSession {
         // Belt to stop()'s braces: reset() is reached by every exit —
         // discard, husk cleanup, failed starts that got far enough —
         // and a caption with no session behind it must never survive.
-        WidgetBubbleCenter.shared.hideLiveCaption()
+        // Unless it's the side dictation's, still running over this one.
+        if sideDictation?.isDictating != true {
+            WidgetBubbleCenter.shared.hideLiveCaption()
+        }
         // Defensive: the rotation flag is normally consumed at the top
         // of stop(), but a reset() between set and consume (husk
         // cleanup path) must not leave it armed for a later stop.
@@ -4088,10 +4180,17 @@ final class RecordingSession {
         cancelAutoStop()
         removeThermalDowngrade()
         releaseSessionsFolderTicket()
-        summarizer.clear()
+        // The summarizer is app-wide and a side dictation never
+        // summarizes: its teardown must not wipe the state (a result, an
+        // error) of the recording it ran beside.
+        if !isDictationSidecar { summarizer.clear() }
         sessionDirectory = nil
         momentMarkers = []
         daisyCommandSpans = []
+        dictationHolds = []
+        liveDictationHolds = []
+        openDictationHoldStart = nil
+        linesAreOnArchiveTimeline = false
         micArchiveURL = nil
         systemArchiveURL = nil
         // `micOnlyCause` is deliberately NOT cleared here — the

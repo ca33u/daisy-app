@@ -80,6 +80,7 @@ sweep).
 | `screenshots/index.json` | `{"001.jpg": 12.0}` — filename → seconds into the recording; a value past `duration_sec` means the frame was added after the recording ended (§3.3) |
 | `screenshots/highlights.json` | `["001.jpg", …]` — frames OCR found visually distinct |
 | `markers.json` | Moments the user marked by hotkey, written as they happen: `[{"offsetSec": 65.5, "screenshot": "003.jpg", "createdAt": …, "note": "…"}]`. `screenshot` and `note` are optional; `note` is what the user said at that moment (Mac: a Daisy-key hold during a meeting) — those words are not in the transcript. Mac also keeps `commentStart` / `commentEnd` there for itself; readers ignore them |
+| `dictation-holds.json` | Mac: dictations the user held during this recording (the dictation key pastes into another app while a meeting or voice note records), rewritten as each one ends: `[{"startSec": 312.4, "endSec": 318.9}]`, seconds on the recording's audio timeline (where the audio files put that moment: pauses excluded, the clock of the transcript's `[m:ss]` stamps). The microphone heard those words too; every pass that builds the transcript leaves out a microphone line when more than half of it lies inside a span widened by 0.3 s on each side. The other side and the audio are never cut |
 | `import.json` | Present iff this session came from a file the user imported. §5 |
 | `script.md` | A rehearsal take's text, as it was when the take was recorded. §3.7 |
 | `words.json` | Word timings: `[{"w": "Привет", "s": 0.32, "e": 0.61}, …]`, seconds into the recording. Written by readers that need them (rehearsal analysis, subtitles); any session may carry it |
@@ -810,7 +811,8 @@ recordings. Check eviction status before opening anything during a scan.
 ### 7.1 Ordering
 
 1. `meeting-preparation.json` is written at start, before any transcript.
-2. `markers.json` is rewritten on every mark, mid-session.
+2. `markers.json` is rewritten on every mark, mid-session; `dictation-holds.json`
+   on every dictation held during the recording.
 3. `transcript.md` is written **twice**: a live-quality version at Stop,
    then a full-quality overwrite when offline processing finishes.
 4. `summary.json` must land before any follow-up LLM call.

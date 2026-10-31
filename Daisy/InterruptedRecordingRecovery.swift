@@ -72,7 +72,10 @@ final class InterruptedRecordingRecovery {
             from: UserDefaults.standard.string(forKey: "daisy.defaultTranscriptionLocale") ?? "auto"
         )
 
-        let mic = await transcribeChannel(micCafs, language: language)
+        // Dictations held during the recording stay out of its mic text
+        // (`DictationHolds`); the other side is never cut.
+        let mic = await transcribeChannel(micCafs, language: language,
+                                          cutting: DictationHoldStore.load(from: folder))
         let system = await transcribeChannel(systemCafs, language: language)
 
         // Decode/transcribe failed for both → leave everything in place
@@ -123,7 +126,7 @@ final class InterruptedRecordingRecovery {
 
     private struct ChannelResult { let text: String; let durationSec: Double }
 
-    private func transcribeChannel(_ urls: [URL], language: String?) async -> ChannelResult? {
+    private func transcribeChannel(_ urls: [URL], language: String?, cutting holds: [DictationHold] = []) async -> ChannelResult? {
         guard !urls.isEmpty else { return nil }
         let samples = await Task.detached(priority: .utility) {
             AudioArchiveDecoder.decodeToMono16k(urls: urls)
@@ -133,7 +136,11 @@ final class InterruptedRecordingRecovery {
             let segments = try await WhisperEngine.shared.transcribe(
                 samples: samples, language: language, profile: .full
             )
+            // One decode of the whole archive: its seconds are the
+            // recording's media clock, the one the holds are on.
+            let spans = DictationHoldCut.merged(holds, margin: DictationHoldCut.margin)
             let text = segments
+                .filter { spans.isEmpty || !DictationHoldCut.isCut(start: $0.start, end: $0.end, by: spans) }
                 .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
                 .joined(separator: " ")

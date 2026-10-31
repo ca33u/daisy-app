@@ -59,4 +59,34 @@ struct ArchiveOriginTests {
         ArchiveOrigin.mark(now: host(30))
         #expect(ArchiveOrigin.resumePad(lastFrameEnd: host(29), firstFrame: host(31)) == 0)
     }
+
+    /// The archives' timeline (31.10, dictation during a recording): time
+    /// since the origin less each stretch between the shared pause and
+    /// resume moments — where the pads put a frame in every track.
+    @Test func timelineLeavesOutThePausedStretches() {
+        let base: UInt64 = 7_000_000_000
+        func host(_ seconds: Double) -> UInt64 { base &+ AVAudioTime.hostTime(forSeconds: seconds) }
+        func timeline(_ seconds: Double) -> Double { ArchiveOrigin.timelineSeconds(now: host(seconds)) ?? -1 }
+        ArchiveOrigin.mark(now: base)
+        #expect(abs(timeline(12.5) - 12.5) < 0.001)
+        // Paused at 20: frozen there however long the pause lasts.
+        ArchiveOrigin.markPause(now: host(20))
+        #expect(abs(timeline(45) - 20) < 0.001)
+        // Resumed at 50: the 30 s between the marks are not on it.
+        ArchiveOrigin.markResume(now: host(50))
+        #expect(abs(timeline(55) - 25) < 0.001)
+        // A resume whose track failed to restart, marked again at 51: the
+        // archives leave out 20…51 (the pads read the latest mark), and
+        // so does the timeline.
+        ArchiveOrigin.markResume(now: host(51))
+        #expect(abs(timeline(55) - 24) < 0.001)
+        // A second pause adds up.
+        ArchiveOrigin.markPause(now: host(60))
+        ArchiveOrigin.markResume(now: host(70))
+        #expect(abs(timeline(80) - 39) < 0.001)
+        // A new recording starts the timeline over.
+        ArchiveOrigin.mark(now: host(100))
+        #expect(abs(timeline(103) - 3) < 0.001)
+        #expect(timeline(99) == 0)
+    }
 }

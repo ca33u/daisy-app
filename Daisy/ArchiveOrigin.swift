@@ -25,6 +25,27 @@ nonisolated enum ArchiveOrigin {
     static func mark(now: UInt64 = mach_absolute_time()) {
         origin.withLock { $0 = now }
         pauseResume.withLock { $0 = nil }
+        pausedTotal.withLock { $0 = 0 }
+    }
+
+    /// Every stretch between a pause moment and its resume moment so far:
+    /// what the archives' timeline leaves out (`timelineSeconds`).
+    private static let pausedTotal = OSAllocatedUnfairLock<TimeInterval>(initialState: 0)
+
+    /// Where a frame captured at `now` sits on every archive of the
+    /// recording: seconds since the origin, less each paused stretch
+    /// between the shared pause and resume moments — the lead and the
+    /// resume pads put each track's frames exactly there. Frozen at the
+    /// pause moment while paused. The clock the final pass, a
+    /// retranscribe and crash recovery date their lines on (31.10: what a
+    /// dictation held during the recording is cut on). `nil` before any
+    /// recording marked an origin.
+    static func timelineSeconds(now: UInt64 = mach_absolute_time()) -> TimeInterval? {
+        guard let start = origin.withLock({ $0 }) else { return nil }
+        var end = now
+        if let marks = pauseResume.withLock({ $0 }), marks.resume == 0 { end = marks.pause }
+        guard end > start else { return 0 }
+        return max(0, AVAudioTime.seconds(forHostTime: end - start) - pausedTotal.withLock { $0 })
     }
 
     /// The pause and resume moments shared by every track (2026-10-09).
@@ -42,10 +63,17 @@ nonisolated enum ArchiveOrigin {
 
     /// Call before any track resumes.
     static func markResume(now: UInt64 = mach_absolute_time()) {
-        pauseResume.withLock { state in
-            guard let pause = state?.pause else { return }
-            state = (pause, now)
+        let paused = pauseResume.withLock { state -> TimeInterval in
+            guard let marks = state else { return 0 }
+            state = (marks.pause, now)
+            // The archives leave out pause → the LATEST resume (the pads
+            // read these marks): a resume whose track failed to restart,
+            // marked again later, moves that end, and the timeline with it.
+            let from = marks.resume == 0 ? marks.pause : marks.resume
+            guard now > from else { return 0 }
+            return AVAudioTime.seconds(forHostTime: now - from)
         }
+        pausedTotal.withLock { $0 += paused }
     }
 
     /// Silence a track writes at its first frame after a resume: from its

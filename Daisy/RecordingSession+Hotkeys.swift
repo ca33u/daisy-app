@@ -271,23 +271,30 @@ extension RecordingSession {
             }
             return
         }
-        // The previous recording is still being finished (final pass,
-        // summary). Starting here would reset this session and cancel
-        // that; the dictation goes to a session of its own instead.
-        if summaryTask != nil, !isDictationSidecar {
-            switch status {
-            case .idle, .finished, .failed, .summarizing:
-                let side = sideDictation ?? RecordingSession(settings: settings, isDictationSidecar: true)
-                sideDictation = side
-                log.info("Dictation while the previous recording is still finishing — dictating on a side session")
-                await side.startDictationHotkey(purpose: purpose)
-                return
-            case .preparing, .recording, .paused, .stopping:
-                break
-            }
-        }
-        switch status {
-        case .idle, .finished, .failed:
+        switch Self.dictationRoute(status: status, mode: currentMode, purpose: purpose,
+                                   isSidecar: isDictationSidecar, previousStillFinishing: summaryTask != nil) {
+        case .sideWhileFinishing:
+            // The previous recording is still being finished (final pass,
+            // summary). Starting here would reset this session and cancel
+            // that; the dictation goes to a session of its own instead.
+            let side = sideDictation ?? RecordingSession(settings: settings, isDictationSidecar: true)
+            sideDictation = side
+            side.dictationHost = nil
+            log.info("Dictation while the previous recording is still finishing — dictating on a side session")
+            await side.startDictationHotkey(purpose: purpose)
+        case .sideOverRecording:
+            // A meeting or a voice note is recording (31.10): the
+            // dictation runs beside it on the side session, with its own
+            // capture of the same microphone, and pastes as always. Its
+            // span is cut from this recording's own-mic lines — the
+            // recording heard those words too (`DictationHolds`).
+            let side = sideDictation ?? RecordingSession(settings: settings, isDictationSidecar: true)
+            sideDictation = side
+            side.dictationHost = self
+            openDictationHold()
+            log.info("Dictation during a \(self.currentMode.rawValue, privacy: .public) — dictating on a side session")
+            await side.startDictationHotkey(purpose: purpose)
+        case .here:
             pendingMode = .dictation
             dictationPurpose = purpose
             // Fresh hold, fresh release-flag: a stale one from a
@@ -354,7 +361,7 @@ extension RecordingSession {
                 }()
                 await stopDictationHotkey(daisyKeyToken: token)
             }
-        case .recording, .paused:
+        case .alreadyRecording:
             // The dictation key was pressed from ANOTHER app (that's
             // what the key is for) — an in-window toast is invisible
             // exactly then, and a silently dead key reads as "dictation
@@ -371,9 +378,86 @@ extension RecordingSession {
                 String(localized: "Daisy is already recording. Stop the current session first."),
                 style: .warning
             )
-        case .preparing, .stopping, .summarizing:
+        case .ignore:
             return
         }
+    }
+
+    /// Where a dictation-key press goes, by what this session is doing.
+    enum DictationRoute: Equatable {
+        /// Dictate on this session.
+        case here
+        /// On the side session: the previous recording is still finishing.
+        case sideWhileFinishing
+        /// On the side session, beside a meeting or voice note recording.
+        case sideOverRecording
+        /// Refused with «Daisy is already recording».
+        case alreadyRecording
+        /// Mid-transition (preparing, stopping, summarizing): nothing.
+        case ignore
+    }
+
+    /// The routing `startDictationHotkey` follows, as a pure decision.
+    /// Over a recording only the dictation key's own press goes to the
+    /// side session: a Daisy-key press never gets here while something
+    /// records (it marks a moment instead — `DaisyKeyController`), and a
+    /// dictation running on this very session (`mode == .dictation`) is
+    /// a press of a key already held.
+    static func dictationRoute(status: Status, mode: RecordingMode, purpose: DictationPurpose,
+                               isSidecar: Bool, previousStillFinishing: Bool) -> DictationRoute {
+        if previousStillFinishing, !isSidecar {
+            switch status {
+            case .idle, .finished, .failed, .summarizing: return .sideWhileFinishing
+            case .preparing, .recording, .paused, .stopping: break
+            }
+        }
+        switch status {
+        case .idle, .finished, .failed:
+            return .here
+        case .recording, .paused:
+            if !isSidecar, purpose == .paste, mode == .meeting || mode == .voiceNote {
+                return .sideOverRecording
+            }
+            return .alreadyRecording
+        case .preparing, .stopping, .summarizing:
+            return .ignore
+        }
+    }
+
+    /// The dictation key went down over this recording: its span opens
+    /// now, on both of the recording's clocks. Only reached with no side
+    /// dictation running (a running one takes repeat presses, and its
+    /// stop closes the span), so a span still open here is left over from
+    /// a start that failed with its key-up lost: this press starts afresh.
+    func openDictationHold() {
+        openDictationHoldStart = dictationHoldMarkNow()
+    }
+
+    /// The dictation over this recording ended (its key came up, or it
+    /// stopped): the span is kept and written beside the recording.
+    /// `keep: false` drops an open span instead. One wholly inside a pause
+    /// has no length and cuts nothing, so it isn't kept.
+    func closeDictationHold(keep: Bool = true) {
+        guard let start = openDictationHoldStart else { return }
+        openDictationHoldStart = nil
+        let end = dictationHoldMarkNow()
+        guard keep, let hold = DictationHoldCut.span(from: start.timeline, to: end.timeline) else { return }
+        dictationHolds.append(hold)
+        if let live = DictationHoldCut.span(from: start.live, to: end.live) {
+            liveDictationHolds.append(live)
+        }
+        if let dir = sessionDirectory {
+            DictationHoldStore.write(dictationHolds, to: dir)
+        }
+        log.info("Dictation held over the recording at \(Int(hold.startSec), privacy: .public)s for \(String(format: "%.1f", hold.endSec - hold.startSec), privacy: .public)s — cut from its microphone lines")
+    }
+
+    /// Now, on both clocks. The archives' timeline is this recording's
+    /// while it captures (a side dictation over it never marks an origin);
+    /// without one, captured time stands in.
+    private func dictationHoldMarkNow() -> DictationHoldMark {
+        let live = max(0, recorder.currentElapsed)
+        return DictationHoldMark(timeline: ArchiveOrigin.timelineSeconds() ?? live, live: live)
     }
 
     /// The Daisy key came back up within a tap: the capture its key-down
@@ -404,6 +488,10 @@ extension RecordingSession {
     }
 
     func stopDictationHotkey(daisyKeyToken token: UUID? = nil) async {
+        // The dictation key came up over a recording: the span it held
+        // ends now, before anything below can wait (the dictation's own
+        // stop decodes inline). Only the dictation key opens one.
+        if token == nil { closeDictationHold() }
         // The press may still be inside `start()`, in which case both
         // guards below would reject this release and leave a microphone
         // open with nobody holding a key. Two shapes of that:

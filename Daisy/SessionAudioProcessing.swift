@@ -415,6 +415,16 @@ final class SessionAudioProcessing {
 
         var segments = (microphoneOutput.segments + systemOutput.segments)
             .sorted { $0.startSec < $1.startSec }
+        // Dictations held during the recording (`DictationHolds`): their
+        // words came through the microphone too, and stay out of every
+        // transcript of it. Archive seconds are the recording's media
+        // clock, which is what the spans are on.
+        let dictationHolds = DictationHoldStore.load(from: session.directoryURL)
+        if !dictationHolds.isEmpty {
+            let before = segments.count
+            segments = DictationHoldCut.removing(segments, holds: dictationHolds)
+            log.info("Retranscribe: \(before - segments.count, privacy: .public) microphone line(s) cut for \(dictationHolds.count, privacy: .public) dictation hold(s)")
+        }
         let corrections = MeetingVocabulary.corrections(
             for: segments,
             rules: DictationDictionary.shared.replacements,
@@ -523,6 +533,11 @@ final class SessionAudioProcessing {
         } else {
             try Self.copyOptionalSidecar(
                 named: "markers.json",
+                from: session.directoryURL,
+                to: stagingDirectory
+            )
+            try Self.copyOptionalSidecar(
+                named: DictationHoldStore.filename,
                 from: session.directoryURL,
                 to: stagingDirectory
             )

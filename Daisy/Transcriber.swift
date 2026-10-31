@@ -341,6 +341,11 @@ final class Transcriber {
     /// `speakers.json` sidecar + match against `SpeakerProfileStore`.
     /// Empty for `.microphone` transcribers (no diarization runs).
     private(set) var speakerCentroids: [String: [Float]] = [:]
+    /// Every line now comes from a final pass over the whole archive (not
+    /// the live windows, a buffer fallback or a partial pass): the lines
+    /// are on the archives' timeline (`ArchiveOrigin.timelineSeconds`),
+    /// which is what a dictation held during the recording is cut on then.
+    private(set) var linesAreFromArchive = false
 
     /// EXPERIMENTAL (opt-in). Set by RecordingSession before the final
     /// pass when the session is calendar-bound and
@@ -446,6 +451,7 @@ final class Transcriber {
         sessionStartedAt = startedAt
         isRunning = true
         lastError = nil
+        linesAreFromArchive = false
         committedSegments.removeAll()
         pendingSegments.removeAll()
         invalidateSegmentsCache()
@@ -905,6 +911,7 @@ final class Transcriber {
     }
 
     func reset() {
+        linesAreFromArchive = false
         liveTimer?.invalidate()
         liveTimer = nil
         consumerTask?.cancel()
@@ -1353,11 +1360,13 @@ final class Transcriber {
         let samples: [Float]
         let finalRangeStart: Double
         let fullReplace: Bool
+        var replacesFromArchive = false
         if let decoded = archiveSamples, decoded.count > Int(Self.targetSampleRate) {
             // Archive covers the whole session from second 0.
             samples = decoded
             finalRangeStart = 0
             fullReplace = true
+            replacesFromArchive = true
             log.info("Final pass: transcribing FULL archive — \(decoded.count, privacy: .public) samples (≈\(Int(Double(decoded.count) / Self.targetSampleRate), privacy: .public)s), \(archiveURLs.count, privacy: .public) file(s)")
         } else {
             // No usable archive — fall back to the in-memory buffer. On a
@@ -1463,6 +1472,7 @@ final class Transcriber {
                 pendingSegments.removeAll()
                 bucketIDs.removeAll()
                 committedThroughSec = 0
+                linesAreFromArchive = replacesFromArchive
             } else {
                 committedSegments = committedSegments.filter { $0.endSec <= finalRangeStart }
                 pendingSegments.removeAll()
@@ -1785,6 +1795,7 @@ final class Transcriber {
         bucketIDs.removeAll()
         committedSegments = merged.sorted { $0.startSec < $1.startSec }
         committedThroughSec = committedSegments.map(\.endSec).max() ?? 0
+        linesAreFromArchive = true
         invalidateSegmentsCache()
         // Centroids feed RecordingSession.stop()'s speakers.json
         // sidecar + SpeakerProfileStore matching, same as legacy.

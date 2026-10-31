@@ -367,10 +367,16 @@ final class CoreAudioMicRecorder {
     /// is the stable device UID the user picked; empty/nil follows the
     /// macOS system default. Throws `DaisyError` on unrecoverable setup
     /// failure (no device, format read failed, unit won't initialize).
+    ///
+    /// `alignsToArchiveOrigin: false` — a capture that isn't one of the
+    /// recording's tracks (a dictation held during a meeting): its archive
+    /// pads no lead from `ArchiveOrigin`, which is the meeting's clock and
+    /// would put the meeting's minutes of silence in front of it.
     func start(
         archiveURL: URL? = nil,
         preferredDeviceUID: String? = nil,
-        noiseSuppressionEnabled: Bool = false
+        noiseSuppressionEnabled: Bool = false,
+        alignsToArchiveOrigin: Bool = true
     ) throws {
         guard state != .recording else { return }
         lastError = nil
@@ -425,7 +431,7 @@ final class CoreAudioMicRecorder {
         writeErrors.reset()
         framesWritten.reset()
         archiveClock.reset()
-        archiveClock.beginRecording()
+        archiveClock.beginRecording(takesLead: alignsToArchiveOrigin)
         bufferTimestamp.reset()
         midSessionRebuilds = 0
         micLiveness.reset(to: Date())
@@ -1526,6 +1532,16 @@ final class CoreAudioMicRecorder {
         elapsed = accumulatedActiveSec + Date().timeIntervalSince(startedAt)
     }
 
+    /// Media time right now: `elapsed` without its half-second tick.
+    /// Frozen while paused (pauses are not on the media clock).
+    var currentElapsed: TimeInterval {
+        switch state {
+        case .recording: return accumulatedActiveSec + (startedAt.map { Date().timeIntervalSince($0) } ?? 0)
+        case .paused: return accumulatedActiveSec
+        case .idle, .stopped: return elapsed
+        }
+    }
+
     // MARK: - Display pump (render-thread level/spectrum → Observable)
 
     /// Arm the MainActor display-cadence timer that pulls the latest
@@ -1989,8 +2005,8 @@ nonisolated final class ArchiveClockBox: @unchecked Sendable {
     /// silence is written once per recording, at the first frame.
     private let leadTaken = OSAllocatedUnfairLock<Bool>(initialState: true)
 
-    func beginRecording() {
-        leadTaken.withLock { $0 = false }
+    func beginRecording(takesLead: Bool = true) {
+        leadTaken.withLock { $0 = !takesLead }
         resumePending.withLock { $0 = false }
         lastEnd.withLock { $0 = 0 }
     }
