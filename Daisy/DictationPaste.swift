@@ -523,6 +523,23 @@ final class DictationPaste {
         // downcast from CFTypeRef is the sanctioned bridge.
         let element = focusedRef as! AXUIElement
 
+        // The app that owns the field — not the frontmost one, which a
+        // floating panel (Spotlight, a non-activating window) leaves
+        // pointing at the app behind it. Daisy's own fields are never
+        // polled or remembered: the poll below blocks the very main
+        // thread that would apply the write.
+        var ownerPID: pid_t = 0
+        AXUIElementGetPid(element, &ownerPID)
+        let ownField = ownerPID == getpid()
+        let owner = ownField ? nil : NSRunningApplication(processIdentifier: ownerPID)?.bundleIdentifier
+        // An app whose write was a no-op twice this run: straight to the
+        // fallback, without the write, the read-back and the wait. Checked
+        // after the focus lookup, so «no field focused» still says so.
+        if let owner, Self.axNoOpStrikes[owner, default: 0] >= 2 {
+            log.notice("AX insert skipped — this app ignored it before; typing instead")
+            return .refused
+        }
+
         // Only proceed when the element explicitly supports setting the
         // selected text — writing blindly can beep or mangle state in
         // apps that expose the attribute read-only.
@@ -565,6 +582,19 @@ final class DictationPaste {
         let after = Self.axStringValue(of: element)
         if let before, let after {
             if after == before, !text.isEmpty {
+                // Some native apps take the write a beat later: Telegram
+                // (31.10.2026) showed the old value on the immediate read,
+                // the fallback typed the text again, and the field held it
+                // twice. Look again for a moment before calling it a no-op.
+                if !ownField, let waited = Self.lateChange(of: element, from: before, holding: text, within: Self.lateApplyWindow) {
+                    log.notice("Dictation inserted via AX (applied after \(waited, privacy: .public) ms) — clipboard untouched")
+                    return .inserted
+                }
+                // A no-op twice stays one for this app: from then on the
+                // write is skipped. Not counted when the field already held
+                // the text (a selection replaced by the same words reads as
+                // unchanged).
+                if let owner, !before.contains(text) { Self.axNoOpStrikes[owner, default: 0] += 1 }
                 log.warning("AX write reported success but the field is unchanged — clipboard + ⌘V fallback (web/Electron no-op)")
                 return .refused
             }
@@ -573,6 +603,33 @@ final class DictationPaste {
         }
         log.notice("Dictation inserted via AX (unverified — field exposes no readable value) — clipboard untouched")
         return .inserted
+    }
+
+    /// Per app (bundle ID): how many times an AX write reported success and
+    /// the field never changed (Electron, web views). At two, that app goes
+    /// straight to typing for the rest of this run. In memory only: an
+    /// update of the app may fix it.
+    private static var axNoOpStrikes: [String: Int] = [:]
+
+    /// How long a field gets to show an AX write it took late.
+    static let lateApplyWindow: TimeInterval = 0.25
+
+    /// Milliseconds until the element's value moved off `before` AND holds
+    /// `text`, polling every 25 ms up to `window`; nil if it never did. A
+    /// change without the text (the person typing, a chat clearing itself)
+    /// is not taken for the write landing. Each read is capped at 100 ms,
+    /// so a busy app can't hold the main thread past the window.
+    private static func lateChange(of element: AXUIElement, from before: String, holding text: String, within window: TimeInterval) -> Int? {
+        AXUIElementSetMessagingTimeout(element, 0.1)
+        defer { AXUIElementSetMessagingTimeout(element, 0) }
+        let start = Date()
+        while Date().timeIntervalSince(start) < window {
+            usleep(25_000)
+            if let now = axStringValue(of: element), now != before, now.contains(text) {
+                return Int(Date().timeIntervalSince(start) * 1000)
+            }
+        }
+        return nil
     }
 
     /// Best-effort read of an element's text value, for the write-took-
