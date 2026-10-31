@@ -56,6 +56,8 @@ public final class DaisyLLMService: NSObject, NSXPCListenerDelegate, Sendable {
     public var isExiting: Bool { status.read { $0.isExiting } }
     /// Requests that reached the service, refused ones included (tests, logs).
     public var requestsReceived: Int { status.read { $0.requestsReceived } }
+    /// Requests waiting behind the running one (tests, logs).
+    public var requestsQueued: Int { status.read { $0.requestsQueued } }
 
     /// `peerRequirement` defaults to Daisy from this process's team.
     public init(
@@ -124,6 +126,7 @@ private final class Status: @unchecked Sendable {
     struct Values {
         var isExiting = false
         var requestsReceived = 0
+        var requestsQueued = 0
     }
 
     private let lock = NSLock()
@@ -205,12 +208,14 @@ private actor Coordinator {
         idleTask = nil
         waiting.append(job)
         startNext()
+        publishQueue()
     }
 
     private func cancel(_ id: UUID) {
         if let index = waiting.firstIndex(where: { $0.request.id == id }) {
             let job = waiting.remove(at: index)
             Self.send(.failure(DaisyLLMFailure.cancelled), to: job)
+            publishQueue()
             scheduleIdleExitIfQuiet()
         } else if let running, running.job.request.id == id {
             cancelRunning(running)
@@ -228,6 +233,7 @@ private actor Coordinator {
         closedConnections.insert(connectionID)
         let gone = waiting.filter { $0.connectionID == connectionID }
         waiting.removeAll { $0.connectionID == connectionID }
+        publishQueue()
         for job in gone { Self.send(.failure(DaisyLLMFailure.cancelled), to: job) }
         if let running, running.job.connectionID == connectionID {
             cancelRunning(running)
@@ -276,7 +282,13 @@ private actor Coordinator {
         Self.send(result, to: job)
         running = nil
         startNext()
+        publishQueue()
         scheduleIdleExitIfQuiet()
+    }
+
+    private func publishQueue() {
+        let count = waiting.count
+        status.update { $0.requestsQueued = count }
     }
 
     private func scheduleIdleExitIfQuiet() {

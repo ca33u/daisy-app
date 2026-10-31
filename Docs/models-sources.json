@@ -40,6 +40,14 @@
       "purpose": "Silero VAD — speech detection before transcription (Mac)",
       "license": "MIT (Silero Team); Core ML conversion by Fluid Inference",
       "authors": "Silero Team; Fluid Inference"
+    },
+    {
+      "repo": "mlx-community/Qwen3.5-4B-MLX-4bit",
+      "revision": "32f3e8ecf65426fc3306969496342d504bfa13f3",
+      "required": ["config.json", "model.safetensors", "model.safetensors.index.json", "tokenizer.json", "tokenizer_config.json", "chat_template.jinja"],
+      "purpose": "Qwen 3.5 4B, 4-bit MLX — «Локальная модель Daisy», meeting summaries on this Mac (opt-in, Apple silicon only); the vision weights in the same file are unused",
+      "license": "Apache-2.0 (Qwen 3.5); MLX conversion by mlx-community",
+      "authors": "Qwen team, Alibaba Cloud; mlx-community"
     }
   ]
 }

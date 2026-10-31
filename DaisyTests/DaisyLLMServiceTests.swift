@@ -440,8 +440,10 @@ struct DaisyLLMServiceTests {
         proxy?.generate(try DaisyLLMWire.encode(request("orphan"))) { _, _ in }
         #expect(await eventually { helper.service.requestsReceived == 2 })
 
+        #expect(await eventually { helper.service.requestsQueued == 1 })
+
         connection.invalidate()
-        try await Task.sleep(for: .milliseconds(100))
+        #expect(await eventually { helper.service.requestsQueued == 0 })
         firstTask.cancel()
         await #expect(throws: CancellationError.self) { try await firstTask.value }
 

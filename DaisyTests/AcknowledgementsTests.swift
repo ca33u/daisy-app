@@ -45,6 +45,17 @@ struct AcknowledgementsTests {
         }
     }
 
+    /// The local summary model is named at the revision Daisy downloads.
+    @Test func itNamesTheLocalSummaryModelsRevision() throws {
+        let text = try shipped()
+        let revisions = Set(try MacModelHosting.catalog().filter { $0.repo == LocalSummaryModel.repo }.map(\.revision))
+        #expect(revisions.count == 1)
+        for revision in revisions {
+            #expect(text.contains("Qwen 3.5 4B"))
+            #expect(text.contains(revision), "local model \(revision) — run scripts/acknowledgements.py")
+        }
+    }
+
     /// The speaker models' NOTICE and LICENSE are copied in at a revision.
     @Test func itNamesTheSpeakerModelsRevision() throws {
         let text = try shipped()

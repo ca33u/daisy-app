@@ -58,6 +58,21 @@
       "purpose": "Silero VAD \u2014 speech detection before transcription (Mac)",
       "license": "MIT (Silero Team); Core ML conversion by Fluid Inference",
       "authors": "Silero Team; Fluid Inference"
+    },
+    {
+      "repo": "mlx-community/Qwen3.5-4B-MLX-4bit",
+      "revision": "32f3e8ecf65426fc3306969496342d504bfa13f3",
+      "required": [
+        "config.json",
+        "model.safetensors",
+        "model.safetensors.index.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "chat_template.jinja"
+      ],
+      "purpose": "Qwen 3.5 4B, 4-bit MLX \u2014 \u00ab\u041b\u043e\u043a\u0430\u043b\u044c\u043d\u0430\u044f \u043c\u043e\u0434\u0435\u043b\u044c Daisy\u00bb, meeting summaries on this Mac (opt-in, Apple silicon only); the vision weights in the same file are unused",
+      "license": "Apache-2.0 (Qwen 3.5); MLX conversion by mlx-community",
+      "authors": "Qwen team, Alibaba Cloud; mlx-community"
     }
   ],
   "files": [
@@ -890,6 +905,76 @@
       "gitBlobSHA1": null,
       "runtime": true,
       "sha256": "53ecc8b5081146140ab654c89109cf001f2183abddd7a2411c5081feeffff063"
+    },
+    {
+      "repo": "mlx-community/Qwen3.5-4B-MLX-4bit",
+      "revision": "32f3e8ecf65426fc3306969496342d504bfa13f3",
+      "path": "README.md",
+      "size": 2273,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "5d96bdf2d72695dfdf5636754df7cb7136e3b0d4",
+      "runtime": false,
+      "sha256": "49c0a725bdd22705d2d34b93cfe20463b673e3339ce4de8b81a340c05cfef5bc"
+    },
+    {
+      "repo": "mlx-community/Qwen3.5-4B-MLX-4bit",
+      "revision": "32f3e8ecf65426fc3306969496342d504bfa13f3",
+      "path": "chat_template.jinja",
+      "size": 7756,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "a585dec894e63da457d9440ec6aa7caa16d20860",
+      "runtime": true,
+      "sha256": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715"
+    },
+    {
+      "repo": "mlx-community/Qwen3.5-4B-MLX-4bit",
+      "revision": "32f3e8ecf65426fc3306969496342d504bfa13f3",
+      "path": "config.json",
+      "size": 3366,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "cb3e1a878a5c4a0505e0c9967da45820b2ca6bd3",
+      "runtime": true,
+      "sha256": "f3efc81b2ea8d96a45301037d3ccccbcccdef44a961845c87f286aaddbc6eaaa"
+    },
+    {
+      "repo": "mlx-community/Qwen3.5-4B-MLX-4bit",
+      "revision": "32f3e8ecf65426fc3306969496342d504bfa13f3",
+      "path": "model.safetensors",
+      "size": 3034300695,
+      "upstreamSHA256": "5fb9acd0246866381cf8c5c354c6db1019f6498eec4ccb4f5edcc71ffeacb2db",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "5fb9acd0246866381cf8c5c354c6db1019f6498eec4ccb4f5edcc71ffeacb2db"
+    },
+    {
+      "repo": "mlx-community/Qwen3.5-4B-MLX-4bit",
+      "revision": "32f3e8ecf65426fc3306969496342d504bfa13f3",
+      "path": "model.safetensors.index.json",
+      "size": 101944,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "40196ba58595ef9b3fad25a8a6daf3288b953c19",
+      "runtime": true,
+      "sha256": "52e534c41f7b97708329c85f762e5882bf48bd5955a422c6ae74eba321e6048a"
+    },
+    {
+      "repo": "mlx-community/Qwen3.5-4B-MLX-4bit",
+      "revision": "32f3e8ecf65426fc3306969496342d504bfa13f3",
+      "path": "tokenizer.json",
+      "size": 19989343,
+      "upstreamSHA256": "87a7830d63fcf43bf241c3c5242e96e62dd3fdc29224ca26fed8ea333db72de4",
+      "gitBlobSHA1": null,
+      "runtime": true,
+      "sha256": "87a7830d63fcf43bf241c3c5242e96e62dd3fdc29224ca26fed8ea333db72de4"
+    },
+    {
+      "repo": "mlx-community/Qwen3.5-4B-MLX-4bit",
+      "revision": "32f3e8ecf65426fc3306969496342d504bfa13f3",
+      "path": "tokenizer_config.json",
+      "size": 1139,
+      "upstreamSHA256": null,
+      "gitBlobSHA1": "a068e2468cff426a9b105006e74e044030a6faf4",
+      "runtime": true,
+      "sha256": "e98f1901ac6f0adff67b1d540bfa0c36ac1a0cf59eb72ed78146ef89aafa1182"
     }
   ]
 }

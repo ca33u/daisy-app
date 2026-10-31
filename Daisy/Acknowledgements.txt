@@ -28,6 +28,11 @@ both fail, the speech libraries' own Hugging Face download is the last resort:
   (https://openmdw.ai/license/1-1/). Core ML conversion by Fluid Inference.
   Downloaded straight from Hugging Face, and only when the live dictation
   preview is on; Daisy doesn't redistribute it.
+- Qwen 3.5 4B — Qwen team, Alibaba Cloud, Apache License 2.0. MLX 4-bit
+  conversion by mlx-community (mlx-community/Qwen3.5-4B-MLX-4bit), revision
+  32f3e8ecf65426fc3306969496342d504bfa13f3.
+  The built-in local summary model, downloaded only when you choose it; the
+  Apache 2.0 text is in the FluidAudio section below.
 
 Each license's warranty disclaimer applies as written in it.
 

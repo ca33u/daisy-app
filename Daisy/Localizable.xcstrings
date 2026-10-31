@@ -1,6 +1,26 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "The local model is already downloading, or being deleted." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Локальная модель уже скачивается или удаляется."
+          }
+        }
+      }
+    },
+    "Daisy couldn’t find a folder for the local model." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не удалось найти папку для локальной модели."
+          }
+        }
+      }
+    },
     "The local model didn’t finish in %lld min — on this Mac it’s too slow for a meeting this long. Choose another provider for it." : {
       "localizations" : {
         "ru" : {

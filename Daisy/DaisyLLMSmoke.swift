@@ -19,15 +19,26 @@
 //  so it can run next to the Daisy in /Applications. Like
 //  `--benchmark-record`, nobody passes it by accident.
 //
+//  `installed` as the model folder means the downloaded model
+//  (LocalSummaryModel); `Daisy --daisy-llm-download` fetches it (3 GB,
+//  mirror then pinned Hugging Face) and exits — the way to get it on a Mac
+//  before Settings has a button (Л-4).
+//
 
 import Foundation
 import DaisyLLMKit
+import os
 
 nonisolated enum DaisyLLMSmoke {
     static let flag = "--daisy-llm-smoke"
+    static let downloadFlag = "--daisy-llm-download"
 
-    /// Returns at once without the flag; with it, never returns.
+    /// Returns at once without either flag; with one, never returns.
     static func runIfRequested(_ arguments: [String] = CommandLine.arguments) {
+        if arguments.contains(downloadFlag) {
+            Task.detached { exit(await download()) }
+            dispatchMain()
+        }
         guard let index = arguments.firstIndex(of: flag) else { return }
         let rest = Array(arguments[(index + 1)...])
         guard rest.count >= 3 else {
@@ -54,6 +65,27 @@ nonisolated enum DaisyLLMSmoke {
         FileHandle.standardError.write(Data((line + "\n").utf8))
     }
 
+    private static func download() async -> Int32 {
+        let total = LocalSummaryModel.downloadBytes() ?? 0
+        say("downloading \(LocalSummaryModel.repo), \(total) bytes, into \(LocalSummaryModel.directory?.path ?? "?")")
+        let shown = OSAllocatedUnfairLock(initialState: -1)
+        do {
+            try await LocalSummaryModel.download(progress: { share in
+                let percent = Int(share * 100)
+                if shown.withLock({ last in
+                    guard percent > last else { return false }
+                    last = percent
+                    return true
+                }) { say("\(percent) %") }
+            })
+            say("done: \(LocalSummaryModel.state())")
+            return 0
+        } catch {
+            say("failed: \(error.localizedDescription)")
+            return 1
+        }
+    }
+
     private static func run(_ arguments: [String]) async -> Int32 {
         let request: DaisyLLMRequest
         do {
@@ -62,8 +94,9 @@ nonisolated enum DaisyLLMSmoke {
                 ?? (arguments.contains("--free") ? nil
                     : arguments.contains("--recursive") ? MeetingSummaryJSONSchema.json
                     : MeetingSummaryJSONSchema.localModelJSON)
+            let folder = arguments[0] == "installed" ? LocalSummaryModel.directory?.path ?? "" : arguments[0]
             request = DaisyLLMRequest(
-                modelDirectory: arguments[0],
+                modelDirectory: folder,
                 systemPrompt: try String(contentsOfFile: arguments[1], encoding: .utf8),
                 userPrompt: try String(contentsOfFile: arguments[2], encoding: .utf8),
                 language: value(after: "--lang", in: arguments),

@@ -45,6 +45,10 @@ nonisolated enum MacModelHosting {
         case parakeetV3
         case sileroVAD
         case diarizer
+        /// «Локальная модель Daisy» (Qwen 3.5 4B, MLX 4-bit), read by the
+        /// DaisyLLM helper. Fetched only when the person chooses it, and with
+        /// no library download behind it.
+        case summaryLLM
 
         var name: String {
             switch self {
@@ -52,6 +56,7 @@ nonisolated enum MacModelHosting {
             case .parakeetV3: "Parakeet v3"
             case .sileroVAD: "Silero VAD"
             case .diarizer: "speaker models"
+            case .summaryLLM: "local summary model"
             }
         }
     }
@@ -166,6 +171,8 @@ nonisolated enum MacModelHosting {
         case .diarizer:
             return try bundle("FluidInference/speaker-diarization-coreml",
                               ["pyannote_segmentation.mlmodelc", "wespeaker_v2.mlmodelc"])
+        case .summaryLLM:
+            return try bundle(LocalSummaryModel.repo, LocalSummaryModel.files)
         }
     }
 
@@ -176,6 +183,7 @@ nonisolated enum MacModelHosting {
         case .parakeetV3: AsrModels.defaultCacheDirectory(for: .v3)
         case .sileroVAD: MLModelConfigurationUtils.defaultModelsDirectory(for: .vad)
         case .diarizer: DiarizerModels.defaultModelsDirectory()
+        case .summaryLLM: LocalSummaryModel.directory
         }
     }
 

@@ -44,7 +44,7 @@ struct MacModelHostingTests {
     @Test func everyFileHasAPlaceOfItsOwn() throws {
         let files = try manifest()
         for set: MacModelHosting.ModelSet in [.whisper(variant: "large-v3-v20240930_626MB"), .whisper(variant: "large-v3-v20240930"),
-                                              .parakeetV3, .sileroVAD, .diarizer] {
+                                              .parakeetV3, .sileroVAD, .diarizer, .summaryLLM] {
             let paths = try MacModelHosting.entries(for: set, in: files).map(\.localPath)
             #expect(Set(paths).count == paths.count, "\(set.name)")
         }
