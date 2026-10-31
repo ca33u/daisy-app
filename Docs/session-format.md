@@ -158,7 +158,19 @@ Other writers add: `daisy_recovered: true` (crash recovery);
 `daisy_transcription_model`, `daisy_transcription_language`,
 `daisy_diarization`, `daisy_audio_files` (import and re-transcription);
 `daisy_origin` and `daisy_diag_*` (§3.6); `daisy_script_id`,
-`daisy_target_sec`, `daisy_best_take` (§3.7).
+`daisy_target_sec`, `daisy_best_take` (§3.7); `daisy_demo: true` (below).
+
+**`daisy_demo: true`** marks the fictional meeting an app puts into an
+empty library to show what Daisy makes of one (the Mac's tour since
+2026-10-24, the phone's first launch since 2026-10-31). It is still a
+session — opened, renamed, searched and deleted like any other — but
+nothing that acts on real meetings counts it: anonymous counts, usage
+widgets, open steps, briefs, project memory, the voice profile,
+automatic sending. **It never syncs**: each device keeps the demo it
+made, so a Mac with its own demo does not get the phone's as a second
+one. A demo that synced before it carried the key stays where it went,
+as an ordinary session — the sync deletes only on an explicit tombstone
+(§7.2).
 
 **An unknown `daisy_kind` is kept, never rewritten.** A reader that does not
 know the value shows the session as a recording; a writer that stamps

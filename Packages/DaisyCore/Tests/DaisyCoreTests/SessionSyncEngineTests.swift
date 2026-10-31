@@ -234,4 +234,24 @@ struct SessionSyncEngineTests {
         let round = try await phone.engine.syncOnce()
         #expect(round.pushed == 0)
     }
+
+    /// §3.1 `daisy_demo` (31.10): each device keeps the demo it made; the
+    /// other side keeps whatever it already had — no push, no deletion.
+    @Test func aDemoStaysOnTheDeviceThatMadeIt() async throws {
+        let cloud = InMemorySyncTransport()
+        let phone = try makeDevice("phone", transport: cloud)
+        let mac = try makeDevice("mac", transport: cloud)
+        let id = "2026-09-21T16-00-00Z"
+        try writeSession(phone, id: id, title: "Demo")
+        #expect(try await phone.engine.syncOnce().pushed == 1)
+        #expect(try await mac.engine.syncOnce().pulled == 1)
+        await tick()
+        let url = phone.sessions.appendingPathComponent("\(id)/transcript.md")
+        let marked = SessionDocument.upsertFrontmatter(in: try String(contentsOf: url, encoding: .utf8), key: "daisy_demo", value: "true")
+        try marked.write(to: url, atomically: true, encoding: .utf8)
+        #expect(try await phone.engine.syncOnce().pushed == 0)
+        #expect(try await mac.engine.syncOnce().deletedRemotely == 0)
+        #expect(try mac.transcript(id).contains("title: \"Demo\""))
+        #expect(!(try mac.transcript(id).contains("daisy_demo")))
+    }
 }
