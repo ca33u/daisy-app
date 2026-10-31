@@ -1395,9 +1395,11 @@ final class SessionStore {
         //
         //   2026-05-17T12-37-36Z           (UTC, Z suffix)
         //   2026-05-16T22-30-00+08-00      (explicit offset)
+        //   2026-05-17T12-37-36Z-2         (a second session started in
+        //                                   the same second, 31.10)
         //
         // Restore colons before handing off to ISO8601DateFormatter.
-        let zRegex      = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})Z$/
+        let zRegex      = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})Z(?:-\d+)?$/
         let offsetRegex = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})([+-])(\d{2})-(\d{2})$/
 
         if let m = name.wholeMatch(of: zRegex) {
