@@ -220,6 +220,9 @@ final class Transcriber {
     private var runGeneration: UInt = 0
 
     private(set) var lastError: String?
+    /// Forget an earlier error (a live window's) so the next pass's
+    /// outcome is read on its own — the dictation fallback's check.
+    func clearLastError() { lastError = nil }
     var localeIdentifier: String
 
     let source: SegmentSource
@@ -1817,7 +1820,7 @@ final class Transcriber {
     ///   3. Auto-detect, not yet locked — return nil so Whisper picks
     ///      a language per chunk while we wait for enough committed
     ///      text to lock on.
-    private var languageHint: String? {
+    var languageHint: String? {
         let prefix = localeIdentifier
             .split(separator: "-")
             .first

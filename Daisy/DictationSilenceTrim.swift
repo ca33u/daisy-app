@@ -13,7 +13,9 @@
 //
 //  Never a reason for a dictation to fail or wait: no VAD (not loaded,
 //  or it threw) sends the buffer as it was. VAD that heard no speech at
-//  all is an empty dictation — Parakeet isn't called.
+//  all skips Parakeet only for a long, quiet hold (room tone); a short
+//  or loud one still goes to Parakeet whole — whispers, a word said at
+//  the press and Bluetooth headset audio can score low in every frame.
 //
 
 import Foundation
@@ -23,15 +25,18 @@ import FluidAudio
 
 nonisolated enum DictationSilenceTrim {
     static let sampleRate = 16_000
-    /// Kept before the first speech and after the last — Handy's margins.
-    /// Silero decides in 256 ms frames; a soft first syllable can sit at
-    /// the edge of the frame it's heard in.
-    static let leadMarginSec = 0.30
+    /// Kept before the first speech and after the last. Silero only
+    /// knows where speech starts to its 256 ms frame, and a soft first
+    /// syllable can sit at the edge of the frame it's heard in — so the
+    /// lead is wider than Handy's.
+    static let leadMarginSec = 0.50
     static let tailMarginSec = 0.45
-    /// A pause longer than this is squeezed to `keptPauseSec`, half on
-    /// each side; shorter ones stay as they were — they are phrasing.
+    /// A pause longer than this is squeezed: 0.15 s kept after the speech
+    /// before it, 0.30 s before the speech that resumes (the same frame
+    /// argument as the lead). Shorter pauses stay — they are phrasing.
     static let longPauseSec = 0.80
-    static let keptPauseSec = 0.30
+    static let pauseKeptAfterSec = 0.15
+    static let pauseKeptBeforeSec = 0.30
     /// FluidAudio's floor for Parakeet (`ASRConstants.minimumAudioDurationSeconds`).
     /// A trim that would leave less than this sends the untrimmed buffer.
     static let minimumKeptSec = 0.30
@@ -39,7 +44,8 @@ nonisolated enum DictationSilenceTrim {
     enum Outcome: String, Equatable, Sendable {
         /// VAD isn't loaded or failed: the untrimmed buffer goes on.
         case noVAD
-        /// VAD ran and heard nothing: an empty dictation.
+        /// VAD ran and heard nothing — `noSpeechSkipsParakeet` decides
+        /// whether that's enough to call it an empty dictation.
         case noSpeech
         /// Speech was heard but the trim would leave too little for
         /// Parakeet: the untrimmed buffer goes on.
@@ -72,9 +78,8 @@ nonisolated enum DictationSilenceTrim {
         let lead = Int(leadMarginSec * rate)
         let tail = Int(tailMarginSec * rate)
         let longPause = Int(longPauseSec * rate)
-        let keptPause = Int(keptPauseSec * rate)
-        let keptBefore = keptPause / 2
-        let keptAfter = keptPause - keptBefore
+        let keptAfter = Int(pauseKeptAfterSec * rate)
+        let keptBefore = Int(pauseKeptBeforeSec * rate)
 
         var keep: [Range<Int>] = []
         var start = max(0, first.lowerBound - lead)
@@ -95,7 +100,8 @@ nonisolated enum DictationSilenceTrim {
     }
 
     /// The samples Parakeet gets under `plan`: the kept ranges joined for
-    /// `.trimmed`, nothing for `.noSpeech`, the buffer untouched otherwise.
+    /// `.trimmed`, the buffer untouched otherwise (a `.noSpeech` buffer
+    /// that still goes to Parakeet goes whole).
     static func apply(_ plan: Plan, to samples: [Float]) -> [Float] {
         switch plan.outcome {
         case .trimmed:
@@ -103,17 +109,54 @@ nonisolated enum DictationSilenceTrim {
             out.reserveCapacity(plan.keep.reduce(0) { $0 + $1.count })
             for range in plan.keep { out.append(contentsOf: samples[range.clamped(to: samples.indices)]) }
             return out
-        case .noSpeech:
-            return []
-        case .noVAD, .tooShort, .unchanged:
+        case .noSpeech, .noVAD, .tooShort, .unchanged:
             return samples
         }
     }
 
+    /// Under this, a hold Silero called silent still goes to Parakeet: a
+    /// word said right at the press is a short hold.
+    static let noSpeechShortHoldSec = 1.5
+    /// A hold whose `peakLevelDB` is above this still goes to Parakeet
+    /// when Silero called it silent; room tone sits far below (-60 dBFS
+    /// and lower), a whisper at the mic above.
+    static let noSpeechLoudDB = -45.0
+
+    /// Silero heard no speech: skip Parakeet (an empty dictation) only for
+    /// a long hold that never got loud. Pure — the tests' decision table.
+    static func noSpeechSkipsParakeet(sampleCount: Int, peakLevelDB: Double) -> Bool {
+        Double(sampleCount) / Double(sampleRate) >= noSpeechShortHoldSec && peakLevelDB <= noSpeechLoudDB
+    }
+
+    /// How loud a 16 kHz buffer gets, in dBFS: the RMS of its third-
+    /// loudest 100 ms window (50 ms hop). Not the loudest — one keyboard
+    /// click or mic bump fills a window or two; a spoken word, 200 ms and
+    /// more, fills several.
+    static func peakLevelDB(_ samples: [Float], windowSec: Double = 0.1) -> Double {
+        let duration = Double(samples.count) / Double(sampleRate)
+        guard duration > 0 else { return -160 }
+        var levels: [Double] = []
+        var start = 0.0
+        repeat {
+            levels.append(WhisperEngine.rmsDB(samples, from: start, to: min(duration, start + windowSec)))
+            start += windowSec / 2
+        } while start + windowSec / 2 < duration
+        levels.sort(by: >)
+        return levels[min(2, levels.count - 1)]
+    }
+
     struct Result: Sendable {
+        /// What Parakeet gets — the whole buffer unless `.trimmed`.
         let samples: [Float]
         let outcome: Outcome
         let vadMs: Int
+        /// `.noSpeech` only: the buffer's `peakLevelDB`, for `noSpeechSkipsParakeet`.
+        let peakLevelDB: Double?
+
+        var skipsParakeet: Bool {
+            guard outcome == .noSpeech, let peakLevelDB else { return false }
+            return DictationSilenceTrim.noSpeechSkipsParakeet(sampleCount: samples.count, peakLevelDB: peakLevelDB)
+        }
     }
 
     /// Run Silero over a dictation buffer and trim it. VAD inference runs
@@ -124,14 +167,18 @@ nonisolated enum DictationSilenceTrim {
         let start = Date()
         let speech = await WhisperEngine.shared.dictationSpeechRanges(samples: samples)
         let vadMs = Int(Date().timeIntervalSince(start) * 1000)
-        let (trimmed, outcome) = await cut(samples, speech: speech)
-        return Result(samples: trimmed, outcome: outcome, vadMs: vadMs)
+        return await cut(samples, speech: speech, vadMs: vadMs)
     }
 
     @concurrent
-    private static func cut(_ samples: [Float], speech: [Range<Int>]?) async -> ([Float], Outcome) {
+    private static func cut(_ samples: [Float], speech: [Range<Int>]?, vadMs: Int) async -> Result {
         let plan = plan(sampleCount: samples.count, speech: speech)
-        return (apply(plan, to: samples), plan.outcome)
+        return Result(
+            samples: apply(plan, to: samples),
+            outcome: plan.outcome,
+            vadMs: vadMs,
+            peakLevelDB: plan.outcome == .noSpeech ? peakLevelDB(samples) : nil
+        )
     }
 
     #if canImport(FluidAudio)

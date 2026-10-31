@@ -106,22 +106,23 @@ extension RecordingSession {
                 // fewer of Parakeet's 15 s windows. No VAD → untrimmed.
                 let trim = await DictationSilenceTrim.run(samples)
                 let audioSec = String(format: "%.1f", Double(samples.count) / 16_000)
-                if trim.outcome == .noSpeech, !isDaisyHold {
-                    // Silence by Silero's own (permissive) ear: an empty
-                    // dictation, no Parakeet, and no Whisper either — its
-                    // pass starts from the same VAD, at a stricter
-                    // threshold, and would hear nothing again. Not for a
+                if trim.skipsParakeet, !isDaisyHold {
+                    // A long hold Silero heard no speech in and that never
+                    // got loud: room tone. An empty dictation — no
+                    // Parakeet, and no Whisper either: its pass starts
+                    // from the same VAD at a stricter threshold. A short
+                    // or loud «silent» hold still goes to Parakeet whole
+                    // (`noSpeechSkipsParakeet`), and so does every
                     // Daisy-key hold: there an empty text means «silent
-                    // hold» and rewrites the selection, so a word Silero
-                    // missed must still reach Parakeet (untrimmed, below).
+                    // hold» and rewrites the selection.
                     vadHeardNoSpeech = true
-                    log.notice("Parakeet skipped — no speech (VAD \(trim.vadMs, privacy: .public) ms, audio \(audioSec, privacy: .public) s)")
+                    let loudest = String(format: "%.0f", trim.peakLevelDB ?? -160)
+                    log.notice("Parakeet skipped — no speech (VAD \(trim.vadMs, privacy: .public) ms, audio \(audioSec, privacy: .public) s, loudest \(loudest, privacy: .public) dBFS)")
                 } else {
-                    let parakeetSamples = trim.outcome == .noSpeech ? samples : trim.samples
-                    let trimmedSec = String(format: "%.1f", Double(parakeetSamples.count) / 16_000)
+                    let trimmedSec = String(format: "%.1f", Double(trim.samples.count) / 16_000)
                     let t_parakeet = Date()
                     do {
-                        fastText = try await ParakeetEngine.shared.transcribe(samples: parakeetSamples)
+                        fastText = try await ParakeetEngine.shared.transcribe(samples: trim.samples)
                         if fastText?.isEmpty != false {
                             log.info("Dictation fast-engine miss: Parakeet returned empty — Whisper fallback")
                         }
@@ -199,11 +200,47 @@ extension RecordingSession {
             } else if WhisperEngine.shared.isReady {
                 let dictFinalState = signposter.beginInterval("dictation_final_pass", id: signposter.makeSignpostID())
                 let t_dictFinal = Date()
-                await micTranscriber.runFinalPass(profile: .dictationFinal, biasTerms: DictationDictionary.shared.biasTerms())
+                let biasTerms = DictationDictionary.shared.biasTerms()
+                // The pass reports a failure only through `lastError`
+                // (CoreML/ANE error, or `notReady` from a model reload
+                // between `isReady` and the slot) and leaves an empty
+                // transcript behind — which must not read as silence.
+                micTranscriber.clearLastError()
+                await micTranscriber.runFinalPass(profile: .dictationFinal, biasTerms: biasTerms)
                 signposter.endInterval("dictation_final_pass", dictFinalState)
                 log.info("post-stop dictation_final_pass: \(ms(t_dictFinal), privacy: .public)ms")
-                transcriptText = fullTranscriptText
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                var verdict = DictationFallbackVerdict.afterPass(
+                    failed: micTranscriber.lastError != nil,
+                    sampleCount: samples.count,
+                    isDaisyHold: isDaisyHold
+                )
+                // After a failed pass this is what a streaming caption
+                // engine (Apple, the Nemotron preview) put on screen.
+                var text = fullTranscriptText
+                if verdict == .retry {
+                    log.warning("Dictation Whisper pass failed (\(self.micTranscriber.lastError ?? "", privacy: .public)) — one retry on the captured audio")
+                    do {
+                        let segments = try await WhisperEngine.shared.transcribe(
+                            samples: samples,
+                            language: micTranscriber.languageHint,
+                            profile: .dictationFinal,
+                            biasTerms: biasTerms
+                        )
+                        text = segments.map(\.text).joined(separator: " ")
+                        verdict = DictationFallbackVerdict.afterRetry(failed: false, hasCaptionText: false)
+                    } catch {
+                        let hasCaptionText = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        log.error("Dictation Whisper retry failed too: \(error.localizedDescription, privacy: .public)\(hasCaptionText ? " — pasting the live caption's text" : "", privacy: .public)")
+                        verdict = DictationFallbackVerdict.afterRetry(failed: true, hasCaptionText: hasCaptionText)
+                    }
+                }
+                if verdict == .couldNotTranscribe {
+                    couldNotTranscribe = true
+                    presentCouldNotTranscribePill()
+                    transcriptText = ""
+                } else {
+                    transcriptText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
             } else {
                 log.info("Dictation fallback skipped: Whisper isn't loaded (fast engine \(fastEngineFailed ? "failed" : "heard nothing", privacy: .public))")
                 if fastEngineFailed {
@@ -306,11 +343,55 @@ extension RecordingSession {
             await DaisyKeyController.shared.holdFinished(token: token, transcript: transcriptText, samples: samples, durationSec: durSec)
             return
         }
-        DictationPaste.shared.handle(transcript: transcriptText)
+        // Words lost to the engine: the pill already says so — not also
+        // «nothing was transcribed», which reads as silence.
+        if !couldNotTranscribe {
+            DictationPaste.shared.handle(transcript: transcriptText)
+        }
         if let dir = sessionDirectory {
             try? FileManager.default.removeItem(at: dir)
         }
         releaseSessionsFolderTicket()
         reset()
+    }
+}
+
+extension RecordingSession {
+    /// The dictation's Whisper pass failed and nothing more will be tried:
+    /// said on the pill, so it isn't mistaken for silence.
+    func presentCouldNotTranscribePill() {
+        let text = String(localized: "Daisy couldn’t transcribe what you said. Try again.")
+        WidgetBubbleCenter.shared.present(WidgetBubbleContent(text: text), notificationTitle: "Daisy")
+    }
+}
+
+/// What a dictation's Whisper fallback pass came to. A failed pass leaves
+/// an empty transcript that must never be read as silence — for a
+/// Daisy-key hold silence means «rewrite the selection».
+nonisolated enum DictationFallbackVerdict: Equatable {
+    /// Use the text (empty = the person said nothing, or a tap).
+    case text
+    /// The pass failed on a clip long enough to be speech: decode the
+    /// captured samples once more.
+    case retry
+    /// Failed with nothing left to try: the pill, the words are lost.
+    case couldNotTranscribe
+
+    /// FluidAudio's and the dictation's floor for speech (0.3 s).
+    static let speechFloorSamples = 4_800
+
+    /// A failed pass on a clip shorter than speech is a tap — not a failure
+    /// to report (`longEnoughToBeSpeech`) — except for a Daisy-key hold,
+    /// where an empty text would rewrite the selection.
+    static func afterPass(failed: Bool, sampleCount: Int, isDaisyHold: Bool) -> Self {
+        guard failed else { return .text }
+        if sampleCount >= speechFloorSamples { return .retry }
+        return isDaisyHold ? .couldNotTranscribe : .text
+    }
+
+    /// A failed retry still has the words when a streaming caption engine
+    /// showed them during the hold (the failed pass leaves its lines).
+    static func afterRetry(failed: Bool, hasCaptionText: Bool) -> Self {
+        failed && !hasCaptionText ? .couldNotTranscribe : .text
     }
 }

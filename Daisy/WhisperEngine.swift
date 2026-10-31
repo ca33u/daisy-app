@@ -120,6 +120,10 @@ final class WhisperEngine {
     /// (`warmSpeechDetectionFromCache`): once, whatever came of it.
     @ObservationIgnored
     private var dictationVADWarmTried = false
+    /// The load in `vadLoadTask` is the dictation trim's disk-only one,
+    /// which never downloads: a failure there isn't the last word.
+    @ObservationIgnored
+    private var vadLoadIsDiskOnly = false
     #endif
 
     // In-actor serialization for transcribe — WhisperKit isn't thread-safe
@@ -271,7 +275,15 @@ final class WhisperEngine {
     func prepareSpeechDetection() async -> Bool {
         #if canImport(FluidAudio)
         ensureVADLoadStarted()
+        let waitedOnDiskOnlyLoad = vadLoadIsDiskOnly
         if let task = vadLoadTask { await task.value }
+        // The dictation trim's disk-only load was in flight and failed:
+        // that one never downloads, so a meeting's pass would run without
+        // VAD. Start the real load (mirror, then Hugging Face) and wait.
+        if vadBox == nil, waitedOnDiskOnlyLoad {
+            ensureVADLoadStarted()
+            if let task = vadLoadTask { await task.value }
+        }
         return vadBox != nil
         #else
         return true
@@ -560,6 +572,7 @@ final class WhisperEngine {
     /// visible "loading Whisper" phase the user already waits through.
     private func ensureVADLoadStarted() {
         if vadBox != nil || vadLoadTask != nil { return }
+        vadLoadIsDiskOnly = false
         vadLoadTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
@@ -614,6 +627,7 @@ final class WhisperEngine {
         guard Self.runsOnThisMac, !dictationVADWarmTried, vadBox == nil, vadLoadTask == nil else { return }
         dictationVADWarmTried = true
         guard Self.sileroIsOnDisk() else { return }
+        vadLoadIsDiskOnly = true
         vadLoadTask = Task { @MainActor [weak self] in
             guard let self else { return }
             // FluidAudio's network stays blocked (`FluidAudioNetworkGuard`):
@@ -626,6 +640,9 @@ final class WhisperEngine {
                 self.log.error("Silero VAD didn't load from disk (dictation goes untrimmed): \(error.localizedDescription, privacy: .public)")
             }
             self.vadLoadTask = nil
+            // Whisper's own load asks for VAD once (phase 3) and found this
+            // load in flight; it failed, so start the real one for it.
+            if self.vadBox == nil, self.isReady { self.ensureVADLoadStarted() }
         }
         #endif
     }

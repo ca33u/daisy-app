@@ -12815,6 +12815,16 @@
         }
       }
     },
+    "Daisy couldn’t transcribe what you said. Try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не получилось распознать сказанное. Попробуй ещё раз."
+          }
+        }
+      }
+    },
     "Dictation stopped — nothing was transcribed." : {
       "localizations" : {
         "ru" : {
