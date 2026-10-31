@@ -106,7 +106,8 @@ struct DictationSilenceTrimTests {
             (1.4, -70.0, false),
             (3.0, -30.0, false),   // a whisper or HFP audio Silero scored low
             (3.0, -44.0, false),
-            (1.5, -45.0, true),
+            (3.0, -48.0, false),   // a whisper on a low-gain mic
+            (1.5, -50.0, true),
             (3.0, -60.0, true),    // room tone
             (20.0, -75.0, true),
           ])

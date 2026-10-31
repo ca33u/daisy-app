@@ -119,8 +119,9 @@ nonisolated enum DictationSilenceTrim {
     static let noSpeechShortHoldSec = 1.5
     /// A hold whose `peakLevelDB` is above this still goes to Parakeet
     /// when Silero called it silent; room tone sits far below (-60 dBFS
-    /// and lower), a whisper at the mic above.
-    static let noSpeechLoudDB = -45.0
+    /// and lower), a whisper at the mic above — and a whisper on a low-gain
+    /// or Bluetooth mic around -48 (review 31.10: -45 was too close).
+    static let noSpeechLoudDB = -50.0
 
     /// Silero heard no speech: skip Parakeet (an empty dictation) only for
     /// a long hold that never got loud. Pure — the tests' decision table.

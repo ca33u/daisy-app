@@ -217,6 +217,9 @@ extension RecordingSession {
                 // After a failed pass this is what a streaming caption
                 // engine (Apple, the Nemotron preview) put on screen.
                 var text = fullTranscriptText
+                // The session was cancelled during the retry: no words and
+                // no pill — it's not a failure the person needs told about.
+                var retryCancelled = false
                 if verdict == .retry {
                     log.warning("Dictation Whisper pass failed (\(self.micTranscriber.lastError ?? "", privacy: .public)) — one retry on the captured audio")
                     do {
@@ -228,6 +231,9 @@ extension RecordingSession {
                         )
                         text = segments.map(\.text).joined(separator: " ")
                         verdict = DictationFallbackVerdict.afterRetry(failed: false, hasCaptionText: false)
+                    } catch is CancellationError {
+                        retryCancelled = true
+                        verdict = .couldNotTranscribe
                     } catch {
                         let hasCaptionText = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         log.error("Dictation Whisper retry failed too: \(error.localizedDescription, privacy: .public)\(hasCaptionText ? " — pasting the live caption's text" : "", privacy: .public)")
@@ -236,7 +242,7 @@ extension RecordingSession {
                 }
                 if verdict == .couldNotTranscribe {
                     couldNotTranscribe = true
-                    presentCouldNotTranscribePill()
+                    if !retryCancelled { presentCouldNotTranscribePill() }
                     transcriptText = ""
                 } else {
                     transcriptText = text.trimmingCharacters(in: .whitespacesAndNewlines)
