@@ -34,37 +34,68 @@ nonisolated final class DaisyLLMClient: @unchecked Sendable {
         #endif
     }()
 
+    /// One call on the wire. Every call — and its resend — goes out under a
+    /// fresh id, so a late reply or a stale cancel only ever meets its own.
     nonisolated private struct Pending {
         let continuation: CheckedContinuation<DaisyLLMResponse, any Error>
-        /// Which call registered it, so a refused duplicate's cancel can't
-        /// reach the request that is really running.
-        let attempt: UUID
         let onProgress: @Sendable (DaisyLLMProgress.Stage) -> Void
         let isRetry: Bool
         var sawProgress = false
     }
 
     private let makeConnection: @Sendable () -> NSXPCConnection
+    private let peerRequirement: String?
     private let lock = NSLock()
     private var connection: NSXPCConnection?
     private var pending: [UUID: Pending] = [:]
 
-    /// `makeConnection` is for the tests (an anonymous listener's endpoint).
-    init(makeConnection: @escaping @Sendable () -> NSXPCConnection = {
-        NSXPCConnection(serviceName: DaisyLLMWire.serviceName)
-    }) {
+    /// `makeConnection` and `peerRequirement` are for the tests (an
+    /// anonymous listener in this process); by default the peer must be
+    /// Daisy's helper signed by this process's team.
+    init(
+        makeConnection: @escaping @Sendable () -> NSXPCConnection = {
+            NSXPCConnection(serviceName: DaisyLLMWire.serviceName)
+        },
+        peerRequirement: String? = DaisyLLMCodeSigning.requirement(forIdentifier: DaisyLLMCodeSigning.helperIdentifier)
+    ) {
         self.makeConnection = makeConnection
+        self.peerRequirement = peerRequirement
     }
 
+    /// `timeout` bounds the call: past it the helper is told to stop and
+    /// this throws `.timedOut` (the caller picks it from the prompt's length,
+    /// as the Ollama path does). It counts awake time only — a Mac asleep
+    /// with the lid closed isn't a slow model — and starts over once when
+    /// the helper starts this call, so a wait behind another summary in the
+    /// helper's queue doesn't eat into it. Off the main actor: nothing here
+    /// should wait for the UI thread.
+    @concurrent
     func generate(
         _ request: DaisyLLMRequest,
+        timeout: Duration = .seconds(45 * 60),
         onProgress: @escaping @Sendable (DaisyLLMProgress.Stage) -> Void = { _ in }
     ) async throws -> DaisyLLMResponse {
         guard Self.runsOnThisMac else { throw DaisyLLMFailure.unsupportedHardware }
-        do {
-            return try await attempt(request, onProgress: onProgress, isRetry: false)
-        } catch DaisyLLMFailure.serviceRestarting {
-            return try await attempt(request, onProgress: onProgress, isRetry: true)
+        let clock = SuspendingClock()
+        let deadline = Deadline(clock.now + timeout)
+        let started: @Sendable (DaisyLLMProgress.Stage) -> Void = { stage in
+            deadline.restartOnce(at: clock.now + timeout)
+            onProgress(stage)
+        }
+        return try await withThrowingTaskGroup(of: DaisyLLMResponse?.self) { group in
+            group.addTask { try await self.sendWithResend(request, onProgress: started) }
+            group.addTask {
+                while clock.now < deadline.instant {
+                    try await Task.sleep(until: deadline.instant, clock: clock)
+                }
+                return nil
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next() else { throw CancellationError() }
+            guard let response = first else {
+                throw DaisyLLMFailure.timedOut(seconds: Int(timeout.components.seconds))
+            }
+            return response
         }
     }
 
@@ -82,40 +113,45 @@ nonisolated final class DaisyLLMClient: @unchecked Sendable {
         old?.invalidate()
     }
 
+    private func sendWithResend(
+        _ request: DaisyLLMRequest,
+        onProgress: @escaping @Sendable (DaisyLLMProgress.Stage) -> Void
+    ) async throws -> DaisyLLMResponse {
+        do {
+            return try await attempt(request, onProgress: onProgress, isRetry: false)
+        } catch DaisyLLMFailure.serviceRestarting {
+            return try await attempt(request, onProgress: onProgress, isRetry: true)
+        }
+    }
+
     private func attempt(
         _ request: DaisyLLMRequest,
         onProgress: @escaping @Sendable (DaisyLLMProgress.Stage) -> Void,
         isRetry: Bool
     ) async throws -> DaisyLLMResponse {
-        let data = try DaisyLLMWire.encode(request)
-        let id = request.id
-        let attempt = UUID()
-        return try await withTaskCancellationHandler {
+        var wire = request
+        wire.id = UUID()
+        let id = wire.id
+        let data = try DaisyLLMWire.encode(wire)
+        var response = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                let duplicate = lock.withLock {
-                    if pending[id] != nil { return true }
-                    pending[id] = Pending(
-                        continuation: continuation, attempt: attempt, onProgress: onProgress, isRetry: isRetry)
-                    return false
+                lock.withLock {
+                    pending[id] = Pending(continuation: continuation, onProgress: onProgress, isRetry: isRetry)
                 }
-                // The same request twice at once would orphan the first caller.
-                if duplicate {
-                    continuation.resume(throwing: DaisyLLMFailure.engine(detail: "request \(id) is already running"))
-                    return
-                }
-                // Cancelled before the handler could see this request.
+                // Cancelled before the handler could see this call.
                 if Task.isCancelled {
-                    cancel(id, attempt: attempt)
+                    cancel(id)
                     return
                 }
                 // Still waiting (`invalidate()` may have failed it meanwhile):
                 // only then take a connection and send.
                 let connection: NSXPCConnection? = lock.withLock {
-                    pending[id]?.attempt == attempt ? currentConnectionLocked() : nil
+                    pending[id] == nil ? nil : currentConnectionLocked()
                 }
                 guard let connection else { return }
+                let identity = ObjectIdentifier(connection)
                 let proxy = connection.remoteObjectProxyWithErrorHandler { [weak self] error in
-                    self?.dropped(id, error)
+                    self?.dropped(id, error, connection: identity)
                 } as? DaisyLLMServiceProtocol
                 guard let proxy else {
                     resolve(id, .failure(DaisyLLMFailure.serviceUnavailable(detail: "no proxy for \(DaisyLLMWire.serviceName)")))
@@ -126,12 +162,14 @@ nonisolated final class DaisyLLMClient: @unchecked Sendable {
                 }
             }
         } onCancel: {
-            cancel(id, attempt: attempt)
+            cancel(id)
         }
+        response.id = request.id
+        return response
     }
 
-    private func cancel(_ id: UUID, attempt: UUID) {
-        guard resolve(id, .failure(CancellationError()), onlyFor: attempt) else { return }
+    private func cancel(_ id: UUID) {
+        guard resolve(id, .failure(CancellationError())) else { return }
         let connection = lock.withLock { self.connection }
         (connection?.remoteObjectProxyWithErrorHandler { _ in } as? DaisyLLMServiceProtocol)?
             .cancel(id.uuidString)
@@ -148,10 +186,21 @@ nonisolated final class DaisyLLMClient: @unchecked Sendable {
     }
 
     /// The message couldn't be delivered, or the helper went away before
-    /// replying. Before any progress it never started: worth one more try.
-    private func dropped(_ id: UUID, _ error: any Error) {
-        let request = lock.withLock { pending[id] }
+    /// replying. Before any progress it never started: worth one more try —
+    /// on a new connection if this one is dead for good.
+    private func dropped(_ id: UUID, _ error: any Error, connection identity: ObjectIdentifier) {
+        let nsError = error as NSError
+        let request: Pending? = lock.withLock {
+            if nsError.domain == NSCocoaErrorDomain, nsError.code == NSXPCConnectionInvalid,
+               let current = connection, ObjectIdentifier(current) == identity {
+                connection = nil
+            }
+            return pending[id]
+        }
         guard let request else { return }
+        // A peer failing our signing check also lands here, as a plain
+        // invalidation (4099, tested 31.10) that can't be told from a refused
+        // connection; such a misbuilt pair runs the request twice, then fails.
         let retry = !request.sawProgress && !request.isRetry
         resolve(id, .failure(retry
             ? DaisyLLMFailure.serviceRestarting
@@ -160,6 +209,8 @@ nonisolated final class DaisyLLMClient: @unchecked Sendable {
 
     fileprivate func received(_ event: Data) {
         guard let progress = try? DaisyLLMWire.decode(DaisyLLMProgress.self, from: event) else { return }
+        // A call that already replied drops its late progress: NSXPC may run
+        // a reply block before progress messages sent just ahead of it.
         let handler: (@Sendable (DaisyLLMProgress.Stage) -> Void)? = lock.withLock {
             pending[progress.id]?.sawProgress = true
             return pending[progress.id]?.onProgress
@@ -167,17 +218,10 @@ nonisolated final class DaisyLLMClient: @unchecked Sendable {
         handler?(progress.stage)
     }
 
-    /// Resumes the request's continuation once; false if it already was
-    /// (or, with `onlyFor`, if another call registered this id since).
+    /// Resumes the call's continuation once; false if it already was.
     @discardableResult
-    private func resolve(
-        _ id: UUID, _ result: Result<DaisyLLMResponse, any Error>, onlyFor attempt: UUID? = nil
-    ) -> Bool {
-        let request = lock.withLock { () -> Pending? in
-            if let attempt, pending[id]?.attempt != attempt { return nil }
-            return pending.removeValue(forKey: id)
-        }
-        guard let request else { return false }
+    private func resolve(_ id: UUID, _ result: Result<DaisyLLMResponse, any Error>) -> Bool {
+        guard let request = lock.withLock({ pending.removeValue(forKey: id) }) else { return false }
         request.continuation.resume(with: result)
         return true
     }
@@ -186,6 +230,13 @@ nonisolated final class DaisyLLMClient: @unchecked Sendable {
     private func currentConnectionLocked() -> NSXPCConnection {
         if let connection { return connection }
         let fresh = makeConnection()
+        if let peerRequirement {
+            // XPC checks every message from the peer and drops the connection
+            // on a mismatch. It guards the answers, not the request: that is
+            // the helper's own check of Daisy. A service connection can only
+            // reach the helper inside this signed bundle anyway.
+            fresh.setCodeSigningRequirement(peerRequirement)
+        }
         fresh.remoteObjectInterface = DaisyLLMInterfaces.service()
         fresh.exportedInterface = DaisyLLMInterfaces.progress()
         fresh.exportedObject = ProgressReceiver(client: self)
@@ -203,6 +254,27 @@ nonisolated final class DaisyLLMClient: @unchecked Sendable {
         fresh.resume()
         connection = fresh
         return fresh
+    }
+}
+
+/// When a call's time runs out; moved once, when the helper starts it.
+nonisolated private final class Deadline: @unchecked Sendable {
+    private let lock = NSLock()
+    private var at: SuspendingClock.Instant
+    private var restarted = false
+
+    init(_ at: SuspendingClock.Instant) {
+        self.at = at
+    }
+
+    var instant: SuspendingClock.Instant { lock.withLock { at } }
+
+    func restartOnce(at new: SuspendingClock.Instant) {
+        lock.withLock {
+            guard !restarted else { return }
+            restarted = true
+            at = new
+        }
     }
 }
 
@@ -226,17 +298,19 @@ extension DaisyLLMFailure: @retroactive LocalizedError {
         case .modelUnreadable:
             String(localized: "Daisy couldn’t read the local model’s files. Download the model again.")
         case .promptTooLong:
-            String(localized: "This meeting is too long for the local model on this Mac. Choose a cloud provider for it.")
+            String(localized: "This meeting is too long for the local model on this Mac. Choose another provider for it.")
         case .invalidSchema:
             String(localized: "Daisy asked the local model for a summary format it can’t follow.")
         case .outputIncomplete:
-            String(localized: "The local model ran out of room before it finished the summary.")
+            String(localized: "The summary didn’t fit in the local model’s answer length limit.")
         case .cancelled:
             String(localized: "The summary was cancelled.")
         case .unsupportedHardware:
             String(localized: "The Daisy local model needs a Mac with Apple silicon.")
         case .protocolMismatch:
             String(localized: "The local model’s helper is from another version of Daisy. Quit Daisy and open it again.")
+        case .timedOut(let seconds):
+            String(localized: "The local model didn’t finish in \(max(1, seconds / 60)) min — on this Mac it’s too slow for a meeting this long. Choose another provider for it.")
         case .serviceRestarting, .serviceUnavailable:
             String(localized: "The local model stopped before it finished. Try again.")
         case .engine(let detail):

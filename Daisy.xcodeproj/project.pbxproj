@@ -365,12 +365,9 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 162;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = LW64FQXZCU;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = DaisyLLM/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Daisy Local Model";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -397,12 +394,9 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 162;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = LW64FQXZCU;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = DaisyLLM/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Daisy Local Model";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

@@ -73,6 +73,7 @@ Requirements:
 
 - Xcode 26+ (ships the macOS 26 SDK the project builds against). The app itself runs on macOS 14+.
 - An active Apple Developer account if you want a signed local build (unsigned builds are fine for development inside Xcode)
+- The Metal Toolchain, which Xcode 26 no longer installs by default: `xcodebuild -downloadComponent MetalToolchain`. MLX — the engine of the built-in local summary model, in the `DaisyLLM` helper — compiles Metal shaders as part of the build.
 
 Clone and open:
 
@@ -82,7 +83,9 @@ cd daisy-app
 open Daisy.xcodeproj
 ```
 
-The Swift Package Manager dependencies (Sparkle, WhisperKit via [`argmax-oss-swift`](https://github.com/argmaxinc/argmax-oss-swift), FluidAudio) resolve on first project load. Hit Run; the app launches.
+The Swift Package Manager dependencies (Sparkle, WhisperKit via [`argmax-oss-swift`](https://github.com/argmaxinc/argmax-oss-swift), FluidAudio, MLX via [`mlx-swift-lm`](https://github.com/ml-explore/mlx-swift-lm)) resolve on first project load. Hit Run; the app launches.
+
+The local summary model runs in its own helper, `DaisyLLM.xpc`, inside `Daisy.app`. A Debug build of it is functional but very slow — MLX's C++ is built without optimisation, about 0.6 tokens/s against ~18 in Release — so try or time the local model on a Release build (Product → Archive, or `-configuration Release`).
 
 ## Project layout
 

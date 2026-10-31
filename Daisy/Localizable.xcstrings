@@ -1,6 +1,16 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "The local model didn’t finish in %lld min — on this Mac it’s too slow for a meeting this long. Choose another provider for it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Локальная модель не закончила за %lld мин — на этом Mac она слишком медленная для такой длинной встречи. Выбери для неё другого провайдера."
+          }
+        }
+      }
+    },
     "The Daisy local model isn’t on this Mac yet." : {
       "localizations" : {
         "ru" : {
@@ -16,17 +26,17 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Daisy не получилось прочитать файлы локальной модели. Скачай модель заново."
+            "value" : "Daisy не удалось прочитать файлы локальной модели. Скачай модель заново."
           }
         }
       }
     },
-    "This meeting is too long for the local model on this Mac. Choose a cloud provider for it." : {
+    "This meeting is too long for the local model on this Mac. Choose another provider for it." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Эта встреча слишком длинная для локальной модели на этом Mac. Выбери для неё облачного провайдера."
+            "value" : "Эта встреча слишком длинная для локальной модели на этом Mac. Выбери для неё другого провайдера."
           }
         }
       }
@@ -41,12 +51,12 @@
         }
       }
     },
-    "The local model ran out of room before it finished the summary." : {
+    "The summary didn’t fit in the local model’s answer length limit." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Локальной модели не хватило места, чтобы дописать саммари."
+            "value" : "Саммари не поместилось в предел длины ответа локальной модели."
           }
         }
       }

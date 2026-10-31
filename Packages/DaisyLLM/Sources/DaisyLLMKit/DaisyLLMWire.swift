@@ -161,5 +161,8 @@ public enum DaisyLLMFailure: Error, Codable, Sendable, Equatable {
     /// Client side: the helper couldn't be reached or went away mid-request
     /// (crashed, killed under memory pressure).
     case serviceUnavailable(detail: String)
+    /// Client side: the request ran past the caller's time limit and was
+    /// cancelled (a model too slow for this prompt on this Mac, or stuck).
+    case timedOut(seconds: Int)
     case engine(detail: String)
 }

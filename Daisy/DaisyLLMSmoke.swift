@@ -6,11 +6,12 @@
 //  provider or a Settings row (Л-1):
 //
 //      Daisy.app/Contents/MacOS/Daisy --daisy-llm-smoke <model-folder> \
-//          <system.txt> <user.txt> [--lang ru] [--free | --schema <file>] [--cancel-after <s>] [--linger <s>]
+//          <system.txt> <user.txt> [--lang ru] [--free | --recursive | --schema <file>] [--cancel-after <s>] [--linger <s>]
 //
 //  One generation through DaisyLLM.xpc — constrained to
-//  MeetingSummaryJSONSchema unless `--free` or `--schema <file>` (to try
-//  another shape on the model) — the answer on stdout, the
+//  MeetingSummaryJSONSchema.localModelJSON (the two-level shape Л-3 sends)
+//  unless `--free`, `--recursive` (the full recursive schema, which long
+//  meetings collapse under) or `--schema <file>` (to try another shape) — the answer on stdout, the
 //  progress and the numbers on stderr, then the process exits (after
 //  `--linger` seconds, to watch the helper leave on its own idle clock
 //  while Daisy is still there). It runs
@@ -30,7 +31,7 @@ nonisolated enum DaisyLLMSmoke {
         guard let index = arguments.firstIndex(of: flag) else { return }
         let rest = Array(arguments[(index + 1)...])
         guard rest.count >= 3 else {
-            FileHandle.standardError.write(Data("usage: Daisy \(flag) <model-folder> <system.txt> <user.txt> [--lang ru] [--free | --schema <file>] [--cancel-after <s>] [--linger <s>]\n".utf8))
+            FileHandle.standardError.write(Data("usage: Daisy \(flag) <model-folder> <system.txt> <user.txt> [--lang ru] [--free | --recursive | --schema <file>] [--cancel-after <s>] [--linger <s>]\n".utf8))
             exit(64)
         }
         Task.detached {
@@ -58,7 +59,9 @@ nonisolated enum DaisyLLMSmoke {
         do {
             let schema: String? = try value(after: "--schema", in: arguments)
                 .map { try String(contentsOfFile: $0, encoding: .utf8) }
-                ?? (arguments.contains("--free") ? nil : MeetingSummaryJSONSchema.json)
+                ?? (arguments.contains("--free") ? nil
+                    : arguments.contains("--recursive") ? MeetingSummaryJSONSchema.json
+                    : MeetingSummaryJSONSchema.localModelJSON)
             request = DaisyLLMRequest(
                 modelDirectory: arguments[0],
                 systemPrompt: try String(contentsOfFile: arguments[1], encoding: .utf8),

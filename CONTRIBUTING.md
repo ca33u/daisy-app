@@ -38,6 +38,8 @@ open Daisy.xcodeproj
 
 You need Xcode 16+ with the macOS 26 SDK. Apple Silicon Mac only — Daisy doesn't support Intel.
 
+On Xcode 26+ also install the Metal Toolchain once (`xcodebuild -downloadComponent MetalToolchain`): MLX, the engine of the local summary model, compiles Metal shaders during the build. A Debug build of that model is very slow (about 0.6 tokens/s); check its behaviour and speed on a Release build. If you sign with your own team, set it once on the project, not on one target: Daisy and its `DaisyLLM` helper only talk to a peer signed by the same team, so a helper signed differently from the app fails every local summary.
+
 ### Branch naming
 
 - `fix/short-description` for bug fixes

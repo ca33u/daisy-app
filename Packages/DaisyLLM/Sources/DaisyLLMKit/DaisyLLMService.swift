@@ -15,7 +15,20 @@
 //     (the helper exits, so the model's memory goes back whole, not
 //     whatever MLX's cache gives back). A request that arrives while it
 //     is exiting gets `.serviceRestarting` and the client sends it again
-//     to a fresh helper.
+//     to a fresh helper;
+//   • a cancelled generation that still hasn't stopped `cancelGrace` later
+//     (a GPU hang, a load that can't be interrupted) calls `onStuck`: the
+//     helper exits rather than hold the queue — and its memory — forever;
+//   • only a peer meeting `peerRequirement` (Daisy, signed by this team)
+//     may connect.
+//
+//  The state lives in an actor of its own, not on the main thread: the
+//  helper's main thread only runs XPC, and in the test host the app's main
+//  thread can stall for seconds.
+//
+//  Request ids are per call (the client sends each call and each resend
+//  under a fresh id), so a late cancel or a stale reply can only ever meet
+//  the call it belongs to.
 //
 
 import Foundation
@@ -30,46 +43,151 @@ public protocol DaisyLLMBackend: Sendable {
     ) async throws -> DaisyLLMResponse
 }
 
-@MainActor
-public final class DaisyLLMService: NSObject {
-    fileprivate struct Job: Sendable {
-        let request: DaisyLLMRequest
-        let connectionID: UUID
-        let reply: @Sendable (Data?, Data?) -> Void
-        let progress: @Sendable (DaisyLLMProgress) -> Void
-    }
+/// The listener's delegate: checks the caller, hands every call to the
+/// coordinator.
+public final class DaisyLLMService: NSObject, NSXPCListenerDelegate, Sendable {
+    private let coordinator: Coordinator
+    private let inbox: AsyncStream<Event>.Continuation
+    private let peerRequirement: String?
+    private let status = Status()
 
-    private let backend: any DaisyLLMBackend
-    private let idleTimeout: Duration
-    private let onIdle: @MainActor () -> Void
+    /// The helper is on its way out (idle or stuck): new requests are told
+    /// to start a fresh one.
+    public var isExiting: Bool { status.read { $0.isExiting } }
+    /// Requests that reached the service, refused ones included (tests, logs).
+    public var requestsReceived: Int { status.read { $0.requestsReceived } }
 
-    private var waiting: [Job] = []
-    private var running: (job: Job, task: Task<Void, Never>)?
-    /// A cancel can reach the main actor before its own request does (they
-    /// come from different XPC threads); the request then starts cancelled.
-    private var cancelledBeforeArrival: [UUID] = []
-    /// Likewise a request can arrive after its connection's close.
-    private var closedConnections: Set<UUID> = []
-    private var idleTask: Task<Void, Never>?
-    public private(set) var isExiting = false
-
+    /// `peerRequirement` defaults to Daisy from this process's team.
     public init(
         backend: any DaisyLLMBackend,
         idleTimeout: Duration = .seconds(60),
-        onIdle: @escaping @MainActor () -> Void
+        cancelGrace: Duration = .seconds(30),
+        peerRequirement: String? = DaisyLLMCodeSigning.requirement(forIdentifier: DaisyLLMCodeSigning.appIdentifier),
+        onIdle: @escaping @Sendable () -> Void,
+        onStuck: @escaping @Sendable () -> Void
     ) {
-        self.backend = backend
-        self.idleTimeout = idleTimeout
-        self.onIdle = onIdle
+        self.peerRequirement = peerRequirement
+        let coordinator = Coordinator(
+            backend: backend, idleTimeout: idleTimeout, cancelGrace: cancelGrace,
+            status: status, onIdle: onIdle, onStuck: onStuck)
+        self.coordinator = coordinator
+        // Every call goes through one ordered inbox, so requests start in
+        // the order XPC delivered them and a cancel sent after its request
+        // is handled after it.
+        let (events, inbox) = AsyncStream<Event>.makeStream()
+        self.inbox = inbox
+        Task {
+            for await event in events { await coordinator.handle(event) }
+        }
+    }
+
+    deinit {
+        inbox.finish()
     }
 
     /// Starts the idle clock: a helper launched and never asked anything
     /// leaves too.
     public func start() {
-        scheduleIdleExit()
+        inbox.yield(.start)
     }
 
-    fileprivate func enqueue(_ job: Job) {
+    public func listener(
+        _ listener: NSXPCListener,
+        shouldAcceptNewConnection connection: NSXPCConnection
+    ) -> Bool {
+        if let peerRequirement {
+            // XPC checks every message from the caller; a mismatch drops it.
+            connection.setCodeSigningRequirement(peerRequirement)
+        }
+        let handler = ConnectionHandler(inbox: inbox)
+        handler.connection = connection
+        connection.exportedInterface = DaisyLLMInterfaces.service()
+        connection.exportedObject = handler
+        connection.remoteObjectInterface = DaisyLLMInterfaces.progress()
+        let connectionID = handler.connectionID
+        connection.invalidationHandler = { [inbox] in
+            inbox.yield(.connectionClosed(connectionID))
+        }
+        connection.resume()
+        return true
+    }
+
+    nonisolated static func failure(for error: any Error) -> DaisyLLMFailure {
+        if let failure = error as? DaisyLLMFailure { return failure }
+        if error is CancellationError { return .cancelled }
+        return .engine(detail: String(describing: error))
+    }
+}
+
+/// What the tests and the delegate read without waiting for the actor.
+private final class Status: @unchecked Sendable {
+    struct Values {
+        var isExiting = false
+        var requestsReceived = 0
+    }
+
+    private let lock = NSLock()
+    private var values = Values()
+
+    func read<T>(_ body: (Values) -> T) -> T { lock.withLock { body(values) } }
+    func update(_ body: (inout Values) -> Void) { lock.withLock { body(&values) } }
+}
+
+private enum Event: Sendable {
+    case start
+    case enqueue(Job)
+    case cancel(UUID)
+    case connectionClosed(UUID)
+}
+
+private struct Job: Sendable {
+    let request: DaisyLLMRequest
+    let connectionID: UUID
+    let reply: @Sendable (Data?, Data?) -> Void
+    let progress: @Sendable (DaisyLLMProgress) -> Void
+}
+
+private actor Coordinator {
+    private let backend: any DaisyLLMBackend
+    private let idleTimeout: Duration
+    private let cancelGrace: Duration
+    private let status: Status
+    private let onIdle: @Sendable () -> Void
+    private let onStuck: @Sendable () -> Void
+
+    private var waiting: [Job] = []
+    private var running: (job: Job, task: Task<Void, Never>)?
+    /// A cancel sent on another connection can arrive before its request;
+    /// the request then starts cancelled.
+    private var cancelledBeforeArrival: [UUID] = []
+    /// Likewise a request can arrive after its connection's close.
+    private var closedConnections: Set<UUID> = []
+    private var idleTask: Task<Void, Never>?
+    private var isExiting = false
+
+    init(
+        backend: any DaisyLLMBackend, idleTimeout: Duration, cancelGrace: Duration, status: Status,
+        onIdle: @escaping @Sendable () -> Void, onStuck: @escaping @Sendable () -> Void
+    ) {
+        self.backend = backend
+        self.idleTimeout = idleTimeout
+        self.cancelGrace = cancelGrace
+        self.status = status
+        self.onIdle = onIdle
+        self.onStuck = onStuck
+    }
+
+    func handle(_ event: Event) {
+        switch event {
+        case .start: scheduleIdleExit()
+        case .enqueue(let job): enqueue(job)
+        case .cancel(let id): cancel(id)
+        case .connectionClosed(let id): connectionClosed(id)
+        }
+    }
+
+    private func enqueue(_ job: Job) {
+        status.update { $0.requestsReceived += 1 }
         if isExiting {
             Self.send(.failure(DaisyLLMFailure.serviceRestarting), to: job)
             return
@@ -89,14 +207,16 @@ public final class DaisyLLMService: NSObject {
         startNext()
     }
 
-    fileprivate func cancel(_ id: UUID) {
+    private func cancel(_ id: UUID) {
         if let index = waiting.firstIndex(where: { $0.request.id == id }) {
             let job = waiting.remove(at: index)
             Self.send(.failure(DaisyLLMFailure.cancelled), to: job)
             scheduleIdleExitIfQuiet()
         } else if let running, running.job.request.id == id {
-            running.task.cancel()
+            cancelRunning(running)
         } else {
+            // Either its request is still on the way, or it already finished
+            // (ids are per call, so a stale entry never matches another call).
             cancelledBeforeArrival.append(id)
             if cancelledBeforeArrival.count > 32 { cancelledBeforeArrival.removeFirst() }
         }
@@ -104,15 +224,33 @@ public final class DaisyLLMService: NSObject {
 
     /// Daisy quit, crashed or dropped the connection: nobody is waiting
     /// for its requests any more.
-    fileprivate func connectionClosed(_ connectionID: UUID) {
+    private func connectionClosed(_ connectionID: UUID) {
         closedConnections.insert(connectionID)
         let gone = waiting.filter { $0.connectionID == connectionID }
         waiting.removeAll { $0.connectionID == connectionID }
         for job in gone { Self.send(.failure(DaisyLLMFailure.cancelled), to: job) }
         if let running, running.job.connectionID == connectionID {
-            running.task.cancel()
+            cancelRunning(running)
         }
         scheduleIdleExitIfQuiet()
+    }
+
+    /// Cancels the running job and gives it `cancelGrace` to stop.
+    private func cancelRunning(_ running: (job: Job, task: Task<Void, Never>)) {
+        running.task.cancel()
+        let id = running.job.request.id
+        let grace = cancelGrace
+        Task {
+            // A sleeping Mac isn't a stuck model: the grace counts awake time.
+            try? await Task.sleep(for: grace, clock: .suspending)
+            self.stuckCheck(id)
+        }
+    }
+
+    private func stuckCheck(_ id: UUID) {
+        guard running?.job.request.id == id, !isExiting else { return }
+        markExiting()
+        onStuck()
     }
 
     private func startNext() {
@@ -151,19 +289,23 @@ public final class DaisyLLMService: NSObject {
         let timeout = idleTimeout
         idleTask = Task {
             try? await Task.sleep(for: timeout)
-            guard !Task.isCancelled, self.running == nil, self.waiting.isEmpty, !self.isExiting else { return }
-            self.isExiting = true
-            self.onIdle()
+            guard !Task.isCancelled else { return }
+            self.idleCheck()
         }
     }
 
-    nonisolated static func failure(for error: any Error) -> DaisyLLMFailure {
-        if let failure = error as? DaisyLLMFailure { return failure }
-        if error is CancellationError { return .cancelled }
-        return .engine(detail: String(describing: error))
+    private func idleCheck() {
+        guard running == nil, waiting.isEmpty, !isExiting else { return }
+        markExiting()
+        onIdle()
     }
 
-    private nonisolated static func send(_ result: Result<DaisyLLMResponse, any Error>, to job: Job) {
+    private func markExiting() {
+        isExiting = true
+        status.update { $0.isExiting = true }
+    }
+
+    private static func send(_ result: Result<DaisyLLMResponse, any Error>, to job: Job) {
         switch result {
         case .success(let response):
             if let data = try? DaisyLLMWire.encode(response) {
@@ -172,39 +314,20 @@ public final class DaisyLLMService: NSObject {
                 job.reply(nil, try? DaisyLLMWire.encode(DaisyLLMFailure.engine(detail: "couldn't encode the response")))
             }
         case .failure(let error):
-            job.reply(nil, try? DaisyLLMWire.encode(failure(for: error)))
+            job.reply(nil, try? DaisyLLMWire.encode(DaisyLLMService.failure(for: error)))
         }
-    }
-}
-
-extension DaisyLLMService: NSXPCListenerDelegate {
-    nonisolated public func listener(
-        _ listener: NSXPCListener,
-        shouldAcceptNewConnection connection: NSXPCConnection
-    ) -> Bool {
-        let handler = ConnectionHandler(service: self)
-        handler.connection = connection
-        connection.exportedInterface = DaisyLLMInterfaces.service()
-        connection.exportedObject = handler
-        connection.remoteObjectInterface = DaisyLLMInterfaces.progress()
-        let connectionID = handler.connectionID
-        connection.invalidationHandler = { [service = self] in
-            Task { @MainActor in service.connectionClosed(connectionID) }
-        }
-        connection.resume()
-        return true
     }
 }
 
 /// One per connection; XPC calls it on its own queues and it hands every
-/// call to the service on the main actor.
+/// call to the coordinator's inbox.
 private final class ConnectionHandler: NSObject, DaisyLLMServiceProtocol, @unchecked Sendable {
-    let service: DaisyLLMService
+    let inbox: AsyncStream<Event>.Continuation
     let connectionID = UUID()
     weak var connection: NSXPCConnection?
 
-    init(service: DaisyLLMService) {
-        self.service = service
+    init(inbox: AsyncStream<Event>.Continuation) {
+        self.inbox = inbox
     }
 
     func generate(_ requestData: Data, reply: @escaping @Sendable (Data?, Data?) -> Void) {
@@ -219,15 +342,13 @@ private final class ConnectionHandler: NSObject, DaisyLLMServiceProtocol, @unche
             return
         }
         let sink = ProgressSink(connection?.remoteObjectProxyWithErrorHandler { _ in } as? DaisyLLMProgressProtocol)
-        let job = DaisyLLMService.Job(
-            request: request, connectionID: connectionID, reply: reply,
-            progress: { sink.send($0) })
-        Task { @MainActor [service] in service.enqueue(job) }
+        let job = Job(request: request, connectionID: connectionID, reply: reply, progress: { sink.send($0) })
+        inbox.yield(.enqueue(job))
     }
 
     func cancel(_ requestID: String) {
         guard let id = UUID(uuidString: requestID) else { return }
-        Task { @MainActor [service] in service.cancel(id) }
+        inbox.yield(.cancel(id))
     }
 
     /// A request from another Daisy build is named as such, not as garbage.

@@ -14,9 +14,16 @@ import Foundation
 import DaisyLLMEngine
 import DaisyLLMKit
 
-let service = DaisyLLMService(backend: DaisyMLXBackend(), idleTimeout: .seconds(60)) {
-    exit(0)
-}
+let service = DaisyLLMService(
+    backend: DaisyMLXBackend(),
+    idleTimeout: .seconds(60),
+    // A generation that ignores its cancel this long is stuck in MLX or
+    // Metal; leaving is the only way to give its memory back. `_exit`: a
+    // thread is still inside MLX, so no atexit handlers or C++ static
+    // destructors (Metal device, allocator) may run under it.
+    cancelGrace: .seconds(30),
+    onIdle: { exit(0) },
+    onStuck: { _exit(1) })
 let listener = NSXPCListener.service()
 listener.delegate = service
 service.start()
