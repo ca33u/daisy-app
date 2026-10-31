@@ -141,6 +141,7 @@ private enum Event: Sendable {
     case enqueue(Job)
     case cancel(UUID)
     case connectionClosed(UUID)
+    case shutdown
 }
 
 private struct Job: Sendable {
@@ -167,6 +168,8 @@ private actor Coordinator {
     private var closedConnections: Set<UUID> = []
     private var idleTask: Task<Void, Never>?
     private var isExiting = false
+    /// Asked to leave: exit once the running job has stopped.
+    private var exitWhenStopped = false
 
     init(
         backend: any DaisyLLMBackend, idleTimeout: Duration, cancelGrace: Duration, status: Status,
@@ -186,12 +189,13 @@ private actor Coordinator {
         case .enqueue(let job): enqueue(job)
         case .cancel(let id): cancel(id)
         case .connectionClosed(let id): connectionClosed(id)
+        case .shutdown: shutdown()
         }
     }
 
     private func enqueue(_ job: Job) {
         status.update { $0.requestsReceived += 1 }
-        if isExiting {
+        if isExiting || exitWhenStopped {
             Self.send(.failure(DaisyLLMFailure.serviceRestarting), to: job)
             return
         }
@@ -241,6 +245,20 @@ private actor Coordinator {
         scheduleIdleExitIfQuiet()
     }
 
+    private func shutdown() {
+        let queued = waiting
+        waiting.removeAll()
+        publishQueue()
+        for job in queued { Self.send(.failure(DaisyLLMFailure.cancelled), to: job) }
+        if let running {
+            exitWhenStopped = true
+            cancelRunning(running)
+        } else if !isExiting {
+            markExiting()
+            onIdle()
+        }
+    }
+
     /// Cancels the running job and gives it `cancelGrace` to stop.
     private func cancelRunning(_ running: (job: Job, task: Task<Void, Never>)) {
         running.task.cancel()
@@ -281,6 +299,11 @@ private actor Coordinator {
     private func finish(_ job: Job, _ result: Result<DaisyLLMResponse, any Error>) {
         Self.send(result, to: job)
         running = nil
+        if exitWhenStopped, !isExiting {
+            markExiting()
+            onIdle()
+            return
+        }
         startNext()
         publishQueue()
         scheduleIdleExitIfQuiet()
@@ -361,6 +384,10 @@ private final class ConnectionHandler: NSObject, DaisyLLMServiceProtocol, @unche
     func cancel(_ requestID: String) {
         guard let id = UUID(uuidString: requestID) else { return }
         inbox.yield(.cancel(id))
+    }
+
+    func shutdown() {
+        inbox.yield(.shutdown)
     }
 
     /// A request from another Daisy build is named as such, not as garbage.

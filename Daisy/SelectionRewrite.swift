@@ -115,7 +115,8 @@ final class SelectionRewrite {
         let rewritten = await RecordingSession.polishWithDeadline(
             text: selection,
             instruction: style.promptInstruction,
-            seconds: Self.rewriteDeadlineSeconds
+            seconds: Self.rewriteDeadlineSeconds,
+            route: .interactive
         )
         guard let rewritten, !rewritten.isEmpty else {
             ImprovementStats.record(.rewriteFailed)

@@ -3201,6 +3201,14 @@ struct SettingsView: View {
         case .appleIntelligence:
             EmptyView()
 
+        case .daisyLocal:
+            // Its own row with download and delete comes in Л-4; for now
+            // what it runs, or why it can't.
+            LabeledContent("Model") {
+                Text(verbatim: LocalSummaryModel.isInstalled
+                     ? LocalSummaryModel.displayName : DaisyLocalSummarizer.unavailableReason())
+            }
+
         case .anthropic:
             LabeledContent("API key") {
                 SecureField("", text: $settings.anthropicAPIKey, prompt: Text("sk-ant-…"))
@@ -3698,11 +3706,17 @@ struct SettingsView: View {
     /// because its underlying framework (FoundationModels) only
     /// exists from Tahoe onward — surfacing it on Sonoma would
     /// show a control that has no working code path behind it.
+    ///
+    /// «Локальная модель Daisy» isn't offered until its Settings row comes
+    /// (Л-4); it shows only when already chosen (by the hidden default
+    /// `daisy.summaryProvider = daisyLocal`), so the picker doesn't move
+    /// the person off it.
     private var availableSummaryProviders: [SummaryProviderKind] {
+        let offered = SummaryProviderKind.allCases.filter { $0 != .daisyLocal || summarizer.providerKind == .daisyLocal }
         if #available(macOS 26.0, *) {
-            return SummaryProviderKind.allCases
+            return offered
         }
-        return SummaryProviderKind.allCases.filter { $0 != .appleIntelligence }
+        return offered.filter { $0 != .appleIntelligence }
     }
 
     /// Single Test-button enable rule across all providers — saves
@@ -3711,6 +3725,7 @@ struct SettingsView: View {
         if summaryTestResult == .testing { return true }
         switch summarizer.providerKind {
         case .appleIntelligence: return true
+        case .daisyLocal: return !LocalSummaryModel.isInstalled
         case .anthropic: return settings.anthropicAPIKey.isBlank
         case .openai:
             if summarizer.openAIConnectionMethod == .account {
@@ -3783,6 +3798,11 @@ struct SettingsView: View {
             return String(localized: "Daisy calls your local LM Studio server over its OpenAI-compatible `/v1/chat/completions` REST. No API key, no network egress — everything stays on your Mac. Load a model in the LM Studio app and click Developer → Start. The API identifier in this picker must match the one LM Studio shows under the loaded model. Free.")
         case .mcp:
             return String(localized: "Advanced — for users running a custom MCP server (Python shim, `mcp-ollama` wrapper, etc.). Daisy connects over HTTP+SSE and calls one tool per summary. For stock Ollama or LM Studio use their dedicated providers above instead — those work without an MCP shim.")
+        case .daisyLocal:
+            if let interactive = summarizer.interactiveFallback {
+                return String(localized: "Summaries are written on this Mac by Daisy’s own model, \(LocalSummaryModel.displayName): nothing is sent anywhere, no key, free. A long meeting takes a few minutes, after the meeting. The Daisy key and the selection rewrite keep using \(interactive.shortName).")
+            }
+            return String(localized: "Summaries are written on this Mac by Daisy’s own model, \(LocalSummaryModel.displayName): nothing is sent anywhere, no key, free. A long meeting takes a few minutes, after the meeting. The Daisy key and the selection rewrite use it too, so they’re slow.")
         case .agentCLI:
             return String(localized: "Uses the Codex command you already have signed in — no API key. The transcript is sent to OpenAI by that CLI, under your own account, and counts against your ChatGPT plan's limits. Note: if your account also has API access, some setups have been reported to bill these runs as metered API usage — check your usage after the first summary. Daisy runs it with tools disabled, in an empty temporary folder. (Claude Code isn't offered: Anthropic doesn't permit third-party apps to route requests through Claude subscription credentials — use the Anthropic API key provider instead.)")
         }

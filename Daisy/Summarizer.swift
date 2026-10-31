@@ -283,6 +283,16 @@ nonisolated struct SummaryBullet: Codable, Sendable, Equatable {
     }
 }
 
+/// Which provider a request goes to. `.interactive` is for what a person
+/// waits on — the Daisy key's commands, the selection rewrite: while
+/// «Локальная модель Daisy» is the chosen provider they go to the one chosen
+/// before it (a 4B model reading for 10+ seconds isn't interactive).
+/// Everything else, meetings and all that is built from them, is `.main`.
+nonisolated enum SummaryRoute: Sendable {
+    case main
+    case interactive
+}
+
 @Observable
 @MainActor
 final class Summarizer {
@@ -327,9 +337,62 @@ final class Summarizer {
         didSet {
             guard oldValue != providerKind else { return }
             UserDefaults.standard.set(providerKind.rawValue, forKey: Self.kProvider)
+            // Choosing the local model keeps the provider it replaces for
+            // the interactive route.
+            if providerKind == .daisyLocal, oldValue != .daisyLocal { interactiveFallback = oldValue }
             Task { await refreshAvailability() }
         }
     }
+
+    /// The provider the interactive route uses while the local model is
+    /// chosen: the one the person chose before it, recorded when they
+    /// switched. nil — nothing recorded (the hidden default set from
+    /// outside, before Л-4's row): the interactive route stays on the
+    /// local model too, slow but on this Mac. Never a provider the person
+    /// didn't pick: that would make the local model the first thing to
+    /// send their words elsewhere.
+    var interactiveFallback: SummaryProviderKind? {
+        didSet {
+            if interactiveFallback == .daisyLocal { interactiveFallback = nil }
+            UserDefaults.standard.set(interactiveFallback?.rawValue, forKey: Self.kInteractiveProvider)
+        }
+    }
+
+    /// What a Daisy-key command or a selection rewrite goes to.
+    var interactiveProviderKind: SummaryProviderKind {
+        Self.provider(for: .interactive, chosen: providerKind, interactiveFallback: interactiveFallback)
+    }
+
+    func providerKind(for route: SummaryRoute) -> SummaryProviderKind {
+        Self.provider(for: route, chosen: providerKind, interactiveFallback: interactiveFallback)
+    }
+
+    /// The rule, apart from the stored settings: only the interactive route,
+    /// and only while the local model is chosen, goes elsewhere.
+    nonisolated static func provider(
+        for route: SummaryRoute, chosen: SummaryProviderKind, interactiveFallback: SummaryProviderKind?
+    ) -> SummaryProviderKind {
+        guard route == .interactive, chosen == .daisyLocal, let interactiveFallback,
+              interactiveFallback != .daisyLocal else { return chosen }
+        return interactiveFallback
+    }
+
+    /// Is the route's provider usable now? The main route's answer is the
+    /// cached `availability`; a different interactive provider is asked.
+    func isReady(for route: SummaryRoute) async -> Bool {
+        let kind = providerKind(for: route)
+        guard kind != providerKind else {
+            if availability != .available { await refreshAvailability() }
+            return availability == .available
+        }
+        return await makeProvider(kind).isReady()
+    }
+
+    /// The quick passes around a meeting — the transcript's second pass,
+    /// speaker names, the follow-up in the person's voice — have deadlines
+    /// of seconds. On the local model each would load 4–7 GB and time out,
+    /// delaying the summary; they're skipped there.
+    var runsQuickPasses: Bool { providerKind != .daisyLocal }
 
     /// Model ID selected per cloud provider (Anthropic / OpenAI).
     /// Apple Intelligence has no choice. Persisted independently so the
@@ -451,6 +514,8 @@ final class Summarizer {
     private static let kCursorAgentPath = "daisy.cursorAgentPath"
     private static let kLMStudioModel = "daisy.lmStudioModel"
     private static let kLMStudioBaseURL = "daisy.lmStudioBaseURL"
+    private static let kInteractiveProvider = "daisy.summaryProvider.interactive"
+
 
     private init() {
         // Default to Apple Intelligence on macOS 26+ (where
@@ -464,7 +529,11 @@ final class Summarizer {
         }()
         let storedProvider = UserDefaults.standard.string(forKey: Self.kProvider)
             ?? defaultKind.rawValue
-        self.providerKind = SummaryProviderKind(rawValue: storedProvider) ?? defaultKind
+        let selected = SummaryProviderKind(rawValue: storedProvider) ?? defaultKind
+        self.providerKind = selected
+        let storedInteractive = UserDefaults.standard.string(forKey: Self.kInteractiveProvider)
+            .flatMap(SummaryProviderKind.init(rawValue:))
+        self.interactiveFallback = storedInteractive == .daisyLocal ? nil : storedInteractive
 
         self.anthropicModel = UserDefaults.standard.string(forKey: Self.kAnthropicModel)
             ?? AnthropicAPISummarizer.defaultModelID
@@ -514,7 +583,7 @@ final class Summarizer {
         availabilityGeneration &+= 1
         let generation = availabilityGeneration
         let kind = providerKind
-        let provider = makeProvider()
+        let provider = makeProvider(kind)
         let ready = await provider.isReady()
         guard !Task.isCancelled, kind == providerKind, generation > appliedAvailabilityGeneration else { return }
         appliedAvailabilityGeneration = generation
@@ -569,6 +638,8 @@ final class Summarizer {
             return String(localized: "MCP summarizer isn't configured. Open \(SettingsRow.summaryProvider.path) and set the server URL, tool name, and arguments template.")
         case .agentCLI:
             return String(localized: "Daisy can't find the \(agentCLIKind.displayName) command. Install it and sign in (run it once in Terminal), or set its full path in \(SettingsRow.summaryProvider.path).")
+        case .daisyLocal:
+            return DaisyLocalSummarizer.unavailableReason()
         }
     }
 
@@ -617,10 +688,11 @@ final class Summarizer {
         lastError = nil
         lastFailureCause = nil
 
-        let provider = makeProvider()
+        let provider = makeProvider(providerKind)
         do {
             let summary = try await summarizeWithPrivacy(
                 provider: provider,
+                providerIsLocal: providerIsEffectivelyLocal,
                 transcript: ProjectMemory.prepending(projectContext, to: transcript),
                 title: title,
                 localeHint: localeHint,
@@ -680,15 +752,19 @@ final class Summarizer {
     /// Returns either the produced summary or a thrown error, so the
     /// caller can render its own one-shot preview without polluting
     /// the singleton.
+    /// `route`: `.interactive` only for what a person waits on (the Daisy
+    /// key's commands, the selection rewrite) — see `SummaryRoute`.
     func runProbe(
         transcript: String,
         title: String,
         localeHint: String?,
-        task: SummaryTask = .standard
+        task: SummaryTask = .standard,
+        route: SummaryRoute = .main
     ) async throws -> MeetingSummary {
-        let provider = makeProvider()
+        let kind = providerKind(for: route)
         return try await summarizeWithPrivacy(
-            provider: provider,
+            provider: makeProvider(kind),
+            providerIsLocal: isEffectivelyLocal(kind),
             transcript: transcript,
             title: title,
             localeHint: localeHint,
@@ -701,6 +777,7 @@ final class Summarizer {
     /// MainActor; only aggregate counts are logged, never values or spans.
     private func summarizeWithPrivacy(
         provider: any SummaryProvider,
+        providerIsLocal: Bool,
         transcript: String,
         title: String,
         localeHint: String?,
@@ -709,7 +786,7 @@ final class Summarizer {
         let enabled = AppSettings.protectSensitiveDataBeforeCloudAIEnabled
         let shouldProtect = SensitiveDataProtector.shouldProtect(
             enabled: enabled,
-            providerIsLocal: providerIsEffectivelyLocal
+            providerIsLocal: providerIsLocal
         )
         guard shouldProtect else {
             return try await provider.summarize(
@@ -758,9 +835,15 @@ final class Summarizer {
     /// would then ship past-session excerpts to an external server
     /// without the per-meeting consent tap. Always prefer this over
     /// `providerKind.isLocal` for privacy-gating decisions.
-    var providerIsEffectivelyLocal: Bool {
-        switch providerKind {
-        case .appleIntelligence: return true
+    var providerIsEffectivelyLocal: Bool { isEffectivelyLocal(providerKind) }
+
+    /// The same for the interactive route — what the Daisy key's consent
+    /// asks about.
+    var interactiveProviderIsEffectivelyLocal: Bool { isEffectivelyLocal(interactiveProviderKind) }
+
+    func isEffectivelyLocal(_ kind: SummaryProviderKind) -> Bool {
+        switch kind {
+        case .appleIntelligence, .daisyLocal: return true
         case .anthropic, .openai, .cursor, .kimi, .gemini, .yandex, .gigachat, .deepseek: return false
         case .ollama:
             return Self.isLoopbackURL(URL(string: ollamaBaseURL))
@@ -783,8 +866,8 @@ final class Summarizer {
         return host == "127.0.0.1" || host == "localhost" || host == "::1" || host == "[::1]"
     }
 
-    private func makeProvider() -> SummaryProvider {
-        switch providerKind {
+    private func makeProvider(_ kind: SummaryProviderKind) -> SummaryProvider {
+        switch kind {
         case .appleIntelligence:
             // FoundationModels (Apple Intelligence's local LLM) is
             // macOS 26+ only. On Sonoma / Sequoia we surface a stub
@@ -857,6 +940,8 @@ final class Summarizer {
                 agent: agentCLIKind,
                 executableOverride: agentCLIPath
             )
+        case .daisyLocal:
+            return DaisyLocalSummarizer()
         }
     }
 }

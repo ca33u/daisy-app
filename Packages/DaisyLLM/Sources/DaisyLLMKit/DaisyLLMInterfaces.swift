@@ -15,6 +15,9 @@ import Foundation
     /// Cancels a queued or running request by its id (a UUID string). The
     /// request still replies, with `.cancelled`.
     func cancel(_ requestID: String)
+    /// Memory is short: cancel everything and exit as soon as the running
+    /// generation has stopped (at once if nothing runs).
+    func shutdown()
 }
 
 @objc public protocol DaisyLLMProgressProtocol {

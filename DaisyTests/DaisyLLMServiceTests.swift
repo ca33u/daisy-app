@@ -227,7 +227,7 @@ private let allFailures: [DaisyLLMFailure] = [
     .modelNotFound(path: "/m"), .modelUnreadable(detail: "d"), .promptTooLong(tokens: 2, limit: 1),
     .invalidSchema(detail: "d"), .outputIncomplete(tokens: 4096), .cancelled, .unsupportedHardware,
     .protocolMismatch(service: 1, client: 2), .serviceRestarting, .serviceUnavailable(detail: "d"),
-    .timedOut(seconds: 1800), .engine(detail: "Metal"),
+    .timedOut(seconds: 1800), .memoryPressure, .engine(detail: "Metal"),
 ]
 
 // The client never launches the helper on an Intel Mac or under Rosetta.
@@ -541,6 +541,69 @@ struct DaisyLLMServiceTests {
         #expect(helper.backend.started.count <= 2)
     }
 
+    @Test func underMemoryPressureTheHelperStopsAndLeaves() async throws {
+        let helper = Helper { _ in .hang }
+        defer { helper.close() }
+        let task = Task { try await helper.client.generate(request("big")) }
+        #expect(await eventually { helper.backend.started == ["big"] })
+
+        helper.client.releaseUnderMemoryPressure()
+
+        await #expect(throws: DaisyLLMFailure.memoryPressure) { try await task.value }
+        #expect(await eventually { helper.backend.cancelled == ["big"] })
+        #expect(await eventually { helper.idleExits.values.count == 1 })
+        #expect(helper.service.isExiting)
+    }
+
+    /// A request arriving while the helper stops for memory is told to go
+    /// to a fresh helper, not left waiting in a queue nobody will run.
+    @Test func aRequestDuringAShutdownIsSentElsewhere() async throws {
+        let helper = Helper(cancelGrace: .seconds(30)) { request in request.userPrompt == "big" ? .stubborn(.seconds(2)) : .reply("ok") }
+        defer { helper.close() }
+        let big = Task { try await helper.client.generate(request("big")) }
+        #expect(await eventually { helper.backend.started == ["big"] })
+        let (connection, proxy) = helper.rawProxy {}
+        defer { connection.invalidate() }
+        proxy?.shutdown()
+        try await Task.sleep(for: .milliseconds(200))
+
+        let failure = try await rawFailure(helper, sending: try DaisyLLMWire.encode(request("late")))
+
+        #expect(failure == .serviceRestarting)
+        #expect(!helper.backend.started.contains("late"))
+        _ = try? await big.value
+    }
+
+    /// Just after an answer the model is still loaded: memory pressure
+    /// sends that helper away too.
+    @Test func memoryPressureJustAfterAnAnswerStillSendsTheHelperAway() async throws {
+        let helper = Helper { _ in .reply("ok") }
+        defer { helper.close() }
+        _ = try await helper.client.generate(request())
+        helper.client.releaseUnderMemoryPressure()
+        #expect(await eventually { helper.idleExits.values.count == 1 })
+    }
+
+    /// Never asked anything: no message that would only launch a helper.
+    @Test func memoryPressureWithoutAHelperSendsNothing() async throws {
+        let helper = Helper { _ in .reply("ok") }
+        defer { helper.close() }
+        helper.client.releaseUnderMemoryPressure()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(helper.service.requestsReceived == 0)
+        #expect(helper.idleExits.values.isEmpty)
+    }
+
+    @Test func aShutdownWithNothingRunningLeavesAtOnce() async throws {
+        let helper = Helper { _ in .reply("ok") }
+        defer { helper.close() }
+        let (connection, proxy) = helper.rawProxy {}
+        defer { connection.invalidate() }
+        proxy?.shutdown()
+        #expect(await eventually { helper.idleExits.values.count == 1 })
+        #expect(helper.stuckExits.values.isEmpty)
+    }
+
     @Test func theLocalModelSchemaIsTheSameShapeTwoLevelsDeep() throws {
         let schema = try #require(JSONSerialization.jsonObject(with: Data(MeetingSummaryJSONSchema.localModelJSON.utf8)) as? [String: Any])
         let defs = try #require(schema["$defs"] as? [String: Any])
@@ -563,7 +626,9 @@ struct DaisyLLMServiceTests {
             == "This meeting is too long for the local model on this Mac. Choose another provider for it.")
         #expect(DaisyLLMFailure.timedOut(seconds: 1800).localizedDescription
             == "The local model didn’t finish in 30 min — on this Mac it’s too slow for a meeting this long. Choose another provider for it.")
-        #expect(DaisyLLMFailure.engine(detail: "Metal").localizedDescription == "The local model failed: Metal")
+        // MLX's English detail stays in the log.
+        #expect(DaisyLLMFailure.engine(detail: "Metal").localizedDescription
+            == "The local model failed. Try again, or choose another provider for this meeting.")
     }
 
     @Test func withoutTheSmokeFlagLaunchGoesOn() {

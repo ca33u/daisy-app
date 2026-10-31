@@ -19,6 +19,11 @@
 //  so it can run next to the Daisy in /Applications. Like
 //  `--benchmark-record`, nobody passes it by accident.
 //
+//  `Daisy --daisy-llm-summary <model-folder> <transcript.txt> [--lang ru]`
+//  goes the provider's whole way instead — Daisy's own prompts
+//  (SummaryPrompt), the two-level schema, the answer as a MeetingSummary —
+//  and prints that summary.
+//
 //  `installed` as the model folder means the downloaded model
 //  (LocalSummaryModel); `Daisy --daisy-llm-download` fetches it (3 GB,
 //  mirror then pinned Hugging Face) and exits — the way to get it on a Mac
@@ -32,11 +37,17 @@ import os
 nonisolated enum DaisyLLMSmoke {
     static let flag = "--daisy-llm-smoke"
     static let downloadFlag = "--daisy-llm-download"
+    static let summaryFlag = "--daisy-llm-summary"
 
     /// Returns at once without either flag; with one, never returns.
     static func runIfRequested(_ arguments: [String] = CommandLine.arguments) {
         if arguments.contains(downloadFlag) {
             Task.detached { exit(await download()) }
+            dispatchMain()
+        }
+        if let index = arguments.firstIndex(of: summaryFlag), arguments.count > index + 2 {
+            let rest = Array(arguments[(index + 1)...])
+            Task.detached { exit(await summary(rest)) }
             dispatchMain()
         }
         guard let index = arguments.firstIndex(of: flag) else { return }
@@ -79,6 +90,29 @@ nonisolated enum DaisyLLMSmoke {
                 }) { say("\(percent) %") }
             })
             say("done: \(LocalSummaryModel.state())")
+            return 0
+        } catch {
+            say("failed: \(error.localizedDescription)")
+            return 1
+        }
+    }
+
+    private static func summary(_ arguments: [String]) async -> Int32 {
+        let folder = arguments[0] == "installed" ? LocalSummaryModel.directory : URL(fileURLWithPath: arguments[0])
+        guard let transcript = try? String(contentsOfFile: arguments[1], encoding: .utf8) else {
+            say("can't read \(arguments[1])")
+            return 66
+        }
+        // Not into the person's token ledger: this is a test run.
+        let provider = DaisyLocalSummarizer(modelFolder: folder, isInstalled: { true }, recordSpend: { _, _, _ in })
+        let started = ContinuousClock.now
+        do {
+            let summary = try await provider.summarize(
+                transcript: transcript, title: "Smoke", localeHint: value(after: "--lang", in: arguments), task: .standard)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
+            print(String(decoding: try encoder.encode(summary), as: UTF8.self))
+            say("summary in \(ContinuousClock.now - started): \(summary.sections.count) sections, \(summary.sections.reduce(0) { $0 + $1.bullets.count }) bullets, \(summary.actionItems.count) actions")
             return 0
         } catch {
             say("failed: \(error.localizedDescription)")

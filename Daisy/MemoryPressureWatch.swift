@@ -56,6 +56,9 @@ enum MemoryPressureWatch {
                 log.warning("System memory pressure: \(event.rawValue, privacy: .public) — asking the ML engines to release")
                 WhisperEngine.shared.releaseModelsUnderMemoryPressure()
                 DiarizationEngine.shared.releaseUnderMemoryPressure()
+                // The local summary model's 4–7 GB first of all: unlike
+                // Whisper it lives in its own process, which can just go.
+                DaisyLLMClient.shared.releaseUnderMemoryPressure()
             }
         }
         source.resume()

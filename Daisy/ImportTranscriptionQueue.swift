@@ -509,6 +509,8 @@ final class ImportTranscriptionQueue {
     /// against.
     private static func finishingPasses(for session: StoredSession, isMeeting: Bool) -> SessionFinishingPasses? {
         guard let settings = RecordingSession.current?.settings, settings.transcriptSecondPass else { return nil }
+        // Their deadlines are seconds; the local model would only time out.
+        guard Summarizer.shared.runsQuickPasses else { return nil }
         let willSummarize = isMeeting && settings.autoSummarize && Summarizer.shared.availability == .available
         guard Summarizer.shared.providerIsEffectivelyLocal || willSummarize else { return nil }
         return SessionFinishingPasses(

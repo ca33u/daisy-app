@@ -228,6 +228,7 @@ nonisolated enum ImprovementStats {
             case .lmStudio: return "lmstudio"
             case .mcp: return "mcp"
             case .agentCLI: return "agent_cli"
+            case .daisyLocal: return "daisy_local"
             }
         }
     }
@@ -242,7 +243,7 @@ nonisolated enum ImprovementStats {
     /// Docs/usage-statistics.md publishes them. A test keeps `Event` to it.
     static let publishedNames: Set<String> = {
         let providers = ["apple", "anthropic", "openai", "openai_account", "gemini", "cursor", "kimi", "yandex", "gigachat", "deepseek",
-                         "ollama", "lmstudio", "mcp", "agent_cli"]
+                         "ollama", "lmstudio", "mcp", "agent_cli", "daisy_local"]
         return Set([
             "recording.started", "recording.started.calendar", "recording.saved",
             "recording.length.under15m", "recording.length.15to60m", "recording.length.over60m",

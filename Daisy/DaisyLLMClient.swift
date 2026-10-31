@@ -14,8 +14,8 @@
 //  helper; a helper that dies mid-request (memory pressure, an MLX crash)
 //  is `.serviceUnavailable` — the summary is retried later, by the caller.
 //
-//  Not wired into Summarizer or Settings yet (Л-3/Л-4); the only caller is
-//  the hidden `--daisy-llm-smoke` launch below.
+//  DaisyLocalSummarizer (Л-3) is the caller, and the hidden smoke launches
+//  (DaisyLLMSmoke).
 //
 
 import Foundation
@@ -48,6 +48,10 @@ nonisolated final class DaisyLLMClient: @unchecked Sendable {
     private let lock = NSLock()
     private var connection: NSXPCConnection?
     private var pending: [UUID: Pending] = [:]
+    /// When the helper last answered: it keeps the model loaded for its
+    /// idle minute after.
+    private var lastHeard: ContinuousClock.Instant?
+    private static let helperIdleWindow: Duration = .seconds(75)
 
     /// `makeConnection` and `peerRequirement` are for the tests (an
     /// anonymous listener in this process); by default the peer must be
@@ -96,6 +100,22 @@ nonisolated final class DaisyLLMClient: @unchecked Sendable {
                 throw DaisyLLMFailure.timedOut(seconds: Int(timeout.components.seconds))
             }
             return response
+        }
+    }
+
+    /// macOS is short of memory (`MemoryPressureWatch`, `.critical`): the
+    /// helper is told to stop and leave, and what was waiting on it fails
+    /// with `.memoryPressure` — a reason in words, not a mystery.
+    func releaseUnderMemoryPressure() {
+        let (current, waiting, heard) = lock.withLock { (connection, Array(pending.keys), lastHeard) }
+        // Running, or within its idle minute with the model still loaded:
+        // tell it to go. Otherwise it is gone, and a message would only
+        // launch it again.
+        let mayBeAlive = !waiting.isEmpty || heard.map { ContinuousClock.now - $0 < Self.helperIdleWindow } ?? false
+        guard let current, mayBeAlive else { return }
+        (current.remoteObjectProxyWithErrorHandler { _ in } as? DaisyLLMServiceProtocol)?.shutdown()
+        for id in waiting {
+            resolve(id, .failure(DaisyLLMFailure.memoryPressure))
         }
     }
 
@@ -176,6 +196,7 @@ nonisolated final class DaisyLLMClient: @unchecked Sendable {
     }
 
     private func replied(_ id: UUID, _ response: Data?, _ failure: Data?) {
+        lock.withLock { lastHeard = .now }
         if let response, let decoded = try? DaisyLLMWire.decode(DaisyLLMResponse.self, from: response) {
             resolve(id, .success(decoded))
         } else if let failure, let decoded = try? DaisyLLMWire.decode(DaisyLLMFailure.self, from: failure) {
@@ -313,8 +334,11 @@ extension DaisyLLMFailure: @retroactive LocalizedError {
             String(localized: "The local model didn’t finish in \(max(1, seconds / 60)) min — on this Mac it’s too slow for a meeting this long. Choose another provider for it.")
         case .serviceRestarting, .serviceUnavailable:
             String(localized: "The local model stopped before it finished. Try again.")
-        case .engine(let detail):
-            String(localized: "The local model failed: \(detail)")
+        case .memoryPressure:
+            String(localized: "macOS ran short of memory, so the local model was stopped. Summarize this meeting again when fewer apps are open.")
+        case .engine:
+            // The detail is English from MLX; it goes to the log, not here.
+            String(localized: "The local model failed. Try again, or choose another provider for this meeting.")
         }
     }
 }

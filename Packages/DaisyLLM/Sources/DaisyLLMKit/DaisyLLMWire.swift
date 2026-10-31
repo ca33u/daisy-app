@@ -164,5 +164,7 @@ public enum DaisyLLMFailure: Error, Codable, Sendable, Equatable {
     /// Client side: the request ran past the caller's time limit and was
     /// cancelled (a model too slow for this prompt on this Mac, or stuck).
     case timedOut(seconds: Int)
+    /// Client side: macOS ran short of memory and Daisy stopped the helper.
+    case memoryPressure
     case engine(detail: String)
 }

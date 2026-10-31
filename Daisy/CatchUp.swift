@@ -147,6 +147,9 @@ extension RecordingSession {
     /// button whose help text is about persistence. Ephemeral is not the
     /// same as local, and the gate is what makes the two agree.
     func catchUpRecap() async -> CatchUp.Outcome {
+        // The local model doesn't run beside a live recording on most Macs,
+        // and from cold it wouldn't answer within the glance's deadline.
+        guard summarizer.providerKind != .daisyLocal else { return .unavailable }
         guard summarizer.providerIsEffectivelyLocal || settings.autoSummarize else {
             return .wouldLeaveThisMac(provider: summarizer.providerKind.shortName)
         }

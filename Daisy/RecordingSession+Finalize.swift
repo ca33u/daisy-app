@@ -908,6 +908,10 @@ extension RecordingSession {
         finalPassSeconds: Double
     ) async {
         guard settings.transcriptSecondPass else { return }
+        guard summarizer.runsQuickPasses else {
+            log.info("Transcript polish skipped — the local model can't do it within its deadline")
+            return
+        }
         guard summarizer.providerIsEffectivelyLocal || willSummarize else {
             log.info("Transcript polish skipped — cloud provider and no summary for this session, so the transcript stays on this Mac")
             return
@@ -1037,6 +1041,7 @@ extension RecordingSession {
     ) async {
         guard settings.transcriptSecondPass else { return }
         guard settings.speakerMatchMode != .off else { return }
+        guard summarizer.runsQuickPasses else { return }
         guard summarizer.providerIsEffectivelyLocal || willSummarize else { return }
 
         // The roster is the allow-list, so it must contain only people a
@@ -1730,15 +1735,19 @@ extension RecordingSession {
     /// default; a follow-up template may legitimately cut a long draft to
     /// a short letter, so it passes less (backlog 35) — the upper bound,
     /// the guard against an invented letter, stays.
+    /// `route`: `.interactive` for a rewrite someone waits on (the selection
+    /// rewrite); a meeting's follow-up stays on the chosen provider.
     nonisolated static func polishWithDeadline(text: String, instruction: String, seconds: Double,
-                                               minShare: Double = 0.4, maxShare: Double = 2.5) async -> String? {
+                                               minShare: Double = 0.4, maxShare: Double = 2.5,
+                                               route: SummaryRoute = .main) async -> String? {
         await withTaskGroup(of: String?.self) { group in
             group.addTask {
                 let summary = try? await Summarizer.shared.runProbe(
                     transcript: text,
                     title: "Dictation",
                     localeHint: nil,
-                    task: .dictationPolish(instruction: instruction)
+                    task: .dictationPolish(instruction: instruction),
+                    route: route
                 )
                 guard let polished = summary?.clientFollowUp
                     .trimmingCharacters(in: .whitespacesAndNewlines),

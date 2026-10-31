@@ -1,6 +1,56 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Summaries are written on this Mac by Daisy’s own model, %@: nothing is sent anywhere, no key, free. A long meeting takes a few minutes, after the meeting. The Daisy key and the selection rewrite use it too, so they’re slow." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Саммари пишет на этом Mac собственная модель Daisy, %@: ничего никуда не отправляется, без ключа, бесплатно. Длинная встреча занимает несколько минут — уже после встречи. Клавиша Daisy и переписывание выделенного тоже идут через неё, поэтому работают медленно."
+          }
+        }
+      }
+    },
+    "Summaries are written on this Mac by Daisy’s own model, %@: nothing is sent anywhere, no key, free. A long meeting takes a few minutes, after the meeting. The Daisy key and the selection rewrite keep using %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Саммари пишет на этом Mac собственная модель Daisy, %@: ничего никуда не отправляется, без ключа, бесплатно. Длинная встреча занимает несколько минут — уже после встречи. Клавиша Daisy и переписывание выделенного по-прежнему идут через %@."
+          }
+        }
+      }
+    },
+    "macOS ran short of memory, so the local model was stopped. Summarize this meeting again when fewer apps are open." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS не хватило памяти, поэтому локальная модель остановлена. Запусти саммари этой встречи ещё раз, когда будет открыто меньше программ."
+          }
+        }
+      }
+    },
+    "Daisy local model" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Локальная модель Daisy"
+          }
+        }
+      }
+    },
+    "On this Mac — nothing is sent anywhere." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На этом Mac — никуда не отправляется."
+          }
+        }
+      }
+    },
     "The local model is already downloading, or being deleted." : {
       "localizations" : {
         "ru" : {
@@ -121,12 +171,12 @@
         }
       }
     },
-    "The local model failed: %@" : {
+    "The local model failed. Try again, or choose another provider for this meeting." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ошибка локальной модели: %@"
+            "value" : "Локальная модель дала сбой. Попробуй ещё раз или выбери для этой встречи другого провайдера."
           }
         }
       }

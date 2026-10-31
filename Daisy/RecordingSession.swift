@@ -1031,6 +1031,15 @@ final class RecordingSession {
     /// app's `@State` reference remains the owner.
     static weak var current: RecordingSession?
 
+    /// A recording is capturing (and transcribing live) right now — what the
+    /// local summary model waits out on a Mac with 16 GB or less.
+    static var isRecordingLive: Bool {
+        switch current?.status {
+        case .preparing, .recording, .paused: return true
+        default: return false
+        }
+    }
+
     /// True while any part of the pipeline is holding audio: a live
     /// recording, a stop that's still finalizing, or a standalone
     /// re-transcription. Read by the memory-pressure handler, which must

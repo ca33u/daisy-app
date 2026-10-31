@@ -549,7 +549,7 @@ nonisolated enum TokenCostEstimator {
         // `.agentCLI` joins them: the agent CLI reports no per-request
         // usage we can price, and the spend lands on the user's
         // subscription rather than a metered key.
-        case .appleIntelligence, .cursor, .ollama, .lmStudio, .mcp, .agentCLI:
+        case .appleIntelligence, .cursor, .ollama, .lmStudio, .mcp, .agentCLI, .daisyLocal:
             return nil
         }
         return nil
@@ -1148,7 +1148,7 @@ final class TokenLedger {
     nonisolated static func isBilled(_ kind: SummaryProviderKind) -> Bool {
         switch kind {
         case .anthropic, .openai, .cursor, .kimi, .gemini, .yandex, .gigachat, .deepseek: return true
-        case .appleIntelligence, .ollama, .lmStudio, .mcp, .agentCLI: return false
+        case .appleIntelligence, .ollama, .lmStudio, .mcp, .agentCLI, .daisyLocal: return false
         }
     }
 }

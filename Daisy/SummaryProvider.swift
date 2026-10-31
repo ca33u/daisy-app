@@ -76,6 +76,10 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
     /// Anthropic forbids third parties routing requests through consumer
     /// plan credentials; see `AgentCLISummarizer`'s header.
     case agentCLI
+    /// «Локальная модель Daisy» (plan 2026-10-28): Qwen 3.5 4B in the
+    /// DaisyLLM helper on this Mac — see DaisyLocalSummarizer. Opt-in,
+    /// never a default; background work only.
+    case daisyLocal
 
     var displayName: String {
         switch self {
@@ -92,6 +96,7 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
         case .lmStudio: return String(localized: "LM Studio (local)")
         case .mcp: return String(localized: "Custom MCP server (advanced)")
         case .agentCLI: return String(localized: "Codex (your ChatGPT subscription)")
+        case .daisyLocal: return String(localized: "Daisy local model")
         }
     }
 
@@ -110,13 +115,14 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
         case .lmStudio: return String(localized: "LM Studio")
         case .mcp: return String(localized: "MCP")
         case .agentCLI: return String(localized: "Codex CLI")
+        case .daisyLocal: return String(localized: "Daisy local model")
         }
     }
 
     /// NOT local for `.agentCLI`: the request is relayed by a CLI on the
     /// user's Mac, but the inference happens at OpenAI.
     var isLocal: Bool {
-        self == .appleIntelligence || self == .ollama || self == .lmStudio || self == .mcp
+        self == .appleIntelligence || self == .ollama || self == .lmStudio || self == .mcp || self == .daisyLocal
     }
 
     var requiresAPIKey: Bool {
@@ -164,6 +170,8 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
             // account also has API access, and a summary provider must
             // not be the thing that surprises someone with a bill.
             return String(localized: "Sent to OpenAI by the Codex CLI on your Mac, on your subscription — counts against your plan's limits.")
+        case .daisyLocal:
+            return String(localized: "On this Mac — nothing is sent anywhere.")
         }
     }
 

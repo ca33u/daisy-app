@@ -63,6 +63,8 @@ enum FollowUpVoice {
         let wantsVoice = voice && AppSettings.followUpsInMyVoiceEnabled
         let languageName = SummaryPrompt.explicitLanguageName(for: language)
         guard wantsVoice || structure != nil || languageName != nil else { return summary }
+        // A 25-second pass the local model can't make: the draft stays.
+        guard Summarizer.shared.runsQuickPasses else { return summary }
         let draft = summary.clientFollowUp.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !draft.isEmpty else { return summary }
         // The follow-up's language is the summary language when one is

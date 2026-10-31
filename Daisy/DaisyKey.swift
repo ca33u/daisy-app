@@ -1394,22 +1394,24 @@ final class DaisyKeyController {
         }
         isWorking = true
         defer { isWorking = false }
-        if summarizer.availability != .available { await summarizer.refreshAvailability() }
-        guard summarizer.availability == .available else {
+        guard await summarizer.isReady(for: .interactive) else {
             return await fallBack(String(localized: "No summary provider is available — saved as a note"))
         }
-        let local = summarizer.providerIsEffectivelyLocal
-        if !local, !Self.cloudAllowed(summarizer.providerKind) {
+        // Commands take the interactive route: with the local model chosen
+        // that is the provider chosen before it, and its consent is asked.
+        let local = summarizer.interactiveProviderIsEffectivelyLocal
+        let commandProvider = summarizer.interactiveProviderKind
+        if !local, !Self.cloudAllowed(commandProvider) {
             // One yes per provider (spec 21.10): until then the words stay
             // a note, and the button is the yes.
             if !noteKept {
                 await keepAsNote(request, samples: samples, durationSec: durationSec, entryID: entryID,
                                  outcome: "unclear", message: nil, offerToRun: false)
             }
-            let provider = summarizer.providerKind.shortName
+            let provider = commandProvider.shortName
             tell(String(localized: "Commands send what you said and selected to \(provider). Saved as a note for now"),
                  action: (String(localized: "Allow and run"), { [weak self] in
-                     Self.allowCloud(summarizer.providerKind)
+                     Self.allowCloud(commandProvider)
                      Task { await self?.runCommand(kind, request: request, context: context, bundleID: bundleID, appName: appName,
                                                    entryID: entryID, samples: [], durationSec: 0, atPress: false, noteKept: true) }
                  }))
@@ -1510,17 +1512,16 @@ final class DaisyKeyController {
         isWorking = true
         defer { isWorking = false }
         let summarizer = Summarizer.shared
-        if summarizer.availability != .available { await summarizer.refreshAvailability() }
-        guard summarizer.availability == .available else {
+        guard await summarizer.isReady(for: .interactive) else {
             history.setOutcome("cardUnchanged", for: entryID)
             return tell(String(localized: "No summary provider is available"), style: .warning)
         }
-        let local = summarizer.providerIsEffectivelyLocal
-        guard local || Self.cloudAllowed(summarizer.providerKind) else {
+        let local = summarizer.interactiveProviderIsEffectivelyLocal
+        guard local || Self.cloudAllowed(summarizer.interactiveProviderKind) else {
             // The provider changed since the card's text was written: the
             // new one needs its own yes.
             history.setOutcome("cardUnchanged", for: entryID)
-            let kind = summarizer.providerKind
+            let kind = summarizer.interactiveProviderKind
             return tell(String(localized: "Commands send what you said and the card’s text to \(kind.shortName)"),
                         action: (String(localized: "Allow and run"), { [weak self] in
                             Self.allowCloud(kind)
@@ -1570,7 +1571,8 @@ final class DaisyKeyController {
         defer { WidgetBubbleCenter.shared.dismiss(tag: Self.progressTag) }
         let work = Task<String?, Never> {
             guard let summary = try? await Summarizer.shared.runProbe(
-                transcript: payload, title: "Daisy", localeHint: nil, task: .voiceCommand(context)) else { return nil }
+                transcript: payload, title: "Daisy", localeHint: nil, task: .voiceCommand(context),
+                route: .interactive) else { return nil }
             let text = summary.clientFollowUp
             guard !SensitiveDataProtector.containsUnrestoredMarker(text) else { return nil }
             return DaisyKeyCommandParser.cleaned(text, field: context.field)
