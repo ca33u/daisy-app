@@ -282,15 +282,30 @@ def r2_client():
     return client
 
 
-def upload():
+def only_repo(manifest, repo):
+    """The manifest's files, or just one repository's (`--repo`)."""
+    if repo is None:
+        return manifest["files"]
+    files = [f for f in manifest["files"] if f["repo"] == repo]
+    if not files:
+        raise ValueError("That repository isn't in the manifest")
+    return files
+
+
+def upload(repo=None):
+    """With `repo`, only that repository's files and its own discovery
+    listings: nothing else in the bucket is written — not the other
+    repositories' listings, not the published Mac manifest (the next full
+    upload brings that up to date)."""
     manifest = load_manifest()
+    files = only_repo(manifest, repo)
     # Verify ALL files before the first remote write.
-    for f in manifest["files"]:
+    for f in files:
         validate_file(local_path(f), f)
     client = r2_client()
     bucket = "daisy-models"
     uploaded = []
-    for f in manifest["files"]:
+    for f in files:
         key = f'{f["repo"]}/resolve/main/{f["path"]}'
         metadata = {"sha256": f["sha256"], "hf-revision": f["revision"]}
         if already_stored(client, bucket, key, f):
@@ -309,11 +324,15 @@ def upload():
         verify_stored(client, bucket, f'{f["repo"]}/resolve/main/{f["path"]}', f)
     # Publish discovery only AFTER every verified file is present.
     objects = api_listings(manifest)
-    objects["daisy/mac-models-manifest-v1.json"] = MANIFEST.read_bytes()
+    if repo is None:
+        objects["daisy/mac-models-manifest-v1.json"] = MANIFEST.read_bytes()
+    else:
+        objects = {k: v for k, v in objects.items() if k == f"api/models/{repo}" or k.startswith(f"api/models/{repo}/")}
     for key, body in objects.items():
         client.put_object(Bucket=bucket, Key=key, Body=body, ContentType="application/json",
                           CacheControl="public, max-age=300", Metadata={"sha256": hashlib.sha256(body).hexdigest()})
-    print(f'Published {len(manifest["files"])} model/license files and {len(objects)} discovery objects. No objects deleted.')
+        print(f'Published {key}', flush=True)
+    print(f'Published {len(files)} model/license files ({len(uploaded)} uploaded, the rest already stored) and {len(objects)} discovery objects. No objects deleted.')
 
 
 def already_stored(client, bucket, key, f):
@@ -343,8 +362,9 @@ def verify_stored(client, bucket, key, f):
     print(f'Stored SHA-256 OK: {key}', flush=True)
 
 
-def verify_public():
+def verify_public(repo=None):
     manifest = load_manifest()
+    files = only_repo(manifest, repo)
     def check(f):
         url = f'{MIRROR}/{f["repo"]}/resolve/main/{quote(f["path"], safe="/")}'
         sha256 = hashlib.sha256()
@@ -360,8 +380,10 @@ def verify_public():
             raise ValueError("Public model checksum mismatch")
         print(f'Public SHA-256 OK: {f["repo"]}/{f["path"]}', flush=True)
     with ThreadPoolExecutor(max_workers=4) as executor:
-        list(executor.map(check, manifest["files"]))
+        list(executor.map(check, files))
     for key, expected in api_listings(manifest).items():
+        if repo is not None and not (key == f"api/models/{repo}" or key.startswith(f"api/models/{repo}/")):
+            continue
         actual, _ = request_json(f"{MIRROR}/{key}")
         if actual != json.loads(expected):
             raise ValueError("Public discovery listing mismatch")
@@ -371,13 +393,14 @@ def verify_public():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["prepare", "upload", "check", "verify-public", "manifest"])
+    parser.add_argument("--repo", help="upload / verify-public: only this repository (owner/name)")
     args = parser.parse_args()
     if args.command == "prepare":
         prepare()
     elif args.command == "upload":
-        upload()
+        upload(args.repo)
     elif args.command == "verify-public":
-        verify_public()
+        verify_public(args.repo)
     elif args.command == "manifest":
         manifest = load_manifest()
         for f in manifest["files"]:
