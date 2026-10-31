@@ -646,7 +646,10 @@ final class RecordingSession {
         guard currentMode != .dictation else { return [] }
         let onTimeline = linesAreOnArchiveTimeline
         let closed = onTimeline ? dictationHolds : liveDictationHolds
-        guard let open = openDictationHoldStart else { return closed }
+        // An open hold counts only while the side dictation is actually
+        // under way: a failed start whose key-up got lost would otherwise
+        // hide every own-mic line until the next press (review 31.10).
+        guard let open = openDictationHoldStart, sideDictationIsLive else { return closed }
         return closed + [DictationHold(startSec: onTimeline ? open.timeline : open.live, endSec: .greatestFiniteMagnitude)]
     }
 
@@ -980,6 +983,11 @@ final class RecordingSession {
     /// a minute later). Made on first need, kept for the next one.
     /// The floating widget shows it while it dictates.
     var sideDictation: RecordingSession?
+    /// The side dictation is dictating, or its start is queued or under way.
+    var sideDictationIsLive: Bool {
+        guard let side = sideDictation else { return false }
+        return side.isDictating || side.pendingMode == .dictation || side.startingMode == .dictation
+    }
     /// On a side dictation: the session whose recording (a meeting or a
     /// voice note) this dictation was held over — the dictation key during
     /// a recording (31.10). `nil` for one held while the previous
@@ -2977,7 +2985,10 @@ final class RecordingSession {
         await systemAudio.pause()
         let systemPaused = Date()
         // Both tracks have stopped: the shared pause moment they pad to.
-        ArchiveOrigin.markPause()
+        // Not a dictation over a live recording — the marks are that
+        // recording's, and the dictation's own mic falling to paused (a
+        // route change) would freeze its timeline (review 31.10).
+        if !dictatesOverLiveRecording { ArchiveOrigin.markPause() }
         micTranscriber.pause()
         systemTranscriber.pause()
         screenshots.stop()
@@ -2994,7 +3005,7 @@ final class RecordingSession {
     func resume() async {
         guard status == .paused else { return }
         // Neither track has restarted yet: the shared resume moment.
-        ArchiveOrigin.markResume()
+        if !dictatesOverLiveRecording { ArchiveOrigin.markResume() }
         do {
             try recorder.resume()
         } catch {
@@ -4229,9 +4240,14 @@ final class RecordingSession {
         // starting/resetting supersedes a pending ask.
         pendingAutoStartTrigger = nil
         rotationAskedFor = nil
-        WidgetBubbleCenter.shared.dismiss(tag: Self.rotationAskBubbleTag)
-        AutoStartPromptNotification.cancel()
-        WidgetBubbleCenter.shared.dismiss(tag: Self.autoStartAskBubbleTag)
+        // The asks are the recording's, global: a side dictation's reset
+        // must not take down «next meeting — switch?» from the meeting it
+        // dictates over (review 31.10).
+        if !isDictationSidecar {
+            WidgetBubbleCenter.shared.dismiss(tag: Self.rotationAskBubbleTag)
+            AutoStartPromptNotification.cancel()
+            WidgetBubbleCenter.shared.dismiss(tag: Self.autoStartAskBubbleTag)
+        }
         status = .idle
     }
 
@@ -4423,7 +4439,19 @@ final class RecordingSession {
         stamp.formatOptions = [.withInternetDateTime]
         let safeStamp = stamp.string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
-        let dir = ticket.url.appendingPathComponent("Daisy/Sessions/\(safeStamp)", isDirectory: true)
+        // Named by the second, so two sessions started within one — a
+        // dictation over a recording that began a moment ago, a rotation —
+        // must not share a folder: the dictation's teardown deletes its
+        // folder, which would take the recording with it (review 31.10).
+        // No await between the check and the create, so on the main actor
+        // nothing can claim the name in between.
+        let sessionsRoot = ticket.url.appendingPathComponent("Daisy/Sessions", isDirectory: true)
+        var dir = sessionsRoot.appendingPathComponent(safeStamp, isDirectory: true)
+        var suffix = 2
+        while fm.fileExists(atPath: dir.path) {
+            dir = sessionsRoot.appendingPathComponent("\(safeStamp)-\(suffix)", isDirectory: true)
+            suffix += 1
+        }
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
