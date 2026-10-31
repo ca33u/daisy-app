@@ -128,11 +128,15 @@ extension Toast: Equatable {
 // MARK: - Overlay modifier
 
 struct ToastOverlay: ViewModifier {
+    /// Which window this overlay sits in: the Settings window or the main
+    /// one. A toast shows in only one of them (`AppNavigation.toastsInSettings`).
+    var inSettings = false
     @Bindable private var center = ToastCenter.shared
+    private var nav: AppNavigation { AppNavigation.shared }
 
     func body(content: Content) -> some View {
         content.overlay(alignment: .bottom) {
-            if let toast = center.current {
+            if let toast = center.current, nav.toastsInSettings == inSettings {
                 ToastView(toast: toast)
                     .padding(.bottom, 24)
                     .transition(.move(edge: .bottom).combined(with: .opacity))

@@ -84,10 +84,12 @@ struct DaisyApp: App {
         _floatingPanel = State(wrappedValue: FloatingPanelController(session: sess, settings: s))
 
         // Initial wiring of hotkey + meeting auto-start + calendar.
-        // Re-applied reactively in MainView's .onChange handlers when
-        // the user flips the relevant setting. Centralised in
-        // `ServiceWiring` so both call sites can't drift apart.
+        // Re-applied by `SettingsWiring` whenever the user flips the
+        // relevant setting — for as long as the app runs, whichever
+        // windows are open. Centralised in `ServiceWiring` so both call
+        // sites can't drift apart.
         ServiceWiring.applyAll(settings: s, session: sess)
+        SettingsWiring.start(settings: s, session: sess)
 
         // Note the build we just launched into, so a later bug report can
         // say what this Mac updated FROM and when (see VersionInfo).
@@ -143,10 +145,9 @@ struct DaisyApp: App {
             // «Daisy → Settings…» ⌘, — the Settings window (31.10.2026).
             // The app has no SwiftUI `Settings` scene, so the item is ours.
             CommandGroup(replacing: .appSettings) {
-                Button("Settings…") {
+                SettingsWindowMenuItem(title: "Settings…", shortcut: ",") {
                     AppNavigation.shared.openSettings()
                 }
-                .keyboardShortcut(",", modifiers: [.command])
             }
             // Re-target the system "Daisy Help" menu item at our
             // hosted support page instead of the default (which
@@ -179,7 +180,7 @@ struct DaisyApp: App {
             // (Egor, 31.10.2026) — version, What's New, links, licenses,
             // the studio — instead of the system's About panel.
             CommandGroup(replacing: .appInfo) {
-                Button("About Daisy") {
+                SettingsWindowMenuItem(title: "About Daisy") {
                     AppNavigation.shared.openAbout()
                 }
                 // "Check for Updates…" sits in the App menu directly
@@ -400,6 +401,28 @@ private struct TourAgainMenuItem: View {
     }
 }
 
+/// «Daisy → Settings…» / «About Daisy»: the Settings window, through this
+/// item's own `openWindow` — lent before the call, so the item works even
+/// before any window has appeared to lend one (a launch to the menu bar).
+private struct SettingsWindowMenuItem: View {
+    let title: LocalizedStringKey
+    var shortcut: KeyEquivalent?
+    let open: @MainActor () -> Void
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        let button = Button(title) {
+            AppNavigation.shared.lendWindowOpener(openWindow)
+            open()
+        }
+        if let shortcut {
+            button.keyboardShortcut(shortcut, modifiers: [.command])
+        } else {
+            button
+        }
+    }
+}
+
 /// Help → What's New in Daisy: the sheet lives on the main window, so the
 /// window is opened (or brought up) with it.
 private struct WhatsNewMenuItem: View {
@@ -432,6 +455,9 @@ private struct CompactMenuItems: View {
             NSApp.activate(ignoringOtherApps: true)
         } label: { Label("Open Library…", systemImage: "books.vertical") }
         Button {
+            // This menu's own openWindow: it may be the first thing used
+            // after launch, before any window lent one.
+            AppNavigation.shared.lendWindowOpener(openWindow)
             AppNavigation.shared.openSettings()
         } label: { Label("Settings…", systemImage: "gear") }
 

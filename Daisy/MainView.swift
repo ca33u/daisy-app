@@ -216,6 +216,29 @@ final class AppNavigation {
     /// window is open, and ⌘, reopens on the page it was left on — the
     /// macOS convention. Set through `openInSettings` / `openAbout`.
     var settingsPane: SettingsPane = .tab(.general)
+    /// The Settings window is the key window; the main window is open
+    /// (MainView on screen). Together they pick the one window a toast
+    /// shows in (`toastsInSettings`, ToastOverlay).
+    var settingsWindowIsKey = false
+    /// MainView's branches on screen. A count, not a flag: the onboarding
+    /// ↔ shell swap fires one branch's disappear and the other's appear in
+    /// no promised order.
+    private(set) var mainWindowViews = 0
+    var mainWindowIsOpen: Bool { mainWindowViews > 0 }
+
+    func mainWindowViewAppeared() { mainWindowViews += 1 }
+    func mainWindowViewDisappeared() { mainWindowViews = max(0, mainWindowViews - 1) }
+
+    /// Toasts go to Settings while it is the key window, or when the main
+    /// window is closed; to the main window otherwise — never both.
+    var toastsInSettings: Bool {
+        Self.toastsInSettings(settingsIsKey: settingsWindowIsKey, mainIsOpen: mainWindowIsOpen)
+    }
+
+    nonisolated static func toastsInSettings(settingsIsKey: Bool, mainIsOpen: Bool) -> Bool {
+        settingsIsKey || !mainIsOpen
+    }
+
     /// Bumped by every link into Settings, so the window drops a search
     /// in progress even when the link's page is the one already open.
     private(set) var settingsLinkCount = 0
@@ -379,14 +402,13 @@ struct MainView: View {
         // Window / toolbar chrome that must attach to the
         // NavigationSplitView itself lives in `MainWindowChrome`, applied
         // inside each branch. The app-lifecycle modifiers below
-        // (sidebar-selection sync, reactive service re-wiring) sit out
+        // (sidebar-selection sync, the main window's own wiring) sit out
         // HERE on the stable body so they survive both the split
         // subtree's remount when the user enters / leaves Library or
         // Notes AND the one-time onboarding → shell swap: state owned by
-        // MainView (`libraryModel`, `sidebarSelection`)
-        // lives above the branch, and the wiring `.onChange` handlers
-        // stay registered while onboarding is on screen — which is what
-        // makes the tour's dictation-key picker re-register the key.
+        // MainView (`libraryModel`, `sidebarSelection`) lives above the
+        // branch. (The tour's dictation-key picker re-registers the key
+        // through `SettingsWiring`, which outlives every window.)
         Group {
             if !OnboardingTourController.showsTour(hasShownFirstRun: settings.hasShownFirstRun,
                                                    isActive: tour.isActive) {
@@ -407,8 +429,10 @@ struct MainView: View {
                     .daisyWindowBackground(Color.daisyBgPrimary)
             }
         }
-        .modifier(ToastOverlay())
+        .modifier(ToastOverlay(inSettings: false))
         .modifier(LendsWindowOpener())
+        .onAppear { nav.mainWindowViewAppeared() }
+        .onDisappear { nav.mainWindowViewDisappeared() }
         // Review 24.09: the process tap's permission, asked on Daisy's own
         // sheet — after onboarding, before any call.
         .sheet(isPresented: $showsTapPermission) { TapPermissionSheet() }
@@ -444,17 +468,11 @@ struct MainView: View {
         .onChange(of: nav.section) { _, new in
             if sidebarSelection != new { sidebarSelection = new }
         }
-        // Reactive service re-wiring, lifted out of `body` into
-        // ViewModifiers. Inline, this was 14 chained `.onChange`
-        // handlers stacked on the toolbar/sheet/styling chain, which
-        // tripped the Swift type-checker's complexity limit ("unable
-        // to type-check this expression in reasonable time") once the
-        // auto-start policy added five more. Each modifier below is its
-        // own type-check scope. Initial wiring still runs in
-        // DaisyApp.init via the same ServiceWiring helpers.
-        .modifier(HotkeyStopWiring(settings: settings, session: session))
-        .modifier(AutoStartWiring(settings: settings, session: session))
-        .modifier(CalendarServerWiring(settings: settings, session: session))
+        // A changed setting is applied by `SettingsWiring`, which lives as
+        // long as the app — Settings has its own window, so this one can be
+        // closed while they change. What stays here is the main window's
+        // own: the Daisy-key introduction and the Library auto-open.
+        .modifier(MainWindowWiring(settings: settings, session: session))
     }
 
     // MARK: Shell arity
@@ -1277,66 +1295,24 @@ struct ModelDownloadPill: View {
 }
 
 
-// MARK: - Service re-wiring modifiers
-//
-// The reactive ServiceWiring re-application that used to live as a long
-// `.onChange` chain on `MainView.body`, split across three ViewModifiers
-// purely to stay within the Swift type-checker's expression-complexity
-// budget. Behaviour is identical to the former inline chain; only the
-// grouping is new. Plain `let` (not @Bindable) is enough — Observation
-// tracks the `settings.*` reads inside each `.onChange(of:)`.
+// MARK: - Main-window wiring
 
-private struct HotkeyStopWiring: ViewModifier {
+/// What the main window does on its own as the session and settings move.
+/// The settings' service re-wiring (hotkeys, auto-start, calendar, MCP…)
+/// was here until 31.10.2026 and is `SettingsWiring` now.
+private struct MainWindowWiring: ViewModifier {
     let settings: AppSettings
     let session: RecordingSession
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: settings.recordHotkey) { _, _ in
-                ServiceWiring.applyAllHotkeys(settings: settings, session: session)
-            }
-            .onChange(of: settings.voiceNoteHotkey) { _, _ in
-                ServiceWiring.applyAllHotkeys(settings: settings, session: session)
-            }
-            .onChange(of: settings.dictationHotkey) { _, _ in
-                ServiceWiring.applyAllHotkeys(settings: settings, session: session)
-            }
-            .onChange(of: settings.layoutFixHotkey) { _, _ in
-                ServiceWiring.applyAllHotkeys(settings: settings, session: session)
-            }
-            .onChange(of: settings.markMomentHotkey) { _, _ in
-                ServiceWiring.applyAllHotkeys(settings: settings, session: session)
-            }
-            .onChange(of: settings.repasteLastHotkey) { _, _ in
-                ServiceWiring.applyAllHotkeys(settings: settings, session: session)
-            }
-            // The Daisy key's hold needs Accessibility; granted later, the
-            // key is registered again with its hold (backlog 34).
-            .onChange(of: SystemPermissions.shared.accessibility) { _, _ in
-                ServiceWiring.applyAllHotkeys(settings: settings, session: session)
-                DaisyKeyController.introduceIfNeeded(settings: settings)
-            }
-            // The as-you-type watcher is a keyboard tap, not a hotkey —
-            // it starts and stops on its own toggle.
-            .onChange(of: settings.layoutFixAuto) { _, _ in
-                ServiceWiring.applyLayoutAutoFix(settings: settings)
-            }
-            // The master switch gates both halves: the watcher and the
-            // shortcut.
-            .onChange(of: settings.layoutFixEnabled) { _, _ in
-                ServiceWiring.applyLayoutAutoFix(settings: settings)
-                ServiceWiring.applyAllHotkeys(settings: settings, session: session)
-            }
-            .onChange(of: settings.screenshotNotesEnabled) { _, _ in
-                ServiceWiring.applyScreenshotNotes(settings: settings)
-            }
-            // Dictation registration is deferred until first-run
-            // completes (Input Monitoring prompt timing — see
-            // ServiceWiring); re-apply the moment onboarding closes so
-            // the fresh-install Fn default goes live immediately.
             .task { DaisyKeyController.introduceIfNeeded(settings: settings) }
-            .onChange(of: settings.hasShownFirstRun) { _, _ in
-                ServiceWiring.applyAllHotkeys(settings: settings, session: session)
+            // A client installed since the server came up gets its entry
+            // brought up to date when the window shows again.
+            .onAppear {
+                if case .running(let port) = MCPServer.shared.state {
+                    Task { await ServiceWiring.refreshMCPClients(port: port) }
+                }
             }
             // Granola-style auto-open: jump to History on the freshly
             // finished session when the user opted in.
@@ -1345,74 +1321,6 @@ private struct HotkeyStopWiring: ViewModifier {
                    settings.showSessionAfterStop,
                    let id = session.sessionDirectory?.lastPathComponent {
                     AppNavigation.shared.openInLibrary(id)
-                }
-            }
-    }
-}
-
-private struct AutoStartWiring: ViewModifier {
-    let settings: AppSettings
-    let session: RecordingSession
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: settings.autoStartPolicy) { _, _ in
-                ServiceWiring.applyMeetingAutoStart(settings: settings, session: session)
-                ServiceWiring.applyCalendar(settings: settings, session: session)
-            }
-            .onChange(of: settings.autoStartOnMeeting) { _, _ in
-                ServiceWiring.applyMeetingAutoStart(settings: settings, session: session)
-            }
-            .onChange(of: settings.autoStartPromptMode) { _, _ in
-                ServiceWiring.applyMeetingAutoStart(settings: settings, session: session)
-            }
-            .onChange(of: settings.autoStartFromCalendar) { _, _ in
-                ServiceWiring.applyCalendar(settings: settings, session: session)
-            }
-            .onChange(of: settings.summaryTiming) { _, _ in
-                ServiceWiring.applyEndOfDaySummaries(settings: settings, session: session)
-            }
-            // Changing the hour re-arms the poll, so moving it EARLIER
-            // than the current time fires tonight rather than tomorrow.
-            .onChange(of: settings.endOfDaySummaryHour) { _, _ in
-                ServiceWiring.applyEndOfDaySummaries(settings: settings, session: session)
-            }
-    }
-}
-
-private struct CalendarServerWiring: ViewModifier {
-    let settings: AppSettings
-    let session: RecordingSession
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: CalendarService.shared.authorizationStatus) { _, status in
-                let granted = (status == .fullAccess)
-                if settings.calendarAccessGranted != granted {
-                    settings.calendarAccessGranted = granted
-                }
-                ServiceWiring.applyCalendar(settings: settings, session: session)
-            }
-            .onChange(of: GoogleAccountStore.shared.isConnected) { _, _ in
-                ServiceWiring.applyCalendar(settings: settings, session: session)
-            }
-            .onChange(of: settings.mcpServerEnabled) { _, _ in
-                ServiceWiring.applyMCPServer(settings: settings)
-            }
-            .onChange(of: settings.mcpServerPort) { _, _ in
-                if settings.mcpServerEnabled {
-                    ServiceWiring.applyMCPServer(settings: settings)
-                }
-            }
-            .onChange(of: MCPServer.shared.state) { _, state in
-                if case .running(let port) = state {
-                    Task { await ServiceWiring.refreshMCPClients(port: port) }
-                }
-            }
-            // The server can be up before this view first appears.
-            .onAppear {
-                if case .running(let port) = MCPServer.shared.state {
-                    Task { await ServiceWiring.refreshMCPClients(port: port) }
                 }
             }
     }

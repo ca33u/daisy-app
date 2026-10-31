@@ -68,6 +68,7 @@ struct SettingsWindowView: View {
     @FocusState private var searchFocused: Bool
     /// Pinned to `.all`: anything that folds the sidebar is undone.
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var window: NSWindow?
 
     private var isSearching: Bool {
         !searchQuery.trimmingCharacters(in: .whitespaces).isEmpty
@@ -88,14 +89,37 @@ struct SettingsWindowView: View {
                 .tint(Color.daisyTextPrimary)
         }
         .navigationTitle(isSearching ? String(localized: "Settings") : nav.settingsPane.title)
+        // The main window's surface: warm paper under the content and the
+        // toolbar, the same chrome (MainWindowChrome, applyWarmChrome).
+        .daisyWindowToolbarHidden()
+        .daisyWindowBackground(Color.daisyBgPrimary)
         .frame(minWidth: SettingsWindow.minWidth, minHeight: SettingsWindow.minHeight)
-        .modifier(ToastOverlay())
-        .background(WindowFinder { window in
+        .modifier(ToastOverlay(inSettings: true))
+        .background(WindowFinder { found in
+            guard let found else { return }
+            window = found
             // Opened on demand, never brought back by a relaunch, and
             // never a tab of the main window.
-            window?.isRestorable = false
-            window?.tabbingMode = .disallowed
+            found.isRestorable = false
+            found.tabbingMode = .disallowed
+            // ⌘, from a full-screen main window opens Settings on that
+            // Space, over it, instead of jumping to the desktop. An
+            // auxiliary window can't go full screen itself; AppKit allows
+            // one of primary / auxiliary / none at a time.
+            found.collectionBehavior.remove([.fullScreenPrimary, .fullScreenNone])
+            found.collectionBehavior.insert(.fullScreenAuxiliary)
+            DaisyAppDelegate.applyWarmChrome(to: found)
+            nav.settingsWindowIsKey = found.isKeyWindow
         })
+        // Toasts show in one window: here while Settings is the key window
+        // (or the main one is closed), in the main window otherwise.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
+            if let window, note.object as? NSWindow === window { nav.settingsWindowIsKey = true }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { note in
+            if let window, note.object as? NSWindow === window { nav.settingsWindowIsKey = false }
+        }
+        .onDisappear { nav.settingsWindowIsKey = false }
         .modifier(LendsWindowOpener())
         // A link to a page, or a pick in the sidebar, puts the page back
         // in place of a results list.

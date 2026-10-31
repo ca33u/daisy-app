@@ -533,7 +533,7 @@ final class AppSettings {
     /// `didSet`. The Settings UI exposes the 4-mode policy instead; this
     /// bool (and `autoStartFromCalendar`) remain the substrate that
     /// `ServiceWiring.applyMeetingAutoStart` / `applyCalendar` and the
-    /// MainView `.onChange` re-wiring read, so the existing detection
+    /// `SettingsWiring` re-wiring read, so the existing detection
     /// plumbing keeps working untouched. Kept persisted so a downgrade
     /// to a pre-policy build still finds a sane value.
     var autoStartOnMeeting: Bool {
@@ -1266,7 +1266,7 @@ final class AppSettings {
     /// detection plumbing actually reads. Kept as a single method so
     /// the init-time derivation and the runtime `didSet` can't drift.
     /// Assigning the bools fires THEIR `didSet` (persistence) and, at
-    /// runtime, the MainView `.onChange(of:)` re-wiring — exactly the
+    /// runtime, the `SettingsWiring` re-wiring — exactly the
     /// path the old two-toggle UI used, so no extra wiring is needed.
     private func applyAutoStartPolicyToSubstrate() {
         switch autoStartPolicy {

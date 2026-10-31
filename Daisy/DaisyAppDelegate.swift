@@ -98,7 +98,7 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
 
         DispatchQueue.main.async {
             for window in NSApp.windows where window.canBecomeMain {
-                self.applyWarmChrome(to: window)
+                Self.applyWarmChrome(to: window)
             }
         }
 
@@ -172,7 +172,9 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
     /// the recursive NSVisualEffectView walk) were no-ops in Tahoe
     /// — Liquid Glass uses a private `_NSGlassBackdropView`, not
     /// NSVisualEffectView, so traversal couldn't touch it.
-    private func applyWarmChrome(to window: NSWindow) {
+    /// Also applied by the Settings window when it opens
+    /// (SettingsWindow.swift) — it never exists at launch.
+    static func applyWarmChrome(to window: NSWindow) {
         // Keep titlebar chrome in the same appearance as the content. The
         // background colour itself is dynamic, so its parchment and espresso
         // variants remain aligned with `Color.daisyBgPrimary`.
@@ -456,6 +458,17 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // Only Settings is on screen: AppKit sees a visible window and
+        // would do nothing — bring the main window back (or out of the
+        // Dock).
+        if flag, AppNavigation.mainWindow?.isVisible != true {
+            if let window = AppNavigation.mainWindow, window.isMiniaturized {
+                window.deminiaturize(nil)
+            } else {
+                AppNavigation.shared.showMainWindow()
+            }
+            return false
+        }
         if !flag {
             // Force activation policy back to .regular in case anything
             // demoted us, and ask AppKit to restore the main scene.

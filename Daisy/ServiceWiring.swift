@@ -8,8 +8,8 @@
 //
 //   1. `DaisyApp.init` — initial wiring at launch, so hotkeys + auto-
 //      start work before the user opens the window.
-//   2. `MainView` `.onChange` handlers — re-applied when the user flips
-//      the relevant setting.
+//   2. `SettingsWiring` — re-applied when the user flips the relevant
+//      setting (MainView's `.onChange` handlers until 31.10.2026).
 //
 //  Centralising here prevents the two wiring sites from drifting apart
 //  as services are added or their handler signatures change.
@@ -222,7 +222,7 @@ enum ServiceWiring {
         // `settings.calendarAccessGranted` cache. That cache is only
         // written when the grant happens THROUGH Daisy's own request
         // flow (CalendarService.requestAccess -> authorizationStatus
-        // change -> CalendarServerWiring). When the OS already has
+        // change -> SettingsWiring). When the OS already has
         // Daisy granted at launch — a fresh UserDefaults after a
         // reinstall / defaults migration, or a grant made directly in
         // System Settings — the cache stays `false` and the reconciling
