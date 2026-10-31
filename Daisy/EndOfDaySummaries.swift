@@ -241,6 +241,9 @@ final class EndOfDaySummaries {
             .filter { $0.summary == nil }
             .filter { !$0.transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .filter { $0.startedAt >= cutoff }
+            // Screenshot links and headings only: `Summarizer` refuses
+            // them, and a refusal every night would read as a failure.
+            .filter { TranscriptSpeech.hasSpeech($0.transcriptText) }
             // Newest first, because anything that stops the pass early
             // — the failure breaker, a recording starting, the user
             // switching the setting off — should cost the OLDEST work,

@@ -671,12 +671,26 @@ final class Summarizer {
         /// transcript alone.
         projectContext: String? = nil
     ) async -> MeetingSummary? {
-        guard !transcript.isEmpty else { return nil }
+        // Not one spoken line — screenshot links and headings, a meeting
+        // whose final pass hasn't landed yet (31.10). Nothing goes to the
+        // provider and nothing is written: the caller gets nil and the
+        // reason in `lastError`, so no summary.json and no title taken
+        // from one. Every caller comes through here — the card, MCP, the
+        // queue, finalize, the evening pass.
+        let spoken = TranscriptSpeech.spokenText(transcript)
+        guard !spoken.isEmpty else {
+            lastError = Self.noSpeechReason
+            lastFailureCause = nil
+            isSummarizing = false
+            log.info("Skipped summary — the transcript holds no speech")
+            return nil
+        }
         // No intelligible speech → don't hand a near-empty transcript to
         // the LLM (it fabricates an apologetic "recording failed" summary
         // and a client follow-up to match). Short-circuit to a clean
-        // empty-state instead (Egor, 2026-06-13).
-        if Self.isEffectivelySilent(transcript) {
+        // empty-state instead (Egor, 2026-06-13). Judged on the spoken
+        // lines alone, so links and headings can't outvote the silence.
+        if Self.isEffectivelySilent(spoken) {
             lastSummary = .noSpeechCaptured
             lastError = nil
             lastFailureCause = nil
@@ -725,6 +739,11 @@ final class Summarizer {
             isSummarizing = false
             return nil
         }
+    }
+
+    /// Why a transcript with no spoken line gets no summary.
+    static var noSpeechReason: String {
+        String(localized: "There’s no speech in the transcript — nothing to summarize.")
     }
 
     /// True when a transcript carries essentially no speech — a failed or

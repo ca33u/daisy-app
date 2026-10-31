@@ -592,6 +592,11 @@ enum MCPTools {
         guard !session.transcriptText.isEmpty else {
             return .error("Session \(args.id) has no transcript to summarize.")
         }
+        // The card's rule (31.10): the transcript isn't final while its
+        // processing runs, and finalize writes the summary itself after.
+        guard !SessionStore.shared.isProcessing(session.id) else {
+            return .error("Daisy is still processing session \(args.id) — its transcript isn't final yet. Try again when it finishes.")
+        }
         guard Summarizer.shared.availability == .available else {
             // Mirror the UI: a misconfigured/unavailable provider
             // should produce a clear, actionable message rather than a

@@ -34,6 +34,19 @@ struct SessionRetranscriptionSheet: View {
     }
     private var isFirstTranscript: Bool { session.transcriptURL == nil }
 
+    /// Why Create can't start now, said before the click rather than
+    /// after it. Not while our own job runs — its status line speaks.
+    /// "This session" is finalize's or the queue's job on it: both
+    /// register in `SessionStore.processingPlans`.
+    private var blockedMessage: String? {
+        guard job == nil else { return nil }
+        return SessionAudioProcessing.blockReason(
+            processingThisSession: SessionStore.shared.isProcessing(session.id),
+            busy: processor.isRunning,
+            recordingOrFinalizeActive: processor.recordingOrFinalizeIsActive
+        )?.errorDescription
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
@@ -88,10 +101,11 @@ struct SessionRetranscriptionSheet: View {
             .scrollDisabled(true)
             .frame(minHeight: 250)
 
-            if processor.isRunning || errorMessage != nil {
+            let blocked = blockedMessage
+            if job != nil || errorMessage != nil || blocked != nil {
                 Divider()
                 HStack(spacing: 10) {
-                    if processor.isRunning {
+                    if job != nil {
                         ProgressView()
                             .controlSize(.small)
                         Text(isStopping
@@ -103,6 +117,12 @@ struct SessionRetranscriptionSheet: View {
                             .foregroundStyle(.orange)
                         Text(errorMessage)
                             .foregroundStyle(.secondary)
+                    } else if let blocked {
+                        Image(systemName: "hourglass")
+                            .foregroundStyle(.secondary)
+                        Text(blocked)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer()
                 }
@@ -136,7 +156,7 @@ struct SessionRetranscriptionSheet: View {
                 }
                 .buttonStyle(.daisyPrimary)
                 .keyboardShortcut(.defaultAction)
-                .disabled(processor.isRunning || !audioFiles.hasAny)
+                .disabled(processor.isRunning || blockedMessage != nil || !audioFiles.hasAny)
             }
             .padding(20)
         }

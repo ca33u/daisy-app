@@ -125,6 +125,35 @@ extension RecordingSession {
             queueUnfinishedFinalPass(sessionID: sessionID, directory: directory, title: title, stage: stage)
         }
 
+        // The card's step list (31.10): which steps this meeting takes,
+        // in the order they run — registered before the first await, so
+        // the card never offers Summarize over the unfinished transcript.
+        // Cleared on every way out. A long meeting's names and terms
+        // follow its summary (Stage 2b below): decided from the archives'
+        // length, read here rather than there so the list settles before
+        // the first step is done.
+        var plan = ProcessingPlan(
+            voices: (systemTranscriber.diarizationEnabled && !systemArchiveURLs.isEmpty)
+                || (micTranscriber.diarizationEnabled && !micArchiveURLs.isEmpty),
+            namesAndTerms: transcriptPassesMayRun(willSummarize: willSummarize),
+            screenText: settings.screenshotsEnabled && ProcessingPlan.hasScreenshots(in: directory),
+            summary: willSummarize
+        )
+        SessionStore.shared.beginProcessing(sessionID, plan: plan)
+        defer { SessionStore.shared.endProcessing(sessionID) }
+        let meetingSeconds = await Task.detached(priority: .utility) {
+            ArchiveBlockReader.durationSeconds(of: micArchiveURLs + systemArchiveURLs)
+        }.value / Double(max(1, [micArchiveURLs, systemArchiveURLs].filter { !$0.isEmpty }.count))
+        let polishAfterSummary = willSummarize && meetingSeconds >= Self.polishAfterSummaryThreshold
+        plan.namesAfterSummary = polishAfterSummary
+        SessionStore.shared.updateProcessingPlan(plan, for: sessionID)
+        // The read above is an await: a recording that started meanwhile
+        // owns the transcribers now, and the final pass must not touch
+        // them (issue #7) — this one goes back in the queue.
+        if Task.isCancelled || sessionDirectory?.lastPathComponent != sessionID {
+            await bailRotated(stage: "before final_pass")
+            return
+        }
 
         // ── Stage 1: Final Whisper pass ──────────────────────────────
         //
@@ -302,10 +331,7 @@ extension RecordingSession {
         // while the person waits for the summary they came for (Egor,
         // 07.10.2026). The summary reads the unpolished text; the
         // transcript, the names and auto-send still get the polish.
-        let meetingSeconds = await Task.detached(priority: .utility) {
-            ArchiveBlockReader.durationSeconds(of: micArchiveURLs + systemArchiveURLs)
-        }.value / Double(max(1, [micArchiveURLs, systemArchiveURLs].filter { !$0.isEmpty }.count))
-        let polishAfterSummary = willSummarize && meetingSeconds >= Self.polishAfterSummaryThreshold
+        // (`polishAfterSummary` is decided above, with the step list.)
         if polishAfterSummary {
             log.info("post-stop: \(Int(meetingSeconds / 60), privacy: .public)-minute meeting — polish and speaker names after the summary")
         } else {
@@ -431,7 +457,11 @@ extension RecordingSession {
         // ones. Now both share the same source.
         var summary: MeetingSummary? = nil
         var summaryPersisted = false
-        if willSummarize {
+        // `willSummarize` now holds for a meeting with audio and no live
+        // text (31.10); one whose final pass heard nobody either ends as
+        // it always did — no summary, no failure said about it.
+        let finalHasSpeech = TranscriptSpeech.hasSpeech(fullTranscriptText)
+        if willSummarize, finalHasSpeech {
             // Fold the OCR'd screen content into what the summarizer sees
             // so slides/dashboards influence the notes (Circleback-style
             // "captured whether said or shown"). Clearly fenced so the
@@ -577,7 +607,7 @@ extension RecordingSession {
         if willSummarize {
             if summaryPersisted {
                 SummaryFailureNote.clear(in: directory)
-            } else if summary == nil, !Task.isCancelled {
+            } else if summary == nil, !Task.isCancelled, finalHasSpeech {
                 // A summary that came but couldn't be saved has its own
                 // toast; this one is for the provider's answer.
                 let reason = summarizer.lastError ?? String(localized: "The provider returned no summary.")
@@ -602,6 +632,7 @@ extension RecordingSession {
                 if generation == summaryTaskGeneration { summaryGenerationState = .ready }
                 await SessionStore.shared.finishGenerating(sessionID)
             }
+            SessionStore.shared.setFinalizeStage(.polishing, for: sessionID)
             await runTranscriptPolish(
                 directory: directory,
                 title: title,
@@ -697,7 +728,8 @@ extension RecordingSession {
         // beginGenerating, so finishGenerating would no-op — skip it
         // entirely to keep the trace clean.
         if willSummarize {
-            summaryGenerationState = (summary != nil) ? .ready : .failed("no summary")
+            // Nobody spoke: nothing failed (Stage 4 above).
+            summaryGenerationState = (summary != nil) ? .ready : finalHasSpeech ? .failed("no summary") : .idle
             await SessionStore.shared.finishGenerating(sessionID)
         }
         // Same generation guard as bailRotated — see `summaryTaskGeneration`
@@ -863,6 +895,16 @@ extension RecordingSession {
         signposter.endInterval("re_write_md", reWriteState)
         log.info("post-stop re_write_md: \(ms(t_reWrite), privacy: .public)ms")
         return wrote
+    }
+
+    /// The gates Stage 2b and 2c share, read before the final pass for
+    /// the card's step list. Their own checks on the transcript (its
+    /// length, silence, an invite to check names against) come later and
+    /// may still skip them — the step then simply turns done.
+    func transcriptPassesMayRun(willSummarize: Bool) -> Bool {
+        settings.transcriptSecondPass
+            && summarizer.runsQuickPasses
+            && (summarizer.providerIsEffectivelyLocal || willSummarize)
     }
 
     /// Stage 2b body, lifted out of `finalizePostStop` because the gate

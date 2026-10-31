@@ -367,6 +367,20 @@ final class ImportTranscriptionQueue {
         // Read before the final pass: its render writes the kind as
         // `recording` whatever it was.
         let isMeeting = session.kind == .recording
+        // The card's step list (31.10), for as long as this job works on
+        // the session. The provider passes run inside the final pass's
+        // job, before the commit — names and terms come before the screen
+        // text and the summary here, whatever the meeting's length.
+        let passes = finishing ? Self.finishingPasses(for: session, isMeeting: isMeeting) : nil
+        let summaryOnDisk = FileManager.default.fileExists(
+            atPath: session.directoryURL.appendingPathComponent("summary.json").path)
+        SessionStore.shared.beginProcessing(job.sessionID, plan: ProcessingPlan(
+            voices: job.diarize,
+            namesAndTerms: passes != nil,
+            screenText: finishing && ProcessingPlan.hasScreenshots(in: session.directoryURL),
+            summary: finishing && isMeeting && (RecordingSession.current?.settings.autoSummarize ?? false) && !summaryOnDisk
+        ))
+        defer { SessionStore.shared.endProcessing(job.sessionID) }
         if finishing, let kind = job.finalPassDoneKind {
             await finishRest(job, isMeeting: kind == SessionKind.recording.rawValue)
             captureDiagnostics()
@@ -396,7 +410,7 @@ final class ImportTranscriptionQueue {
         do {
             _ = try await SessionAudioProcessing.shared.retranscribe(
                 session, options: job.options, replaceLiveTranscript: finishing,
-                finishing: finishing ? Self.finishingPasses(for: session, isMeeting: isMeeting) : nil)
+                finishing: passes)
             log.info("Import job done: \(job.title, privacy: .private)\(finishing ? " — final pass over a live transcript (see the processing log for whether it replaced it)" : "", privacy: .public)")
             if finishing {
                 await finishRest(job, isMeeting: isMeeting)
@@ -409,7 +423,7 @@ final class ImportTranscriptionQueue {
             // Removed by the user → cancel(sessionID:) already took it out.
             let kept = jobs.contains { $0.id == job.id }
             log.info("Import job stopped: \(kept ? "pre-empted, will retry" : "removed", privacy: .public)")
-        } catch ProcessingError.busy, ProcessingError.recordingActive {
+        } catch ProcessingError.busy, ProcessingError.recordingActive, ProcessingError.stillProcessing {
             // Lost the race with a recording that started between the
             // guard and the call. Not an attempt — try again next tick.
             log.info("Import job deferred: pipeline busy")
@@ -477,8 +491,10 @@ final class ImportTranscriptionQueue {
         // the provider from here either.
         let summarize = isMeeting && (settings?.autoSummarize ?? false)
         if let directory = SessionStore.shared.sessions.first(where: { $0.id == sessionID })?.directoryURL {
+            SessionStore.shared.setFinalizeStage(.readingScreens, for: sessionID)
             let screenText = await readScreens(in: directory)
             if summarize {
+                SessionStore.shared.setFinalizeStage(.summarizing, for: sessionID)
                 await summarizeFinished(sessionID: sessionID, screenText: screenText,
                                         includeScreenText: settings?.screenTextInSummary ?? true)
             }

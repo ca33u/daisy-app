@@ -277,7 +277,7 @@ final class AudioHandoffServer {
                     purgeIfPolicySays(session.directoryURL)
                     purgeIfPolicySays(session.directoryURL.deletingLastPathComponent().appendingPathComponent(childID, isDirectory: true))
                     await SessionStore.shared.refresh()
-                } catch ProcessingError.busy, ProcessingError.recordingActive {
+                } catch ProcessingError.busy, ProcessingError.recordingActive, ProcessingError.stillProcessing {
                     try? await Task.sleep(for: .seconds(60))
                 } catch is CancellationError {
                     // A recording took the engine (19.10): the id stays

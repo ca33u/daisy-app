@@ -132,6 +132,10 @@ final class SessionAudioProcessing {
     /// Which stretch of the whole job the channel being decoded covers:
     /// the microphone first, then the system audio.
     @ObservationIgnored private var progressSpan: (from: Double, to: Double) = (0, 1)
+    /// The session the running job transcribes, for its card's step list
+    /// (`SessionStore.setFinalizeStage` keeps only a session the queue
+    /// registered — the sheet's derived copies have no card yet).
+    @ObservationIgnored private var stageSessionID: String?
 
     @ObservationIgnored
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "AudioProcessing")
@@ -170,8 +174,15 @@ final class SessionAudioProcessing {
         finishing: SessionFinishingPasses? = nil,
         interactive: Bool = false
     ) async throws -> StoredSession.ID {
-        guard !isRunning else { throw ProcessingError.busy }
-        guard !recordingOrFinalizeIsActive else { throw ProcessingError.recordingActive }
+        // Only finalize counts as "this session" here: the queue calls in
+        // for the very session its own job is registered for.
+        if let reason = Self.blockReason(
+            processingThisSession: recordingOrFinalizeIsActive && SessionStore.shared.isProcessing(session.id),
+            busy: isRunning,
+            recordingOrFinalizeActive: recordingOrFinalizeIsActive
+        ) {
+            throw reason
+        }
         let sourceFiles = SessionAudioFiles.discover(in: session.directoryURL)
         guard sourceFiles.hasAny else { throw ProcessingError.noAudio }
         // Claimed here, before the task below gets its first turn, so a
@@ -238,6 +249,27 @@ final class SessionAudioProcessing {
         }
     }
 
+    private func reportStage(_ stage: SessionStore.FinalizeStage) {
+        guard let stageSessionID else { return }
+        SessionStore.shared.setFinalizeStage(stage, for: stageSessionID)
+    }
+
+    /// Why stored audio can't be processed now, or nil when it can.
+    /// THIS session still being processed comes first and says so: the
+    /// meeting is over, it's its own final pass that runs, and «finish
+    /// the active recording» sent Egor looking for a recording that
+    /// wasn't there (31.10).
+    nonisolated static func blockReason(
+        processingThisSession: Bool,
+        busy: Bool,
+        recordingOrFinalizeActive: Bool
+    ) -> ProcessingError? {
+        if processingThisSession { return .stillProcessing }
+        if busy { return .busy }
+        if recordingOrFinalizeActive { return .recordingActive }
+        return nil
+    }
+
     private func runRetranscription(
         _ session: StoredSession,
         sourceFiles: SessionAudioFiles,
@@ -250,11 +282,13 @@ final class SessionAudioProcessing {
         statusText = isFirstTranscript
             ? String(localized: "Preparing the recording")
             : String(localized: "Preparing a new session")
+        stageSessionID = session.id
         defer {
             WhisperEngine.shared.releaseAlternateModel(options.modelID)
             isRunning = false
             statusText = ""
             progress = nil
+            stageSessionID = nil
         }
 
         // The source may live in a previous custom root rather than the
@@ -524,6 +558,7 @@ final class SessionAudioProcessing {
               !Summarizer.isEffectivelySilent(segments.map(\.text).joined(separator: "\n")) else { return segments }
         statusText = String(localized: "Correcting names and terms")
         progress = nil
+        reportStage(.polishing)
         let title = finishing.title
         let localeHint = finishing.localeHint
         let outcome = await TranscriptPolisher.polish(
@@ -576,6 +611,7 @@ final class SessionAudioProcessing {
         guard !transcript.isEmpty else { return }
 
         statusText = String(localized: "Looking for speaker names")
+        reportStage(.polishing)
         let title = finishing.title
         let localeHint = finishing.localeHint
         let proposed = await SpeakerNameSuggester.suggest(
@@ -762,6 +798,7 @@ final class SessionAudioProcessing {
                     // Never backwards: a rounding step at a block seam
                     // must not make the bar flicker.
                     self.progress = max(self.progress ?? 0, overall)
+                    self.reportStage(.transcribing(min(100, Int(((self.progress ?? 0) * 100).rounded(.down)))))
                 }
             )
             await diarization
@@ -1061,6 +1098,9 @@ nonisolated enum AudioExportLayout: Sendable, Equatable {
 nonisolated enum ProcessingError: LocalizedError {
     case busy
     case recordingActive
+    /// This very session is still in its post-Stop processing (or the
+    /// queue's job for it) — nothing to finish but to wait.
+    case stillProcessing
     case noAudio
     case sourceUnavailable
 
@@ -1070,6 +1110,8 @@ nonisolated enum ProcessingError: LocalizedError {
             return String(localized: "Another audio operation is already running.")
         case .recordingActive:
             return String(localized: "Finish the active recording and its transcription before processing stored audio.")
+        case .stillProcessing:
+            return String(localized: "Daisy is still processing this meeting — wait until it finishes.")
         case .noAudio:
             return String(localized: "This session does not contain retained audio.")
         case .sourceUnavailable:

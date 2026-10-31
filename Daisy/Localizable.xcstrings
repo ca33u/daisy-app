@@ -1,6 +1,126 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "processing.step.transcription" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transcription"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Расшифровка"
+          }
+        }
+      }
+    },
+    "processing.step.voices" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Voices"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Голоса"
+          }
+        }
+      }
+    },
+    "processing.step.namesAndTerms" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Names and terms"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Имена и термины"
+          }
+        }
+      }
+    },
+    "processing.step.screenText" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text from screenshots"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Текст со скриншотов"
+          }
+        }
+      }
+    },
+    "processing.step.summary" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Summary"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Саммари"
+          }
+        }
+      }
+    },
+    "The transcript has to finish first" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сначала закончится расшифровка"
+          }
+        }
+      }
+    },
+    "There’s no speech in the transcript" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В транскрипте нет речи"
+          }
+        }
+      }
+    },
+    "There’s no speech in the transcript — nothing to summarize." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В транскрипте нет речи — саммари делать не из чего."
+          }
+        }
+      }
+    },
+    "Daisy is still processing this meeting — wait until it finishes." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy ещё обрабатывает эту встречу — дождись, пока закончится."
+          }
+        }
+      }
+    },
     "Summaries are written on this Mac by Daisy’s own model, %@: nothing is sent anywhere, no key, free. A long meeting takes a few minutes, after the meeting. The Daisy key and the selection rewrite use it too, so they’re slow." : {
       "localizations" : {
         "ru" : {

@@ -3590,9 +3590,17 @@ final class RecordingSession {
         // notes are bare transcript + audio (kept in History under
         // Notes folder), dictation is ephemeral and skipped
         // entirely below.
+        //
+        // `|| capturedAnyAudio`: with live transcription off a meeting
+        // has no segments at Stop by design — its words come from the
+        // final pass over the archives. Asking for segments here meant
+        // such a meeting never got its summary, and its card offered
+        // Summarize over a transcript of screenshot links (31.10). If the
+        // final pass hears nothing, `Summarizer.summarize` says so and
+        // writes nothing.
         let willSummarize = settings.autoSummarize
             && summarizer.availability == .available
-            && !segments.isEmpty
+            && (!segments.isEmpty || capturedAnyAudio)
             && currentMode == .meeting
             && !captureLikelyFailed
 
@@ -3610,7 +3618,7 @@ final class RecordingSession {
         // Summaries are on but the provider isn't usable (Apple
         // Intelligence switched off, a missing key): finalize won't even
         // try, and that used to be silent. Keep and say why (07.10.2026).
-        if settings.autoSummarize, currentMode == .meeting, !segments.isEmpty, !captureLikelyFailed,
+        if settings.autoSummarize, currentMode == .meeting, !segments.isEmpty || capturedAnyAudio, !captureLikelyFailed,
            case .unavailable(let reason) = summarizer.availability {
             SummaryFailureNote.announce(
                 SummaryFailureNote.write(message: reason, provider: summarizer.providerKind.shortName, in: dir)

@@ -59,10 +59,44 @@ final class SessionStore {
     }
     private(set) var finalizeStages: [String: FinalizeStage] = [:]
 
-    /// Record a stage for a session that is generating. Ignored for any
-    /// other, so a stale finalize can't paint a stage on a done session.
+    /// Sessions being processed right now — the post-Stop finalize, or
+    /// the queue finishing or transcribing one — with the steps it will
+    /// take, for the card's step list (`SessionProcessingSteps`). Unlike
+    /// `sessionsGenerating` this holds a meeting that gets no summary
+    /// too, and a long one through the names-and-terms pass that follows
+    /// its summary (31.10: a 79-minute meeting's final pass ran a quarter
+    /// of an hour under a card that offered Summarize and said nothing).
+    private(set) var processingPlans: [String: ProcessingPlan] = [:]
+
+    /// Whether Daisy is still working on this session's transcript or
+    /// summary; Summarize and Re-transcribe wait for it.
+    func isProcessing(_ sessionID: String) -> Bool {
+        processingPlans[sessionID] != nil
+    }
+
+    func beginProcessing(_ sessionID: String, plan: ProcessingPlan) {
+        guard !sessionID.isEmpty else { return }
+        processingPlans[sessionID] = plan
+    }
+
+    /// The plan learnt something on the way (a meeting's length decides
+    /// where names and terms go).
+    func updateProcessingPlan(_ plan: ProcessingPlan, for sessionID: String) {
+        guard processingPlans[sessionID] != nil, processingPlans[sessionID] != plan else { return }
+        processingPlans[sessionID] = plan
+    }
+
+    func endProcessing(_ sessionID: String) {
+        processingPlans.removeValue(forKey: sessionID)
+        finalizeStages.removeValue(forKey: sessionID)
+    }
+
+    /// Record a stage for a session that is generating or processing.
+    /// Ignored for any other, so a stale finalize can't paint a stage on
+    /// a done session.
     func setFinalizeStage(_ stage: FinalizeStage, for sessionID: String) {
-        guard sessionsGenerating.contains(sessionID), finalizeStages[sessionID] != stage else { return }
+        guard sessionsGenerating.contains(sessionID) || processingPlans[sessionID] != nil,
+              finalizeStages[sessionID] != stage else { return }
         finalizeStages[sessionID] = stage
     }
 
@@ -898,7 +932,11 @@ final class SessionStore {
     /// `refresh()` so the new row appears.
     func finishGenerating(_ sessionID: String) async {
         sessionsGenerating.remove(sessionID)
-        finalizeStages.removeValue(forKey: sessionID)
+        // A long meeting's summary lands before its names-and-terms pass:
+        // the stage is still that pass's, `endProcessing` clears it.
+        if processingPlans[sessionID] == nil {
+            finalizeStages.removeValue(forKey: sessionID)
+        }
         await reloadSession(id: sessionID)
     }
 

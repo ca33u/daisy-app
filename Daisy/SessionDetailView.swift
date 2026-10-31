@@ -44,6 +44,41 @@ struct SessionDetailView: View {
         isSummaryGenerating || (isRunningAction && !isDraftingFollowUp)
     }
 
+    /// The steps Daisy is still taking on this session — finalize after
+    /// Stop, or the queue's job on it — for the step list at the top of
+    /// the card. Nil when nothing runs.
+    private var processingPlan: ProcessingPlan? {
+        SessionStore.shared.processingPlans[initialSession.id]
+    }
+
+    /// The summary itself is being made, not the transcript before it:
+    /// the toolbar said «Summarizing…» through a quarter of an hour of
+    /// final pass (31.10). A generation with no stages (the evening
+    /// pass) is the summary throughout.
+    private var isSummarizingNow: Bool {
+        if isRunningAction && !isDraftingFollowUp { return true }
+        guard isSummaryGenerating else { return false }
+        return processingPlan == nil || finalizeStage == .summarizing
+    }
+
+    /// At least one spoken line — not just screenshot links and headings.
+    private var transcriptHasSpeech: Bool {
+        TranscriptSpeech.hasSpeech(session.transcriptText)
+    }
+
+    /// Why Summarize can't run now, for its tooltip; nil when it can. A
+    /// summary of a transcript that isn't final yet, or has nobody in it,
+    /// was the junk summary and the junk title of 31.10.
+    private var summarizeBlockedReason: String? {
+        if processingPlan != nil {
+            return String(localized: "The transcript has to finish first")
+        }
+        if session.transcriptURL != nil, !transcriptHasSpeech {
+            return String(localized: "There’s no speech in the transcript")
+        }
+        return nil
+    }
+
     @State private var isRunningAction = false
     /// `.summary_failure.json`, re-read when the session or its summary
     /// state changes — not in `body`, which renders far more often.
@@ -117,6 +152,19 @@ struct SessionDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
+                // Where the meeting is on its way to a finished card, step
+                // by step (31.10) — above everything it will change; the
+                // transcript below stays the draft until the final pass.
+                if let plan = processingPlan {
+                    SessionProcessingStepsView(
+                        rows: plan.rows(at: finalizeStage),
+                        notes: ProcessingPlan.notes(
+                            stage: finalizeStage,
+                            lowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled,
+                            hasDraft: transcriptHasSpeech
+                        )
+                    )
+                }
                 // 2026-05-25 — actionBanner removed in favour of
                 // ToastCenter (self-dismissing, global). Egor caught a
                 // bug where the banner survived NavigationSplitView's
@@ -536,7 +584,7 @@ struct SessionDetailView: View {
                 // summary" affordance, visible even if the Summary block is
                 // collapsed (Egor 2026-06-16). Horizontal inset gives the
                 // label room from the pill's edges.
-                if isResummarizing {
+                if isSummarizingNow {
                     HStack(spacing: 6) {
                         ProgressView()
                             .controlSize(.small)
@@ -548,8 +596,10 @@ struct SessionDetailView: View {
                         .padding(.horizontal, 10)
                 }
             }
-            .disabled(isRunningAction || session.transcriptURL == nil)
-            .help("Re-summarize via current provider")
+            // Waits for the transcript (31.10): a summary made while the
+            // final pass still runs is a summary of screenshot links.
+            .disabled(isRunningAction || session.transcriptURL == nil || summarizeBlockedReason != nil)
+            .help(summarizeBlockedReason ?? String(localized: "Re-summarize via current provider"))
         }
         // ⋯ overflow menu — its OWN ToolbarItem (NOT a ToolbarItemGroup) so,
         // exactly like Summarize, the default-styled control draws its own
@@ -691,6 +741,10 @@ struct SessionDetailView: View {
         }
         if session.transcriptText.isEmpty {
             ToastCenter.shared.show(String(localized: "No transcript to summarize yet"), style: .warning)
+            return
+        }
+        if let reason = summarizeBlockedReason {
+            ToastCenter.shared.show(reason, style: .info)
             return
         }
         Task { await reSummarize() }
@@ -936,7 +990,10 @@ struct SessionDetailView: View {
                    let queued = ImportTranscriptionQueue.shared.rowLabel(forSession: session.id) {
                     Text(queued)
                         .font(.callout.weight(.medium))
-                    if ImportTranscriptionQueue.shared.job(forSession: session.id)?.id == ImportTranscriptionQueue.shared.activeJobID {
+                    // The step list at the top carries the progress when the
+                    // job registered one (31.10); this is the fallback.
+                    if processingPlan == nil,
+                       ImportTranscriptionQueue.shared.job(forSession: session.id)?.id == ImportTranscriptionQueue.shared.activeJobID {
                         // A bar that moves, and under it what the pipeline
                         // is doing (loading the model, which channel).
                         if let progress = SessionAudioProcessing.shared.progress {
@@ -1162,26 +1219,6 @@ struct SessionDetailView: View {
         SessionStore.shared.finalizeStages[initialSession.id]
     }
 
-    /// The skeleton's status line. Says which step is running, since the
-    /// summary is the last of them; the transcript below is the live
-    /// draft until the final pass replaces it (2026-10-07: the old line,
-    /// «Generating summary… transcript is ready below», sat over ten
-    /// minutes of Whisper on a 30-minute meeting).
-    private var finalizeStatusText: String {
-        switch finalizeStage {
-        case .transcribing(let percent?):
-            return String(localized: "Refining the transcript — \(percent)%. Below is the draft from the meeting.")
-        case .transcribing(nil):
-            return String(localized: "Refining the transcript… Below is the draft from the meeting.")
-        case .polishing:
-            return String(localized: "Fixing names and terms in the transcript…")
-        case .readingScreens:
-            return String(localized: "Reading text from the screenshots…")
-        case .summarizing, nil:
-            return String(localized: "Generating summary… transcript is ready below.")
-        }
-    }
-
     /// Headings for the skeleton, matching what the finished summary
     /// will show: its language is the summary-language setting, or with
     /// "auto" most likely the UI's. They were the English literals
@@ -1233,7 +1270,8 @@ struct SessionDetailView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(session.transcriptText.isEmpty)
+                    .disabled(session.transcriptText.isEmpty || summarizeBlockedReason != nil)
+                    .help(summarizeBlockedReason ?? "")
                 }
             }
             .padding(.horizontal, 12)
@@ -1251,11 +1289,13 @@ struct SessionDetailView: View {
     }
 
     /// Shown while this meeting's final pass waits in the queue — on a
-    /// charger, behind another job, or running.
+    /// charger, behind another job, or running (once running, the step
+    /// list above says it instead).
     @ViewBuilder
     private var deferredProcessingBanner: some View {
         let queue = ImportTranscriptionQueue.shared
         if let job = queue.job(forSession: initialSession.id), job.finishesLiveTranscript == true,
+           !(job.id == queue.activeJobID && processingPlan != nil),
            let label = queue.rowLabel(forSession: initialSession.id) {
             let isActive = job.id == queue.activeJobID
             HStack(alignment: .center, spacing: 10) {
@@ -1297,21 +1337,26 @@ struct SessionDetailView: View {
     private var summarySkeletonSection: some View {
         mdSection(title: skeletonLabels.meeting) {
             VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(finalizeStatusText)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                // Low Power Mode throttles the Neural Engine work several
-                // times over; the 2026-10-07 meeting took its whole
-                // final pass under it without a word on screen.
-                if case .transcribing = finalizeStage, ProcessInfo.processInfo.isLowPowerModeEnabled {
-                    Label("Low Power Mode is on — processing takes longer.", systemImage: "bolt.slash")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if processingPlan != nil {
+                    // The step list at the top of the card says what runs
+                    // (31.10); here only the shape of what's coming.
+                    ForEach(0..<2, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.daisyDivider)
+                            .frame(height: 12)
+                            .frame(maxWidth: .infinity)
+                            .opacity(0.6)
+                    }
+                } else {
+                    // A summary on its own — Re-summarize, the evening
+                    // pass: the transcript is final already.
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Generating summary… transcript is ready below.")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1480,7 +1525,7 @@ struct SessionDetailView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .tint(Color.daisyTextPrimary)
-                .disabled(isSummaryGenerating)
+                .disabled(isSummaryGenerating || summarizeBlockedReason != nil)
             }
             Spacer(minLength: 0)
         }
@@ -1752,7 +1797,7 @@ struct SessionDetailView: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .disabled(isApplyingTemplate || isSummaryGenerating)
+            .disabled(isApplyingTemplate || isSummaryGenerating || summarizeBlockedReason != nil)
             .help(String(localized: "Notes template"))
         }
     }
