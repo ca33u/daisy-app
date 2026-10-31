@@ -311,20 +311,9 @@ final class ContextTips {
         }
     }
 
-    /// Daisy's window on a Settings tab — the morning-brief pill's window
-    /// dance (`StyleProfileTip.openMyStyle`).
+    /// The Settings window on a tab (it opens itself — SettingsWindow.swift).
     static func openSettings(_ tab: SettingsTab, row: SettingsRow? = nil) {
         AppNavigation.shared.openInSettings(tab, row: row)
-        if let open = WidgetBubbleCenter.shared.openMainWindow {
-            open()
-        } else {
-            NSApp.setActivationPolicy(.regular)
-            NSApp.activate(ignoringOtherApps: true)
-            for window in NSApp.windows where window.canBecomeMain {
-                window.makeKeyAndOrderFront(nil)
-                break
-            }
-        }
     }
 
     // MARK: - Project

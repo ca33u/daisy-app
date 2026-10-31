@@ -437,7 +437,7 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
     func application(_ application: NSApplication, open urls: [URL]) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-        if let window = NSApp.windows.first(where: { $0.canBecomeMain }) {
+        if let window = AppNavigation.mainWindow {
             window.makeKeyAndOrderFront(nil)
         } else {
             WidgetBubbleCenter.shared.openMainWindow?()
@@ -461,9 +461,9 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
             // demoted us, and ask AppKit to restore the main scene.
             NSApp.setActivationPolicy(.regular)
 
-            // Fallback: surface any existing main-capable window if the
-            // default reopen path didn't fire for some reason.
-            for window in NSApp.windows where window.canBecomeMain {
+            // Fallback: surface the main window if AppKit still has it
+            // and the default reopen path didn't fire for some reason.
+            if let window = AppNavigation.mainWindow {
                 window.makeKeyAndOrderFront(nil)
                 return false
             }

@@ -987,7 +987,6 @@ final class CoreAudioMicRecorder {
                         tag: "mic-not-connected",
                         action: {
                             AppNavigation.shared.openInSettings(.meetings, row: .microphone)
-                            WidgetBubbleCenter.shared.openMainWindow?()
                         }
                     ),
                     notificationTitle: String(localized: "Recording from a different microphone")

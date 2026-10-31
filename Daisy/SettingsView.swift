@@ -12,7 +12,9 @@
 //   • Library      — storage, audio retention, projects, sync, models
 //   • Connections  — ConnectionsView
 //   • Privacy      — PermissionsView
-//  Search over the rows' titles sits above the page (SettingsRows.swift).
+//  Each tab is a page of the Settings window (SettingsWindow.swift,
+//  31.10.2026), which owns the sidebar and the search; this view draws
+//  the page it is given.
 //
 
 import AppKit
@@ -213,21 +215,9 @@ struct SettingsView: View {
         return f
     }()
 
-    /// Active sub-tab inside Settings. Bound to TabView's selection
-    /// so external surfaces (onboarding, Home CTAs) can deep-link
-    /// to a specific tab via `AppNavigation.shared.openInSettings(_:)`.
-    /// Without an explicit binding TabView always lands on the first
-    /// child — that's why early onboarding clicks felt broken
-    /// (user wanted Summary, got Capture).
-    @State private var settingsTab: SettingsTab = .general
-    /// The tabs as the toolbar's own tab control (see ToolbarTabs).
-    @State private var toolbarTabs = ToolbarTabs(identifier: "app.essazanov.Daisy.settingsTabs")
-    /// True from the first install attempt on — guards against starting
-    /// a second one.
-    @State private var toolbarTabsInstalled = false
-    /// The fallback strip above the page shows only once the toolbar
-    /// refused the tabs after every retry, not while they are on the way.
-    @State private var toolbarTabsFailed = false
+    /// The page to draw — the Settings window's sidebar pick, set by
+    /// links through `AppNavigation.settingsPane`.
+    let tab: SettingsTab
     /// Live `/api/tags` model list for the Ollama picker (empty until
     /// fetched / when the server is unreachable → static catalog).
     @State private var ollamaInstalledModels: [String] = []
@@ -253,105 +243,32 @@ struct SettingsView: View {
     /// installed. Filled by a `.task` (the lookup can spawn a login
     /// shell, so it must not run during render).
     @State private var resolvedAgentPath: String?
-    @Bindable private var nav = AppNavigation.shared
-    /// The search over row titles above the page. Non-empty → the page
-    /// gives way to the matching rows (`searchResults`).
-    @State private var searchQuery = ""
-    @FocusState private var searchFocused: Bool
-
-    static let tabOrder: [SettingsTab] = SettingsTab.allCases
-
-    private var tabTitles: [String] { Self.tabOrder.map(\.title) }
-
-    /// Fallback only: the tabs above the page, for a window whose toolbar
-    /// would not take the system tab control. Segments when they fit,
-    /// otherwise a pop-up — never «>>».
-    private var settingsTabsHeader: some View {
-        ViewThatFits(in: .horizontal) {
-            settingsTabPicker
-                .pickerStyle(.segmented)
-                .fixedSize()
-            settingsTabPicker
-                .pickerStyle(.menu)
-                .fixedSize()
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var settingsTabPicker: some View {
-        Picker("Settings", selection: $settingsTab) {
-            ForEach(Self.tabOrder, id: \.self) { tab in
-                Text(tab.title).tag(tab)
-            }
-        }
-        .labelsHidden()
-    }
 
     var body: some View {
-        // The tab strip is `settingsTabsHeader`, above the page — see its
-        // note for why it left the window toolbar (25.09). Content is a
-        // plain switch so we control per-cell padding, which `.tabItem`
-        // locks.
+        // Content is a plain switch so we control per-cell padding, which
+        // `.tabItem` locks.
         //
         // History (kept for context): 2026-05-22 / 2026-05-28 there were
         // two aborted attempts to swap the TabView for a custom HStack of
         // tab buttons on macOS 26, both reverted when the crash then in
         // view turned out to correlate with low disk / a partly-downloaded
         // model / recording start-stop cycles rather than the segmented
-        // control itself.
-        VStack(spacing: 12) {
-            if toolbarTabsFailed { settingsTabsHeader }
-            searchField
-            Group {
-                if !searchQuery.trimmingCharacters(in: .whitespaces).isEmpty {
-                    searchResults
-                } else {
-                    switch settingsTab {
-                    case .general:     generalTab
-                    case .shortcuts:   shortcutsTab
-                    case .meetings:    meetingsTab
-                    case .dictation:   dictationTab
-                    case .ai:          aiTab
-                    case .library:     libraryTab
-                    case .connections: ConnectionsView(settings: settings)
-                    case .privacy:     PermissionsView(settings: settings)
-                    }
-                }
+        // control itself. The tabs then lived in the main window's
+        // toolbar (25.09) until Settings got their own window and its
+        // sidebar (31.10.2026).
+        Group {
+            switch tab {
+            case .general:     generalTab
+            case .shortcuts:   shortcutsTab
+            case .meetings:    meetingsTab
+            case .dictation:   dictationTab
+            case .ai:          aiTab
+            case .library:     libraryTab
+            case .connections: ConnectionsView(settings: settings)
+            case .privacy:     PermissionsView(settings: settings)
             }
-            .scrollContentBackground(.hidden)
         }
-        .background(WindowFinder { window in
-            guard let window, !toolbarTabsInstalled else { return }
-            toolbarTabs.onSelect = { index in
-                // Picking a tab — even the one already selected — puts
-                // the page back in place of a results list.
-                searchQuery = ""
-                if Self.tabOrder.indices.contains(index) { settingsTab = Self.tabOrder[index] }
-            }
-            toolbarTabs.onLost = { toolbarTabsFailed = true }
-            toolbarTabsInstalled = true
-            toolbarTabs.installRetrying(
-                in: window, titles: tabTitles,
-                selected: { Self.tabOrder.firstIndex(of: settingsTab) ?? 0 }
-            ) { ok in toolbarTabsFailed = !ok }
-        })
-        .onChange(of: settingsTab) { _, tab in
-            toolbarTabs.select(Self.tabOrder.firstIndex(of: tab) ?? 0)
-            searchQuery = ""
-        }
-        .onDisappear {
-            toolbarTabs.uninstall()
-            toolbarTabsInstalled = false
-            toolbarTabsFailed = false
-        }
-        // Consume any one-shot deep-link from AppNavigation. Set on
-        // appear (initial entry into Settings) AND on change (user
-        // jumps from FirstRun while Settings sheet is already
-        // mounted — rare but possible).
-        .onAppear { consumePendingSettingsTab() }
-        .onChange(of: nav.pendingSettingsTab) { _, _ in
-            consumePendingSettingsTab()
-        }
+        .scrollContentBackground(.hidden)
         // macOS Settings convention: ~700pt fixed-width per tab. Without
         // a minimum the form collapses and Hotkey rows cramp horizontally.
         .frame(minWidth: 640, idealWidth: 720, minHeight: 540, maxHeight: .infinity)
@@ -375,124 +292,6 @@ struct SettingsView: View {
         } message: { provider in
             Text(accountDisclosureMessage(for: provider))
         }
-    }
-
-    // MARK: - Search (24.10.2026)
-
-    /// The field above every tab. ⌘F while Settings is on screen puts the
-    /// cursor in it; Escape empties it; Return opens the first match.
-    private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("Search settings", text: $searchQuery)
-                .textFieldStyle(.plain)
-                .focused($searchFocused)
-                .onSubmit {
-                    if let first = searchHits.first { openSearchHit(first) }
-                }
-                // `onExitCommand` alone does not reach a focused plain
-                // field (same finding as the Library's rename field).
-                .onKeyPress(.escape) {
-                    if searchQuery.isEmpty {
-                        searchFocused = false
-                    } else {
-                        searchQuery = ""
-                    }
-                    return .handled
-                }
-            if !searchQuery.isEmpty {
-                Button {
-                    searchQuery = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .help("Clear")
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.primary.opacity(0.06))
-        )
-        .frame(maxWidth: 360)
-        .frame(maxWidth: .infinity)
-        // A hidden button carries the shortcut without needing focus —
-        // the Library's delete keys work the same way.
-        .background {
-            Button("Search settings") { searchFocused = true }
-                .keyboardShortcut("f", modifiers: .command)
-                .hidden()
-        }
-    }
-
-    private var searchHits: [SettingsRow] {
-        SettingsSearch.results(for: searchQuery, in: SettingsSearch.entries)
-    }
-
-    /// The flat list that stands in for the page while searching:
-    /// «Row title · Tab», in the order `SettingsSearch` ranks them.
-    @ViewBuilder
-    private var searchResults: some View {
-        let hits = searchHits
-        if hits.isEmpty {
-            VStack(spacing: 6) {
-                Text("Nothing found")
-                    .font(.headline)
-                Text("Search looks through the names of the settings.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            Form {
-                Section {
-                    ForEach(hits, id: \.self) { row in
-                        Button {
-                            openSearchHit(row)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: row.tab.systemImage)
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 18)
-                                Text(row.title)
-                                Text(verbatim: "·")
-                                    .foregroundStyle(.tertiary)
-                                Text(row.tab.title)
-                                    .foregroundStyle(.secondary)
-                                Spacer(minLength: 0)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .daisyHoverRow()
-                    }
-                }
-            }
-            .formStyle(.grouped)
-        }
-    }
-
-    private func openSearchHit(_ row: SettingsRow) {
-        searchQuery = ""
-        searchFocused = false
-        nav.openInSettings(row.tab, row: row)
-    }
-
-    /// Pull any one-shot Settings-tab request from AppNavigation,
-    /// apply it to local TabView selection, and clear the field so
-    /// it doesn't fire again on subsequent appears. This is the
-    /// hand-off that makes FirstRun CTAs land on the right tab
-    /// instead of the default Capture.
-    private func consumePendingSettingsTab() {
-        guard let pending = nav.pendingSettingsTab else { return }
-        // A link lands on its tab, not on a results list left open.
-        searchQuery = ""
-        settingsTab = pending
-        nav.pendingSettingsTab = nil
     }
 
     /// Label shown on the preset Menu's trigger. Always reflects
@@ -3163,6 +2962,8 @@ struct SettingsView: View {
                 Button("Open") {
                     AppNavigation.shared.pendingStyleTab = .voice
                     AppNavigation.shared.section = .voice
+                    // My style is a page of the main window.
+                    AppNavigation.shared.showMainWindow()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -4713,7 +4514,7 @@ enum TestResult: Equatable {
 }
 
 #Preview {
-    SettingsView(settings: AppSettings())
+    SettingsView(settings: AppSettings(), tab: .general)
 }
 
 

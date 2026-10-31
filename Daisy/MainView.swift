@@ -2,10 +2,11 @@
 //  MainView.swift
 //  Daisy
 //
-//  Single-window primary UI. NavigationSplitView with three sections in
-//  the sidebar (Home / History / Settings) and the matching content in
-//  the detail pane. Replaces the previous multi-window setup where
-//  History and Settings each had their own Window scene.
+//  Primary UI. NavigationSplitView with the content sections in the
+//  sidebar (Home / Library / Dictation / My style) and the matching
+//  content in the detail pane. Settings and About open their own window
+//  (SettingsWindow.swift, 31.10.2026); the two rows at the foot of the
+//  sidebar are buttons that bring it up.
 //
 //  Section selection is held in `AppNavigation.shared` so that other
 //  surfaces (menu bar popover, floating widget) can route to a section
@@ -21,24 +22,15 @@ import SwiftUI
 // MARK: - Section enum
 
 enum MainSection: String, Hashable, CaseIterable, Identifiable, Sendable {
-    case home, library, dictation, voice, settings, about
+    case home, library, dictation, voice
 
     var id: String { rawValue }
 
     /// Destinations that hold the user's own material. These fill the
-    /// sidebar from the top.
-    static var primaryCases: [MainSection] {
-        allCases.filter { !utilityCases.contains($0) }
-    }
-
-    /// Housekeeping destinations, pinned to the bottom of the sidebar
-    /// (Egor, 2026-08-31). They're where you go to configure the app,
-    /// not where you work — sitting them under Home/Library/Notes gave
-    /// them the same weight as the content, and pushed the recording
-    /// capsule further from the eye. Bottom-anchored is also where
-    /// macOS users look for them (Mail, Music, Xcode all park account
-    /// and settings affordances at the foot of the source list).
-    static let utilityCases: [MainSection] = [.settings, .about]
+    /// sidebar from the top. Settings and About, pinned under them, are
+    /// not sections since 31.10.2026: they open the Settings window
+    /// (`SidebarUtility`).
+    static var primaryCases: [MainSection] { allCases }
 
     var title: String {
         switch self {
@@ -46,8 +38,6 @@ enum MainSection: String, Hashable, CaseIterable, Identifiable, Sendable {
         case .library:     String(localized: "Library")
         case .dictation:   String(localized: "Dictation")
         case .voice:       String(localized: "My style")
-        case .settings:    String(localized: "Settings")
-        case .about:       String(localized: "About")
         }
     }
 
@@ -72,13 +62,40 @@ enum MainSection: String, Hashable, CaseIterable, Identifiable, Sendable {
         // waveform reads as "your voice" — pairs with the Voice section
         // that profiles how you speak/write.
         case .voice:       "waveform"
-        // arrow.triangle.branch reads as "things diverging from a
-        // central point" — same shape Notion / Linear / Raycast use
-        // for their Integrations / Connections nav entries. Closest
-        // SF Symbol to that visual without falling back to the
-        // generic link icon (which we already use elsewhere).
-        case .settings:    "gearshape"
-        case .about:       "info.circle"
+        }
+    }
+}
+
+/// The housekeeping rows pinned to the bottom of the main sidebar (Egor,
+/// 2026-08-31): where you go to configure the app, not where you work —
+/// under Home/Library/Notes they had the same weight as the content and
+/// pushed the recording capsule further from the eye; bottom-anchored is
+/// also where macOS users look for them (Mail, Music, Xcode). Since
+/// 31.10.2026 they are buttons that open the Settings window — on the
+/// page it was left on, or on About — instead of main-window sections.
+enum SidebarUtility: CaseIterable, Identifiable {
+    case settings, about
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .settings: String(localized: "Settings")
+        case .about:    String(localized: "About")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .settings: "gearshape"
+        case .about:    SettingsPane.about.systemImage
+        }
+    }
+
+    @MainActor func open() {
+        switch self {
+        case .settings: AppNavigation.shared.openSettings()
+        case .about:    AppNavigation.shared.openAbout()
         }
     }
 }
@@ -194,15 +211,16 @@ final class AppNavigation {
     /// clears it on appear / when it observes the change. nil means
     /// "let the view pick its own default" — usually the first row.
     var pendingLibrarySelection: StoredSession.ID?
-    /// One-shot Settings tab request. Onboarding and any external
-    /// CTA that wants to land the user on a specific sub-tab inside
-    /// SettingsView (Summary for API key, Capture for Calendar,
-    /// etc.) sets this together with `section = .settings`. The
-    /// SettingsView reads + clears it on appear. nil means "use the
-    /// default tab".
-    var pendingSettingsTab: SettingsTab?
-    /// One-shot row request riding with `pendingSettingsTab`: the form
-    /// of the row's tab takes it, scrolls to it and lights it
+    /// The page of the Settings window (SettingsWindow.swift). Kept here
+    /// rather than in the window, so a link sets it whether or not the
+    /// window is open, and ⌘, reopens on the page it was left on — the
+    /// macOS convention. Set through `openInSettings` / `openAbout`.
+    var settingsPane: SettingsPane = .tab(.general)
+    /// Bumped by every link into Settings, so the window drops a search
+    /// in progress even when the link's page is the one already open.
+    private(set) var settingsLinkCount = 0
+    /// One-shot row request riding with `settingsPane`: the form of the
+    /// row's tab takes it, scrolls to it and lights it
     /// (`settingsScrollTarget`, SettingsRows.swift).
     var pendingSettingsRow: SettingsRow?
     /// The row wearing the highlight wash right now; cleared ~2 s after.
@@ -211,10 +229,9 @@ final class AppNavigation {
     /// One-shot «My style» tab request (the meeting card's «Manage
     /// templates…»). VoiceView reads + clears it.
     var pendingStyleTab: MyStyleTab?
-    /// One-shot Connections deep-link. Same pattern as
-    /// `pendingSettingsTab` but for the new Connections sidebar
-    /// destination. ConnectionsView reads + clears on appear; the
-    /// section scrolls to the matching anchor.
+    /// One-shot Connections deep-link: which segment of Settings →
+    /// Connections a link wants. ConnectionsView reads + clears on
+    /// appear; the section scrolls to the matching anchor.
     var pendingConnectionsSection: ConnectionSection?
     /// «What's New in Daisy» is on screen (WhatsNew.swift) — set after an
     /// update, or from the Help menu.
@@ -239,17 +256,82 @@ final class AppNavigation {
         section = .library
     }
 
+    /// Opens a window scene by id (`"main"`, `SettingsWindow.id`). Lent
+    /// by the SwiftUI views that own an `openWindow` action — the main
+    /// window, the Settings window, the menu-bar popover, the widget —
+    /// because that action is the only way to bring back a `Window`
+    /// scene once it was closed. Tests swap it for a recorder.
+    @ObservationIgnored var windowOpener: (@MainActor (String) -> Void)?
+
+    func lendWindowOpener(_ openWindow: OpenWindowAction) {
+        windowOpener = { id in
+            openWindow(id: id)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    /// The Settings window, over whatever is in front, on the page it
+    /// was left on. «Daisy → Settings…» ⌘,, the main sidebar's Settings
+    /// row, the menu bar and the widget.
+    func openSettings() {
+        present(SettingsWindow.id)
+    }
+
+    /// The Settings window on About: «About Daisy» in the app menu and
+    /// the main sidebar's About row.
+    func openAbout() {
+        settingsLinkCount &+= 1
+        settingsPane = .about
+        present(SettingsWindow.id)
+    }
+
+    /// The main window brought up — for what lives there and is reached
+    /// from Settings: What's New, the tour, My style.
+    func showMainWindow() {
+        present("main")
+    }
+
+    private func present(_ id: String) {
+        if let windowOpener {
+            windowOpener(id)
+            return
+        }
+        // Nothing lent an opener yet (no SwiftUI window has appeared):
+        // surface the window if AppKit still has it.
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.windows
+            .first { $0.identifier?.rawValue.hasPrefix(id) == true }?
+            .makeKeyAndOrderFront(nil)
+    }
+
     /// Convenience for `Open Settings → <tab>`. FirstRun + onboarding
     /// CTAs use this so the user lands exactly where the action they
     /// just read about is configured, not on the default General tab.
+    /// Opens the Settings window on that tab.
     ///
     /// With `row`, the tab is the row's own (a row knows where it lives)
     /// and the page scrolls to it and lights it for a couple of seconds.
     func openInSettings(_ tab: SettingsTab, row: SettingsRow? = nil) {
         if let section = row?.connectionSection { pendingConnectionsSection = section }
         pendingSettingsRow = row
-        pendingSettingsTab = row?.tab ?? tab
-        section = .settings
+        settingsLinkCount &+= 1
+        settingsPane = .tab(row?.tab ?? tab)
+        present(SettingsWindow.id)
+    }
+
+    /// A link nobody clicked (a refused start): the Settings window comes
+    /// up only while Daisy is the active app, so it never lands over what
+    /// the person is typing in elsewhere. Callers offer the link on a
+    /// button too.
+    func openInSettingsIfActive(_ tab: SettingsTab, row: SettingsRow? = nil) {
+        guard NSApp.isActive else { return }
+        openInSettings(tab, row: row)
+    }
+
+    /// The main window if AppKit still has it — never the Settings
+    /// window, which can become main as well.
+    static var mainWindow: NSWindow? {
+        NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true && $0.canBecomeMain }
     }
 
     /// Lights `row` and puts the light out ~2 s later — unless another
@@ -269,9 +351,7 @@ final class AppNavigation {
     /// the Home destination-discovery banner.
     func openInConnections(_ card: ConnectionSection) {
         pendingConnectionsSection = card
-        pendingSettingsRow = nil
-        pendingSettingsTab = .connections
-        section = .settings
+        openInSettings(.connections)
     }
 }
 
@@ -328,6 +408,7 @@ struct MainView: View {
             }
         }
         .modifier(ToastOverlay())
+        .modifier(LendsWindowOpener())
         // Review 24.09: the process tap's permission, asked on Daisy's own
         // sheet — after onboarding, before any call.
         .sheet(isPresented: $showsTapPermission) { TapPermissionSheet() }
@@ -401,8 +482,7 @@ struct MainView: View {
         }
     }
 
-    /// Full-width sections (Home / Dictation / Voice / Connections /
-    /// Settings / About). Unchanged from the pre-refactor shell: a
+    /// Full-width sections (Home / Dictation / My style). Unchanged from the pre-refactor shell: a
     /// sidebar and a single detail column.
     private var twoColumnSplit: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -496,7 +576,7 @@ struct MainView: View {
                     // Paint UNDER, so the ink is untouched, and nothing
                     // lights on the selected row — a second highlight
                     // reads as a second selection.
-                    sidebarRowBody(section)
+                    sidebarRowBody(title: section.title, systemImage: section.systemImage)
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .fill(sidebarSelection == section ? Color.daisySidebarSelection : Color.clear)
@@ -688,20 +768,14 @@ struct MainView: View {
     private var sidebarFooter: some View {
         VStack(spacing: 2) {
             updateFooter
-            ForEach(MainSection.utilityCases) { section in
-                utilityRow(section)
+            ForEach(SidebarUtility.allCases) { utility in
+                utilityRow(utility)
             }
         }
         .padding(.bottom, 8)
         .background(Color.daisyBgSidebar)
     }
 
-    /// A bottom-pinned sidebar destination, hand-drawn because it lives
-    /// outside `List(selection:)` and therefore gets no system chip.
-    /// Mirrors the List row's geometry and colours so the two groups read
-    /// as one sidebar: same ink, same selection fill, same 8pt outer
-    /// inset. Selection still flows through `sidebarSelection`, so
-    /// keyboard focus, the menu bar and the widget keep working.
     /// The one row body both sidebar groups draw — the `List` rows on
     /// top and the hand-drawn Settings / About below. Body text, a
     /// large-scale symbol in a fixed 24pt column, 8×6 padding: the
@@ -711,14 +785,14 @@ struct MainView: View {
     /// read as a smaller family (Egor, 2026-09-07); the top rows were
     /// a bare `Label` whose text sat ~4pt further left than Settings'
     /// and whose hover was text-high (Egor, 2026-09-18).
-    private func sidebarRowBody(_ section: MainSection) -> some View {
+    private func sidebarRowBody(title: String, systemImage: String) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: section.systemImage)
+            Image(systemName: systemImage)
                 .symbolRenderingMode(.monochrome)
                 .font(.body)
                 .imageScale(.large)
                 .frame(width: 24)
-            Text(section.title)
+            Text(title)
                 .font(.body)
                 .lineLimit(1)
             Spacer(minLength: 0)
@@ -729,22 +803,22 @@ struct MainView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func utilityRow(_ section: MainSection) -> some View {
-        let isSelected = sidebarSelection == section
-        return Button {
-            sidebarSelection = section
+    /// A bottom-pinned row, hand-drawn because it lives outside
+    /// `List(selection:)`. Mirrors the List row's geometry and colours so
+    /// the two groups read as one sidebar: same ink, same 8pt outer inset.
+    /// A button, never selected: it opens the Settings window over this
+    /// one (31.10.2026).
+    private func utilityRow(_ utility: SidebarUtility) -> some View {
+        Button {
+            utility.open()
         } label: {
-            sidebarRowBody(section)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(isSelected ? Color.daisySidebarSelection : Color.clear)
-                )
-                .daisyHover(isEnabled: !isSelected, overContent: false)
+            // Shape first: the hover tint opts out of hit testing.
+            sidebarRowBody(title: utility.title, systemImage: utility.systemImage)
                 .contentShape(Rectangle())
+                .daisyHover(overContent: false)
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 8)
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
     /// Bottom-of-sidebar "Обновиться" row. Renders nothing in the steady
@@ -809,10 +883,6 @@ struct MainView: View {
             DictationView()
         case .voice:
             VoiceView(settings: settings)
-        case .settings:
-            SettingsView(settings: settings)
-        case .about:
-            AboutView(settings: settings)
         }
     }
 }

@@ -82,6 +82,8 @@ struct ContentView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+                // Links from the popover open the Settings window.
+                .modifier(LendsWindowOpener())
             Divider()
             systemAudioBanner
             ScrollView {
@@ -390,8 +392,6 @@ struct ContentView: View {
             if CalendarService.shared.authorizationStatus != .fullAccess {
                 Button {
                     AppNavigation.shared.openInSettings(.connections, row: .calendarApple)
-                    openWindow(id: "main")
-                    NSApp.activate(ignoringOtherApps: true)
                 } label: {
                     Label("Connect Calendar in Settings…", systemImage: "gear")
                 }
@@ -1107,8 +1107,6 @@ struct ContentView: View {
                 // hunting through Settings yourself.
                 Button {
                     AppNavigation.shared.openInSettings(.connections, row: .notion)
-                    openWindow(id: "main")
-                    NSApp.activate(ignoringOtherApps: true)
                 } label: {
                     Label("Connect Notion in Settings…", systemImage: "doc.text")
                 }
@@ -1178,9 +1176,7 @@ struct ContentView: View {
             .keyboardShortcut("h", modifiers: [.command, .shift])
 
             Button {
-                AppNavigation.shared.section = .settings
-                openWindow(id: "main")
-                NSApp.activate(ignoringOtherApps: true)
+                AppNavigation.shared.openSettings()
             } label: {
                 Label("Settings…", systemImage: "gear")
             }

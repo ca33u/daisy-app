@@ -18,7 +18,7 @@ struct SettingsFrameTests {
     @Test func eightTabsInPlanOrder() {
         #expect(SettingsTab.allCases == [.general, .shortcuts, .meetings, .dictation,
                                          .ai, .library, .connections, .privacy])
-        #expect(SettingsView.tabOrder == SettingsTab.allCases)
+        #expect(SettingsPane.tabs == SettingsTab.allCases.map { .tab($0) })
     }
 
     @Test func oldRawValuesLandOnTheirNewTabs() {
@@ -41,26 +41,21 @@ struct SettingsFrameTests {
     // MARK: - Deep links
 
     @Test func aRowLinkOpensTheRowsOwnTab() {
+        let sandbox = NavigationSandbox()
+        defer { sandbox.restore() }
         let nav = AppNavigation.shared
-        let before = (nav.section, nav.pendingSettingsTab, nav.pendingSettingsRow, nav.pendingConnectionsSection)
-        defer {
-            nav.section = before.0
-            nav.pendingSettingsTab = before.1
-            nav.pendingSettingsRow = before.2
-            nav.pendingConnectionsSection = before.3
-        }
 
         nav.openInSettings(.general, row: .layoutFixer)
-        #expect(nav.section == .settings)
-        #expect(nav.pendingSettingsTab == .dictation)
+        #expect(nav.settingsPane == .tab(.dictation))
         #expect(nav.pendingSettingsRow == .layoutFixer)
+        #expect(sandbox.opened == [SettingsWindow.id])
 
         nav.openInSettings(.connections, row: .notion)
-        #expect(nav.pendingSettingsTab == .connections)
+        #expect(nav.settingsPane == .tab(.connections))
         #expect(nav.pendingConnectionsSection == .autoRouting)
 
         nav.openInSettings(.meetings)
-        #expect(nav.pendingSettingsTab == .meetings)
+        #expect(nav.settingsPane == .tab(.meetings))
         #expect(nav.pendingSettingsRow == nil)
     }
 

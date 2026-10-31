@@ -140,6 +140,14 @@ struct DaisyApp: App {
         // extend up to the title bar (Mail / Notes / Finder pattern),
         // and toolbar items live in the detail-pane portion only.
         .commands {
+            // «Daisy → Settings…» ⌘, — the Settings window (31.10.2026).
+            // The app has no SwiftUI `Settings` scene, so the item is ours.
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    AppNavigation.shared.openSettings()
+                }
+                .keyboardShortcut(",", modifiers: [.command])
+            }
             // Re-target the system "Daisy Help" menu item at our
             // hosted support page instead of the default (which
             // would look for a bundled .help file we don't ship).
@@ -167,13 +175,12 @@ struct DaisyApp: App {
                     LogReporter.exportLogs(settings: settings)
                 }
             }
-            // Replace the default About panel with one that names the
-            // studio and links to contact + website. The system's
-            // default shows just the bundle version, which reads as
-            // "we forgot to fill this in".
+            // «About Daisy» opens the Settings window on its About page
+            // (Egor, 31.10.2026) — version, What's New, links, licenses,
+            // the studio — instead of the system's About panel.
             CommandGroup(replacing: .appInfo) {
                 Button("About Daisy") {
-                    AboutPanel.show()
+                    AppNavigation.shared.openAbout()
                 }
                 // "Check for Updates…" sits in the App menu directly
                 // under About — that's the macOS convention (Slack,
@@ -214,6 +221,17 @@ struct DaisyApp: App {
                 .disabled(AppNavigation.shared.section != .home)
             }
         }
+
+        // Settings and About, over the main window (SettingsWindow.swift).
+        // Opened only on demand — never at launch, never restored — and
+        // kept out of the Window menu: ⌘, and «About Daisy» reach it.
+        Window("Settings", id: SettingsWindow.id) {
+            SettingsWindowView(settings: settings)
+        }
+        .windowResizability(.contentMinSize)
+        .defaultPosition(.center)
+        .defaultSize(width: 920, height: 680)
+        .commandsRemoved()
 
         // Menu-bar icon — two MenuBarExtra scenes, one inserted at a time
         // by "Compact menu bar":
@@ -414,9 +432,7 @@ private struct CompactMenuItems: View {
             NSApp.activate(ignoringOtherApps: true)
         } label: { Label("Open Library…", systemImage: "books.vertical") }
         Button {
-            AppNavigation.shared.section = .settings
-            openWindow(id: "main")
-            NSApp.activate(ignoringOtherApps: true)
+            AppNavigation.shared.openSettings()
         } label: { Label("Settings…", systemImage: "gear") }
 
         Divider()

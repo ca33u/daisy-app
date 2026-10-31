@@ -325,6 +325,8 @@ struct DaisyWidget: View {
                 openWindow(id: "main")
                 NSApp.activate(ignoringOtherApps: true)
             }
+            // …and to links into the Settings window (SettingsWindow.swift).
+            AppNavigation.shared.lendWindowOpener(openWindow)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
@@ -534,9 +536,7 @@ struct DaisyWidget: View {
         }
 
         Button {
-            AppNavigation.shared.section = .settings
-            openWindow(id: "main")
-            NSApp.activate(ignoringOtherApps: true)
+            AppNavigation.shared.openSettings()
         } label: {
             Label("Settings…", systemImage: "gearshape")
         }

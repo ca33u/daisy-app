@@ -310,10 +310,7 @@ final class MorningBriefStore {
                         // scene (that needs SwiftUI's openWindow).
                         NSApp.setActivationPolicy(.regular)
                         NSApp.activate(ignoringOtherApps: true)
-                        for window in NSApp.windows where window.canBecomeMain {
-                            window.makeKeyAndOrderFront(nil)
-                            break
-                        }
+                        AppNavigation.mainWindow?.makeKeyAndOrderFront(nil)
                     }
                 }
             ),

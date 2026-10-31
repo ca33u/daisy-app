@@ -752,11 +752,9 @@ final class HotkeyManager {
             style: .warning,
             duration: .seconds(15)
         ) {
-            // Land on the slot's own row (its tab wins), and bring
-            // the window forward — the toast can be triggered from a
-            // background launch where no window is open.
+            // Land on the slot's own row (its tab wins) in the Settings
+            // window, which comes up over whatever is open.
             AppNavigation.shared.openInSettings(.shortcuts, row: row)
-            WidgetBubbleCenter.shared.openMainWindow?()
         }
     }
 

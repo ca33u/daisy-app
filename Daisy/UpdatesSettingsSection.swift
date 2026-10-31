@@ -43,10 +43,12 @@ struct UpdatesSettingsSection: View {
                 .settingsRow(.betaChannel)
 
             // The window that opened after the last update (Egor 23.10);
-            // the sheet itself hangs off the main window (WhatsNew.swift).
+            // the sheet itself hangs off the main window (WhatsNew.swift),
+            // which comes up over Settings to show it.
             LabeledContent("What’s New in Daisy") {
                 Button("Open") {
                     AppNavigation.shared.showsWhatsNew = true
+                    AppNavigation.shared.showMainWindow()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)

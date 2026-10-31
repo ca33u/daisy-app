@@ -58,22 +58,17 @@ struct SettingsAboutMovesTests {
     }
 
     @Test func aCalendarLinkOpensConnectionsOnItsSegment() {
+        let sandbox = NavigationSandbox()
+        defer { sandbox.restore() }
         let nav = AppNavigation.shared
-        let before = (nav.section, nav.pendingSettingsTab, nav.pendingSettingsRow, nav.pendingConnectionsSection)
-        defer {
-            nav.section = before.0
-            nav.pendingSettingsTab = before.1
-            nav.pendingSettingsRow = before.2
-            nav.pendingConnectionsSection = before.3
-        }
 
         nav.openInSettings(.privacy, row: .calendarApple)
-        #expect(nav.pendingSettingsTab == .connections)
+        #expect(nav.settingsPane == .tab(.connections))
         #expect(nav.pendingConnectionsSection == .calendar)
         #expect(nav.pendingSettingsRow == .calendarApple)
 
         nav.openInSettings(.general, row: .crashReports)
-        #expect(nav.pendingSettingsTab == .privacy)
+        #expect(nav.settingsPane == .tab(.privacy))
     }
 
     // MARK: - About

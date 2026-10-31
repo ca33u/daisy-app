@@ -1918,13 +1918,20 @@ final class RecordingSession {
     /// The speech model can't be used and won't become usable on its
     /// own: say so where the user is (toast in-app, a bubble +
     /// notification when the trigger came from a hotkey or the calendar
-    /// with no window in front), and open the screen that repairs it.
+    /// with no window in front), and open the screen that repairs it —
+    /// at once when Daisy is the active app, on the toast's or the
+    /// bubble's button otherwise: Settings is a window of its own since
+    /// 31.10.2026, and a calendar start failing behind another app must
+    /// not pull it over what the person is typing in.
     private func presentSpeechModelUnavailable() {
         let message = String(localized: "The speech model is not ready. Open \(SettingsRow.meetingModel.path) to prepare or repair it.")
-        ToastCenter.shared.show(message, style: .warning)
-        WidgetBubbleCenter.shared.present(WidgetBubbleContent(text: message),
+        let open: @MainActor () -> Void = { AppNavigation.shared.openInSettings(.meetings, row: .meetingModel) }
+        ToastCenter.shared.showAction(message, actionLabel: String(localized: "Open Settings"),
+                                      style: .warning, duration: .seconds(15), perform: open)
+        WidgetBubbleCenter.shared.present(
+            WidgetBubbleContent(text: message, actionTitle: String(localized: "Open Settings"), action: open),
             notificationTitle: String(localized: "Prepare Daisy"))
-        AppNavigation.shared.openInSettings(.meetings, row: .meetingModel)
+        AppNavigation.shared.openInSettingsIfActive(.meetings, row: .meetingModel)
     }
 
     /// Whisper can't run on this Mac (`WhisperEngine.runsOnThisMac`): where

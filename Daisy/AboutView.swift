@@ -2,11 +2,11 @@
 //  AboutView.swift
 //  Daisy
 //
-//  Standalone About page shown from the sidebar (Home / History /
-//  Settings / About). Previously this lived as a tab inside
-//  SettingsView; promoted out so users find studio / contact /
-//  license info in one obvious place instead of buried five clicks
-//  deep in preferences.
+//  About page. Previously a tab inside SettingsView, then a page of the
+//  main window's sidebar so users find studio / contact / license info
+//  in one obvious place; since 31.10.2026 the last page of the Settings
+//  window's sidebar (SettingsWindow.swift), opened straight on it by
+//  «About Daisy» and the main sidebar's About row.
 //
 //  Content mirrors the in-app About tab that existed before — brand
 //  block, links, studio note. 2026-06-13: rebuilt onto the SAME
@@ -83,7 +83,9 @@ struct AboutView: View {
                 // after the last update. Also on Settings → General → Updates.
                 LabeledContent {
                     Button("Open") {
+                        // The sheet hangs off the main window.
                         AppNavigation.shared.showsWhatsNew = true
+                        AppNavigation.shared.showMainWindow()
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -100,7 +102,9 @@ struct AboutView: View {
                 // The first-run tour again, from step 1 (Onboarding 2.0).
                 LabeledContent {
                     Button("Open") {
+                        // The tour takes the main window.
                         OnboardingTourController.shared.restart(settings: settings)
+                        AppNavigation.shared.showMainWindow()
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
