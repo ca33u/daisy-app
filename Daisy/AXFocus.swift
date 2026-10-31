@@ -108,6 +108,36 @@ enum AXFocus {
         }
     }
 
+    /// Where the caret and the text Accessibility reports may not be the
+    /// ones on screen: any Chromium-based app, Electron included (Slack,
+    /// Notion, Discord, the browsers) — their trees report per block and
+    /// lag behind the keystrokes — and a contenteditable editor anywhere,
+    /// which exposes its root as the focused AXWebArea. The fix key trusts
+    /// a reading there only when the tap's own record of the typing
+    /// agrees. A WebKit text field or text area (Safari inputs, Mail) is
+    /// trusted: one call, no walk up a DOM deeper than any cap (review
+    /// 31.10 — a 12-hop walk was both too slow and too shallow).
+    static func caretMayBeUnreliable() -> Bool {
+        if let app = NSWorkspace.shared.frontmostApplication, isChromiumBased(app) { return true }
+        guard let element = focusedElement() else { return true }
+        return string(element, kAXRoleAttribute) == "AXWebArea"
+    }
+
+    /// Chromium names its framework «<Product> Framework.framework»
+    /// (Google Chrome, Microsoft Edge, Brave Browser, Electron…);
+    /// nothing else ships one spelled that way. Per bundle, once.
+    private static func isChromiumBased(_ app: NSRunningApplication) -> Bool {
+        guard let url = app.bundleURL else { return false }
+        if let known = chromiumBundles[url] { return known }
+        let frameworks = url.appendingPathComponent("Contents/Frameworks")
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: frameworks.path)) ?? []
+        let isChromium = names.contains { $0.hasSuffix(" Framework.framework") }
+        chromiumBundles[url] = isChromium
+        return isChromium
+    }
+
+    private static var chromiumBundles: [URL: Bool] = [:]
+
     /// The focused field reports a caret and no selection — the fix key
     /// can skip asking for one with ⌘C (which empties and refills the
     /// clipboard). Nil when it won't say.

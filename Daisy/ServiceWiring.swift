@@ -51,6 +51,18 @@ enum ServiceWiring {
         // The dictation and Daisy keys go live after first run — or from
         // the tour's dictation step, which teaches them by use.
         let keysLive = settings.hasShownFirstRun || OnboardingTourController.shared.keysLive
+        // A combination that moved between rows (Settings gives it to the
+        // newer one) is let go by its old row first: registered in row
+        // order, the new row would ask Carbon for a key the old one still
+        // held and read «another app is already using it».
+        HotkeyManager.shared.releaseCarbonCombos(notIn: [
+            .record: settings.recordHotkey,
+            .voiceNote: keysLive && DaisyKeyController.canHold ? settings.voiceNoteHotkey : .none,
+            .dictation: keysLive ? settings.dictationHotkey : .none,
+            .fixLayout: settings.layoutFixHotkeyActive,
+            .markMoment: settings.markMomentHotkey,
+            .repasteLast: settings.repasteLastHotkey,
+        ])
         HotkeyManager.shared.register(
             slot: .record,
             choice: settings.recordHotkey,

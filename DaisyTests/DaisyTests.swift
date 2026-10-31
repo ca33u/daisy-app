@@ -950,9 +950,14 @@ struct HotkeyChoiceTests {
     func fromKeyCode_recordsCommandShortcutsWithAWarning() {
         let copy = HotkeyChoice.fromKeyCode(UInt16(kVK_ANSI_C), modifierFlags: .command)
         #expect(copy.label == "⌘C")
-        #expect(HotkeyWarnings.standing(for: copy).contains { if case .system = $0 { true } else { false } })
+        // A one-shot row's Carbon hotkey takes Copy from every app;
+        // dictation only listens, so Copy goes on working beside it.
+        #expect(HotkeyWarnings.standing(for: copy, on: .oneShot) == [.appShortcutStops(String(localized: "Copy"))])
+        #expect(HotkeyWarnings.standing(for: copy, on: .dictation) == [.alsoDoes(String(localized: "Copy"))])
+        // Spotlight is the system's: it keeps it, whatever the row.
         let spotlight = HotkeyChoice.fromKeyCode(UInt16(kVK_Space), modifierFlags: .command)
-        #expect(HotkeyWarnings.systemUse(of: spotlight) == "Spotlight")
+        #expect(HotkeyWarnings.standing(for: spotlight, on: .oneShot) == [.systemKeeps("Spotlight")])
+        #expect(HotkeyWarnings.standing(for: spotlight, on: .dictation) == [.systemKeeps("Spotlight")])
     }
 
     @Test("A bare letter is recorded, with the «it types» warning")
@@ -961,7 +966,9 @@ struct HotkeyChoiceTests {
         #expect(r.keyCode == UInt32(kVK_ANSI_R) && r.modifiers == 0)
         #expect(r.typesText)
         #expect(HotkeyChoice.fromKeyCode(UInt16(kVK_ANSI_R), modifierFlags: .shift).typesText)
-        #expect(HotkeyWarnings.standing(for: r) == [.typesText])
+        #expect(HotkeyWarnings.standing(for: r, on: .oneShot) == [.stopsTyping])
+        #expect(HotkeyWarnings.standing(for: r, on: .daisyKey) == [.stopsTyping])
+        #expect(HotkeyWarnings.standing(for: r, on: .dictation) == [.alsoStartsDictation])
     }
 
     @Test("Keys that don't type, and chords, carry no «it types» warning")
@@ -970,7 +977,7 @@ struct HotkeyChoiceTests {
         #expect(!HotkeyChoice.fromKeyCode(UInt16(kVK_ANSI_R), modifierFlags: [.control, .option]).typesText)
         #expect(!HotkeyChoice.fromKeyCode(UInt16(kVK_LeftArrow), modifierFlags: []).typesText)
         #expect(!HotkeyChoice.leftOption.typesText && !HotkeyChoice.fn.typesText && !HotkeyChoice.ctrlOpt.typesText)
-        #expect(HotkeyWarnings.standing(for: .ctrlOptCmdR).isEmpty)
+        #expect(HotkeyWarnings.standing(for: .ctrlOptCmdR, on: .oneShot).isEmpty)
     }
 
     @Test("Control or Option combos record as before")

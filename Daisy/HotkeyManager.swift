@@ -1233,14 +1233,14 @@ final class HotkeyManager {
             Task { @MainActor in
                 // Only while Daisy is in front: a recorder left listening behind
                 // another app must not mute every shortcut.
-                guard !(KeyCaptureBox.isListening && NSApp.isActive) else { return }
+                guard !(KeyCaptureBox.isListeningOrJustStopped && NSApp.isActive) else { return }
                 f()
             }
         case .hold(let onPress, _, _):
             Task { @MainActor in
                 // Only while Daisy is in front: a recorder left listening behind
                 // another app must not mute every shortcut.
-                guard !(KeyCaptureBox.isListening && NSApp.isActive) else { return }
+                guard !(KeyCaptureBox.isListeningOrJustStopped && NSApp.isActive) else { return }
                 onPress()
             }
         }
@@ -1319,6 +1319,17 @@ final class HotkeyManager {
         } else {
             for (slot, combo) in carbonCombos where refs[slot] == nil {
                 installCarbonToggle(slot: slot, keyCode: combo.keyCode, mods: combo.mods)
+            }
+        }
+    }
+
+    /// Let go of every Carbon registration that isn't what its slot is
+    /// about to get — see `ServiceWiring.applyAllHotkeys`.
+    func releaseCarbonCombos(notIn desired: [HotkeySlot: HotkeyChoice]) {
+        for (slot, combo) in carbonCombos {
+            let next = desired[slot] ?? .none
+            if next.keyCode != combo.keyCode || (next.modifiers ?? 0) != combo.mods {
+                unregister(slot: slot)
             }
         }
     }

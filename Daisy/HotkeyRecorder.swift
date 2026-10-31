@@ -25,6 +25,7 @@
 import AppKit
 import Carbon.HIToolbox
 import SwiftUI
+import os
 
 struct HotkeyRecorder: View {
     @Binding var value: HotkeyChoice
@@ -132,6 +133,23 @@ final class KeyCaptureBox {
     /// still, so pressing one to record it doesn't also start it.
     static var isListening: Bool { activeListener != nil }
 
+    /// When a recorder last stopped (system uptime).
+    nonisolated private static let stoppedAt = OSAllocatedUnfairLock<TimeInterval>(initialState: -.infinity)
+
+    /// Listening, or stopped a moment ago. The shortcut being re-recorded
+    /// reaches its own monitor too, and that monitor's fire is a hop
+    /// behind: by the time it asks, the recorder has captured and
+    /// stopped — and a re-recorded ⌥ or Fn fired its action once
+    /// (review 31.10). A beat's grace covers the hop.
+    static var isListeningOrJustStopped: Bool {
+        isListening || ProcessInfo.processInfo.systemUptime - stoppedAt.withLock { $0 } < 0.3
+    }
+
+    /// This box paused Daisy's Carbon shortcuts and owes the resume — read
+    /// in `deinit`, where `activeListener` (weak) is already nil.
+    private var pausedCarbon = false
+    private var resignToken: Any?
+
     private var keyToken: Any?
     private var flagsToken: Any?
     private var onCapture: ((HotkeyChoice) -> Void)?
@@ -154,6 +172,14 @@ final class KeyCaptureBox {
     deinit {
         if let keyToken { NSEvent.removeMonitor(keyToken) }
         if let flagsToken { NSEvent.removeMonitor(flagsToken) }
+        if let resignToken { NotificationCenter.default.removeObserver(resignToken) }
+        // Gone while listening (its view went without `onDisappear`):
+        // the shortcuts must not stay off for the rest of the run.
+        if pausedCarbon {
+            Task { @MainActor in
+                if !KeyCaptureBox.isListening { HotkeyManager.shared.setCarbonPaused(false) }
+            }
+        }
     }
 
     func start(
@@ -163,10 +189,13 @@ final class KeyCaptureBox {
         // Only one recorder may listen at a time — force-cancel the
         // previous one (its view flips back to idle via onCancel).
         if let other = Self.activeListener, other !== self {
-            other.forceCancel()
+            other.forceCancel(handingOver: true)
         }
 
-        stop()
+        // Handing over, to another box or to itself: Carbon stays paused
+        // across it. Resuming in between re-registered every hotkey for a
+        // moment, for nothing (review 31.10).
+        stop(resumingCarbon: false)
         // NB: claim the slot only AFTER stop() — stop() clears the
         // slot when it belongs to self, so the other order would
         // immediately null out the claim.
@@ -181,6 +210,17 @@ final class KeyCaptureBox {
         // recorder saw it — and leave only their modifiers to record.
         // Off while listening, so pressing one records it (and moves it).
         HotkeyManager.shared.setCarbonPaused(true)
+        pausedCarbon = true
+        // Only while Daisy is in front: a recorder left listening when
+        // the person switched apps kept every Carbon shortcut dead there
+        // (review 31.10). Switching away cancels it.
+        resignToken = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { KeyCaptureBox.activeListener?.forceCancel() }
+        }
 
         // 1. Track modifier press/release via flagsChanged.
         //    Also: capture bare Fn / 🌐 press as a binding. Fn
@@ -259,13 +299,17 @@ final class KeyCaptureBox {
     /// Stop listening AND notify the owning recorder so its
     /// `isListening` state flips back to idle. Used when another
     /// recorder starts listening and takes over.
-    private func forceCancel() {
+    private func forceCancel(handingOver: Bool = false) {
         let cancel = onCancel
-        stop()
+        stop(resumingCarbon: !handingOver)
         DispatchQueue.main.async { cancel?() }
     }
 
-    func stop() {
+    func stop() { stop(resumingCarbon: true) }
+
+    /// `resumingCarbon` false: another listener takes over at once and
+    /// keeps the pause (`start`).
+    private func stop(resumingCarbon: Bool) {
         if let keyToken {
             NSEvent.removeMonitor(keyToken)
             self.keyToken = nil
@@ -280,9 +324,17 @@ final class KeyCaptureBox {
         heldModifiers = []
         keyDuringModifiers = false
         modifiersDownSince = nil
+        if let resignToken {
+            NotificationCenter.default.removeObserver(resignToken)
+            self.resignToken = nil
+        }
         if Self.activeListener === self {
             Self.activeListener = nil
-            HotkeyManager.shared.setCarbonPaused(false)
+            Self.stoppedAt.withLock { $0 = ProcessInfo.processInfo.systemUptime }
+        }
+        if pausedCarbon {
+            pausedCarbon = false
+            if resumingCarbon, Self.activeListener == nil { HotkeyManager.shared.setCarbonPaused(false) }
         }
     }
 
@@ -303,6 +355,13 @@ final class KeyCaptureBox {
             let cancel = onCancel
             stop()
             DispatchQueue.main.async { cancel?() }
+            return nil
+        }
+
+        // ⌫ on its own clears the shortcut, as recorders do — rather than
+        // becoming one that eats Backspace everywhere.
+        if event.keyCode == UInt16(kVK_Delete), effectiveMods.intersection([.control, .option, .shift, .command]).isEmpty {
+            finish(with: .none)
             return nil
         }
 

@@ -249,15 +249,15 @@ struct HotkeyConflictTests {
         #expect(HotkeyWarnings.owner(of: .ctrlOpt, among: others) == "Daisy key")
     }
 
-    @Test func wellKnownSystemShortcutsAreNamed() {
-        func use(_ key: Int, _ flags: NSEvent.ModifierFlags) -> String? {
+    @Test func wellKnownShortcutsAreNamedAppOrSystem() {
+        func use(_ key: Int, _ flags: NSEvent.ModifierFlags) -> (name: String, isSystem: Bool)? {
             HotkeyWarnings.systemUse(of: HotkeyChoice.fromKeyCode(UInt16(key), modifierFlags: flags))
         }
-        #expect(use(kVK_ANSI_V, .command) != nil)
-        #expect(use(kVK_Space, .control) != nil)
-        #expect(use(kVK_ANSI_4, [.command, .shift]) != nil)
+        #expect(use(kVK_ANSI_V, .command)?.isSystem == false)
+        #expect(use(kVK_Space, .control)?.isSystem == true)
+        #expect(use(kVK_ANSI_4, [.command, .shift])?.isSystem == true)
         #expect(use(kVK_ANSI_R, [.control, .option, .command]) == nil)
-        #expect(HotkeyWarnings.systemUse(of: .fn) != nil)
+        #expect(HotkeyWarnings.systemUse(of: .fn) == nil)
         #expect(HotkeyWarnings.systemUse(of: .leftOption) == nil)
     }
 
@@ -265,12 +265,34 @@ struct HotkeyConflictTests {
         func choice(_ key: Int, _ flags: NSEvent.ModifierFlags = []) -> HotkeyChoice {
             HotkeyChoice.fromKeyCode(UInt16(key), modifierFlags: flags)
         }
-        #expect(HotkeyWarnings.standing(for: choice(kVK_LeftArrow)) == [.editsText])
-        #expect(HotkeyWarnings.standing(for: choice(kVK_RightArrow, [.shift, .option])) == [.editsText])
-        #expect(HotkeyWarnings.standing(for: choice(kVK_Delete, .command)) == [.editsText])
+        #expect(HotkeyWarnings.standing(for: choice(kVK_LeftArrow), on: .oneShot) == [.stopsEditing])
+        #expect(HotkeyWarnings.standing(for: choice(kVK_RightArrow, [.shift, .option]), on: .daisyKey) == [.stopsEditing])
+        #expect(HotkeyWarnings.standing(for: choice(kVK_Delete, .command), on: .oneShot) == [.stopsEditing])
+        #expect(HotkeyWarnings.standing(for: choice(kVK_LeftArrow), on: .dictation) == [.alsoStartsDictation])
         // ⌃→ is macOS's own (Spaces), named as such instead.
-        #expect(HotkeyWarnings.standing(for: choice(kVK_RightArrow, .control)) == [.system(HotkeyWarnings.systemUse(of: choice(kVK_RightArrow, .control))!)])
+        #expect(HotkeyWarnings.standing(for: choice(kVK_RightArrow, .control), on: .oneShot)
+            == [.systemKeeps(String(localized: "Switch desktops"))])
         #expect(!HotkeyWarnings.editsText(.ctrlOptCmdR))
+    }
+
+    /// A tap costs the Mac nothing; a hold of a key people hold on the
+    /// way to something else opens the microphone. The right ⌘ / ⌥
+    /// presets and Fn are the keys chosen for not being held that way.
+    @Test func heldModifiersThatOpenTheMicrophoneAreWarnedAbout() {
+        #expect(HotkeyWarnings.standing(for: .leftOption, on: .oneShot).isEmpty)
+        #expect(HotkeyWarnings.standing(for: .lone(.leftShift), on: .dictation) == [.holdOpensMicrophone])
+        #expect(HotkeyWarnings.standing(for: .lone(.leftCommand), on: .daisyKey) == [.holdOpensMicrophone])
+        #expect(HotkeyWarnings.standing(for: .lone(.rightControl), on: .dictation) == [.holdOpensMicrophone])
+        #expect(HotkeyWarnings.standing(for: .rightCommand, on: .daisyKey).isEmpty)
+        #expect(HotkeyWarnings.standing(for: .rightOption, on: .dictation).isEmpty)
+        #expect(HotkeyWarnings.standing(for: .fn, on: .dictation).isEmpty)
+        #expect(HotkeyWarnings.standing(for: .ctrlOpt, on: .daisyKey).isEmpty)
+        // A recorded chord is held on the way to shortcuts just the same.
+        let shiftCommand = HotkeyChoice.fromModifiers(NSEvent.ModifierFlags([.shift, .command]))!
+        #expect(HotkeyWarnings.standing(for: shiftCommand, on: .dictation) == [.holdOpensMicrophone])
+        #expect(HotkeyWarnings.standing(for: shiftCommand, on: .oneShot).isEmpty)
+        // Fn tapped on a one-shot row: macOS acts on the tap too.
+        #expect(HotkeyWarnings.standing(for: .fn, on: .oneShot) == [.fnDoesItsOwnToo])
     }
 
     /// The layout watcher's tap tells Daisy's own shortcut on a typing
@@ -285,8 +307,12 @@ struct HotkeyConflictTests {
 
     @Test func warningsSayWhatTheyMean() {
         #expect(HotkeyWarning.takenFrom("Dictation").text.contains("Dictation"))
-        #expect(HotkeyWarning.system("Copy").text.contains("Copy"))
-        #expect(!HotkeyWarning.typesText.text.isEmpty)
+        #expect(HotkeyWarning.appShortcutStops("Copy").text.contains("Copy"))
+        #expect(HotkeyWarning.systemKeeps("Spotlight").text.contains("Spotlight"))
+        #expect(HotkeyWarning.alsoDoes("Copy").text.contains("Copy"))
+        for warning in [HotkeyWarning.stopsTyping, .stopsEditing, .alsoStartsDictation, .holdOpensMicrophone, .fnDoesItsOwnToo] {
+            #expect(!warning.text.isEmpty)
+        }
     }
 }
 
@@ -418,6 +444,29 @@ struct LayoutFixRepeatUndoTests {
     /// counter decide.
     @Test func anEmptyFieldVetoes() {
         #expect(!LayoutFixUndo.confirms(keyRecord(generation: 5), textBeforeCaret: "", tapRunning: true, currentGeneration: 5, triggerKeystrokes: 1))
+    }
+
+    /// When the tap saw the word typed, the field must show it right
+    /// before the caret — with what ended it — or the screen isn't used
+    /// (editors that report per block or a keystroke late).
+    @Test func theFieldMustAgreeWithTheTypedWord() {
+        let pick = LayoutFixLastWord.Pick(word: "lf;t", trailing: "")
+        // «t» in flight after «;» ended «lf» for the tap.
+        #expect(LayoutFixLastWord.agrees(pick, withTyped: "t", boundary: nil))
+        #expect(!LayoutFixLastWord.agrees(pick, withTyped: "te", boundary: nil))
+        let spaced = LayoutFixLastWord.Pick(word: "ghbdtn", trailing: " ")
+        #expect(LayoutFixLastWord.agrees(spaced, withTyped: "ghbdtn", boundary: " "))
+        #expect(!LayoutFixLastWord.agrees(spaced, withTyped: "ghbdtn", boundary: nil))
+        // The field lags a keystroke: it shows «ghbdt», the tap saw «ghbdtn».
+        #expect(!LayoutFixLastWord.agrees(.init(word: "ghbdt", trailing: ""), withTyped: "ghbdtn", boundary: nil))
+        // Smart quotes aside.
+        #expect(LayoutFixLastWord.agrees(.init(word: "\u{2018}nj", trailing: ""), withTyped: "'nj", boundary: nil))
+        // A web editor's no-break space after the word, and a native one
+        // capitalising the first word of a sentence: the same word.
+        #expect(LayoutFixLastWord.agrees(.init(word: "ghbdtn", trailing: "\u{00A0}"), withTyped: "ghbdtn", boundary: " "))
+        #expect(LayoutFixLastWord.agrees(.init(word: "Ghbdtn", trailing: " "), withTyped: "ghbdtn", boundary: " "))
+        // Two spaces where the tap saw one: refused, the safe way.
+        #expect(!LayoutFixLastWord.agrees(.init(word: "ghbdtn", trailing: "  "), withTyped: "ghbdtn", boundary: " "))
     }
 
     @Test func smartQuotesAreStraightenedOneForOne() {

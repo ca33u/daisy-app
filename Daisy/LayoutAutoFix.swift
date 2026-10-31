@@ -758,6 +758,9 @@ final class LayoutAutoFix {
         /// No answer to go on — not editable text, an app that won't say,
         /// or a gate closed. The other source may still know.
         case unknown
+        /// An answer that can't be trusted on its own (`AXFocus
+        /// .caretMayBeUnreliable`) and no typed word to check it by.
+        case unreliable
     }
 
     /// The fix key with nothing selected, first source: the last word as
@@ -775,14 +778,18 @@ final class LayoutAutoFix {
         guard let pick = LayoutFixLastWord.pick(before: before.text, reachesFieldStart: before.reachesStart) else {
             return .noWord
         }
-        // The tap is in the middle of a word the field doesn't show yet
-        // (Chromium's tree lags the keystrokes): neither answer is safe
-        // to delete by, so neither is used.
-        if isRunning,
-           let inFlight = LayoutAutoFix.buffer.wordInFlightOrJustFinished(within: Self.recentWordWindow),
-           inFlight.boundary == nil,
-           !(pick.trailing.isEmpty && pick.word.hasSuffix(inFlight.word)) {
-            return .noWord
+        // The backspaces are counted from what Accessibility says, and
+        // some editors say it per line or per block, or a keystroke late
+        // (Chromium contenteditable, Notion, CodeMirror — review 31.10).
+        // When the tap saw the word typed, the field has to show it right
+        // before the caret, or neither is used. In web content and in
+        // Chromium-based apps nothing else is trusted: no word seen
+        // typed, no fix from the screen alone.
+        let typed = isRunning ? LayoutAutoFix.buffer.wordInFlightOrJustFinished(within: Self.recentWordWindow) : nil
+        if let typed {
+            guard LayoutFixLastWord.agrees(pick, withTyped: typed.word, boundary: typed.boundary) else { return .noWord }
+        } else if AXFocus.caretMayBeUnreliable() {
+            return .unreliable
         }
         // Smart quotes turned the «'» typed for «э» into «‘»/«’» (and «"»
         // into «“»/«”»), which no layout types; one character for one,

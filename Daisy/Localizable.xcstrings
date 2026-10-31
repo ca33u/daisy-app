@@ -1,6 +1,96 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "A tap of Fn also does what macOS has it do — change the input source, show emoji or start its dictation." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нажатие Fn заодно сделает то, что задано для него в macOS: сменит раскладку, покажет эмодзи или включит диктовку macOS."
+          }
+        }
+      }
+    },
+    "Pressing it also starts dictation — the microphone opens." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нажатие заодно запустит диктовку — включится микрофон."
+          }
+        }
+      }
+    },
+    "Daisy can’t read the word before the cursor here reliably — select it, or turn on fixing as you type." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Здесь Daisy не может надёжно прочитать слово перед курсором — выдели его или включи «Исправлять раскладку при вводе»."
+          }
+        }
+      }
+    },
+    "Held a moment on the way to a shortcut or a capital letter, it starts recording — the microphone opens." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Если придержать её, набирая сочетание или заглавную букву, начнётся запись — включится микрофон."
+          }
+        }
+      }
+    },
+    "It still does “%@” in apps — and starts dictation as well." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В приложениях «%@» продолжит работать — и заодно запустится диктовка."
+          }
+        }
+      }
+    },
+    "macOS keeps this for “%@” — Daisy’s shortcut may never fire." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS оставляет это сочетание за «%@» — у Daisy оно может вообще не срабатывать."
+          }
+        }
+      }
+    },
+    "“%@” stops working in every app while this is set here." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пока это сочетание назначено здесь, «%@» перестанет работать во всех приложениях."
+          }
+        }
+      }
+    },
+    "While it’s set here, this key stops moving the cursor or editing text in every app." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пока эта клавиша назначена здесь, она перестанет двигать курсор и править текст во всех приложениях."
+          }
+        }
+      }
+    },
+    "While it’s set here, this key stops typing in every app." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пока эта клавиша назначена здесь, она перестанет печатать во всех приложениях."
+          }
+        }
+      }
+    },
     "New document or window" : {
       "localizations" : {
         "ru" : {
@@ -17,36 +107,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Отменить последнее действие"
-          }
-        }
-      }
-    },
-    "A key that moves the cursor or edits text: while it’s a shortcut, it may stop doing that everywhere." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Эта клавиша двигает курсор или правит текст: пока она назначена здесь, это может перестать работать везде."
-          }
-        }
-      }
-    },
-    "A key that types: while it’s a shortcut, typing it anywhere triggers this." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Это клавиша для набора текста: пока она назначена здесь, при наборе где угодно сработает и это действие."
-          }
-        }
-      }
-    },
-    "macOS uses this for “%@”. Set here, only one of the two happens — Daisy’s action or that." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "macOS использует это сочетание для «%@». Если назначить его здесь, сработает что-то одно — действие Daisy или это."
           }
         }
       }
@@ -241,16 +301,6 @@
         }
       }
     },
-    "Change input source, emoji or dictation" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Смена раскладки, эмодзи или диктовка"
-          }
-        }
-      }
-    },
     "Was the shortcut for “%@” — that one has none now." : {
       "localizations" : {
         "ru" : {
@@ -407,16 +457,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "«ghbdtn» превращается в «привет» — исправляет выделенное или последнее слово перед курсором; нажми ещё раз сразу — и слово вернётся как было. Одиночная клавиша-модификатор (⌥) срабатывает по короткому нажатию."
-          }
-        }
-      }
-    },
-    "This app doesn't show Daisy the word before the cursor — select it, or turn on fixing as you type." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Это приложение не показывает Daisy слово перед курсором — выдели его или включи «Исправлять раскладку при вводе»."
           }
         }
       }

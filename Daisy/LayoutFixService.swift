@@ -36,6 +36,8 @@ final class LayoutFixService {
     /// A second press while the first is mid-flight would fight over the
     /// clipboard.
     private var isRunning = false
+    /// A lone-modifier tap already asked for Accessibility this run.
+    private var askedForAccessibilityOnTap = false
 
     private init() {}
 
@@ -65,6 +67,13 @@ final class LayoutFixService {
         }
         // We synthesize ⌘C / ⌘V and backspaces.
         guard AXIsProcessTrusted() else {
+            // A tap of a lone modifier asks once per run: with the grant
+            // revoked, a system prompt and a toast on every brush of ⌥
+            // would be the whole experience of the Mac (review 31.10).
+            if quiet {
+                guard !askedForAccessibilityOnTap else { return }
+                askedForAccessibilityOnTap = true
+            }
             let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(options)
             ToastCenter.shared.show(
@@ -129,8 +138,11 @@ final class LayoutFixService {
         //    field itself says there is none: ⌘C empties and refills the
         //    clipboard (a clipboard manager records each), and waits for
         //    an answer that won't come — on every tap of a lone ⌥ too.
-        if AXFocus.kind() != .editable || AXFocus.hasNoSelection() != true {
-            if await fixSelection(settings: settings, quiet: quiet) { return }
+        //    Only where that answer is trustworthy: web editors report a
+        //    caret per block and lag behind (review 31.10).
+        let noSelectionReported = AXFocus.kind() == .editable && AXFocus.hasNoSelection() == true
+        if !noSelectionReported || AXFocus.caretMayBeUnreliable() {
+            if await fixSelection(settings: settings, quiet: quiet, lineCopyIsNoSelection: noSelectionReported) { return }
         }
 
         // 2. No selection — the last word before the caret. Both paths
@@ -141,6 +153,7 @@ final class LayoutFixService {
         //    definite answer (no word there, or one that already reads
         //    right) is not overruled by memory.
         var fieldAnswered = false
+        var cantTrustField = false
         switch LayoutAutoFix.shared.fixLastWordOnScreen(settings: settings) {
         case .fixed:
             return
@@ -156,6 +169,9 @@ final class LayoutFixService {
             fieldAnswered = true
         case .unknown:
             if LayoutAutoFix.shared.fixWordInFlight(settings: settings) { return }
+        case .unreliable:
+            // The tap has no word either, or it would have been checked.
+            cantTrustField = true
         }
         if quiet { return }
 
@@ -165,18 +181,25 @@ final class LayoutFixService {
         // key has nothing to read the word from — say WHY, instead of
         // leaving the user to discover that half the key is dead there.
         ToastCenter.shared.show(
-            fieldAnswered || LayoutAutoFix.shared.isRunning
+            !cantTrustField && (fieldAnswered || LayoutAutoFix.shared.isRunning)
                 ? String(localized: "Nothing to fix — select the text, or type a word first.")
-                : String(localized: "This app doesn't show Daisy the word before the cursor — select it, or turn on fixing as you type."),
+                : String(localized: "Daisy can’t read the word before the cursor here reliably — select it, or turn on fixing as you type."),
             style: .warning
         )
     }
 
     /// The selection, through ⌘C. True when there was one — fixed, or
     /// already in the right layout (and said so) — so the caller stops.
-    private func fixSelection(settings: AppSettings, quiet: Bool) async -> Bool {
+    ///
+    /// `lineCopyIsNoSelection`: the field said nothing is selected, and is
+    /// asked anyway because it can't be trusted. Editors that copy the
+    /// whole line on ⌘C with nothing selected answer with that line and
+    /// its line break — which is no selection, and pasting its conversion
+    /// would land beside the original (review 31.10).
+    private func fixSelection(settings: AppSettings, quiet: Bool, lineCopyIsNoSelection: Bool) async -> Bool {
         let borrow = PasteboardProxy.shared.borrow()
-        guard let selection = await PasteboardProxy.shared.copySelection(borrow) else {
+        guard let selection = await PasteboardProxy.shared.copySelection(borrow),
+              !(lineCopyIsNoSelection && selection.last?.isNewline == true) else {
             PasteboardProxy.shared.giveBack(borrow)
             return false
         }
@@ -298,6 +321,20 @@ nonisolated enum LayoutFixLastWord {
               word.count + trailing.count <= maxPresses
         else { return nil }
         return Pick(word: String(word), trailing: trailing)
+    }
+
+    /// Whether the field shows, right before the caret, the word the tap
+    /// saw typed and what ended it — smart quotes aside.
+    ///
+    /// Only which word it is, not how it looks: a web editor keeps the
+    /// space after it as a no-break space, and a native one capitalised
+    /// the first word of the sentence on that space (review 31.10). The
+    /// conversion itself still uses what the field shows.
+    static func agrees(_ pick: Pick, withTyped word: String, boundary: Character?) -> Bool {
+        func normalized(_ text: String) -> String {
+            straighteningQuotes(text).replacingOccurrences(of: "\u{00A0}", with: " ").lowercased()
+        }
+        return normalized(pick.word + pick.trailing).hasSuffix(normalized(word + (boundary.map(String.init) ?? "")))
     }
 
     /// Typographic quotes back to the ASCII ones the keys typed —

@@ -362,6 +362,15 @@ struct SettingsView: View {
             }
         }
 
+        /// How the row registers its key (`ServiceWiring`).
+        var rowKind: HotkeyRowKind {
+            switch self {
+            case .voiceNote: .daisyKey
+            case .dictation: .dictation
+            case .record, .rewrite, .layoutFix, .markMoment, .repaste, .noteOnly: .oneShot
+            }
+        }
+
         /// Leave the slot without a shortcut — another row took it.
         func clear(in settings: AppSettings) {
             switch self {
@@ -419,7 +428,7 @@ struct SettingsView: View {
         guard value.keyCode != nil else { return [] }
         var warnings: [HotkeyWarning] = []
         if let other = hotkeyTakenFrom[slot] { warnings.append(.takenFrom(other)) }
-        return warnings + HotkeyWarnings.standing(for: value)
+        return warnings + HotkeyWarnings.standing(for: value, on: slot.rowKind)
     }
 
     @ViewBuilder
