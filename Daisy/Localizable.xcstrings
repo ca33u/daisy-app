@@ -1,6 +1,436 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "New document or window" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новый документ или окно"
+          }
+        }
+      }
+    },
+    "Undo the last change" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отменить последнее действие"
+          }
+        }
+      }
+    },
+    "A key that moves the cursor or edits text: while it’s a shortcut, it may stop doing that everywhere." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эта клавиша двигает курсор или правит текст: пока она назначена здесь, это может перестать работать везде."
+          }
+        }
+      }
+    },
+    "A key that types: while it’s a shortcut, typing it anywhere triggers this." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это клавиша для набора текста: пока она назначена здесь, при наборе где угодно сработает и это действие."
+          }
+        }
+      }
+    },
+    "macOS uses this for “%@”. Set here, only one of the two happens — Daisy’s action or that." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS использует это сочетание для «%@». Если назначить его здесь, сработает что-то одно — действие Daisy или это."
+          }
+        }
+      }
+    },
+    "Switch desktops" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переключение рабочих столов"
+          }
+        }
+      }
+    },
+    "App windows" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Окна приложения"
+          }
+        }
+      }
+    },
+    "Screenshot" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снимок экрана"
+          }
+        }
+      }
+    },
+    "Force Quit" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Принудительное завершение"
+          }
+        }
+      }
+    },
+    "Lock Screen" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заблокировать экран"
+          }
+        }
+      }
+    },
+    "Emoji & Symbols" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эмодзи и символы"
+          }
+        }
+      }
+    },
+    "Change input source" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Смена раскладки"
+          }
+        }
+      }
+    },
+    "Switch windows" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переключение окон"
+          }
+        }
+      }
+    },
+    "Switch apps" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переключение приложений"
+          }
+        }
+      }
+    },
+    "Minimize" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свернуть"
+          }
+        }
+      }
+    },
+    "Print" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Напечатать"
+          }
+        }
+      }
+    },
+    "Find" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Найти"
+          }
+        }
+      }
+    },
+    "New Tab" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новая вкладка"
+          }
+        }
+      }
+    },
+    "Close Window" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закрыть окно"
+          }
+        }
+      }
+    },
+    "Quit" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Завершить"
+          }
+        }
+      }
+    },
+    "Select All" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбрать всё"
+          }
+        }
+      }
+    },
+    "Redo" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повторить"
+          }
+        }
+      }
+    },
+    "Cut" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вырезать"
+          }
+        }
+      }
+    },
+    "Paste" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вставить"
+          }
+        }
+      }
+    },
+    "Change input source, emoji or dictation" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Смена раскладки, эмодзи или диктовка"
+          }
+        }
+      }
+    },
+    "Was the shortcut for “%@” — that one has none now." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это было сочетание для «%@» — там теперь пусто."
+          }
+        }
+      }
+    },
+    "left command" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "левый command"
+          }
+        }
+      }
+    },
+    "left option" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "левый option"
+          }
+        }
+      }
+    },
+    "right shift" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "правый shift"
+          }
+        }
+      }
+    },
+    "left shift" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "левый shift"
+          }
+        }
+      }
+    },
+    "right control" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "правый control"
+          }
+        }
+      }
+    },
+    "left control" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "левый control"
+          }
+        }
+      }
+    },
+    "Left ⌘" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Левый ⌘"
+          }
+        }
+      }
+    },
+    "Left ⌥" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Левый ⌥"
+          }
+        }
+      }
+    },
+    "Right ⇧" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Правый ⇧"
+          }
+        }
+      }
+    },
+    "Left ⇧" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Левый ⇧"
+          }
+        }
+      }
+    },
+    "Right ⌃" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Правый ⌃"
+          }
+        }
+      }
+    },
+    "Left ⌃" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Левый ⌃"
+          }
+        }
+      }
+    },
+    "Any key or combination works, a modifier on its own too — a tap of it, or a hold for dictation and the Daisy key. Daisy warns when the key is already taken." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подойдёт любая клавиша или сочетание, даже одиночный модификатор — по короткому нажатию, а для диктовки и клавиши Daisy — пока держишь. Если клавиша уже занята, Daisy предупредит."
+          }
+        }
+      }
+    },
+    "The shortcut fixes the selection or, with nothing selected, the last word before the cursor; pressing it again right away puts that word back. Automatic fixing decides while you're still typing the word, using the spell-check dictionaries already on your Mac, so a word you finish with Return is corrected before it's sent. Nothing is stored or sent anywhere, and it stands down in password fields, terminals, IDEs, password managers and remote desktops. Needs Accessibility access." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сочетание исправляет выделенный текст, а если ничего не выделено — последнее слово перед курсором; нажми его ещё раз сразу — и слово вернётся как было. Автоматическое исправление принимает решение, пока ты ещё печатаешь слово, используя словари проверки орфографии на твоём Mac — поэтому слово, после которого ты нажимаешь Return, исправляется до отправки. Ничего не сохраняется и никуда не отправляется; функция не работает в полях паролей, терминалах, IDE, менеджерах паролей и удалённых рабочих столах. Нужен доступ к «Универсальному доступу»."
+          }
+        }
+      }
+    },
+    "«ghbdtn» becomes «привет» — the selection, or the last word before the cursor; press again right away to put that word back. A modifier on its own (⌥) works on a tap." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«ghbdtn» превращается в «привет» — исправляет выделенное или последнее слово перед курсором; нажми ещё раз сразу — и слово вернётся как было. Одиночная клавиша-модификатор (⌥) срабатывает по короткому нажатию."
+          }
+        }
+      }
+    },
+    "This app doesn't show Daisy the word before the cursor — select it, or turn on fixing as you type." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это приложение не показывает Daisy слово перед курсором — выдели его или включи «Исправлять раскладку при вводе»."
+          }
+        }
+      }
+    },
+    "Undoing an automatic fix (press the shortcut right after) adds the word here so Daisy leaves it alone from then on." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Если отменить автоматическое исправление (нажать сочетание сразу после него), слово попадёт сюда, и Daisy больше не будет его трогать."
+          }
+        }
+      }
+    },
     "processing.step.transcription" : {
       "localizations" : {
         "en" : {
@@ -5222,16 +5652,6 @@
         }
       }
     },
-    "«ghbdtn» becomes «привет» — the selection, or the word you're typing" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "«ghbdtn» превращается в «привет» — исправляет выделенный текст или слово, которое ты печатаешь"
-          }
-        }
-      }
-    },
     "/Users/you/.local/bin/%@" : {
 
     },
@@ -5534,16 +5954,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "В «%@» нет записи (ни transcript.md, ни аудио)."
-          }
-        }
-      }
-    },
-    "%@ is already assigned to “%@”. Free it up there first." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ уже назначено на «%2$@». Сначала освободи его там."
           }
         }
       }
@@ -9769,16 +10179,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Комбинация должна включать ⌃ или ⌥, отдельную функциональную клавишу (F1–F20) или клавишу Fn (глобус)."
-          }
-        }
-      }
-    },
-    "Combos must include ⌘ / ⌃ / ⌥, a bare function key (F1–F20), or the globe Fn key." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сочетание должно включать ⌘ / ⌃ / ⌥, отдельную функциональную клавишу (F1–F20) или клавишу-глобус Fn."
           }
         }
       }
@@ -21126,16 +21526,6 @@
         }
       }
     },
-    "Select the text you want fixed — without automatic fixing, Daisy doesn't see the word you just typed." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Выдели текст, который нужно починить, — без автоматики Daisy не видит только что набранное слово."
-          }
-        }
-      }
-    },
     "Select the text you want fixed, then press the shortcut." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -22861,16 +23251,6 @@
         }
       }
     },
-    "That shortcut needs ⌃ or ⌥ so it can't take over a system one like ⌘C." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "В сочетании нужен ⌃ или ⌥, чтобы оно не перехватило системное вроде ⌘C."
-          }
-        }
-      }
-    },
     "The 32-character ID at the end of the page or database URL — with or without dashes." : {
       "localizations" : {
         "ru" : {
@@ -23268,16 +23648,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Папка записей недоступна."
-          }
-        }
-      }
-    },
-    "The shortcut fixes selected text in compatible apps. Automatic fixing decides while you're still typing the word, using the spell-check dictionaries already on your Mac, so a word you finish with Return is corrected before it's sent. Nothing is stored or sent anywhere, and it stands down in password fields, terminals, IDEs, password managers and remote desktops. Needs Accessibility access." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сочетание исправляет выделенный текст в поддерживаемых приложениях. Автоматическое исправление принимает решение, пока ты ещё печатаешь слово, используя словари проверки орфографии на твоём Mac — поэтому слово, после которого ты нажимаешь Return, исправляется до отправки. Ничего не сохраняется и никуда не отправляется; функция не работает в полях паролей, терминалах, IDE, менеджерах паролей и удалённых рабочих столах. Нужен доступ к «Универсальному доступу»."
           }
         }
       }
@@ -24030,16 +24400,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Недоступно: %@"
-          }
-        }
-      }
-    },
-    "Undoing a fix (press the shortcut right after) adds the word here so Daisy leaves it alone from then on." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Если отменить исправление (нажать сочетание сразу после него), слово попадёт сюда, и Daisy больше не будет его трогать."
           }
         }
       }
@@ -26411,16 +26771,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Модель Whisper ещё не загружена. Открой «%@»."
-          }
-        }
-      }
-    },
-    "%@ is kept for the layout fixer, which is off. Turn it on in %@ to change or clear that shortcut." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ закреплено за исправлением раскладки, а оно выключено. Включи его в «%2$@», чтобы изменить или убрать это сочетание."
           }
         }
       }

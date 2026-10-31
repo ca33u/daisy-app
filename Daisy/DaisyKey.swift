@@ -1186,7 +1186,7 @@ final class DaisyKeyController {
                  opensWindow: false)
             return
         }
-        Task { @MainActor in await LayoutFixService.shared.trigger(settings: settings) }
+        Task { @MainActor in await LayoutFixService.shared.trigger(settings: settings, from: settings.voiceNoteHotkey) }
     }
 
     /// A hold ended with its words recognized (possibly none). Saved

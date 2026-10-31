@@ -100,6 +100,9 @@ struct SettingsView: View {
     /// isn't Observable (`LayoutAutoFix.isRunning`, installed keyboard
     /// layouts).
     @State private var layoutFixRecheck: Int = 0
+    /// Per shortcut row: the row whose shortcut it just took, said under
+    /// its recorder until it changes again (`conflictGuarded`).
+    @State private var hotkeyTakenFrom: [HotkeySlot: String] = [:]
 
     /// Mirror of `AppleSpeechLiveEngine.Availability` that doesn't need
     /// `@available(macOS 26, *)` to exist in this view's state.
@@ -358,12 +361,27 @@ struct SettingsView: View {
             case .noteOnly: return .none
             }
         }
+
+        /// Leave the slot without a shortcut — another row took it.
+        func clear(in settings: AppSettings) {
+            switch self {
+            case .record: settings.recordHotkey = .none
+            case .voiceNote: settings.voiceNoteHotkey = .none
+            case .dictation: settings.dictationHotkey = .none
+            case .layoutFix: settings.layoutFixHotkey = .none
+            case .markMoment: settings.markMomentHotkey = .none
+            case .repaste: settings.repasteLastHotkey = .none
+            case .rewrite, .noteOnly: break
+            }
+        }
     }
 
     /// Wrap a hotkey binding so an assignment that collides with another
-    /// slot is REFUSED (toast naming the owner) instead of silently
-    /// creating two actions on one combo — the field case was Fn bound
-    /// to both Dictation and Paste-last, where only one ever fired.
+    /// slot TAKES it (Egor 31.10: warn, don't refuse): the other slot is
+    /// left without a shortcut and this row says whose it was. Until then
+    /// it was refused — two actions on one combination never both
+    /// worked (Fn on Dictation and Paste-last fired only one), so «both»
+    /// was never on offer, and the newer choice is the one just made.
     /// Comparison is keyCode + modifiers, not label, so a preset and an
     /// identical custom recording still collide. `.none` never conflicts.
     private func conflictGuarded(
@@ -373,6 +391,8 @@ struct SettingsView: View {
         Binding(
             get: { binding.wrappedValue },
             set: { newValue in
+                // The one refusal left: Fn switches the layout in macOS,
+                // so every switch would also re-type the selection.
                 if slot == .layoutFix, !HotkeyChoice.allowedForLayoutFix(newValue) {
                     ToastCenter.shared.show(
                         String(localized: "Fn (🌐) switches the keyboard layout in macOS — pick another key for fixing it."),
@@ -380,37 +400,26 @@ struct SettingsView: View {
                     )
                     return
                 }
-                if let keyCode = newValue.keyCode {
-                    let owner = HotkeySlot.allCases.first { other in
-                        guard other != slot else { return false }
-                        let existing = other.value(in: settings)
-                        return existing.keyCode == keyCode
-                            && (existing.modifiers ?? 0) == (newValue.modifiers ?? 0)
-                    }
-                    if let owner {
-                        // The layout fixer's row is disabled while the fixer
-                        // is off, so "free it up there" would point nowhere.
-                        if owner == .layoutFix && !settings.layoutFixEnabled {
-                            ToastCenter.shared.showAction(
-                                String(localized: "\(newValue.label) is kept for the layout fixer, which is off. Turn it on in \(SettingsRow.layoutFixer.path) to change or clear that shortcut."),
-                                actionLabel: SettingsRow.layoutFixer.title,
-                                style: .warning,
-                                duration: .seconds(8)
-                            ) {
-                                AppNavigation.shared.openInSettings(.dictation, row: .layoutFixer)
-                            }
-                        } else {
-                            ToastCenter.shared.show(
-                                String(localized: "\(newValue.displayLabel) is already assigned to “\(owner.displayName)”. Free it up there first."),
-                                style: .warning
-                            )
-                        }
-                        return
-                    }
+                let owner = HotkeySlot.allCases.first { other in
+                    other != slot && HotkeyWarnings.sameKeys(newValue, other.value(in: settings))
                 }
+                if let owner {
+                    owner.clear(in: settings)
+                    hotkeyTakenFrom[owner] = nil
+                }
+                hotkeyTakenFrom[slot] = owner?.displayName
                 binding.wrappedValue = newValue
             }
         )
+    }
+
+    /// What to say under a row's recorder: whose shortcut it took, then
+    /// what the choice means by itself.
+    private func hotkeyWarnings(for slot: HotkeySlot, value: HotkeyChoice) -> [HotkeyWarning] {
+        guard value.keyCode != nil else { return [] }
+        var warnings: [HotkeyWarning] = []
+        if let other = hotkeyTakenFrom[slot] { warnings.append(.takenFrom(other)) }
+        return warnings + HotkeyWarnings.standing(for: value)
     }
 
     @ViewBuilder
@@ -422,7 +431,18 @@ struct SettingsView: View {
         presets: [HotkeyChoice] = HotkeyChoice.allPresets
     ) -> some View {
         LabeledContent {
-            hotkeyEditor(binding: conflictGuarded(binding, slot: slot), presets: presets)
+            VStack(alignment: .trailing, spacing: 4) {
+                hotkeyEditor(binding: conflictGuarded(binding, slot: slot), presets: presets)
+                // Warned, not refused (Egor 31.10).
+                ForEach(hotkeyWarnings(for: slot, value: binding.wrappedValue), id: \.self) { warning in
+                    Text(warning.text)
+                        .font(.caption)
+                        .foregroundStyle(Color.daisyWarning)
+                        .multilineTextAlignment(.trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 280, alignment: .trailing)
+                }
+            }
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -1223,7 +1243,7 @@ struct SettingsView: View {
             } header: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Shortcuts")
-                    Text("Combos must include ⌘ / ⌃ / ⌥, a bare function key (F1–F20), or the globe Fn key.")
+                    Text("Any key or combination works, a modifier on its own too — a tap of it, or a hold for dictation and the Daisy key. Daisy warns when the key is already taken.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .textCase(nil)
@@ -1978,12 +1998,13 @@ struct SettingsView: View {
                 // the one she checked — never mentioned it (07.10.2026).
                 shortcutRow(
                     title: "Fix the keyboard layout",
-                    caption: "«ghbdtn» becomes «привет» — the selection, or the word you're typing",
+                    caption: "«ghbdtn» becomes «привет» — the selection, or the last word before the cursor; press again right away to put that word back. A modifier on its own (⌥) works on a tap.",
                     binding: $settings.layoutFixHotkey,
                     slot: .layoutFix,
                     presets: HotkeyChoice.layoutFixPresets
                 )
                 .settingsRow(.layoutFixHotkey)
+
 
                 // Undo (one press of the fix shortcut, right after a fix)
                 // teaches the exceptions list — this row is where that
@@ -2000,12 +2021,12 @@ struct SettingsView: View {
                     .controlSize(.small)
                     .disabled(layoutFixExceptions.count == 0)
                 }
-                .help("Undoing a fix (press the shortcut right after) adds the word here so Daisy leaves it alone from then on.")
+                .help("Undoing an automatic fix (press the shortcut right after) adds the word here so Daisy leaves it alone from then on.")
                 }
             } header: {
                 Text("Keyboard layout")
             } footer: {
-                Text("The shortcut fixes selected text in compatible apps. Automatic fixing decides while you're still typing the word, using the spell-check dictionaries already on your Mac, so a word you finish with Return is corrected before it's sent. Nothing is stored or sent anywhere, and it stands down in password fields, terminals, IDEs, password managers and remote desktops. Needs Accessibility access.")
+                Text("The shortcut fixes the selection or, with nothing selected, the last word before the cursor; pressing it again right away puts that word back. Automatic fixing decides while you're still typing the word, using the spell-check dictionaries already on your Mac, so a word you finish with Return is corrected before it's sent. Nothing is stored or sent anywhere, and it stands down in password fields, terminals, IDEs, password managers and remote desktops. Needs Accessibility access.")
             }
 
         }

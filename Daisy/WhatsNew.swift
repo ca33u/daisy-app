@@ -591,8 +591,7 @@ struct WhatsNewKeycaps: View {
     let down: Bool
 
     static func caps(for choice: HotkeyChoice) -> [Cap] {
-        if choice.isRightCommand { return [Cap(glyph: "⌘", name: String(localized: "right command"))] }
-        if choice.isRightOption { return [Cap(glyph: "⌥", name: String(localized: "right option"))] }
+        if let key = choice.loneModifier { return [Cap(glyph: key.glyph, name: key.capName)] }
         let mods = choice.modifiers ?? 0
         var caps: [Cap] = []
         if mods & UInt32(controlKey) != 0 { caps.append(Cap(glyph: "⌃", name: "control")) }

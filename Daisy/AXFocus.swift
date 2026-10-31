@@ -89,9 +89,51 @@ enum AXFocus {
     /// the sentence in front of it.
     ///
     /// Nil means "no answer", which is not the same as "doesn't match".
+    /// A DEFINITE answer that can't match comes back as one, so callers
+    /// treat it as the mismatch it is rather than as silence (review
+    /// 31.10: an emptied field after Return read as "no answer", and
+    /// the fix key then sent backspaces into it): fewer characters
+    /// before the caret than asked for come back as they are, and a
+    /// selection — the caret isn't sitting after any text — as "".
     static func textBeforeCaret(count: Int) -> String? {
         guard count > 0, let element = focusedElement() else { return nil }
-        guard let caret = caretLocation(element), caret >= count else { return nil }
+        switch caret(element) {
+        case nil:
+            return nil
+        case .selection:
+            return ""
+        case .at(let caret):
+            guard caret > 0 else { return isEmpty(element) ? "" : nil }
+            return text(of: element, before: caret, count: min(count, caret))
+        }
+    }
+
+    /// The focused field reports a caret and no selection — the fix key
+    /// can skip asking for one with ⌘C (which empties and refills the
+    /// clipboard). Nil when it won't say.
+    static func hasNoSelection() -> Bool? {
+        guard let element = focusedElement(), let caret = caret(element) else { return nil }
+        if case .at = caret { return true }
+        return false
+    }
+
+    /// Up to `limit` UTF-16 units before the caret, and whether they reach
+    /// the start of the field — the fix key's way to find the last word
+    /// when nothing it typed is in memory. Nil means "no answer", as
+    /// above; an empty string is a caret at the start of the field.
+    static func textBeforeCaret(upTo limit: Int) -> (text: String, reachesStart: Bool)? {
+        guard limit > 0, let element = focusedElement() else { return nil }
+        guard case .at(let caret) = caret(element) else { return nil }
+        let count = min(caret, limit)
+        guard count > 0 else { return isEmpty(element) ? ("", true) : nil }
+        // An answer of the wrong length is an app whose caret and text
+        // disagree — no answer at all, for a caller about to count
+        // backspaces from it.
+        guard let text = text(of: element, before: caret, count: count), text.utf16.count == count else { return nil }
+        return (text, count == caret)
+    }
+
+    private static func text(of element: AXUIElement, before caret: Int, count: Int) -> String? {
         var range = CFRange(location: caret - count, length: count)
         // Ask for just the tail if the app supports it — the whole value
         // of a long document is expensive and often refused.
@@ -234,9 +276,15 @@ enum AXFocus {
         return element
     }
 
-    /// Caret position in UTF-16 units, or nil when the app doesn't
-    /// report a selection.
-    private static func caretLocation(_ element: AXUIElement) -> Int? {
+    private enum Caret {
+        /// No selection; the caret at this UTF-16 offset.
+        case at(Int)
+        /// Text is selected.
+        case selection
+    }
+
+    /// Where the caret is, or nil when the app doesn't report a selection.
+    private static func caret(_ element: AXUIElement) -> Caret? {
         var raw: CFTypeRef?
         guard AXUIElementCopyAttributeValue(
             element,
@@ -250,9 +298,22 @@ enum AXFocus {
         var range = CFRange()
         guard AXValueGetValue(axValue, .cfRange, &range) else { return nil }
         // A non-empty selection means the caret isn't sitting after a
-        // word we typed — treat it as no answer.
-        guard range.length == 0 else { return nil }
-        return range.location
+        // word we typed.
+        guard range.length == 0 else { return .selection }
+        guard range.location >= 0 else { return nil }
+        return .at(range.location)
+    }
+
+    /// The field holds no text. A caret at 0 is believed only then: some
+    /// web editors report {0, 0} wherever the caret really is, and that
+    /// must stay "no answer", not "nothing there" (review 31.10).
+    private static func isEmpty(_ element: AXUIElement) -> Bool {
+        var raw: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXNumberOfCharactersAttribute as CFString, &raw) == .success,
+           let count = raw as? Int {
+            return count == 0
+        }
+        return string(element, kAXValueAttribute)?.isEmpty ?? false
     }
 
     private static func string(_ element: AXUIElement, _ attribute: String) -> String? {

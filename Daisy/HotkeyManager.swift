@@ -119,20 +119,23 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
         modifiers: UInt32(controlKey | optionKey),
         label: "⌃⌥"
     )
+    /// One modifier key on its own, this side only (Egor 31.10: «не будем
+    /// ограничивать пользователей по хоткеям»). Held, it is a hold — the
+    /// Daisy key, dictation; on a shortcut that acts once, a clean tap
+    /// fires it (see `ModifierTapMachine`).
+    nonisolated static func lone(_ key: LoneModifier) -> HotkeyChoice {
+        HotkeyChoice(keyCode: key.keyCode, modifiers: 0, label: key.label)
+    }
     /// The right ⌘ alone; the left one goes on working as ⌘. Apple
     /// keyboards all have it, unlike a right ⌃.
-    static let rightCommand = HotkeyChoice(
-        keyCode: UInt32(kVK_RightCommand),
-        modifiers: 0,
-        label: "Right ⌘"
-    )
+    static let rightCommand = lone(.rightCommand)
     /// The right ⌥ alone, like the right ⌘ — a dictation key in the
     /// tour's picker (Egor 23.10).
-    static let rightOption = HotkeyChoice(
-        keyCode: UInt32(kVK_RightOption),
-        modifiers: 0,
-        label: "Right ⌥"
-    )
+    static let rightOption = lone(.rightOption)
+    /// The left ⌥ alone — a tap of it fixes the keyboard layout, the
+    /// lone-⇧ habit of Punto and Caramba (Egor 31.10: «исправление
+    /// раскладки одной клавишей Option»).
+    static let leftOption = lone(.leftOption)
     /// ⌃Space held — the tour's fourth dictation key.
     static let ctrlSpace = HotkeyChoice(
         keyCode: UInt32(kVK_Space),
@@ -167,27 +170,29 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
     /// D pairs. Anything else is still a recording away.
     static let daisyKeyPresets: [HotkeyChoice] = [.none, .ctrlOpt, .rightCommand, .ctrlOptD, .ctrlShiftD]
 
-    /// Held modifiers with no key — routed through the flags monitor.
+    /// Modifiers with no key — routed through the flags monitor: a hold
+    /// for the Daisy key and dictation, a tap for the rest.
     nonisolated var isModifierHold: Bool {
         (keyCode == Self.modifiersOnlyKeyCode && (modifiers ?? 0) != 0)
-            || isRightCommand || isRightOption
+            || loneModifier != nil
+    }
+
+    /// The one modifier key this choice is, when it is one on its own.
+    nonisolated var loneModifier: LoneModifier? {
+        guard (modifiers ?? 0) == 0, let keyCode else { return nil }
+        return LoneModifier(keyCode: keyCode)
     }
 
     /// What the UI shows. `label` is also the stored id, so a word in it
     /// stays English there and is translated here.
     var displayLabel: String {
-        if isRightCommand { return String(localized: "Right ⌘") }
-        if isRightOption { return String(localized: "Right ⌥") }
+        if let loneModifier { return loneModifier.displayLabel }
         return label
     }
 
-    nonisolated var isRightCommand: Bool {
-        keyCode == UInt32(kVK_RightCommand) && (modifiers ?? 0) == 0
-    }
+    nonisolated var isRightCommand: Bool { loneModifier == .rightCommand }
 
-    nonisolated var isRightOption: Bool {
-        keyCode == UInt32(kVK_RightOption) && (modifiers ?? 0) == 0
-    }
+    nonisolated var isRightOption: Bool { loneModifier == .rightOption }
 
     /// Paste-flavoured preset list — used by the "Paste my last
     /// dictation" row instead of `allPresets`.
@@ -207,22 +212,20 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
     /// recorder was listening (log report 07.10.2026).
     nonisolated static func allowedForLayoutFix(_ choice: HotkeyChoice) -> Bool { !choice.isFnOnly }
 
-    static var layoutFixPresets: [HotkeyChoice] { allPresets.filter(allowedForLayoutFix) }
+    /// …and either ⌥ on its own, tapped (Egor 31.10).
+    static var layoutFixPresets: [HotkeyChoice] { allPresets.filter(allowedForLayoutFix) + [.leftOption, .rightOption] }
 
     /// Whether this choice is one of the canonical presets above.
     /// UI uses this to mark presets in the menu (vs custom recordings).
     var isPreset: Bool {
         Self.allPresets.contains(self) || Self.pastePresets.contains(self) || Self.daisyKeyPresets.contains(self)
-            || Self.dictationPresets.contains(self)
+            || Self.dictationPresets.contains(self) || Self.layoutFixPresets.contains(self)
     }
 
     // MARK: Custom recording
 
-    /// Build a HotkeyChoice from an NSEvent.keyDown event. Used by
-    /// HotkeyRecorder to convert captured keys into a choice. Returns
-    /// nil if the event has no modifiers (a bare letter as a global
-    /// hotkey would hijack typing).
-    static func fromNSEvent(_ event: NSEvent) -> HotkeyChoice? {
+    /// Build a HotkeyChoice from an NSEvent.keyDown event.
+    static func fromNSEvent(_ event: NSEvent) -> HotkeyChoice {
         fromKeyCode(event.keyCode, modifierFlags: event.modifierFlags)
     }
 
@@ -233,35 +236,60 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
     /// event's `modifierFlags` arrive empty even when the user is
     /// holding ⌘/⌃/⌥.
     ///
-    /// Accepted:
-    ///   • any key + at least one of ⌃ / ⌥ (⌘ may ride along, e.g.
-    ///     ⌃⌥⌘R, but never on its own — see below)
-    ///   • function keys (F1–F20) on their own (rarely typed,
-    ///     no risk of hijacking ordinary input)
-    ///
-    /// ⌘ alone (with or without ⇧) is NOT accepted as a global hotkey:
-    /// a bare ⌘+letter is indistinguishable from a system or app
-    /// shortcut, and Carbon's `RegisterEventHotKey` is happy to
-    /// register one anyway — it shadows Copy/Paste/Cut/Select
-    /// All/Undo/Save/Close/Quit/New/... everywhere on the Mac for as
-    /// long as Daisy runs. One did get recorded as "rewrite in my
-    /// voice" during testing: ⌘C, which ate Copy system-wide.
-    static func fromKeyCode(_ keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) -> HotkeyChoice? {
+    /// Any key, with or without modifiers (Egor 31.10: «хотят одну —
+    /// пускай ставят, просто можно предупреждать»). Until then a bare key
+    /// or ⌘ without ⌃/⌥ was refused: Carbon registers ⌘C happily and
+    /// then eats Copy everywhere — one did get recorded as "rewrite in my
+    /// voice" in testing. Now Settings says so under the recorder
+    /// (`HotkeyWarnings`) and lets the person decide.
+    static func fromKeyCode(_ keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) -> HotkeyChoice {
         let carbonKey = UInt32(keyCode)
         let carbonMods = nsToCarbonModifiers(modifierFlags)
-        let strongMods: UInt32 = UInt32(controlKey | optionKey)
-        let hasStrongModifier = (carbonMods & strongMods) != 0
-        let isBareFunctionKey = Self.functionKeyCodes.contains(carbonKey) && carbonMods == 0
-        guard hasStrongModifier || isBareFunctionKey else { return nil }
         let label = humanLabel(keyCode: carbonKey, modifiers: carbonMods)
         return HotkeyChoice(keyCode: carbonKey, modifiers: carbonMods, label: label)
     }
+
+    /// Modifiers pressed and let go with no key — what the recorder saw
+    /// at the most held down (device bits included). One modifier key is
+    /// that key, this side (`lone`); several are the chord, either side,
+    /// like the Daisy key's ⌃⌥. Nil for Fn (recorded on its own path)
+    /// or nothing.
+    nonisolated static func fromModifiers(_ flags: NSEvent.ModifierFlags) -> HotkeyChoice? {
+        let down = flags.intersection([.control, .option, .shift, .command])
+        guard !flags.contains(.function), !down.isEmpty else { return nil }
+        let raw = flags.rawValue
+        let keys = LoneModifier.allCases.filter { raw & $0.deviceBit != 0 }
+        if keys.count == 1, keys[0].flag == down { return lone(keys[0]) }
+        let carbonMods = nsToCarbonModifiers(down)
+        return HotkeyChoice(
+            keyCode: modifiersOnlyKeyCode,
+            modifiers: carbonMods,
+            label: humanLabel(keyCode: modifiersOnlyKeyCode, modifiers: carbonMods)
+        )
+    }
+
+    /// A key that types something when pressed with no modifier but ⇧ —
+    /// as a shortcut it fires while someone types. Function keys, Fn,
+    /// modifier keys and navigation keys don't type.
+    nonisolated var typesText: Bool {
+        guard let keyCode, keyCode != Self.modifiersOnlyKeyCode, loneModifier == nil, !isFnOnly else { return false }
+        let mods = modifiers ?? 0
+        guard mods & ~UInt32(shiftKey) == 0 else { return false }
+        return !Self.functionKeyCodes.contains(keyCode) && !Self.nonTypingKeyCodes.contains(keyCode)
+    }
+
+    nonisolated private static let nonTypingKeyCodes: Set<UInt32> = [
+        UInt32(kVK_Escape), UInt32(kVK_LeftArrow), UInt32(kVK_RightArrow), UInt32(kVK_UpArrow),
+        UInt32(kVK_DownArrow), UInt32(kVK_Home), UInt32(kVK_End), UInt32(kVK_PageUp),
+        UInt32(kVK_PageDown), UInt32(kVK_Help), UInt32(kVK_CapsLock),
+        UInt32(kVK_Delete), UInt32(kVK_ForwardDelete),
+    ]
 
     /// kVK_F1 … kVK_F20 — virtual keycodes for the function row.
     /// Allowed as bare hotkeys because nobody types them as
     /// ordinary characters, so binding e.g. F5 as Daisy's toggle
     /// won't hijack normal typing the way bare "K" would.
-    private static let functionKeyCodes: Set<UInt32> = [
+    nonisolated private static let functionKeyCodes: Set<UInt32> = [
         UInt32(kVK_F1),  UInt32(kVK_F2),  UInt32(kVK_F3),  UInt32(kVK_F4),
         UInt32(kVK_F5),  UInt32(kVK_F6),  UInt32(kVK_F7),  UInt32(kVK_F8),
         UInt32(kVK_F9),  UInt32(kVK_F10), UInt32(kVK_F11), UInt32(kVK_F12),
@@ -270,7 +298,7 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
     ]
 
     /// NSEvent.ModifierFlags → Carbon modifier bitmask.
-    private static func nsToCarbonModifiers(_ flags: NSEvent.ModifierFlags) -> UInt32 {
+    nonisolated private static func nsToCarbonModifiers(_ flags: NSEvent.ModifierFlags) -> UInt32 {
         var carbon: UInt32 = 0
         if flags.contains(.command)  { carbon |= UInt32(cmdKey) }
         if flags.contains(.shift)    { carbon |= UInt32(shiftKey) }
@@ -282,7 +310,7 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
     /// Compose a "⌃⌥⌘R"-style display label from key + modifiers.
     /// Internal because HotkeyManager's NSEvent hold-monitor path
     /// uses it to compose the permission-prompt toast label.
-    static func humanLabel(keyCode: UInt32, modifiers: UInt32) -> String {
+    nonisolated static func humanLabel(keyCode: UInt32, modifiers: UInt32) -> String {
         var s = ""
         if modifiers & UInt32(controlKey) != 0 { s += "⌃" }
         if modifiers & UInt32(optionKey)  != 0 { s += "⌥" }
@@ -294,7 +322,8 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
 
     /// Map a Carbon keyCode to its on-screen glyph. Falls back to
     /// `<keyCode>` for keys we haven't mapped.
-    private static func keyName(for code: UInt32) -> String {
+    nonisolated private static func keyName(for code: UInt32) -> String {
+        if let key = LoneModifier(keyCode: code) { return key.label }
         // Punctuation + named keys
         switch Int(code) {
         case kVK_Space:     return "Space"
@@ -315,8 +344,6 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
         case kVK_F11:       return "F11"
         case kVK_F12:       return "F12"
         case kVK_Function:  return "Fn"
-        case kVK_RightCommand: return "Right ⌘"
-        case kVK_RightOption: return "Right ⌥"
         case Int(modifiersOnlyKeyCode): return ""
         case kVK_LeftArrow:  return "←"
         case kVK_RightArrow: return "→"
@@ -343,6 +370,115 @@ struct HotkeyChoice: Hashable, Codable, Sendable, Identifiable {
             kVK_ANSI_Grave: "`",
         ]
         return ansiMap[Int(code)] ?? "<\(code)>"
+    }
+}
+
+// MARK: - One modifier key
+
+/// A modifier key on its own, by side — what a lone-modifier shortcut is
+/// bound to. The device bits are IOLLEvent.h's NX_DEVICE*KEYMASK, which
+/// AppKit passes through in `NSEvent.ModifierFlags.rawValue`.
+nonisolated enum LoneModifier: CaseIterable, Sendable {
+    case leftControl, rightControl, leftShift, rightShift, leftOption, rightOption, leftCommand, rightCommand
+
+    init?(keyCode: UInt32) {
+        guard let key = Self.allCases.first(where: { $0.keyCode == keyCode }) else { return nil }
+        self = key
+    }
+
+    var keyCode: UInt32 {
+        switch self {
+        case .leftControl: UInt32(kVK_Control)
+        case .rightControl: UInt32(kVK_RightControl)
+        case .leftShift: UInt32(kVK_Shift)
+        case .rightShift: UInt32(kVK_RightShift)
+        case .leftOption: UInt32(kVK_Option)
+        case .rightOption: UInt32(kVK_RightOption)
+        case .leftCommand: UInt32(kVK_Command)
+        case .rightCommand: UInt32(kVK_RightCommand)
+        }
+    }
+
+    var flag: NSEvent.ModifierFlags {
+        switch self {
+        case .leftControl, .rightControl: .control
+        case .leftShift, .rightShift: .shift
+        case .leftOption, .rightOption: .option
+        case .leftCommand, .rightCommand: .command
+        }
+    }
+
+    var deviceBit: UInt {
+        switch self {
+        case .leftControl: 0x01
+        case .rightControl: 0x2000
+        case .leftShift: 0x02
+        case .rightShift: 0x04
+        case .leftOption: ModifierChordReading.leftOptionBit
+        case .rightOption: ModifierChordReading.rightOptionBit
+        case .leftCommand: ModifierChordReading.leftCommandBit
+        case .rightCommand: ModifierChordReading.rightCommandBit
+        }
+    }
+
+    /// The same modifier on the other side of the keyboard.
+    var otherSide: LoneModifier {
+        switch self {
+        case .leftControl: .rightControl
+        case .rightControl: .leftControl
+        case .leftShift: .rightShift
+        case .rightShift: .leftShift
+        case .leftOption: .rightOption
+        case .rightOption: .leftOption
+        case .leftCommand: .rightCommand
+        case .rightCommand: .leftCommand
+        }
+    }
+
+    var glyph: String {
+        switch self {
+        case .leftControl, .rightControl: "⌃"
+        case .leftShift, .rightShift: "⇧"
+        case .leftOption, .rightOption: "⌥"
+        case .leftCommand, .rightCommand: "⌘"
+        }
+    }
+
+    var isRight: Bool {
+        switch self {
+        case .rightControl, .rightShift, .rightOption, .rightCommand: true
+        default: false
+        }
+    }
+
+    /// The stored label (English, it is also the choice's id).
+    var label: String { (isRight ? "Right " : "Left ") + glyph }
+
+    var displayLabel: String {
+        switch self {
+        case .leftControl: String(localized: "Left ⌃")
+        case .rightControl: String(localized: "Right ⌃")
+        case .leftShift: String(localized: "Left ⇧")
+        case .rightShift: String(localized: "Right ⇧")
+        case .leftOption: String(localized: "Left ⌥")
+        case .rightOption: String(localized: "Right ⌥")
+        case .leftCommand: String(localized: "Left ⌘")
+        case .rightCommand: String(localized: "Right ⌘")
+        }
+    }
+
+    /// Under the keycap in What's New.
+    var capName: String {
+        switch self {
+        case .leftControl: String(localized: "left control")
+        case .rightControl: String(localized: "right control")
+        case .leftShift: String(localized: "left shift")
+        case .rightShift: String(localized: "right shift")
+        case .leftOption: String(localized: "left option")
+        case .rightOption: String(localized: "right option")
+        case .leftCommand: String(localized: "left command")
+        case .rightCommand: String(localized: "right command")
+        }
     }
 }
 
@@ -420,19 +556,13 @@ nonisolated enum ModifierChordReading: Equatable, Sendable {
         let watched: NSEvent.ModifierFlags = [.control, .option, .shift, .command, .function]
         let down = flags.intersection(watched)
         if down.isEmpty { return .none }
-        if choice.isRightCommand {
+        if let key = choice.loneModifier {
             let raw = flags.rawValue
-            // The right ⌘ alone — but an old event source may set
-            // `.command` without side bits; that isn't the right key.
-            if down != .command { return .extra }
-            if raw & leftCommandBit != 0 { return .extra }
-            return raw & rightCommandBit != 0 ? .exact : .partial
-        }
-        if choice.isRightOption {
-            let raw = flags.rawValue
-            if down != .option { return .extra }
-            if raw & leftOptionBit != 0 { return .extra }
-            return raw & rightOptionBit != 0 ? .exact : .partial
+            // That key alone — but an old event source may set the flag
+            // without side bits; that isn't known to be this key.
+            if down != key.flag { return .extra }
+            if raw & key.otherSide.deviceBit != 0 { return .extra }
+            return raw & key.deviceBit != 0 ? .exact : .partial
         }
         var chord: NSEvent.ModifierFlags = []
         let mods = choice.modifiers ?? 0
@@ -540,6 +670,86 @@ nonisolated struct ModifierHoldMachine: Sendable {
     }
 }
 
+/// A modifier-only shortcut that acts once (record, mark a moment, fix
+/// the layout…) fires on a clean TAP, the lone-⇧ habit of Punto and
+/// Caramba: the chord down and up again with nothing else — no other
+/// modifier, key, click or scroll in between, and briefly. ⌥ is a typing
+/// key (⌥-letters), a click modifier and half of the Daisy key's ⌃⌥;
+/// none of those is a tap. Modifiers don't autorepeat, so a second tap
+/// is a second press. Pure — the manager feeds it.
+nonisolated struct ModifierTapMachine: Sendable {
+    /// Longer than this and it wasn't a tap but the start of something
+    /// that didn't happen, or a look at the ⌥-items of a menu.
+    static let maxHold: TimeInterval = 0.4
+
+    /// When the chord stood complete and when it was let go, on the
+    /// events' clock (system uptime).
+    struct Tap: Equatable, Sendable {
+        let pressedAt: TimeInterval
+        let releasedAt: TimeInterval
+    }
+
+    private enum State: Equatable {
+        case idle
+        case down(at: TimeInterval)
+        /// Something else happened; nothing fires until every modifier
+        /// is up.
+        case spoiled
+    }
+
+    private var state: State = .idle
+    private var anyDown = false
+
+    /// The flags changed. Returns the tap when the chord was just let go.
+    mutating func flags(_ reading: ModifierChordReading, at time: TimeInterval) -> Tap? {
+        anyDown = reading != .none
+        switch state {
+        case .idle:
+            switch reading {
+            case .exact: state = .down(at: time)
+            case .extra: state = .spoiled
+            case .partial, .none: break
+            }
+        case .down(let pressedAt):
+            switch reading {
+            case .exact:
+                break
+            case .extra:
+                state = .spoiled
+            case .partial, .none:
+                // Let go — the rest of a chord may still be on its way up.
+                state = reading == .none ? .idle : .spoiled
+                guard time >= pressedAt, time - pressedAt <= Self.maxHold else { return nil }
+                return Tap(pressedAt: pressedAt, releasedAt: time)
+            }
+        case .spoiled:
+            if reading == .none { state = .idle }
+        }
+        return nil
+    }
+
+    /// A key, a click or a scroll — or another of Daisy's shortcuts.
+    /// Typing with no modifier down is just typing; with one down it is
+    /// a chord (⌥E, ⌃C then ⌥).
+    mutating func otherInput() {
+        switch state {
+        case .down: state = .spoiled
+        case .idle: if anyDown { state = .spoiled }
+        case .spoiled: break
+        }
+    }
+
+    /// Whether the system saw a key or a click between press and release
+    /// that the monitors didn't — one another app's hotkey swallowed
+    /// (Raycast on ⌥Space). The latest such input happened
+    /// `secondsSinceLastInput` before `now`. Strictly between the two: a
+    /// key typed right after the release is the next thing someone does.
+    static func inputSwallowed(during tap: Tap, secondsSinceLastInput: TimeInterval, now: TimeInterval) -> Bool {
+        let lastInputAt = now - secondsSinceLastInput
+        return lastInputAt > tap.pressedAt && lastInputAt < tap.releasedAt
+    }
+}
+
 /// The machine behind a lock — the monitors' closures are `@Sendable`.
 nonisolated private final class ModifierHoldBox: @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock<ModifierHoldMachine>(initialState: ModifierHoldMachine())
@@ -610,6 +820,21 @@ final class HotkeyManager {
     /// individually when a single hotkey is re-bound without tearing
     /// the other two down.
     private var refs: [HotkeySlot: EventHotKeyRef] = [:]
+    /// What each Carbon slot is registered as — kept through a pause.
+    private var carbonCombos: [HotkeySlot: (keyCode: UInt32, mods: UInt32)] = [:]
+    /// The shortcut recorder is listening: Carbon hotkeys are
+    /// unregistered so their keys reach it (`setCarbonPaused`).
+    private var carbonPaused = false
+
+    /// Daisy's Carbon combinations (key code << 16 | Carbon modifiers),
+    /// for the layout watcher's tap: a shortcut on a key that types (a
+    /// bare letter, `, Space) reaches the tap as typing, and must count
+    /// as the command it is — see `LayoutAutoFix.handle`.
+    nonisolated static let carbonKeys = OSAllocatedUnfairLock<Set<UInt32>>(initialState: [])
+
+    nonisolated static func carbonKey(keyCode: UInt32, mods: UInt32) -> UInt32 {
+        (keyCode << 16) | (mods & 0xFFFF)
+    }
 
     /// NSEvent global monitors per slot — used when the bound choice
     /// is `.fn` (or any other case `.isFnOnly` matches). Stored
@@ -672,7 +897,7 @@ final class HotkeyManager {
             if choice.isFnOnly {
                 installFnFlagsMonitor(slot: slot, isHold: false)
             } else if choice.isModifierHold {
-                installModifierHoldMonitor(slot: slot, choice: choice, isHold: false)
+                installModifierTapMonitor(slot: slot, choice: choice)
             } else {
                 installCarbonToggle(slot: slot, keyCode: keyCode, mods: mods)
             }
@@ -703,6 +928,9 @@ final class HotkeyManager {
     /// Carbon path — single fire on press, no permission required.
     /// Used by `.toggle` mode for any non-Fn key.
     private func installCarbonToggle(slot: HotkeySlot, keyCode: UInt32, mods: UInt32) {
+        carbonCombos[slot] = (keyCode, mods)
+        publishCarbonKeys()
+        guard !carbonPaused else { return }
         ensureEventHandlerInstalled()
         var ref: EventHotKeyRef?
         let id = EventHotKeyID(
@@ -779,7 +1007,7 @@ final class HotkeyManager {
     /// stands behind the released event; a second release is ignored.
     private func installCarbonHold(slot: HotkeySlot, keyCode: UInt32, mods: UInt32) {
         installCarbonToggle(slot: slot, keyCode: keyCode, mods: mods)
-        guard refs[slot] != nil else { return }
+        guard refs[slot] != nil || carbonPaused else { return }
         let handle: @Sendable (NSEvent) -> Void = { [weak self] event in
             guard let self, UInt32(event.keyCode) == keyCode else { return }
             self.fireOnRelease(slot: slot)
@@ -876,6 +1104,64 @@ final class HotkeyManager {
         localMonitors[slot] = NSEvent.addLocalMonitorForEvents(matching: mask) { event in
             handle(event)
             return event
+        }
+    }
+
+    /// Modifiers on their own for a shortcut that acts once: a clean tap
+    /// fires it — see `ModifierTapMachine`. Not in secure input: a ⌥
+    /// brushed while typing a password is nobody's request.
+    private func installModifierTapMonitor(slot: HotkeySlot, choice: HotkeyChoice) {
+        let machine = OSAllocatedUnfairLock(initialState: ModifierTapMachine())
+        // ⌃⌥ is VoiceOver's own modifier; while VoiceOver runs it's left alone.
+        let yieldsToVoiceOver = (choice.modifiers ?? 0) & UInt32(controlKey | optionKey) == UInt32(controlKey | optionKey)
+        let handle: @Sendable (NSEvent) -> Void = { [weak self] event in
+            guard let self else { return }
+            guard event.type == .flagsChanged else {
+                machine.withLock { $0.otherInput() }
+                return
+            }
+            let read = ModifierChordReading.read(event.modifierFlags, for: choice)
+            let reading = yieldsToVoiceOver && read != .none && NSWorkspace.shared.isVoiceOverEnabled ? .extra : read
+            let time = event.timestamp
+            guard let tap = machine.withLock({ $0.flags(reading, at: time) }) else { return }
+            // Asked now, at the release: a key typed right after it must
+            // not read as one typed during the press.
+            guard !self.inputArrived(during: tap, besides: slot), !IsSecureEventInputEnabled() else { return }
+            // A drag that began before the press (⌥-copy in Finder) is
+            // still going: its click never reached the machine.
+            guard NSEvent.pressedMouseButtons == 0 else { return }
+            self.fireOnPress(slot: slot)
+        }
+        modifierInterrupts.withLock { $0[slot] = { machine.withLock { $0.otherInput() } } }
+        let mask: NSEvent.EventTypeMask = [.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+        let monitor = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: handle)
+        guard let monitor else {
+            promptForInputMonitoring(label: choice.displayLabel)
+            return
+        }
+        fnMonitors[slot] = monitor
+        localMonitors[slot] = NSEvent.addLocalMonitorForEvents(matching: mask) { event in
+            handle(event)
+            return event
+        }
+    }
+
+    /// `inputArrived(since:besides:)` for a tap: only what came between
+    /// its press and its release counts.
+    nonisolated func inputArrived(during tap: ModifierTapMachine.Tap, besides slot: HotkeySlot) -> Bool {
+        if lastHotkeyFire.withLock({ $0 }).contains(where: {
+            // Handled before this release reached us, so any since the
+            // press came during it.
+            $0.key != slot && $0.value > tap.pressedAt
+        }) { return true }
+        let now = ProcessInfo.processInfo.systemUptime
+        let types: [CGEventType] = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+        return types.contains {
+            ModifierTapMachine.inputSwallowed(
+                during: tap,
+                secondsSinceLastInput: CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0),
+                now: now
+            )
         }
     }
 
@@ -996,6 +1282,7 @@ final class HotkeyManager {
     /// event handler only when no slot remains registered.
     func unregister(slot: HotkeySlot) {
         modifierInterrupts.withLock { _ = $0.removeValue(forKey: slot) }
+        if carbonCombos.removeValue(forKey: slot) != nil { publishCarbonKeys() }
         if let ref = refs[slot] {
             UnregisterEventHotKey(ref)
             refs.removeValue(forKey: slot)
@@ -1013,6 +1300,32 @@ final class HotkeyManager {
             RemoveEventHandler(handler)
             eventHandler = nil
         }
+    }
+
+    /// While the shortcut recorder listens, Daisy's Carbon hotkeys are
+    /// off: Carbon takes their key before any monitor sees it, so
+    /// pressing ⇧⌘R to record it recorded «⇧⌘» instead, and a
+    /// combination could never be moved from one row to another
+    /// (review 31.10). Back on when it stops. A change registered
+    /// meanwhile waits for the resume too.
+    func setCarbonPaused(_ paused: Bool) {
+        guard paused != carbonPaused else { return }
+        carbonPaused = paused
+        if paused {
+            for (slot, ref) in refs {
+                UnregisterEventHotKey(ref)
+                refs.removeValue(forKey: slot)
+            }
+        } else {
+            for (slot, combo) in carbonCombos where refs[slot] == nil {
+                installCarbonToggle(slot: slot, keyCode: combo.keyCode, mods: combo.mods)
+            }
+        }
+    }
+
+    private func publishCarbonKeys() {
+        let keys = Set(carbonCombos.values.map { Self.carbonKey(keyCode: $0.keyCode, mods: $0.mods) })
+        Self.carbonKeys.withLock { $0 = keys }
     }
 
     /// Unregister every slot. Used at app shutdown / `applyAll` rewiring.

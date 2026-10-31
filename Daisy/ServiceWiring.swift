@@ -119,7 +119,11 @@ enum ServiceWiring {
             // Nothing while the layout fixer is switched off as a whole.
             choice: settings.layoutFixHotkeyActive,
             action: .toggle {
-                Task { await LayoutFixService.shared.trigger(settings: settings) }
+                Task { await LayoutFixService.shared.trigger(
+                    settings: settings,
+                    from: settings.layoutFixHotkey,
+                    quiet: settings.layoutFixHotkey.loneModifier != nil
+                ) }
             }
         )
         // Mark-this-moment — one tap during a recording. `.toggle`

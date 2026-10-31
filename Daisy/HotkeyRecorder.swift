@@ -143,6 +143,13 @@ final class KeyCaptureBox {
     /// the user is holding ⌘/⌃/⌥. We track state separately and
     /// merge into the synthetic NSEvent we pass to fromNSEvent.
     private var trackedModifiers: NSEvent.ModifierFlags = []
+    /// Every modifier held since they were last all up, device bits
+    /// included — what a modifier-only shortcut is recorded from when
+    /// they are let go with no key in between.
+    private var heldModifiers: NSEvent.ModifierFlags = []
+    private var keyDuringModifiers = false
+    /// When the first of them went down (system uptime).
+    private var modifiersDownSince: TimeInterval?
 
     deinit {
         if let keyToken { NSEvent.removeMonitor(keyToken) }
@@ -167,6 +174,13 @@ final class KeyCaptureBox {
         self.onCapture = onCapture
         self.onCancel = onCancel
         trackedModifiers = []
+        heldModifiers = []
+        keyDuringModifiers = false
+        modifiersDownSince = nil
+        // Daisy's own Carbon shortcuts would eat their key before this
+        // recorder saw it — and leave only their modifiers to record.
+        // Off while listening, so pressing one records it (and moves it).
+        HotkeyManager.shared.setCarbonPaused(true)
 
         // 1. Track modifier press/release via flagsChanged.
         //    Also: capture bare Fn / 🌐 press as a binding. Fn
@@ -181,6 +195,35 @@ final class KeyCaptureBox {
 
             self.trackedModifiers = newMods
 
+            // Modifiers alone (Egor 31.10): pressed and let go with no
+            // key — one key is that key on its side («Left ⌥»), several
+            // are the chord («⌃⌥»).
+            let modifierKeys: NSEvent.ModifierFlags = [.control, .option, .shift, .command]
+            if newMods.intersection(modifierKeys).isEmpty {
+                let held = self.heldModifiers
+                // A key this monitor never saw — one the system or another
+                // app took for its own shortcut (⌘Space, ⇧⌘4, Raycast's
+                // ⌥Space) — still counts: the system's own «last key»
+                // time knows it. Without this ⌘Space recorded «Left ⌘».
+                let swallowed = self.modifiersDownSince.map { since in
+                    CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .keyDown)
+                        < ProcessInfo.processInfo.systemUptime - since
+                } ?? false
+                let typed = self.keyDuringModifiers || swallowed
+                self.heldModifiers = []
+                self.keyDuringModifiers = false
+                self.modifiersDownSince = nil
+                if !typed, !held.contains(.function), let choice = HotkeyChoice.fromModifiers(held) {
+                    self.finish(with: choice)
+                    // Passed on: the shortcuts' own monitors want to see
+                    // the modifiers go up.
+                    return event
+                }
+            } else {
+                if self.heldModifiers.isEmpty { self.modifiersDownSince = event.timestamp }
+                self.heldModifiers.formUnion(event.modifierFlags)
+            }
+
             // Fn rising edge (up → down) and NO other strong modifier
             // present means "user pressed Fn alone to record it as
             // the hotkey". Strong modifier = ⌘ / ⌃ / ⌥ — those would
@@ -190,8 +233,7 @@ final class KeyCaptureBox {
             if nowHasFn && !previouslyHadFn {
                 let otherStrong: NSEvent.ModifierFlags = [.command, .control, .option]
                 if newMods.intersection(otherStrong).isEmpty {
-                    let capture = self.onCapture
-                    DispatchQueue.main.async { capture?(.fn) }
+                    self.finish(with: .fn)
                     return nil
                 }
             }
@@ -203,6 +245,15 @@ final class KeyCaptureBox {
             guard let self else { return event }
             return self.handle(event: event)
         }
+    }
+
+    /// A combination is in: stop listening (until now the box went on
+    /// listening after a capture, and the next key pressed in Settings
+    /// re-bound the row behind its back) and hand it over.
+    private func finish(with choice: HotkeyChoice) {
+        let capture = onCapture
+        stop()
+        DispatchQueue.main.async { capture?(choice) }
     }
 
     /// Stop listening AND notify the owning recorder so its
@@ -226,7 +277,13 @@ final class KeyCaptureBox {
         onCapture = nil
         onCancel = nil
         trackedModifiers = []
-        if Self.activeListener === self { Self.activeListener = nil }
+        heldModifiers = []
+        keyDuringModifiers = false
+        modifiersDownSince = nil
+        if Self.activeListener === self {
+            Self.activeListener = nil
+            HotkeyManager.shared.setCarbonPaused(false)
+        }
     }
 
     /// Returns `nil` to consume the event (so it doesn't propagate
@@ -240,27 +297,19 @@ final class KeyCaptureBox {
         let eventMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let effectiveMods = eventMods.union(trackedModifiers)
 
-        if event.keyCode == UInt16(kVK_Escape) {
+        keyDuringModifiers = true
+
+        if event.keyCode == UInt16(kVK_Escape), effectiveMods.intersection([.control, .option, .shift, .command]).isEmpty {
             let cancel = onCancel
+            stop()
             DispatchQueue.main.async { cancel?() }
             return nil
         }
 
-        if let choice = HotkeyChoice.fromKeyCode(UInt16(event.keyCode), modifierFlags: effectiveMods) {
-            let capture = onCapture
-            DispatchQueue.main.async { capture?(choice) }
-            return nil
-        }
-        // Rejected — either a bare letter with no modifier, or ⌘
-        // (± ⇧) with no ⌃/⌥, which is what a system or app shortcut
-        // looks like. Beep alone reads as "did my keypress even
-        // register?"; the toast says why nothing got recorded and
-        // stays listening so the user can try a real combo.
-        NSSound.beep()
-        ToastCenter.shared.show(
-            String(localized: "That shortcut needs ⌃ or ⌥ so it can't take over a system one like ⌘C."),
-            style: .warning
-        )
+        // Any key, any modifiers (Egor 31.10) — a bare letter or ⌘C
+        // included. Settings warns under the recorder what that means
+        // (`HotkeyWarnings`) instead of refusing it.
+        finish(with: HotkeyChoice.fromKeyCode(UInt16(event.keyCode), modifierFlags: effectiveMods))
         return nil
     }
 }

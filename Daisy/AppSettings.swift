@@ -431,8 +431,9 @@ final class AppSettings {
     }
 
     /// Global hotkey for "fix the keyboard layout" — «ghbdtn» becomes
-    /// «привет». Fixes the selection, or the word being typed when the
-    /// automatic watcher is running. `.none` (default) disables.
+    /// «привет». Fixes the selection, or with nothing selected the last
+    /// word before the caret; pressed again right away, puts it back.
+    /// `.none` (default) disables.
     var layoutFixHotkey: HotkeyChoice {
         didSet {
             if let data = try? JSONEncoder().encode(layoutFixHotkey) {

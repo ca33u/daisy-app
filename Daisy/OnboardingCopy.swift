@@ -140,6 +140,8 @@ enum OnboardingCopy {
         if choice.isFnOnly { return "fn" }
         if choice.isRightCommand { return text(.keyRightCommand) }
         if choice.isRightOption { return text(.keyRightOption) }
+        // «Удерживай левый ⌥», not «Левый ⌥» mid-sentence.
+        if let key = choice.loneModifier { return key.displayLabel.prefix(1).lowercased() + key.displayLabel.dropFirst() }
         return choice.displayLabel
     }
 

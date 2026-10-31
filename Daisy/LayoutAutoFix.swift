@@ -463,6 +463,16 @@ final class LayoutAutoFix {
         // crash the app from inside the tap — mid-swallow, worst possible
         // moment.
         let keyCode = UInt16(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode))
+        // One of Daisy's own shortcuts on a key that types (a bare letter,
+        // `, ⇧-something — allowed since 31.10): a command, like a chord,
+        // never a character of the word. Buffered as typing it put a
+        // letter Carbon then ate into the word, or swallowed the key as a
+        // boundary and typed it (review 31.10).
+        let shortcutMods = flags.contains(.maskShift) ? UInt32(shiftKey) : 0
+        if HotkeyManager.carbonKeys.withLock({ $0.contains(HotkeyManager.carbonKey(keyCode: UInt32(keyCode), mods: shortcutMods)) }) {
+            buffer.clear()
+            return .pass
+        }
         if caretMovingKeyCodes.contains(keyCode) {
             buffer.discard()
             // Same reasoning as the mouse-down case: the caret just
@@ -525,10 +535,12 @@ final class LayoutAutoFix {
             let originalWord = verdict.originalWord
             let replacementWord = verdict.replacement
             Task { @MainActor in
-                LayoutAutoFix.shared.settle(
+                let fixer = LayoutAutoFix.shared
+                fixer.settle(
                     targetLayoutID: target,
                     via: "before the boundary",
-                    undo: (originalWord, character, replacementWord)
+                    switchesSource: fixer.settings?.layoutFixSwitchesSource ?? false,
+                    undo: (originalWord, String(character), replacementWord, byKey: false)
                 )
             }
             return .swallow
@@ -730,38 +742,96 @@ final class LayoutAutoFix {
         settle(
             targetLayoutID: fix.target.id,
             via: "after the fact",
-            undo: (finished.word, boundary, fix.text)
+            switchesSource: settings?.layoutFixSwitchesSource ?? false,
+            undo: (finished.word, String(boundary), fix.text, byKey: false)
         )
     }
 
-    /// The fix key's second source: the word just typed. The user asked,
-    /// so this uses `deliberate` (no dictionary needed) and leaves the
-    /// boundary alone — there isn't one yet.
-    func fixWordInFlight() -> LayoutFix.Fix? {
-        guard isRunning, contextAllows() else { return nil }
+    /// What the fix key did about the last word.
+    enum LastWordOutcome: Equatable {
+        case fixed
+        /// The word reads right in the layout it is in.
+        case alreadyRight
+        /// The field answered, and there is no word in front of the caret
+        /// (start of a line, a word too long to be one).
+        case noWord
+        /// No answer to go on — not editable text, an app that won't say,
+        /// or a gate closed. The other source may still know.
+        case unknown
+    }
+
+    /// The fix key with nothing selected, first source: the last word as
+    /// the focused field shows it, read through Accessibility — the
+    /// screen is the truth about what the backspaces will delete, and
+    /// this works with the automatic watcher off. The whole run since the
+    /// last space, punctuation included: on the wrong layout «ж», «б»,
+    /// «ю», «х», «э» are typed with «;», «,», «.», «[», «'», and «lf;t»
+    /// is «даже», not «да» + «;» + «е». Spaces after it are put back.
+    func fixLastWordOnScreen(settings: AppSettings) -> LastWordOutcome {
+        guard contextAllows(), AXFocus.kind() == .editable else { return .unknown }
+        // An empty answer is a caret at the start of the field — a
+        // definite "no word", not silence for the tap's word to overrule.
+        guard let before = AXFocus.textBeforeCaret(upTo: Self.lastWordReadLimit) else { return .unknown }
+        guard let pick = LayoutFixLastWord.pick(before: before.text, reachesFieldStart: before.reachesStart) else {
+            return .noWord
+        }
+        // The tap is in the middle of a word the field doesn't show yet
+        // (Chromium's tree lags the keystrokes): neither answer is safe
+        // to delete by, so neither is used.
+        if isRunning,
+           let inFlight = LayoutAutoFix.buffer.wordInFlightOrJustFinished(within: Self.recentWordWindow),
+           inFlight.boundary == nil,
+           !(pick.trailing.isEmpty && pick.word.hasSuffix(inFlight.word)) {
+            return .noWord
+        }
+        // Smart quotes turned the «'» typed for «э» into «‘»/«’» (and «"»
+        // into «“»/«”»), which no layout types; one character for one,
+        // so the backspaces still count right. The original goes into
+        // the undo as it stood on screen.
+        guard let fix = LayoutFix.deliberate(LayoutFixLastWord.straighteningQuotes(pick.word)) else { return .alreadyRight }
+        guard replace(presses: pick.presses, with: fix.text + pick.trailing) else { return .unknown }
+        settle(
+            targetLayoutID: fix.target.id,
+            via: "fix key, last word",
+            switchesSource: settings.layoutFixSwitchesSource,
+            undo: (pick.word, pick.trailing, fix.text, byKey: true)
+        )
+        return .fixed
+    }
+
+    /// How far back the fix key reads for the last word, in UTF-16 units:
+    /// the longest word it will touch, its spaces, and room to see where
+    /// it starts.
+    private static let lastWordReadLimit = LayoutFixLastWord.maxPresses + 16
+
+    /// The fix key's second source, for an app that won't show its text:
+    /// the word just typed, as the tap saw it. The user asked, so this
+    /// uses `deliberate` (no dictionary needed).
+    func fixWordInFlight(settings: AppSettings) -> Bool {
+        guard isRunning, contextAllows() else { return false }
         guard let candidate = LayoutAutoFix.buffer.wordInFlightOrJustFinished(
             within: Self.recentWordWindow
-        ), candidate.word.count > 1 else { return nil }
-        guard let fix = LayoutFix.deliberate(candidate.word) else { return nil }
-        guard focusIsEditableText() else { return nil }
+        ) else { return false }
+        guard let fix = LayoutFix.deliberate(candidate.word) else { return false }
+        guard focusIsEditableText() else { return false }
         // A word already finished has its boundary in front of the caret,
         // so that has to be deleted and put back too. And because the
-        // count comes from memory rather than from the screen, this branch
-        // demands a positive answer from Accessibility — deleting one
-        // character too many here eats whatever preceded the word.
+        // count comes from memory rather than from the screen, a WRONG
+        // answer from Accessibility vetoes it — deleting one character
+        // too many here eats whatever preceded the word.
         let trailing = candidate.boundary.map(String.init) ?? ""
-        let expected = candidate.word + trailing
-        if candidate.boundary != nil {
-            guard confirmBeforeCaret(expected) else { return nil }
-        } else {
-            guard confirmBeforeCaret(expected) else { return nil }
-        }
+        guard confirmBeforeCaret(candidate.word + trailing) else { return false }
         guard replace(
             presses: candidate.presses + (candidate.boundary == nil ? 0 : 1),
             with: fix.text + trailing
-        ) else { return nil }
-        settle(targetLayoutID: fix.target.id, via: "fix key")
-        return fix
+        ) else { return false }
+        settle(
+            targetLayoutID: fix.target.id,
+            via: "fix key",
+            switchesSource: settings.layoutFixSwitchesSource,
+            undo: (candidate.word, trailing, fix.text, byKey: true)
+        )
+        return true
     }
 
     /// Cheap checks: no I/O, no cross-process calls. Returns the reason
@@ -867,14 +937,17 @@ final class LayoutAutoFix {
     }
 
     /// `undo`, when non-nil, is what one keypress needs to reverse THIS
-    /// fix — supplied only by the two automatic paths (before-the-
-    /// boundary, after-the-fact). The fix key and mouse-selection paths
-    /// don't pass one: the user asked for that conversion, so "undo" is
-    /// just pressing the key again, which already flips it back.
+    /// fix — supplied by the two automatic paths (before-the-boundary,
+    /// after-the-fact) and by the fix key's last word (`byKey`). A fixed
+    /// selection doesn't come through here.
+    ///
+    /// `switchesSource` comes from the caller: the watcher's `settings`
+    /// is only set once it has started, and the fix key works without it.
     fileprivate func settle(
         targetLayoutID: String,
         via path: String,
-        undo: (originalWord: String, boundary: Character, replacementWord: String)? = nil
+        switchesSource: Bool,
+        undo: (originalWord: String, trailing: String, replacementWord: String, byKey: Bool)? = nil
     ) {
         ImprovementStats.record(.layoutFixed)
         // Our own typing is marked and skipped by the tap, so the buffer
@@ -885,7 +958,7 @@ final class LayoutAutoFix {
         // and it only means anything if a switch is about to happen —
         // nil otherwise, matching "nothing to put back".
         var restoreLayoutID: String?
-        if settings?.layoutFixSwitchesSource ?? false,
+        if switchesSource,
            let target = KeyboardLayouts.shared.installed.first(where: { $0.id == targetLayoutID }) {
             restoreLayoutID = KeyboardLayouts.shared.current?.id
             KeyboardLayouts.shared.select(target)
@@ -895,15 +968,17 @@ final class LayoutAutoFix {
         if let undo {
             LayoutFixUndo.shared.record(LayoutFixUndo.Record(
                 originalWord: undo.originalWord,
-                boundary: undo.boundary,
+                trailing: undo.trailing,
                 replacementWord: undo.replacementWord,
                 bundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "",
                 restoreLayoutID: restoreLayoutID,
                 // Read AFTER `buffer.discard()` above, deliberately —
                 // discard() itself bumps the generation, and a value
                 // captured before it would already read one stale the
-                // instant this record is made.
-                generation: LayoutAutoFix.buffer.generation,
+                // instant this record is made. Only while the tap runs:
+                // otherwise nothing advances it.
+                generation: isRunning ? LayoutAutoFix.buffer.generation : nil,
+                byKey: undo.byKey,
                 at: Date()
             ))
         }

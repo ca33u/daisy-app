@@ -937,48 +937,46 @@ struct DecodeProfileTests {
 
 // MARK: - HotkeyChoice recording safety
 //
-// A global hotkey with no ⌃/⌥ is indistinguishable from a system or
-// app shortcut, and Carbon registers it anyway — it was possible to
-// record bare ⌘C as "rewrite in my voice" and lose system-wide Copy
-// for as long as Daisy ran. `fromKeyCode` must refuse every such
-// combo, not just the one that got caught by hand.
+// Any key can be recorded since 31.10 (Egor: «не будем ограничивать
+// пользователей по хоткеям… просто можно предупреждать»). What used to
+// be refused — ⌘C, which Carbon registers and then eats Copy everywhere,
+// or a bare letter — is recorded and WARNED about (`HotkeyWarnings`).
 
-@Suite("HotkeyChoice recording safety")
+@Suite("HotkeyChoice recording")
 @MainActor
 struct HotkeyChoiceTests {
 
-    @Test("Bare Cmd+letter system shortcuts are refused")
-    func fromKeyCode_refusesBareCommandSystemShortcuts() {
-        let reserved: [UInt16] = [
-            UInt16(kVK_ANSI_C), UInt16(kVK_ANSI_V), UInt16(kVK_ANSI_X), UInt16(kVK_ANSI_A),
-            UInt16(kVK_ANSI_Z), UInt16(kVK_ANSI_S), UInt16(kVK_ANSI_W), UInt16(kVK_ANSI_Q),
-            UInt16(kVK_ANSI_N), UInt16(kVK_ANSI_T), UInt16(kVK_ANSI_F), UInt16(kVK_ANSI_P),
-        ]
-        for keyCode in reserved {
-            #expect(HotkeyChoice.fromKeyCode(keyCode, modifierFlags: .command) == nil)
-        }
+    @Test("Bare Cmd+letter is recorded, and named as the macOS shortcut it is")
+    func fromKeyCode_recordsCommandShortcutsWithAWarning() {
+        let copy = HotkeyChoice.fromKeyCode(UInt16(kVK_ANSI_C), modifierFlags: .command)
+        #expect(copy.label == "⌘C")
+        #expect(HotkeyWarnings.standing(for: copy).contains { if case .system = $0 { true } else { false } })
+        let spotlight = HotkeyChoice.fromKeyCode(UInt16(kVK_Space), modifierFlags: .command)
+        #expect(HotkeyWarnings.systemUse(of: spotlight) == "Spotlight")
     }
 
-    @Test("Cmd+Shift with no Control/Option is refused too")
-    func fromKeyCode_refusesCommandShiftWithoutControlOrOption() {
-        #expect(HotkeyChoice.fromKeyCode(UInt16(kVK_ANSI_R), modifierFlags: [.command, .shift]) == nil)
+    @Test("A bare letter is recorded, with the «it types» warning")
+    func fromKeyCode_recordsBareLetter() {
+        let r = HotkeyChoice.fromKeyCode(UInt16(kVK_ANSI_R), modifierFlags: [])
+        #expect(r.keyCode == UInt32(kVK_ANSI_R) && r.modifiers == 0)
+        #expect(r.typesText)
+        #expect(HotkeyChoice.fromKeyCode(UInt16(kVK_ANSI_R), modifierFlags: .shift).typesText)
+        #expect(HotkeyWarnings.standing(for: r) == [.typesText])
     }
 
-    @Test("A bare letter with no modifier at all is refused")
-    func fromKeyCode_refusesBareLetter() {
-        #expect(HotkeyChoice.fromKeyCode(UInt16(kVK_ANSI_R), modifierFlags: []) == nil)
+    @Test("Keys that don't type, and chords, carry no «it types» warning")
+    func typesText_onlyForTypingKeys() {
+        #expect(!HotkeyChoice.fromKeyCode(UInt16(kVK_F5), modifierFlags: []).typesText)
+        #expect(!HotkeyChoice.fromKeyCode(UInt16(kVK_ANSI_R), modifierFlags: [.control, .option]).typesText)
+        #expect(!HotkeyChoice.fromKeyCode(UInt16(kVK_LeftArrow), modifierFlags: []).typesText)
+        #expect(!HotkeyChoice.leftOption.typesText && !HotkeyChoice.fn.typesText && !HotkeyChoice.ctrlOpt.typesText)
+        #expect(HotkeyWarnings.standing(for: .ctrlOptCmdR).isEmpty)
     }
 
-    @Test("Control or Option present is accepted, Cmd riding along or not")
-    func fromKeyCode_acceptsControlOrOptionCombos() {
-        #expect(HotkeyChoice.fromKeyCode(UInt16(kVK_ANSI_C), modifierFlags: [.control, .command]) != nil)
-        #expect(HotkeyChoice.fromKeyCode(UInt16(kVK_ANSI_C), modifierFlags: .option) != nil)
-        #expect(HotkeyChoice.fromKeyCode(UInt16(kVK_ANSI_R), modifierFlags: [.control, .option, .command]) != nil)
-    }
-
-    @Test("A bare function key is still accepted with no modifier")
-    func fromKeyCode_acceptsBareFunctionKey() {
-        #expect(HotkeyChoice.fromKeyCode(UInt16(kVK_F5), modifierFlags: []) != nil)
+    @Test("Control or Option combos record as before")
+    func fromKeyCode_controlOrOptionCombos() {
+        #expect(HotkeyChoice.fromKeyCode(UInt16(kVK_ANSI_R), modifierFlags: [.control, .option, .command]) == .ctrlOptCmdR)
+        #expect(HotkeyChoice.fromKeyCode(UInt16(kVK_F5), modifierFlags: []) == .f5)
     }
 }
 
@@ -1102,7 +1100,7 @@ struct LayoutFixUndoTests {
     ) -> LayoutFixUndo.Record {
         LayoutFixUndo.Record(
             originalWord: "ghbdtn",
-            boundary: " ",
+            trailing: " ",
             replacementWord: "привет",
             bundleID: bundleID,
             restoreLayoutID: nil,
@@ -1152,7 +1150,7 @@ struct LayoutFixUndoTests {
 
         let record = LayoutFixUndo.Record(
             originalWord: "ftq",
-            boundary: " ",
+            trailing: " ",
             replacementWord: combiningChar + "ес",
             bundleID: "com.apple.Notes",
             restoreLayoutID: nil,
