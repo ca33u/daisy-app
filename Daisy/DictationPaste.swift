@@ -274,7 +274,11 @@ final class DictationPaste {
         //    untouched. Works in most native apps; web views / Electron
         //    and secure fields often refuse, in which case we fall through
         //    to the clipboard route below.
+        let axStart = Date()
         let axOutcome = attemptAXInsert(transcript)
+        // `.notice` so it stays in the system log (latency audit 31.10,
+        // item 0): the time and the branch, nothing about the app or text.
+        log.notice("Accessibility \(Int(Date().timeIntervalSince(axStart) * 1000), privacy: .public) ms (\(axOutcome.logLabel, privacy: .public))")
         if axOutcome == .inserted {
             ToastCenter.shared.show(Self.landedMessage(context), style: .success)
             return
@@ -479,7 +483,17 @@ final class DictationPaste {
     /// there; `.noFocusedField` means nothing had keyboard focus, so ⌘V
     /// lands nowhere — the "dictated into the void" case the widget
     /// bubble exists to catch.
-    private enum AXInsertOutcome { case inserted, refused, noFocusedField }
+    private enum AXInsertOutcome {
+        case inserted, refused, noFocusedField
+
+        var logLabel: String {
+            switch self {
+            case .inserted: "inserted"
+            case .refused: "refused"
+            case .noFocusedField: "no focused field"
+            }
+        }
+    }
 
     /// Label of the bound "paste my last dictation" hotkey, or nil when
     /// none is set. Read straight from defaults (same key `AppSettings`

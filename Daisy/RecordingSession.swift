@@ -2555,12 +2555,14 @@ final class RecordingSession {
         // Wire mic. Build 43: `liveTranscription` propagated from
         // AppSettings — when OFF, the transcriber accumulates audio
         // for `runFinalPass()` but doesn't fire per-window Whisper
-        // commits during the meeting. Dictation mode forces live ON
-        // regardless of the setting because dictation IS the live
-        // transcript (paste happens on hotkey release).
-        // Dictation IS the live transcript, so it always runs live at Full
-        // regardless of the meeting tier; otherwise honour the user's tier.
-        let tier: LiveTranscriptionTier = currentMode == .dictation ? .full : settings.liveTranscriptionTier
+        // commits during the meeting. A dictation's tier comes from its
+        // engine, not from this setting — see `liveTier(mode:…)`.
+        let tier = Self.liveTier(
+            mode: currentMode,
+            setting: settings.liveTranscriptionTier,
+            dictationEngine: settings.dictationEngine,
+            nemotronLive: settings.dictationUseNemotronLive
+        )
         // Per recording, like the tier: the transcribers outlive any one
         // session, and a Speakers toggle must reach the next recording.
         // Never for dictation: the paste would wait on a diarizer for a
@@ -3424,7 +3426,7 @@ final class RecordingSession {
         async let sysCaptured: Void = systemTranscriber.stopCapture()
         _ = await (micCaptured, sysCaptured)
         stopSignposter.endInterval("stop_capture", stopCaptureState)
-        log.info("post-stop stop_capture: \(ms(t_stopCapture), privacy: .public)ms")
+        log.notice("post-stop stop_capture: \(ms(t_stopCapture), privacy: .public)ms")
         // applySpeakerProfileMatches is intentionally NOT called
         // here — it depends on `speakerCentroids` which only get
         // populated by the final pass. The detached task runs it
@@ -4084,6 +4086,26 @@ final class RecordingSession {
 
     // MARK: - Thermal / low-power auto-downgrade
 
+    /// The live tier a recording starts with. Meetings and voice notes
+    /// take the person's setting.
+    ///
+    /// A dictation used to force `.full`: Whisper re-decoded up to 30 s of
+    /// the hold every 2 s (latency audit 31.10, item 4). Nothing ever read
+    /// those windows: no caption shows Whisper text (`onDictationLiveText`
+    /// fires from the streaming engines only), the paste comes from the
+    /// fast engine over the captured buffer or from a Whisper final pass
+    /// that replaces every live line (`fullReplace`, and its keep-the-live-
+    /// lines guard skips `.dictationFinal`), and `stop()` cancels the
+    /// window in flight for that reason. So a dictation runs no live
+    /// Whisper — unless a streaming engine drives its live caption: Apple's
+    /// (engine `.appleSpeech`) or the Nemotron preview. Those start from
+    /// `Transcriber.startLivePath`, which only a non-off tier reaches.
+    static func liveTier(mode: RecordingMode, setting: LiveTranscriptionTier,
+                         dictationEngine: DictationEngine, nemotronLive: Bool) -> LiveTranscriptionTier {
+        guard mode == .dictation else { return setting }
+        return nemotronLive || dictationEngine == .appleSpeech ? .full : .off
+    }
+
     /// Watch thermal state + Low Power Mode while a Full-tier session runs
     /// and silently drop live transcription Full→Lite under pressure,
     /// auto-restoring when it clears. The final pass on Stop stays full
@@ -4092,7 +4114,8 @@ final class RecordingSession {
         removeThermalDowngrade()
         startedLiveTier = startedTier
         // Only Full sessions have headroom to shed; Lite/Off/Apple are
-        // already light. (Dictation forces Full but is short — harmless.)
+        // already light. (A dictation is Full only with a streaming
+        // caption engine, and short — harmless.)
         guard startedTier == .full else { return }
         let nc = NotificationCenter.default
         thermalObserver = nc.addObserver(

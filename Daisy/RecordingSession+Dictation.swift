@@ -77,6 +77,9 @@ extension RecordingSession {
         // The fast engine threw (as opposed to hearing nothing): the one
         // miss worth telling the person about when Whisper can't stand in.
         var fastEngineFailed = false
+        // Silero heard no speech in the whole hold (Parakeet's silence
+        // trim): an empty dictation without asking any engine.
+        var vadHeardNoSpeech = false
         // A clip too short to be speech: Parakeet throws on anything under
         // ~0.3 s (FluidAudio's floor), and a tap is not a failure to report.
         let longEnoughToBeSpeech = samples.count >= 4_800
@@ -98,14 +101,35 @@ extension RecordingSession {
             if parakeetIsDownloading {
                 log.info("Dictation fast-engine miss: Parakeet is still downloading — Whisper fallback")
             } else {
-                do {
-                    fastText = try await ParakeetEngine.shared.transcribe(samples: samples)
-                    if fastText?.isEmpty != false {
-                        log.info("Dictation fast-engine miss: Parakeet returned empty — Whisper fallback")
+                // Silence trim (latency audit 31.10, item 2): Silero cuts
+                // the lead, the tail and long pauses, so the phrase fits
+                // fewer of Parakeet's 15 s windows. No VAD → untrimmed.
+                let trim = await DictationSilenceTrim.run(samples)
+                let audioSec = String(format: "%.1f", Double(samples.count) / 16_000)
+                if trim.outcome == .noSpeech, !isDaisyHold {
+                    // Silence by Silero's own (permissive) ear: an empty
+                    // dictation, no Parakeet, and no Whisper either — its
+                    // pass starts from the same VAD, at a stricter
+                    // threshold, and would hear nothing again. Not for a
+                    // Daisy-key hold: there an empty text means «silent
+                    // hold» and rewrites the selection, so a word Silero
+                    // missed must still reach Parakeet (untrimmed, below).
+                    vadHeardNoSpeech = true
+                    log.notice("Parakeet skipped — no speech (VAD \(trim.vadMs, privacy: .public) ms, audio \(audioSec, privacy: .public) s)")
+                } else {
+                    let parakeetSamples = trim.outcome == .noSpeech ? samples : trim.samples
+                    let trimmedSec = String(format: "%.1f", Double(parakeetSamples.count) / 16_000)
+                    let t_parakeet = Date()
+                    do {
+                        fastText = try await ParakeetEngine.shared.transcribe(samples: parakeetSamples)
+                        if fastText?.isEmpty != false {
+                            log.info("Dictation fast-engine miss: Parakeet returned empty — Whisper fallback")
+                        }
+                    } catch {
+                        fastEngineFailed = longEnoughToBeSpeech
+                        log.warning("Dictation fast-engine miss: Parakeet error \(error.localizedDescription, privacy: .public) — Whisper fallback")
                     }
-                } catch {
-                    fastEngineFailed = longEnoughToBeSpeech
-                    log.warning("Dictation fast-engine miss: Parakeet error \(error.localizedDescription, privacy: .public) — Whisper fallback")
+                    log.notice("Parakeet \(ms(t_parakeet), privacy: .public) ms (audio \(audioSec, privacy: .public) s → \(trimmedSec, privacy: .public) s after trim: \(trim.outcome.rawValue, privacy: .public), VAD \(trim.vadMs, privacy: .public) ms)")
                 }
             }
         case .appleSpeech:
@@ -170,7 +194,9 @@ extension RecordingSession {
             // `.stopping` takes no key. Most misses are silence — a tap, a
             // silent Daisy-key hold over a selection — with nothing to
             // lose; a fast engine that threw says so on the pill.
-            if WhisperEngine.shared.isReady {
+            if vadHeardNoSpeech {
+                transcriptText = ""
+            } else if WhisperEngine.shared.isReady {
                 let dictFinalState = signposter.beginInterval("dictation_final_pass", id: signposter.makeSignpostID())
                 let t_dictFinal = Date()
                 await micTranscriber.runFinalPass(profile: .dictationFinal, biasTerms: DictationDictionary.shared.biasTerms())

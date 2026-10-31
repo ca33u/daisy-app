@@ -323,6 +323,9 @@ extension RecordingSession {
             case .parakeet:
                 // First-ever use still pays a one-time ~600 MB download.
                 Task { await ParakeetEngine.shared.ensureLoaded() }
+                // Silero for the silence trim before Parakeet — from disk
+                // only; without it the buffer goes untrimmed.
+                WhisperEngine.shared.warmSpeechDetectionFromCache()
             case .appleSpeech:
                 if #available(macOS 26, *) {
                     let localeID = settings.dictationLocale.isEmpty
@@ -531,6 +534,8 @@ extension RecordingSession {
         let t_release = Date()
         await stop()
         signposter.endInterval("dictation_release_to_paste", releaseState)
-        log.info("dictation release→paste: \(Int(Date().timeIntervalSince(t_release) * 1000), privacy: .public)ms")
+        // `.notice`: info lines aren't kept in the system log, and this is
+        // the number field reports need (latency audit 31.10, item 0).
+        log.notice("dictation release→paste: \(Int(Date().timeIntervalSince(t_release) * 1000), privacy: .public)ms")
     }
 }

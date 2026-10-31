@@ -116,6 +116,10 @@ final class WhisperEngine {
     private var vadBox: VadManagerBox?
     @ObservationIgnored
     private var vadLoadTask: Task<Void, Never>?
+    /// The dictation trim's disk-only Silero load was tried this run
+    /// (`warmSpeechDetectionFromCache`): once, whatever came of it.
+    @ObservationIgnored
+    private var dictationVADWarmTried = false
     #endif
 
     // In-actor serialization for transcribe — WhisperKit isn't thread-safe
@@ -594,6 +598,72 @@ final class WhisperEngine {
     #else
     private func ensureVADLoadStarted() {}
     #endif
+
+    /// Load Silero for the dictation silence trim (`DictationSilenceTrim`)
+    /// when its model is already on disk — a Parakeet dictation can run
+    /// while Whisper, which loads VAD otherwise, never loaded. Never starts
+    /// a download: without the model the trim simply doesn't happen.
+    /// Called at the dictation key's press; tried once per run — a model
+    /// that isn't there or doesn't load stays untried until Whisper's own
+    /// load (`ensureVADLoadStarted`, which may download) brings it. Not on
+    /// x86_64: Silero has only ever run there alongside Whisper, which is
+    /// off on Intel (`runsOnThisMac`) — an untried CoreML path isn't worth
+    /// a dictation.
+    func warmSpeechDetectionFromCache() {
+        #if canImport(FluidAudio)
+        guard Self.runsOnThisMac, !dictationVADWarmTried, vadBox == nil, vadLoadTask == nil else { return }
+        dictationVADWarmTried = true
+        guard Self.sileroIsOnDisk() else { return }
+        vadLoadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            // FluidAudio's network stays blocked (`FluidAudioNetworkGuard`):
+            // a model that fails to load from disk is not fetched here.
+            do {
+                let vad = try await VadManager(config: VadConfig(defaultThreshold: 0.85))
+                if self.vadBox == nil { self.vadBox = VadManagerBox(vad) }
+                self.log.info("Silero VAD loaded from disk (dictation trim)")
+            } catch {
+                self.log.error("Silero VAD didn't load from disk (dictation goes untrimmed): \(error.localizedDescription, privacy: .public)")
+            }
+            self.vadLoadTask = nil
+        }
+        #endif
+    }
+
+    #if canImport(FluidAudio)
+    private static func sileroIsOnDisk() -> Bool {
+        guard let dir = MacModelHosting.destination(for: .sileroVAD),
+              let files = try? MacModelHosting.catalog(),
+              let entries = try? MacModelHosting.entries(for: .sileroVAD, in: files),
+              !entries.isEmpty else { return false }
+        return entries.allSatisfy {
+            FileManager.default.fileExists(atPath: dir.appendingPathComponent($0.localPath).path)
+        }
+    }
+    #endif
+
+    /// Speech ranges (16 kHz sample indices) Silero hears in a dictation
+    /// buffer, for the silence trim before Parakeet. `nil` when VAD isn't
+    /// loaded or fails — the caller sends the buffer untrimmed. Never
+    /// waits for a load. Inference runs on the `VadManager` actor.
+    func dictationSpeechRanges(samples: [Float]) async -> [Range<Int>]? {
+        #if canImport(FluidAudio)
+        guard let vadBox else { return nil }
+        do {
+            let segments = try await vadBox.vad.segmentSpeech(samples, config: DictationSilenceTrim.vadConfig)
+            return segments.map { segment in
+                let rate = DictationSilenceTrim.sampleRate
+                let start = segment.startSample(sampleRate: rate)
+                return start..<max(start, segment.endSample(sampleRate: rate))
+            }
+        } catch {
+            log.error("Dictation VAD failed (sending the buffer untrimmed): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        #else
+        return nil
+        #endif
+    }
 
     /// Available bytes on the volume that backs the user's home
     /// directory — same volume HuggingFace stages downloads into
