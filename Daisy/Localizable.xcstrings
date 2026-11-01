@@ -1,6 +1,46 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Select the word or turn on fixing as you type." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выдели слово или включи исправление при вводе."
+          }
+        }
+      }
+    },
+    "Select the word to fix it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выдели слово, чтобы исправить."
+          }
+        }
+      }
+    },
+    "Retype the word, then press again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Набери слово заново и нажми ещё раз."
+          }
+        }
+      }
+    },
+    "No word before the cursor." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перед курсором нет слова."
+          }
+        }
+      }
+    },
     "A tap of Fn also does what macOS has it do — change the input source, show emoji or start its dictation." : {
       "localizations" : {
         "ru" : {
@@ -17,16 +57,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Нажатие заодно запустит диктовку — включится микрофон."
-          }
-        }
-      }
-    },
-    "Daisy can’t read the word before the cursor here reliably — select it, or turn on fixing as you type." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Здесь Daisy не может надёжно прочитать слово перед курсором — выдели его или включи «Исправлять раскладку при вводе»."
           }
         }
       }
@@ -18095,16 +18125,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Пока нечего копировать"
-          }
-        }
-      }
-    },
-    "Nothing to fix — select the text, or type a word first." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Нечего исправлять — выдели текст или сначала введи слово."
           }
         }
       }

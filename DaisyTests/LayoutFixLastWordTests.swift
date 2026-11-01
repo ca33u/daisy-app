@@ -486,3 +486,62 @@ struct LayoutFixRepeatUndoTests {
         #expect(store.fresh(bundleID: "com.apple.Safari") == nil)
     }
 }
+
+// MARK: - Why the key found nothing
+
+/// Each reason its own short line: «nothing to fix» right after typing
+/// a word, and «turn on fixing as you type» with it already on, sent
+/// people looking for the wrong fix (review 31.10).
+@MainActor
+struct LayoutFixMissTests {
+    private func miss(
+        _ onScreen: LayoutAutoFix.LastWordOutcome,
+        typed: LayoutAutoFix.LastWordOutcome? = nil,
+        on: Bool = false,
+        running: Bool = false
+    ) -> LayoutFixMiss? {
+        LayoutFixMiss(onScreen: onScreen, typed: typed, fixingAsYouTypeOn: on, watcherRunning: running)
+    }
+
+    @Test func fixedOrAlreadyRightSaysNothingHere() {
+        #expect(miss(.fixed) == nil)
+        #expect(miss(.alreadyRight) == nil)
+        #expect(miss(.unknown, typed: .fixed, on: true, running: true) == nil)
+        #expect(miss(.unknown, typed: .alreadyRight, on: true, running: true) == nil)
+    }
+
+    @Test func theFieldsOwnAnswers() {
+        #expect(miss(.noWord, on: true, running: true) == .noWord)
+        #expect(miss(.noWord) == .noWord)
+        // The field lags or shows «. » where the tap saw one space: not
+        // «nothing there».
+        #expect(miss(.mismatch, on: true, running: true) == .selectWord)
+        #expect(miss(.unknown, typed: .mismatch, on: true, running: true) == .selectWord)
+    }
+
+    /// «Turn on fixing as you type» only while it is off — not while it
+    /// runs, and not while it is on but paused for Punto or Caramba.
+    @Test func turningFixingOnIsOnlySuggestedWhileItIsOff() {
+        #expect(miss(.unreliable) == .selectOrTurnOnAuto)
+        #expect(miss(.unknown, typed: .unknown) == .selectOrTurnOnAuto)
+        #expect(miss(.unreliable, on: true, running: false) == .selectWord)
+        #expect(miss(.unknown, typed: .unknown, on: true, running: false) == .selectWord)
+    }
+
+    /// Running, with no word seen lately: type it again. Running, but the
+    /// focus isn't text or a gate closed: retyping won't help.
+    @Test func retypeOnlyWhenTheTapSawNoWord() {
+        #expect(miss(.unreliable, on: true, running: true) == .retypeWord)
+        #expect(miss(.unknown, typed: .noWord, on: true, running: true) == .retypeWord)
+        #expect(miss(.unknown, typed: .unknown, on: true, running: true) == .selectWord)
+    }
+
+    @Test func linesAreShortAndDistinct() {
+        let all: [LayoutFixMiss] = [.noWord, .selectWord, .retypeWord, .selectOrTurnOnAuto]
+        #expect(Set(all.map(\.message)).count == all.count)
+        for line in all.map(\.message) {
+            #expect(line.count <= 48)
+            #expect(!line.contains("—"))
+        }
+    }
+}

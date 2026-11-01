@@ -152,12 +152,11 @@ final class LayoutFixService {
         //    delete. The tap's word only when the field won't say — a
         //    definite answer (no word there, or one that already reads
         //    right) is not overruled by memory.
-        var fieldAnswered = false
-        var cantTrustField = false
-        switch LayoutAutoFix.shared.fixLastWordOnScreen(settings: settings) {
-        case .fixed:
-            return
-        case .alreadyRight:
+        let onScreen = LayoutAutoFix.shared.fixLastWordOnScreen(settings: settings)
+        // The tap's word only when the field won't say.
+        let typed = onScreen == .unknown ? LayoutAutoFix.shared.fixWordInFlight(settings: settings) : nil
+        if onScreen == .fixed || typed == .fixed { return }
+        if onScreen == .alreadyRight || typed == .alreadyRight {
             if !quiet {
                 ToastCenter.shared.show(
                     String(localized: "That already looks like the layout you meant."),
@@ -165,27 +164,19 @@ final class LayoutFixService {
                 )
             }
             return
-        case .noWord:
-            fieldAnswered = true
-        case .unknown:
-            if LayoutAutoFix.shared.fixWordInFlight(settings: settings) { return }
-        case .unreliable:
-            // The tap has no word either, or it would have been checked.
-            cantTrustField = true
         }
+        // A lone ⌥ brushed by accident says nothing.
         if quiet { return }
-
-        // Two different truths, not one. With the watcher running, or
-        // in a field that showed its text, there just wasn't a word.
-        // With the watcher OFF in an app that won't show its text, the
-        // key has nothing to read the word from — say WHY, instead of
-        // leaving the user to discover that half the key is dead there.
-        ToastCenter.shared.show(
-            !cantTrustField && (fieldAnswered || LayoutAutoFix.shared.isRunning)
-                ? String(localized: "Nothing to fix — select the text, or type a word first.")
-                : String(localized: "Daisy can’t read the word before the cursor here reliably — select it, or turn on fixing as you type."),
-            style: .warning
-        )
+        // Say WHY, in a line: «nothing to fix» right after typing a word,
+        // or «turn on fixing as you type» with it already on, sent people
+        // looking for the wrong fix (review 31.10).
+        guard let miss = LayoutFixMiss(
+            onScreen: onScreen,
+            typed: typed,
+            fixingAsYouTypeOn: settings.layoutFixAutoActive,
+            watcherRunning: LayoutAutoFix.shared.isRunning
+        ) else { return }
+        ToastCenter.shared.show(miss.message, style: .warning)
     }
 
     /// The selection, through ⌘C. True when there was one — fixed, or
@@ -267,6 +258,61 @@ final class LayoutFixService {
             String(localized: "Undone — Daisy won't auto-fix that word again."),
             style: .info
         )
+    }
+}
+
+// MARK: - Why the key found nothing
+
+/// Why the fix key, with nothing selected, fixed nothing — each its own
+/// short line (Egor: short bubbles).
+nonisolated enum LayoutFixMiss: Equatable, Sendable {
+    /// The field shows no word before the caret.
+    case noWord
+    /// Nothing to go by but a selection: the field and the typed word
+    /// disagree, the focus isn't text, or a gate closed.
+    case selectWord
+    /// Fixing as you type runs but saw no word lately, and the field
+    /// can't be read on its own: the word has to be typed again.
+    case retypeWord
+    /// Fixing as you type is off and the field can't be read: select,
+    /// or turn it on. Not while it is on and only paused (Punto or
+    /// Caramba running) — turning it on is no answer then.
+    case selectOrTurnOnAuto
+
+    /// The reason after the last-word pass: what the field said
+    /// (`onScreen`) and, when it said nothing, what the tap's word came
+    /// to (`typed`). Nil when there is nothing to say: fixed, or already
+    /// right (said apart).
+    @MainActor
+    init?(
+        onScreen: LayoutAutoFix.LastWordOutcome,
+        typed: LayoutAutoFix.LastWordOutcome?,
+        fixingAsYouTypeOn: Bool,
+        watcherRunning: Bool
+    ) {
+        let cantRead: LayoutFixMiss = watcherRunning || fixingAsYouTypeOn ? .selectWord : .selectOrTurnOnAuto
+        switch onScreen {
+        case .fixed, .alreadyRight: return nil
+        case .noWord: self = .noWord
+        case .mismatch: self = .selectWord
+        case .unreliable: self = watcherRunning ? .retypeWord : cantRead
+        case .unknown:
+            switch typed {
+            case .fixed?, .alreadyRight?: return nil
+            case .noWord?: self = .retypeWord
+            case .mismatch?: self = .selectWord
+            case .unknown?, .unreliable?, nil: self = cantRead
+            }
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .noWord: String(localized: "No word before the cursor.")
+        case .selectWord: String(localized: "Select the word to fix it.")
+        case .retypeWord: String(localized: "Retype the word, then press again.")
+        case .selectOrTurnOnAuto: String(localized: "Select the word or turn on fixing as you type.")
+        }
     }
 }
 

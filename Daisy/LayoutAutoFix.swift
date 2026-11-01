@@ -761,6 +761,10 @@ final class LayoutAutoFix {
         /// An answer that can't be trusted on its own (`AXFocus
         /// .caretMayBeUnreliable`) and no typed word to check it by.
         case unreliable
+        /// The field and the word the tap saw typed disagree — a
+        /// Chromium tree a keystroke behind, two spaces, «. » — so
+        /// neither is deleted by.
+        case mismatch
     }
 
     /// The fix key with nothing selected, first source: the last word as
@@ -775,19 +779,20 @@ final class LayoutAutoFix {
         // An empty answer is a caret at the start of the field — a
         // definite "no word", not silence for the tap's word to overrule.
         guard let before = AXFocus.textBeforeCaret(upTo: Self.lastWordReadLimit) else { return .unknown }
-        guard let pick = LayoutFixLastWord.pick(before: before.text, reachesFieldStart: before.reachesStart) else {
-            return .noWord
-        }
         // The backspaces are counted from what Accessibility says, and
         // some editors say it per line or per block, or a keystroke late
         // (Chromium contenteditable, Notion, CodeMirror — review 31.10).
         // When the tap saw the word typed, the field has to show it right
         // before the caret, or neither is used. In web content and in
         // Chromium-based apps nothing else is trusted: no word seen
-        // typed, no fix from the screen alone.
+        // typed, no fix from the screen alone — not even «no word there».
         let typed = isRunning ? LayoutAutoFix.buffer.wordInFlightOrJustFinished(within: Self.recentWordWindow) : nil
+        guard let pick = LayoutFixLastWord.pick(before: before.text, reachesFieldStart: before.reachesStart) else {
+            if typed != nil { return .mismatch }
+            return AXFocus.caretMayBeUnreliable() ? .unreliable : .noWord
+        }
         if let typed {
-            guard LayoutFixLastWord.agrees(pick, withTyped: typed.word, boundary: typed.boundary) else { return .noWord }
+            guard LayoutFixLastWord.agrees(pick, withTyped: typed.word, boundary: typed.boundary) else { return .mismatch }
         } else if AXFocus.caretMayBeUnreliable() {
             return .unreliable
         }
@@ -813,32 +818,34 @@ final class LayoutAutoFix {
 
     /// The fix key's second source, for an app that won't show its text:
     /// the word just typed, as the tap saw it. The user asked, so this
-    /// uses `deliberate` (no dictionary needed).
-    func fixWordInFlight(settings: AppSettings) -> Bool {
-        guard isRunning, contextAllows() else { return false }
+    /// uses `deliberate` (no dictionary needed). `.noWord`: the tap saw
+    /// none lately; `.unknown`: the watcher is off, a gate closed, or the
+    /// focus isn't text.
+    func fixWordInFlight(settings: AppSettings) -> LastWordOutcome {
+        guard isRunning, contextAllows() else { return .unknown }
         guard let candidate = LayoutAutoFix.buffer.wordInFlightOrJustFinished(
             within: Self.recentWordWindow
-        ) else { return false }
-        guard let fix = LayoutFix.deliberate(candidate.word) else { return false }
-        guard focusIsEditableText() else { return false }
+        ) else { return .noWord }
+        guard let fix = LayoutFix.deliberate(candidate.word) else { return .alreadyRight }
+        guard focusIsEditableText() else { return .unknown }
         // A word already finished has its boundary in front of the caret,
         // so that has to be deleted and put back too. And because the
         // count comes from memory rather than from the screen, a WRONG
         // answer from Accessibility vetoes it — deleting one character
         // too many here eats whatever preceded the word.
         let trailing = candidate.boundary.map(String.init) ?? ""
-        guard confirmBeforeCaret(candidate.word + trailing) else { return false }
+        guard confirmBeforeCaret(candidate.word + trailing) else { return .mismatch }
         guard replace(
             presses: candidate.presses + (candidate.boundary == nil ? 0 : 1),
             with: fix.text + trailing
-        ) else { return false }
+        ) else { return .unknown }
         settle(
             targetLayoutID: fix.target.id,
             via: "fix key",
             switchesSource: settings.layoutFixSwitchesSource,
             undo: (candidate.word, trailing, fix.text, byKey: true)
         )
-        return true
+        return .fixed
     }
 
     /// Cheap checks: no I/O, no cross-process calls. Returns the reason
