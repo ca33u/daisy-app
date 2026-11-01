@@ -78,8 +78,12 @@ struct MainPanelSheet: ViewModifier {
             )) { panel in
                 card(panel)
                     .modifier(ToastOverlay())
+                    // The window the card is in — the one whose keys are
+                    // the sheet's (PanelKeys).
+                    .background(WindowFinder { PanelKeys.sheetWindow = $0 })
             }
             .onChange(of: nav.panel, initial: true) { _, _ in sync() }
+            .onAppear { PanelKeys.install() }
             // The tour starting (a replay from About or Help) closes the
             // sheet; one asked for during the tour isn't kept for after it.
             .onChange(of: showsTour) { _, tour in
@@ -90,15 +94,34 @@ struct MainPanelSheet: ViewModifier {
     private func sync() {
         waiting?.cancel()
         guard let wanted = nav.panel else {
-            shown = nil
+            // A sheet of the sheet (a speaker's card, a confirmation) goes
+            // first, or the two would be torn down out of order.
+            if AppNavigation.mainWindow?.attachedSheet?.attachedSheet != nil {
+                waiting = Task { @MainActor in
+                    while AppNavigation.mainWindow?.attachedSheet?.attachedSheet != nil {
+                        try? await Task.sleep(for: .milliseconds(100))
+                        if Task.isCancelled { return }
+                    }
+                    if nav.panel == nil { shown = nil }
+                }
+            } else {
+                shown = nil
+            }
             return
         }
         if showsTour {
             // Nothing to land on: drop the link's row too, or it would
-            // light up on some later opening of that tab.
+            // light up on some later opening of that tab — and say why
+            // nothing opened.
             nav.pendingSettingsRow = nil
             nav.pendingConnectionsSection = nil
             nav.closePanel()
+            // Not over a toast already saying something (a refused start's
+            // warning, which asked for Settings itself).
+            if ToastCenter.shared.current == nil {
+                ToastCenter.shared.show(String(localized: "settings.afterTour",
+                                               defaultValue: "Settings are available after the tour."))
+            }
             return
         }
         // Ours is up (Settings ↔ About: SwiftUI closes one and opens the
@@ -133,6 +156,81 @@ struct MainPanelSheet: ViewModifier {
                        height: PanelSize.height(PanelSize.preferredHeight, in: window.height))
                 .background(Color.daisyBgPrimary)
         }
+    }
+}
+
+/// Escape and ⌘W in a Settings or About sheet. A local key monitor rather
+/// than a `.cancelAction` button, which took Escape from a field being
+/// edited. Escape, in order: leaves a Daisy-key command or a shortcut
+/// being recorded their Escape (`EscapeWatch`, `KeyCaptureBox`); empties
+/// Settings' search; ends the editing of a field; closes the sheet. ⌘W
+/// closes it (a sheet has no close button of its own). Keys in a sheet of
+/// the sheet, or in any other sheet of the window, are that sheet's; held
+/// keys act once.
+@MainActor
+enum PanelKeys {
+    private static var monitor: Any?
+    /// The window a Settings or About card is in — only its keys are the
+    /// sheet's, never another sheet's while ours waits behind it.
+    static weak var sheetWindow: NSWindow?
+
+    static func install() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            handle(event) ? nil : event
+        }
+    }
+
+    /// True when the key was the sheet's.
+    static func handle(_ event: NSEvent) -> Bool {
+        let nav = AppNavigation.shared
+        guard nav.panel != nil, let sheet = sheetWindow, sheet.isVisible,
+              event.window === sheet, sheet.attachedSheet == nil else { return false }
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if modifiers == .command, isCommandW(event) {
+            if !event.isARepeat { nav.closePanel() }
+            return true
+        }
+        guard event.keyCode == 53, modifiers.isEmpty else { return false }   // Escape
+        if event.isARepeat { return true }
+        return escape(
+            keyTakenElsewhere: EscapeWatch.isWatching || KeyCaptureBox.isListening,
+            editing: sheet.firstResponder is NSText,
+            editingSearch: nav.settingsSearchFocused,
+            endEditing: { _ = sheet.makeFirstResponder(nil) }
+        )
+    }
+
+    /// ⌘W: the letter W, or the W key when the layout types no Latin
+    /// letter there (Russian «ц») — not on AZERTY's Z or Dvorak's «,».
+    static func isCommandW(_ event: NSEvent) -> Bool {
+        isCommandW(keyCode: event.keyCode, character: event.charactersIgnoringModifiers)
+    }
+
+    nonisolated static func isCommandW(keyCode: UInt16, character: String?) -> Bool {
+        let typed = character?.lowercased() ?? ""
+        if typed == "w" { return true }
+        let latinOrPunctuation = typed.unicodeScalars.allSatisfy { $0.isASCII }
+        return keyCode == 13 && !typed.isEmpty && !latinOrPunctuation
+    }
+
+    /// Escape's ladder, apart from AppKit for the tests.
+    static func escape(keyTakenElsewhere: Bool, editing: Bool, editingSearch: Bool = false,
+                       endEditing: () -> Void) -> Bool {
+        let nav = AppNavigation.shared
+        if keyTakenElsewhere { return false }
+        if !nav.settingsSearch.isEmpty {
+            nav.settingsSearch = ""
+            return true
+        }
+        // An empty search field holds the cursor only because AppKit gives
+        // a new sheet's focus to it: nothing to let go of — close.
+        if editing, !editingSearch {
+            endEditing()
+            return true
+        }
+        nav.closePanel()
+        return true
     }
 }
 
@@ -178,12 +276,9 @@ enum PanelSize {
     }
 }
 
-/// A sheet's title and its ×. With `escapeCloses`, Escape closes the
-/// sheet too — Settings turns it off while its search has text, so the
-/// field's own Escape clears the search first.
+/// A sheet's title and its ×. Escape and ⌘W are `PanelKeys`.
 struct PanelHeader: View {
     let title: String
-    var escapeCloses = true
 
     var body: some View {
         HStack {
@@ -209,13 +304,7 @@ struct PanelHeader: View {
         .padding(.trailing, 14)
         .padding(.top, 14)
         .padding(.bottom, 2)
-        .background {
-            if escapeCloses {
-                Button("Close") { AppNavigation.shared.closePanel() }
-                    .keyboardShortcut(.cancelAction)
-                    .hidden()
-            }
-        }
+
     }
 }
 
@@ -238,7 +327,10 @@ struct SettingsPanel: View {
     @Bindable private var nav = AppNavigation.shared
     /// The search over row titles at the top of the sidebar. Non-empty →
     /// the page gives way to the matching rows (`searchResults`).
-    @State private var searchQuery = ""
+    private var searchQuery: String {
+        get { nav.settingsSearch }
+        nonmutating set { nav.settingsSearch = newValue }
+    }
     @FocusState private var searchFocused: Bool
 
     nonisolated static let sidebarWidth: CGFloat = 210
@@ -254,8 +346,7 @@ struct SettingsPanel: View {
                 .frame(width: Self.sidebarWidth)
             Divider()
             VStack(spacing: 0) {
-                PanelHeader(title: isSearching ? String(localized: "Settings") : nav.settingsTab.title,
-                            escapeCloses: searchQuery.isEmpty)
+                PanelHeader(title: isSearching ? String(localized: "Settings") : nav.settingsTab.title)
                 detail
                     // Same ink as the main window's detail pane: plain and
                     // bordered buttons are black and gray, not amber.
@@ -267,8 +358,8 @@ struct SettingsPanel: View {
         // place of a results list.
         .onChange(of: nav.settingsTab) { _, _ in searchQuery = "" }
         .onChange(of: nav.settingsLinkCount) { _, _ in searchQuery = "" }
-        // Escape with the search out of focus but not empty: clear it.
-        .onExitCommand { searchQuery = "" }
+        // Escape's ladder reads it (PanelKeys).
+        .onChange(of: searchFocused, initial: true) { _, focused in nav.settingsSearchFocused = focused }
     }
 
     // MARK: Sidebar
@@ -338,27 +429,17 @@ struct SettingsPanel: View {
 
     // MARK: Search (24.10.2026, moved into the sidebar 31.10)
 
-    /// ⌘F anywhere in the window puts the cursor here; Escape empties it
-    /// (then lets go); Return opens the first match.
+    /// ⌘F anywhere in the sheet puts the cursor here; Escape empties it,
+    /// then lets go of it (`PanelKeys`); Return opens the first match.
     private var searchField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("Search settings", text: $searchQuery)
+            TextField("Search settings", text: $nav.settingsSearch)
                 .textFieldStyle(.plain)
                 .focused($searchFocused)
                 .onSubmit {
                     if let first = searchHits.first { openSearchHit(first) }
-                }
-                // `onExitCommand` alone does not reach a focused plain
-                // field (same finding as the Library's rename field).
-                .onKeyPress(.escape) {
-                    if searchQuery.isEmpty {
-                        searchFocused = false
-                    } else {
-                        searchQuery = ""
-                    }
-                    return .handled
                 }
             if !searchQuery.isEmpty {
                 Button {

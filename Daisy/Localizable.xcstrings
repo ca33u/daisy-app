@@ -25571,6 +25571,22 @@
         }
       }
     },
+    "settings.afterTour" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings are available after the tour."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Настройки будут доступны после тура."
+          }
+        }
+      }
+    },
     "settings.tab.general" : {
       "localizations" : {
         "en" : {

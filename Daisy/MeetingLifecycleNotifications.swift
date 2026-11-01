@@ -424,8 +424,8 @@ enum AutoStopPromptNotification {
 /// System notification for "we are recording, but no audio is reaching
 /// us" — clamshell lid closed, macOS handing us digital silence, mic
 /// permission off (Egor, 2026-07-26). These conditions used to surface
-/// only as an in-app toast, and `ToastOverlay` is mounted in exactly one
-/// place (the main window): a dictation triggered by hotkey from another
+/// only as an in-app toast, and `ToastOverlay` is mounted only in the main
+/// window (and its Settings / About sheet): a dictation triggered by hotkey from another
 /// app, or an auto-started meeting with Daisy in the background, showed
 /// the user nothing at all while recording silence for an hour.
 ///

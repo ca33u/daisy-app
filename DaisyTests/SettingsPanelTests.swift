@@ -21,6 +21,7 @@ import Testing
 final class NavigationSandbox {
     private(set) var opened: [String] = []
     private let nav = AppNavigation.shared
+    private let savedSearch = AppNavigation.shared.settingsSearch
     private let saved: (MainSection, SettingsTab, SettingsRow?, ConnectionSection?,
                         (@MainActor (String) -> Void)?, MainPanel?, Bool)
 
@@ -40,6 +41,7 @@ final class NavigationSandbox {
         nav.windowOpener = saved.4
         nav.showsWhatsNew = saved.6
         nav.panel = saved.5
+        nav.settingsSearch = savedSearch
     }
 }
 
@@ -199,6 +201,112 @@ struct SettingsPanelTests {
         nav.openAbout()
         #expect(!nav.showsWhatsNew)
         #expect(nav.panel == .about)
+    }
+
+    // MARK: - Pages of the main window close the sheet
+
+    /// Open Library, a toast's «Open», an import: the page would change
+    /// unseen under the sheet — the sheet closes, even when the page is
+    /// the one already showing.
+    @Test func goingToAMainWindowPageClosesTheSheet() {
+        let sandbox = NavigationSandbox()
+        defer { sandbox.restore() }
+        let nav = AppNavigation.shared
+
+        nav.section = .library
+        nav.openSettings()
+        nav.openInLibrary("2026-11-01 10-00-00")
+        #expect(nav.panel == nil)
+        #expect(nav.section == .library)
+
+        nav.openAbout()
+        nav.importFiles([URL(fileURLWithPath: "/tmp/nothing.m4a")])
+        #expect(nav.panel == nil)
+        nav.pendingImportURLs = nil
+        nav.pendingLibrarySelection = nil
+
+        nav.openSettings()
+        nav.section = .home
+        #expect(nav.panel == nil)
+    }
+
+    // MARK: - Escape
+
+    /// Escape's ladder: a Daisy-key command's own Escape, then the search,
+    /// then a field being edited, then the sheet.
+    @Test func escapeEmptiesTheSearchThenEndsEditingThenCloses() {
+        let sandbox = NavigationSandbox()
+        defer { sandbox.restore() }
+        let nav = AppNavigation.shared
+        var ended = 0
+
+        nav.openSettings()
+        nav.settingsSearch = "mic"
+        #expect(!PanelKeys.escape(keyTakenElsewhere: true, editing: true, endEditing: { ended += 1 }))
+        #expect(nav.settingsSearch == "mic")
+        #expect(nav.panel == .settings)
+
+        #expect(PanelKeys.escape(keyTakenElsewhere: false, editing: true, endEditing: { ended += 1 }))
+        #expect(nav.settingsSearch.isEmpty)
+        #expect(ended == 0)
+        #expect(nav.panel == .settings)
+
+        #expect(PanelKeys.escape(keyTakenElsewhere: false, editing: true, endEditing: { ended += 1 }))
+        #expect(ended == 1)
+        #expect(nav.panel == .settings)
+
+        #expect(PanelKeys.escape(keyTakenElsewhere: false, editing: false, endEditing: { ended += 1 }))
+        #expect(nav.panel == nil)
+    }
+
+    /// The empty search holds the cursor only because a new sheet gives it
+    /// focus: Escape closes at once.
+    @Test func escapeInTheEmptySearchCloses() {
+        let sandbox = NavigationSandbox()
+        defer { sandbox.restore() }
+        let nav = AppNavigation.shared
+        var ended = 0
+
+        nav.openSettings()
+        #expect(PanelKeys.escape(keyTakenElsewhere: false, editing: true, editingSearch: true,
+                                 endEditing: { ended += 1 }))
+        #expect(ended == 0)
+        #expect(nav.panel == nil)
+    }
+
+    /// ⌘W is the letter W — or the W key under a layout with no Latin
+    /// letter there; never AZERTY's Z or Dvorak's comma on that key.
+    @Test func commandWOnEveryLayout() {
+        #expect(PanelKeys.isCommandW(keyCode: 13, character: "w"))      // US
+        #expect(PanelKeys.isCommandW(keyCode: 13, character: "ц"))      // Russian
+        #expect(PanelKeys.isCommandW(keyCode: 6, character: "w"))       // AZERTY's W
+        #expect(!PanelKeys.isCommandW(keyCode: 13, character: "z"))     // AZERTY's Z
+        #expect(!PanelKeys.isCommandW(keyCode: 13, character: ","))     // Dvorak
+        #expect(!PanelKeys.isCommandW(keyCode: 1, character: "s"))
+    }
+
+    /// However Settings close — the ×, a page of the main window, What's
+    /// New, About — the search goes with them.
+    @Test func closingSettingsDropsTheSearch() {
+        let sandbox = NavigationSandbox()
+        defer { sandbox.restore() }
+        let nav = AppNavigation.shared
+
+        nav.openSettings()
+        nav.settingsSearch = "mic"
+        nav.closePanel()
+        #expect(nav.settingsSearch.isEmpty)
+
+        nav.openSettings()
+        nav.settingsSearch = "mic"
+        nav.openInLibrary("2026-11-01 10-00-00")
+        #expect(nav.settingsSearch.isEmpty)
+        nav.pendingLibrarySelection = nil
+
+        nav.openSettings()
+        nav.settingsSearch = "mic"
+        nav.openAbout()
+        #expect(nav.settingsSearch.isEmpty)
     }
 
     // MARK: - Sources

@@ -1815,8 +1815,14 @@ nonisolated private final class Once<Value: Sendable>: @unchecked Sendable {
 @MainActor
 final class EscapeWatch {
     private var monitors: [Any] = []
+    /// Watches running now. While any is, Escape is its — the Settings
+    /// sheet's keys leave it alone (SettingsPanel `PanelKeys`).
+    private(set) static var live = 0
+    static var isWatching: Bool { live > 0 }
+    private var counted = true
 
     init(_ onEscape: @escaping @MainActor () -> Void) {
+        Self.live += 1
         let handle: (NSEvent) -> Void = { event in
             guard event.keyCode == 53 else { return }
             Task { @MainActor in onEscape() }
@@ -1826,6 +1832,10 @@ final class EscapeWatch {
     }
 
     func stop() {
+        if counted {
+            counted = false
+            Self.live = max(0, Self.live - 1)
+        }
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
     }

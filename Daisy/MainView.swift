@@ -205,7 +205,13 @@ enum ConnectionSection: String, Hashable, Sendable {
 @MainActor
 final class AppNavigation {
     static let shared = AppNavigation()
-    var section: MainSection = .home
+    /// The main window's page. Going to one — a link, Open Library, a
+    /// toast's «Open», an import — closes a Settings or About sheet over
+    /// it, even when the page is the one already showing; otherwise the
+    /// page would change unseen under the sheet.
+    var section: MainSection = .home {
+        didSet { if panel != nil { panel = nil } }
+    }
     /// One-shot session selection request. HomeView (and any other
     /// surface that needs to deep-link into a transcript) sets this
     /// together with `section = .library`; LibraryView consumes and
@@ -213,12 +219,25 @@ final class AppNavigation {
     /// "let the view pick its own default" — usually the first row.
     var pendingLibrarySelection: StoredSession.ID?
     /// The sheet of the main window — Settings or About — if any
-    /// (SettingsPanel.swift).
-    var panel: MainPanel?
+    /// (SettingsPanel.swift). Settings' search goes whenever Settings do,
+    /// however they close.
+    var panel: MainPanel? {
+        didSet {
+            if panel != .settings {
+                if !settingsSearch.isEmpty { settingsSearch = "" }
+                settingsSearchFocused = false
+            }
+        }
+    }
     /// The tab of the Settings sheet. Kept here rather than in the sheet,
     /// so a link sets it whether or not the sheet is up, and ⌘, reopens on
     /// the tab it was left on — the macOS convention.
     var settingsTab: SettingsTab = .general
+    /// The search over Settings' row titles (SettingsPanel). Here so the
+    /// sheet's keys see it: Escape clears it before anything else.
+    var settingsSearch = ""
+    /// The search field has the cursor.
+    @ObservationIgnored var settingsSearchFocused = false
     /// Bumped by every link into Settings, so the panel drops a search
     /// in progress even when the link's page is the one already open.
     private(set) var settingsLinkCount = 0
@@ -298,7 +317,7 @@ final class AppNavigation {
         present(.about)
     }
 
-    /// Escape or the ×.
+    /// Escape, ⌘W or the ×.
     func closePanel() {
         panel = nil
     }
