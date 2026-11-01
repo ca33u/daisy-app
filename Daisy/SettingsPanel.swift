@@ -194,7 +194,9 @@ enum PanelKeys {
         let commandW = modifiers == .command && isCommandW(event)
         // A held ⌘W, or a second one while the sheet is still going, must
         // not fall through to Close and take the main window with it.
-        if commandW, event.window === sheetWindow || event.window === AppNavigation.mainWindow,
+        // Only while no sheet is up: one reopened inside the half second
+        // closes on ⌘W like any other.
+        if commandW, nav.panel == nil, event.window === sheetWindow || event.window === AppNavigation.mainWindow,
            swallowsCommandW(isRepeat: event.isARepeat, now: ProcessInfo.processInfo.systemUptime) {
             return true
         }

@@ -266,6 +266,10 @@ struct SettingsPanelTests {
     /// A held ⌘W, or a second one while the sheet goes, stays with the
     /// sheet instead of closing the main window.
     @Test func commandWAfterClosingIsSwallowedForAMoment() {
+        // A close of its own, so the test doesn't lean on another test
+        // having closed a panel first (closedAt starts at -infinity).
+        AppNavigation.shared.openSettings()
+        AppNavigation.shared.closePanel()
         let closed = PanelKeys.closedAt
         // Long after any close: a fresh ⌘W is the window's.
         #expect(!PanelKeys.swallowsCommandW(isRepeat: false, now: closed + 10))
