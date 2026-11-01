@@ -64,7 +64,7 @@ final class SelectionRewrite {
             let opts = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(opts)
             ToastCenter.shared.show(
-                String(localized: "Rewriting needs Accessibility access — grant it in System Settings and try again."),
+                String(localized: "Give Daisy Accessibility access"),
                 style: .warning
             )
             return
@@ -80,12 +80,12 @@ final class SelectionRewrite {
             ToastCenter.shared.show(
                 // Reached from the rewrite key and from a silent hold on the
                 // Daisy key, so it names neither.
-                String(localized: "Select some text first, then try again"),
+                String(localized: "Select some text first"),
                 style: .warning
             )
             // Both keys are pressed from other apps: the pill says it there.
             WidgetBubbleCenter.shared.present(
-                WidgetBubbleContent(text: String(localized: "Select some text first, then try again")),
+                WidgetBubbleContent(text: String(localized: "Select some text first")),
                 notificationTitle: "Daisy"
             )
             return
@@ -154,7 +154,7 @@ final class SelectionRewrite {
         //    success toast followed by a suggestion toast would just be
         //    the suggestion — the person would never see that their
         //    clipboard is coming back. When there is something to
-        //    suggest, the suggestion carries the success line with it.
+        //    suggest, the suggestion stands in for the success line.
         let triggers = Set(
             DictationDictionary.shared.replacements.map { $0.from.lowercased() }
         )
@@ -162,8 +162,8 @@ final class SelectionRewrite {
             original: selection, polished: rewritten, userTriggers: triggers
         ) {
             ToastCenter.shared.showAction(
-                String(localized: "Rewritten in your voice. Noticed “\(pair.from)” → “\(pair.to)” — save as a dictation correction?"),
-                actionLabel: String(localized: "Save"),
+                String(localized: "Remember “\(pair.from)” → “\(pair.to)”?"),
+                actionLabel: String(localized: "Remember"),
                 style: .success
             ) {
                 DictationDictionary.shared.add(
@@ -172,7 +172,7 @@ final class SelectionRewrite {
             }
         } else {
             ToastCenter.shared.show(
-                String(localized: "Rewritten in your voice — your clipboard is coming right back."),
+                String(localized: "Rewritten"),
                 style: .success
             )
         }

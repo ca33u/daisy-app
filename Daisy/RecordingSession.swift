@@ -330,7 +330,7 @@ final class RecordingSession {
         guard currentMode == .meeting,
               status == .recording || status == .paused else { return }
         if isCapturingSideNote {
-            closeSideNote(String(localized: "Side note saved — it'll be split out when you stop."))
+            closeSideNote(String(localized: "Side note saved"))
         } else {
             sideNoteWindows.append(SideNoteWindow(start: mediaNow, end: nil))
             // A plaque for as long as the window is open (spec 21.10): the
@@ -342,7 +342,7 @@ final class RecordingSession {
                 autoDismiss: Self.sideNoteMaxLength,
                 tag: Self.sideNoteTag,
                 action: { [weak self] in
-                    self?.closeSideNote(String(localized: "Side note saved — it'll be split out when you stop."))
+                    self?.closeSideNote(String(localized: "Side note saved"))
                 }
             )
             sideNotePlaque = plaque
@@ -405,11 +405,11 @@ final class RecordingSession {
                     lastSpeech = now
                 }
                 if now.timeIntervalSince(opened) >= Self.sideNoteMaxLength {
-                    self.closeSideNote(String(localized: "Side note saved — five minutes is the longest one runs."))
+                    self.closeSideNote(String(localized: "Side note saved"))
                     return
                 }
                 if now.timeIntervalSince(lastSpeech) >= Self.sideNoteQuietLimit {
-                    self.closeSideNote(String(localized: "Side note saved after a minute of quiet."))
+                    self.closeSideNote(String(localized: "Side note saved"))
                     return
                 }
             }
@@ -1184,7 +1184,7 @@ final class RecordingSession {
             self.log.notice("System audio capture recovered mid-session")
             WidgetBubbleCenter.shared.present(
                 WidgetBubbleContent(
-                    text: String(localized: "The other side is being recorded again."),
+                    text: String(localized: "Hearing the other side again"),
                     autoDismiss: 7
                 ),
                 notificationTitle: String(localized: "Daisy hears the other side again")
@@ -1761,13 +1761,15 @@ final class RecordingSession {
         guard let deviceName = AudioInputDevices.name(for: deviceID) else { return }
         let uid = AudioInputDevices.uid(for: deviceID) ?? deviceName
         guard virtualInputWarnedUIDs.insert(uid).inserted else { return }
-        let message = String(localized: "The microphone is set to “\(deviceName)” — a virtual audio device. If the recording comes out empty, pick your microphone in \(SettingsRow.microphone.path).")
+        let message = String(localized: "“\(deviceName)” may record silence")
+        let change = String(localized: "Change")
         _ = WidgetBubbleCenter.shared.show(
-            WidgetBubbleContent(text: message, autoDismiss: 12, tag: Self.virtualInputBubbleTag)
+            WidgetBubbleContent(text: message, actionTitle: change, autoDismiss: 12, tag: Self.virtualInputBubbleTag,
+                                action: { AppNavigation.shared.openInSettings(.meetings, row: .microphone) })
         )
         ToastCenter.shared.showAction(
             message,
-            actionLabel: String(localized: "Open audio settings"),
+            actionLabel: change,
             style: .warning,
             duration: .seconds(12)
         ) {
@@ -1796,8 +1798,8 @@ final class RecordingSession {
         guard BluetoothInputHint.shouldShow(transport: transport, uid: uid, shown: shown) else { return }
         let name = AudioInputDevices.name(for: deviceID) ?? "Bluetooth"
         log.notice("System default input is a Bluetooth headset (\(name, privacy: .public), \(transport, privacy: .public)) — one-time hint to pick the built-in microphone")
-        let message = String(localized: "To keep your headphones from switching to headset mode during the call, pick the built-in microphone in System Settings → Sound → Input.")
-        let open = String(localized: "Open System Settings")
+        let message = String(localized: "The headphone mic makes calls sound worse")
+        let open = String(localized: "Change")
         // A recording mostly starts from a hotkey, the widget or the
         // calendar with the window closed, and the toast lives in the
         // window: the pill carries it there, a notification when there
@@ -1841,8 +1843,8 @@ final class RecordingSession {
     /// switch is, instead of leaving them to hunt through Settings.
     private func showMicBlockedToast() {
         ToastCenter.shared.showAction(
-            String(localized: "Daisy can’t hear your microphone — access is turned off in System Settings."),
-            actionLabel: String(localized: "Open Microphone settings"),
+            String(localized: "Turn on microphone access"),
+            actionLabel: String(localized: "Turn on"),
             style: .warning,
             duration: .seconds(30)
         ) {
@@ -1924,12 +1926,12 @@ final class RecordingSession {
     /// 31.10.2026, and a calendar start failing behind another app must
     /// not pull it over what the person is typing in.
     private func presentSpeechModelUnavailable() {
-        let message = String(localized: "The speech model is not ready. Open \(SettingsRow.meetingModel.path) to prepare or repair it.")
+        let message = String(localized: "The speech model isn’t ready")
         let open: @MainActor () -> Void = { AppNavigation.shared.openInSettings(.meetings, row: .meetingModel) }
-        ToastCenter.shared.showAction(message, actionLabel: String(localized: "Open Settings"),
+        ToastCenter.shared.showAction(message, actionLabel: String(localized: "Set up"),
                                       style: .warning, duration: .seconds(15), perform: open)
         WidgetBubbleCenter.shared.present(
-            WidgetBubbleContent(text: message, actionTitle: String(localized: "Open Settings"), action: open),
+            WidgetBubbleContent(text: message, actionTitle: String(localized: "Set up"), action: open),
             notificationTitle: String(localized: "Prepare Daisy"))
         AppNavigation.shared.openInSettingsIfActive(.meetings, row: .meetingModel)
     }
@@ -1945,7 +1947,7 @@ final class RecordingSession {
     }
 
     static var dictationNeedsFastEngineMessage: String {
-        String(localized: "Dictation can’t start: on an Intel Mac it needs Faster or Apple dictation ready. Check \(SettingsRow.dictationEngine.path).")
+        String(localized: "Pick Faster or Apple for dictation")
     }
 
     /// A dictation refused on an Intel Mac: Whisper can't run there, and
@@ -1973,7 +1975,7 @@ final class RecordingSession {
             break
         }
         var content = WidgetBubbleContent(text: Self.dictationNeedsFastEngineMessage)
-        content.actionTitle = String(localized: "Open Settings")
+        content.actionTitle = String(localized: "Choose")
         content.action = { AppNavigation.shared.openInSettings(.dictation, row: .dictationEngine) }
         WidgetBubbleCenter.shared.present(content, notificationTitle: String(localized: "Daisy"))
     }
@@ -1984,9 +1986,9 @@ final class RecordingSession {
     /// start they let go of).
     func presentSpeechModelNotReadyPill() {
         var content = WidgetBubbleContent(
-            text: String(localized: "The speech model is not ready. Open \(SettingsRow.meetingModel.path) to prepare or repair it.")
+            text: String(localized: "The speech model isn’t ready")
         )
-        content.actionTitle = String(localized: "Open Settings")
+        content.actionTitle = String(localized: "Set up")
         content.action = { AppNavigation.shared.openInSettings(.meetings, row: .meetingModel) }
         WidgetBubbleCenter.shared.present(content, notificationTitle: String(localized: "Prepare Daisy"))
     }
@@ -2183,10 +2185,10 @@ final class RecordingSession {
             clamshellWarned = true
             CaptureProblemNotification.post(
                 title: String(localized: "Daisy can’t hear you"),
-                body: String(localized: "The lid is closed, so the Mac’s built-in microphone is off. Open the lid or connect an external mic.")
+                body: String(localized: "The lid is closed, the Mac’s mic is off")
             )
             ToastCenter.shared.show(
-                String(localized: "The lid is closed — the built-in microphone is off in clamshell mode. Open the lid or connect an external mic."),
+                String(localized: "The lid is closed, the Mac’s mic is off"),
                 style: .warning
             )
         }
@@ -2520,11 +2522,7 @@ final class RecordingSession {
         let micArchive = skipAudioArchive ? nil : dir?.appendingPathComponent("microphone.caf")
         let systemArchive = skipAudioArchive ? nil : dir?.appendingPathComponent("system_audio.caf")
         if lowDiskAtStart {
-            let freeGB = Double(freeAtStart ?? 0) / 1_073_741_824
-            let message = String(
-                format: String(localized: "Low disk space (%.1f GB free) — recording transcript only this session, no audio. Free up space to record audio again."),
-                freeGB
-            )
+            let message = String(localized: "Low on space, recording without audio")
             ToastCenter.shared.show(message, style: .warning, duration: .seconds(6))
             // …and again through the channel that works when the main
             // window is closed, which is nearly always: recording starts
@@ -2817,8 +2815,8 @@ final class RecordingSession {
         switch cause {
         case .screenRecordingDenied:
             ToastCenter.shared.showAction(
-                String(localized: "Couldn't capture the other side — Screen Recording permission is off. Recording your voice only."),
-                actionLabel: String(localized: "Open Privacy Settings"),
+                String(localized: "Can’t hear the other side, turn on Screen Recording"),
+                actionLabel: String(localized: "Turn on"),
                 style: .warning,
                 duration: .seconds(20),
                 perform: { ScreenRecordingPermission.openSystemSettings() }
@@ -2826,7 +2824,7 @@ final class RecordingSession {
             notificationBody = String(localized: "Screen Recording permission is off, so Daisy can’t capture the other side of this call. Turn it on in System Settings → Privacy & Security → Screen Recording.")
         case .systemAudioFailed:
             ToastCenter.shared.show(
-                String(localized: "Couldn't capture the other side — recording your voice only."),
+                String(localized: "Can’t hear the other side, recording only your voice"),
                 style: .warning
             )
             notificationBody = String(localized: "Daisy couldn’t capture the other side of this call. Your microphone is still being recorded.")
@@ -2876,7 +2874,7 @@ final class RecordingSession {
             // and two prompts about one event is worse than one.
             guard reason != .silenceAlreadyAnnounced else { return }
             let message = String(
-                localized: "The microphone stopped delivering audio — recording is paused. Reconnect it and press Resume, or stop and save what's recorded."
+                localized: "The mic went silent"
             )
             WidgetBubbleCenter.shared.present(
                 WidgetBubbleContent(text: message, tag: "mic-fell-to-paused"),
@@ -2952,9 +2950,8 @@ final class RecordingSession {
         diskTranscriptOnly = true
         recorder.stopArchivingKeepTranscribing()
         systemAudio.stopArchivingKeepTranscribing()
-        let freeGB = Double(free) / 1_073_741_824
         ToastCenter.shared.show(
-            String(format: String(localized: "Disk space critically low (%.1f GB) — switched to transcript only. Audio stopped to avoid filling your disk; the transcript keeps recording."), freeGB),
+            String(localized: "Disk almost full, continuing without audio"),
             style: .warning,
             duration: .seconds(7)
         )
@@ -3030,7 +3027,7 @@ final class RecordingSession {
             // interface was unplugged during sleep (audit 2026-09-01).
             log.error("Resume mic failed: \(error.localizedDescription, privacy: .public) — staying paused so the session can still be saved")
             let message = String(
-                localized: "Couldn't restart the microphone — the recording is paused, not lost. Try Resume, or stop and save what's recorded."
+                localized: "Mic didn’t restart, recording is safe"
             )
             // Both channels: a paused recording is usually noticed from
             // outside the app, and the widget is where the person will
@@ -3176,8 +3173,8 @@ final class RecordingSession {
             DaisyKeyController.shared.tell(String(localized: "Note saved to \(target.name)"), style: .success, action: open)
         } else {
             DaisyKeyController.shared.tell(route.ambiguous
-                ? String(localized: "Several projects match — saved to \(folder.name)")
-                : String(localized: "No such project — saved to \(folder.name)"),
+                ? String(localized: "Several projects, saved to \(folder.name)")
+                : String(localized: "No such project, saved to \(folder.name)"),
                 action: open.map { (String(localized: "Move"), $0.run) })
         }
     }
@@ -4032,7 +4029,7 @@ final class RecordingSession {
         switch wait {
         case .onItsWay:
             _ = WidgetBubbleCenter.shared.show(WidgetBubbleContent(
-                text: String(localized: "I’ve cancelled it — the speech model is still getting ready. Dictation will work once it’s done."),
+                text: String(localized: "Loading the speech model"),
                 autoDismiss: 6
             ))
         case .failed:

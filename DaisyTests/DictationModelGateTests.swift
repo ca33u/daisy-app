@@ -59,7 +59,7 @@ struct DictationModelGateTests {
         for key in ["Downloading the speech model · %lld%% · let go to cancel",
                     "Getting the speech model ready · about %lld%% · let go to cancel",
                     "Getting the speech model ready · let go to cancel",
-                    "I’ve cancelled it — the speech model is still getting ready. Dictation will work once it’s done."] {
+                    "Loading the speech model"] {
             let value = ru.localizedString(forKey: key, value: "∅", table: nil)
             #expect(value != "∅" && value != key, "no RU for \(key)")
             #expect(!value.contains("ьте"), "RU uses «ты»: \(value)")

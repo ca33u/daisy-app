@@ -973,7 +973,7 @@ final class CoreAudioMicRecorder {
                     for: AudioInputDevices.systemDefaultInputID()
                 ) ?? String(localized: "the default microphone")
                 let message = String(
-                    localized: "Your chosen microphone isn't connected — recording from \(fallbackName) instead."
+                    localized: "Mic not found, recording from \(fallbackName)"
                 )
                 // Bubble first: recording starts from a hotkey, the
                 // widget or a calendar auto-start, and a toast lives
@@ -1495,10 +1495,10 @@ final class CoreAudioMicRecorder {
                 if RecordingSession.current?.clamshellWarned != true {
                     CaptureProblemNotification.post(
                         title: String(localized: "Daisy can’t hear you"),
-                        body: String(localized: "The lid is closed, so the Mac’s built-in microphone is off. Open the lid or connect an external mic.")
+                        body: String(localized: "The lid is closed, the Mac’s mic is off")
                     )
                     ToastCenter.shared.show(
-                        String(localized: "The lid is closed — the built-in microphone is off in clamshell mode. Open the lid or connect an external mic."),
+                        String(localized: "The lid is closed, the Mac’s mic is off"),
                         style: .warning
                     )
                 }

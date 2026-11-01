@@ -189,7 +189,7 @@ final class DictationPaste {
                 }
             } else {
                 ToastCenter.shared.show(
-                    String(localized: "Dictation stopped — nothing was transcribed."),
+                    String(localized: "Didn’t hear anything"),
                     style: .warning
                 )
             }
@@ -220,13 +220,6 @@ final class DictationPaste {
         deliver(text, context: .step)
     }
 
-    /// The toast for text that landed: a dictation says so, a step does not.
-    private static func landedMessage(_ context: DeliveryContext) -> String {
-        context == .step
-            ? String(localized: "Inserted — clipboard untouched.")
-            : String(localized: "Dictation inserted — clipboard untouched.")
-    }
-
     /// How far back the "paste last dictation" hotkey reaches.
     static let repasteWindow: TimeInterval = 60 * 60
 
@@ -249,7 +242,7 @@ final class DictationPaste {
               Date().timeIntervalSince(last.date) <= Self.repasteWindow,
               !last.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             ToastCenter.shared.show(
-                String(localized: "Nothing dictated in the last hour to paste."),
+                String(localized: "No dictations in the last hour"),
                 style: .info
             )
             return
@@ -279,10 +272,7 @@ final class DictationPaste {
         // `.notice` so it stays in the system log (latency audit 31.10,
         // item 0): the time and the branch, nothing about the app or text.
         log.notice("Accessibility \(Int(Date().timeIntervalSince(axStart) * 1000), privacy: .public) ms (\(axOutcome.logLabel, privacy: .public))")
-        if axOutcome == .inserted {
-            ToastCenter.shared.show(Self.landedMessage(context), style: .success)
-            return
-        }
+        if axOutcome == .inserted { return }
 
         // 0b. Second-best path, and the one Electron / web views actually
         //     take: TYPE the text as synthetic key events, the way the
@@ -308,7 +298,7 @@ final class DictationPaste {
         if !clipboardRoute, axOutcome == .noFocusedField, Self.frontmostIsVoid() {
             if context != .freshDictation {
                 ToastCenter.shared.show(
-                    String(localized: "Click into a text field first, then paste again."),
+                    String(localized: "Click into a field first"),
                     style: .info
                 )
             }
@@ -325,7 +315,6 @@ final class DictationPaste {
            axOutcome == .refused,
            AXIsProcessTrusted(),
            attemptTypeInsert(transcript) {
-            ToastCenter.shared.show(Self.landedMessage(context), style: .success)
             presentLandedNowhereBubbleIfNeeded(transcript, context: context, axOutcome: axOutcome)
             return
         }
@@ -366,20 +355,16 @@ final class DictationPaste {
         let restoreAfter = didAutoPaste ? Self.quickRestoreSeconds : Self.retentionSeconds
         switch autoPaste {
         case .pasted:
-            ToastCenter.shared.show(
-                context == .step
-                    ? String(localized: "Pasted — your previous clipboard is coming right back.")
-                    : String(localized: "Dictation pasted — your previous clipboard is coming right back."),
-                style: .success
-            )
+            // No toast: the text in the field says it (Egor 01.11).
+            break
         case .needsAccessibility:
             // Not a success, and not a mystery either: name the missing
             // permission and offer the pane. Announced as success, this
             // is how a person concludes that manual ⌘V is simply how
             // Daisy works.
             ToastCenter.shared.showAction(
-                String(localized: "Daisy can't paste for you without Accessibility access — the text is on your clipboard, press ⌘V. Reverts in \(Int(Self.retentionSeconds))s."),
-                actionLabel: String(localized: "Open Accessibility settings"),
+                String(localized: "Press ⌘V within \(Int(Self.retentionSeconds)) s"),
+                actionLabel: String(localized: "Allow access"),
                 style: .warning,
                 // Never outlive the clipboard it points at: the toast
                 // says "press ⌘V", and after `retentionSeconds` the
@@ -391,7 +376,7 @@ final class DictationPaste {
             }
         case .failed:
             ToastCenter.shared.show(
-                String(localized: "Dictation copied — press ⌘V to paste. Clipboard reverts in \(Int(Self.retentionSeconds))s."),
+                String(localized: "Press ⌘V within \(Int(Self.retentionSeconds)) s"),
                 style: .warning
             )
         }
@@ -440,13 +425,13 @@ final class DictationPaste {
                 WidgetBubbleCenter.shared.present(
                     WidgetBubbleContent(
                         text: String(
-                            format: String(localized: "Paste the text: %@"),
+                            format: String(localized: "Nowhere to paste, press %@ later"),
                             label
                         )
                     ),
                     notificationTitle: String(localized: "Dictation saved"),
                     notificationBody: String(
-                        format: String(localized: "Paste the text: %@"),
+                        format: String(localized: "Nowhere to paste, press %@ later"),
                         label
                     )
                 )
@@ -454,8 +439,9 @@ final class DictationPaste {
             }
             WidgetBubbleCenter.shared.present(
                 WidgetBubbleContent(
-                    text: String(localized: "Dictation had nowhere to land. Keep it?"),
+                    text: String(localized: "Nowhere to paste"),
                     actionTitle: String(localized: "Copy"),
+                    actionSymbol: "doc.on.doc",
                     action: { [weak self] in
                         // Re-write it fresh (the restore may already have
                         // fired) and cancel any pending revert so it stays.
@@ -463,7 +449,7 @@ final class DictationPaste {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(text, forType: .string)
                         ToastCenter.shared.show(
-                            String(localized: "Copied — ⌘V to paste."),
+                            String(localized: "Copied, press ⌘V"),
                             style: .success
                         )
                     }

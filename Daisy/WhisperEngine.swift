@@ -2103,7 +2103,7 @@ nonisolated enum WhisperEngineError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedMac:
-            return String(localized: "This needs a Mac with Apple silicon (M1 or newer): the speech model doesn’t run on Intel Macs yet.")
+            return String(localized: "Needs a Mac with M1 or later")
         case .notReady: return String(localized: "Whisper model isn't loaded yet. Open \(SettingsRow.meetingModel.path).")
         case .unsupportedModel(let id):
             return String(localized: "The transcription model \(id) is not supported.")

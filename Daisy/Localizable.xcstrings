@@ -831,12 +831,22 @@
         }
       }
     },
-    "I’ve cancelled it — the speech model is still getting ready. Dictation will work once it’s done." : {
+    "Pick Faster or Apple for dictation" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Отменила — модель речи ещё готовится. Диктовка заработает, как только модель будет готова."
+            "value" : "Выбери для диктовки «Быстрее» или Apple"
+          }
+        }
+      }
+    },
+    "Loading the speech model" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Загружаю модель речи"
           }
         }
       }
@@ -1051,6 +1061,16 @@
         }
       }
     },
+    "Allow sending to %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешить отправку в %@"
+          }
+        }
+      }
+    },
     "Allowed to send to the cloud" : {
       "localizations" : {
         "ru" : {
@@ -1171,16 +1191,6 @@
         }
       }
     },
-    "Commands send what you said and selected to %@. Saved as a note for now" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Команды отправляют сказанное и выделенное в %@. Пока сохранила как заметку"
-          }
-        }
-      }
-    },
     "Commands send what you said and the card’s text to %@" : {
       "localizations" : {
         "ru" : {
@@ -1227,16 +1237,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Не получилось изменить — в карточке осталась прошлая версия"
-          }
-        }
-      }
-    },
-    "Couldn’t do that — saved as a note" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Не получилось — сохранила как заметку"
           }
         }
       }
@@ -1811,12 +1811,12 @@
         }
       }
     },
-    "This needs a Mac with Apple silicon (M1 or newer): the speech model doesn’t run on Intel Macs yet." : {
+    "Needs a Mac with M1 or later" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Для этого нужен Mac на Apple silicon (M1 или новее): модель речи пока не работает на Intel-маках."
+            "value" : "Нужен Mac с M1 или новее"
           }
         }
       }
@@ -1931,12 +1931,12 @@
         }
       }
     },
-    "Nothing to answer — select the message text and say it again" : {
+    "Select the message and say it again" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не на что отвечать — выдели текст письма и скажи ещё раз"
+            "value" : "Выдели письмо и скажи ещё раз"
           }
         }
       }
@@ -1951,12 +1951,12 @@
         }
       }
     },
-    "Your voice-note key %@ is now the Daisy key: hold and say “note …” or what to do, hold without a word over selected text to rewrite it. A tap fixes the keyboard layout" : {
+    "Hold %@ and say what to do" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Твоя клавиша заметок %@ теперь клавиша Daisy: зажми и скажи «заметка …» или что сделать, зажми без слов над выделенным текстом, чтобы переписать его. Короткое нажатие исправляет раскладку"
+            "value" : "Зажми %@ и скажи, что сделать"
           }
         }
       }
@@ -2973,12 +2973,12 @@
         }
       }
     },
-    "No such project — saved to %@" : {
+    "No such project, saved to %@" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Такого проекта нет — положила в «%@»"
+            "value" : "Проект не нашла, положила в «%@»"
           }
         }
       }
@@ -3003,12 +3003,12 @@
         }
       }
     },
-    "No summary provider is available — saved as a note" : {
+    "Saved as a note: AI isn’t set up" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Провайдер саммари недоступен — сохранила как заметку"
+            "value" : "Сохранила как заметку: AI не настроен"
           }
         }
       }
@@ -3213,12 +3213,12 @@
         }
       }
     },
-    "Open System Settings" : {
+    "Change" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Открыть Системные настройки"
+            "value" : "Сменить"
           }
         }
       }
@@ -3423,12 +3423,12 @@
         }
       }
     },
-    "Ready — you moved to another field, so it’s on the clipboard: ⌘V" : {
+    "It’s on the clipboard, press ⌘V" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Готово — поле сменилось, поэтому текст в буфере обмена: ⌘V"
+            "value" : "Текст в буфере, нажми ⌘V"
           }
         }
       }
@@ -3593,12 +3593,12 @@
         }
       }
     },
-    "Select some text first, then try again" : {
+    "Select some text first" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Сначала выдели текст, потом попробуй снова"
+            "value" : "Сначала выдели текст"
           }
         }
       }
@@ -3633,12 +3633,12 @@
         }
       }
     },
-    "Several projects match — saved to %@" : {
+    "Several projects, saved to %@" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Подходит несколько проектов — положила в «%@»"
+            "value" : "Проектов несколько, положила в «%@»"
           }
         }
       }
@@ -3673,22 +3673,12 @@
         }
       }
     },
-    "Side note saved after a minute of quiet." : {
+    "Side note saved" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Побочная заметка сохранена: минуту было тихо."
-          }
-        }
-      }
-    },
-    "Side note saved — five minutes is the longest one runs." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Побочная заметка сохранена — дольше пяти минут она не идёт."
+            "value" : "Побочная заметка сохранена"
           }
         }
       }
@@ -3739,26 +3729,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ещё работаю над прошлой командой"
-          }
-        }
-      }
-    },
-    "Still working on the last command — saved this one as a note" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ещё работаю над прошлой командой — эту сохранила как заметку"
-          }
-        }
-      }
-    },
-    "Still writing…" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ещё пишу…"
           }
         }
       }
@@ -4013,12 +3983,12 @@
         }
       }
     },
-    "To keep your headphones from switching to headset mode during the call, pick the built-in microphone in System Settings → Sound → Input." : {
+    "The headphone mic makes calls sound worse" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Чтобы наушники не переключались в режим гарнитуры во время звонка, выбери встроенный микрофон в Системных настройках → Звук → Вход."
+            "value" : "С микрофоном наушников звонок звучит хуже"
           }
         }
       }
@@ -4179,16 +4149,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Слова в названии"
-          }
-        }
-      }
-    },
-    "Writing…" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Пишу…"
           }
         }
       }
@@ -4487,13 +4447,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "There’s no project “%1$@” — saved to “%2$@”. Create it?"
+            "value" : "No project “%1$@”, saved to “%2$@”. Create it?"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Проекта «%1$@» нет — положила в «%2$@». Создать?"
+            "value" : "Проект «%1$@» не нашла, положила в «%2$@». Создать?"
           }
         }
       }
@@ -4572,13 +4532,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "I’ll write the summary once you choose who writes it — a local model or the cloud."
+            "value" : "Choose who writes summaries"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Итог напишу, когда выберешь, кто его пишет — локальная модель или облако."
+            "value" : "Выбери, кто пишет саммари"
           }
         }
       }
@@ -9969,13 +9929,12 @@
         }
       }
     },
-    "Click into a text field first, then paste again." : {
-      "extractionState" : "manual",
+    "Click into a field first" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Сначала кликни в текстовое поле, затем вставь снова."
+            "value" : "Сначала кликни в поле"
           }
         }
       }
@@ -10590,12 +10549,12 @@
         }
       }
     },
-    "Copied — ⌘V to paste." : {
+    "Copied, press ⌘V" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Скопировано — ⌘V, чтобы вставить."
+            "value" : "Скопировала, нажми ⌘V"
           }
         }
       }
@@ -10875,22 +10834,22 @@
         }
       }
     },
-    "Couldn't capture the other side — recording your voice only." : {
+    "Can’t hear the other side, recording only your voice" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не удалось записать собеседника — записывается только твой голос."
+            "value" : "Не слышу собеседников, пишу только твой голос"
           }
         }
       }
     },
-    "Couldn't capture the other side — Screen Recording permission is off. Recording your voice only." : {
+    "Can’t hear the other side, turn on Screen Recording" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не удалось записать собеседника — выключено разрешение «Запись экрана». Записывается только твой голос."
+            "value" : "Не слышу собеседников, включи «Запись экрана»"
           }
         }
       }
@@ -11073,12 +11032,12 @@
         }
       }
     },
-    "Couldn't restart the microphone — the recording is paused, not lost. Try Resume, or stop and save what's recorded." : {
+    "Mic didn’t restart, recording is safe" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не удалось перезапустить микрофон — запись на паузе, ничего не потеряно. Нажми «Продолжить» или останови и сохрани записанное."
+            "value" : "Микрофон не включился, запись цела"
           }
         }
       }
@@ -11683,22 +11642,22 @@
         }
       }
     },
-    "Daisy can’t hear your microphone — access is turned off in System Settings." : {
+    "Turn on microphone access" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Daisy не слышит микрофон — доступ выключен в системных настройках."
+            "value" : "Включи доступ к микрофону"
           }
         }
       }
     },
-    "Daisy can't paste for you without Accessibility access — the text is on your clipboard, press ⌘V. Reverts in %llds." : {
+    "Press ⌘V within %lld s" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Daisy не может вставить текст без доступа к Универсальному доступу — текст в буфере обмена, нажми ⌘V. Вернём буфер через %lld с."
+            "value" : "Нажми ⌘V в течение %lld с"
           }
         }
       }
@@ -12108,12 +12067,12 @@
         }
       }
     },
-    "Daisy is already recording. Stop the current session first." : {
+    "Already recording" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Daisy уже ведёт запись. Сначала останови текущую запись."
+            "value" : "Запись уже идёт"
           }
         }
       }
@@ -13231,46 +13190,12 @@
         }
       }
     },
-    "Dictation copied — press ⌘V to paste. Clipboard reverts in %llds." : {
+    "Nowhere to paste" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Диктовка скопирована — нажми ⌘V, чтобы вставить. Буфер обмена вернётся к прежнему через %lld с."
-          }
-        }
-      }
-    },
-    "Dictation had nowhere to land. Keep it?" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Диктовке некуда было лечь. Сохранить?"
-          }
-        }
-      }
-    },
-    "Dictation inserted — clipboard untouched." : {
-      "comment" : "Toast shown when a dictation is inserted directly into the focused text field via the Accessibility API.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Диктовка вставлена — буфер обмена не изменён."
-          }
-        }
-      }
-    },
-    "Dictation pasted — your previous clipboard is coming right back." : {
-      "comment" : "Text displayed in a toast when a user's clipboard is restored after a failed auto-paste.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Диктовка вставлена — прежнее содержимое буфера обмена будет сразу восстановлено."
+            "value" : "Некуда вставить текст"
           }
         }
       }
@@ -13285,22 +13210,12 @@
         }
       }
     },
-    "Daisy couldn’t transcribe what you said. Try again." : {
+    "Couldn’t transcribe, say it again" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не получилось распознать сказанное. Попробуй ещё раз."
-          }
-        }
-      }
-    },
-    "Dictation stopped — nothing was transcribed." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Диктовка остановлена — ничего не распознано."
+            "value" : "Не получилось распознать, повтори"
           }
         }
       }
@@ -13417,12 +13332,12 @@
         }
       }
     },
-    "Disk space critically low (%.1f GB) — switched to transcript only. Audio stopped to avoid filling your disk; the transcript keeps recording." : {
+    "Disk almost full, continuing without audio" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Критически мало места на диске (%.1f ГБ) — переключено на запись только транскрипта. Запись аудио остановлена, чтобы не заполнять диск; транскрипт продолжает записываться."
+            "value" : "Диск почти заполнен, дальше пишу без звука"
           }
         }
       }
@@ -15549,16 +15464,6 @@
         }
       }
     },
-    "Inserted — clipboard untouched." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Вставлено — буфер обмена не тронут."
-          }
-        }
-      }
-    },
     "Inside Daisy's container (default)" : {
       "localizations" : {
         "ru" : {
@@ -16408,12 +16313,12 @@
         }
       }
     },
-    "Low disk space (%.1f GB free) — recording transcript only this session, no audio. Free up space to record audio again." : {
+    "Low on space, recording without audio" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Мало места на диске (свободно %.1f ГБ) — в этой записи записывается только транскрипт, без аудио. Освободи место, чтобы снова записывать аудио."
+            "value" : "Мало места, пишу без звука"
           }
         }
       }
@@ -16680,12 +16585,12 @@
         }
       }
     },
-    "Meeting ended — stopping & saving." : {
+    "Meeting’s over, saving the recording" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Встреча завершена — останавливаем и сохраняем."
+            "value" : "Встреча закончилась, сохраняю запись"
           }
         }
       }
@@ -17641,12 +17546,12 @@
         }
       }
     },
-    "Nothing dictated in the last hour to paste." : {
+    "No dictations in the last hour" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "За последний час не было диктовок для вставки."
+            "value" : "Диктовок за час не было"
           }
         }
       }
@@ -18674,12 +18579,12 @@
         }
       }
     },
-    "Open Accessibility settings" : {
+    "Allow access" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Открыть настройки доступа"
+            "value" : "Дать доступ"
           }
         }
       }
@@ -19182,12 +19087,12 @@
         }
       }
     },
-    "Paste the text: %@" : {
+    "Nowhere to paste, press %@ later" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Вставь текст: %@"
+            "value" : "Некуда вставить, позже нажми %@"
           }
         }
       }
@@ -19219,16 +19124,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Вставь свои тексты — письма, посты, заметки или экспорт из другого приложения диктовки. Daisy выучит твой голос из них так же, как из диктовок."
-          }
-        }
-      }
-    },
-    "Pasted — your previous clipboard is coming right back." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Вставлено — прежний буфер обмена сейчас вернётся."
           }
         }
       }
@@ -21179,41 +21074,27 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Переписываем твоим голосом…"
+            "value" : "Переписываю твоим голосом…"
           }
         }
       }
     },
-    "Rewriting needs Accessibility access — grant it in System Settings and try again." : {
-      "comment" : "Warning message displayed when the user tries to rewrite while not granting Accessibility access.",
-      "isCommentAutoGenerated" : true,
+    "Give Daisy Accessibility access" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Для переписывания нужен доступ «Универсальный доступ». Предоставь его в Системных настройках и повтори попытку."
+            "value" : "Дай Daisy «Универсальный доступ»"
           }
         }
       }
     },
-    "Rewritten in your voice — your clipboard is coming right back." : {
-      "comment" : "Toast message shown when the paste operation completes.",
-      "isCommentAutoGenerated" : true,
+    "Remember “%@” → “%@”?" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Текст переписан твоим голосом — прежнее содержимое буфера обмена будет сразу восстановлено."
-          }
-        }
-      }
-    },
-    "Rewritten in your voice. Noticed “%@” → “%@” — save as a dictation correction?" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Текст переписан твоим голосом. Замечено «%@» → «%@» — сохранить как поправку для диктовки?"
+            "value" : "Запомнить замену «%1$@» → «%2$@»?"
           }
         }
       }
@@ -21306,6 +21187,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сохранить"
+          }
+        }
+      }
+    },
+    "Remember" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запомнить"
           }
         }
       }
@@ -22123,18 +22014,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Отображается в меню-«многоточие» как «Отправить в {Name}»."
-          }
-        }
-      }
-    },
-    "Side note saved — it'll be split out when you stop." : {
-      "comment" : "Text shown in a toast when a side note is saved.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Побочная заметка сохранена — после остановки она станет отдельной заметкой."
           }
         }
       }
@@ -23566,32 +23445,22 @@
         }
       }
     },
-    "The lid is closed — the built-in microphone is off in clamshell mode. Open the lid or connect an external mic." : {
+    "The lid is closed, the Mac’s mic is off" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Крышка закрыта — в режиме clamshell встроенный микрофон отключён. Открой крышку или подключи внешний микрофон."
+            "value" : "Крышка закрыта, микрофон Mac выключен"
           }
         }
       }
     },
-    "The lid is closed, so the Mac’s built-in microphone is off. Open the lid or connect an external mic." : {
+    "The mic went silent" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Крышка закрыта, поэтому встроенный микрофон Mac отключён. Открой крышку или подключи внешний микрофон."
-          }
-        }
-      }
-    },
-    "The microphone stopped delivering audio — recording is paused. Reconnect it and press Resume, or stop and save what's recorded." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Микрофон перестал отдавать звук — запись на паузе. Подключи его и нажми «Продолжить» или останови и сохрани записанное."
+            "value" : "Микрофон замолчал"
           }
         }
       }
@@ -23636,13 +23505,12 @@
         }
       }
     },
-    "The other side is being recorded again." : {
-      "extractionState" : "manual",
+    "Hearing the other side again" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Собеседники снова записываются."
+            "value" : "Снова слышу собеседников"
           }
         }
       }
@@ -25479,12 +25347,12 @@
         }
       }
     },
-    "Your chosen microphone isn't connected — recording from %@ instead." : {
+    "Mic not found, recording from %@" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Выбранный микрофон не подключён — пишем с «%@»."
+            "value" : "Микрофона нет, пишу с «%@»"
           }
         }
       }
@@ -26245,22 +26113,22 @@
         }
       }
     },
-    "The microphone is set to “%@” — a virtual audio device. If the recording comes out empty, pick your microphone in %@." : {
+    "“%@” may record silence" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Микрофоном выбран «%1$@» — это виртуальный аудиодрайвер. Если запись окажется пустой, выбери свой микрофон в «%2$@»."
+            "value" : "Микрофон «%@» может записать тишину"
           }
         }
       }
     },
-    "The speech model is not ready. Open %@ to prepare or repair it." : {
+    "The speech model isn’t ready" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Модель распознавания не готова. Открой «%@», чтобы подготовить или восстановить её."
+            "value" : "Модель речи не готова"
           }
         }
       }

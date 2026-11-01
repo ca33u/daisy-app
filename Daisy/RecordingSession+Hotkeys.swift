@@ -227,7 +227,7 @@ extension RecordingSession {
                 toggleSideNoteCapture()
             } else {
                 ToastCenter.shared.show(
-                    String(localized: "Daisy is already recording. Stop the current session first."),
+                    String(localized: "Already recording"),
                     style: .warning
                 )
             }
@@ -373,12 +373,12 @@ extension RecordingSession {
             // Pill first, toast kept for the in-window case.
             WidgetBubbleCenter.shared.present(
                 WidgetBubbleContent(
-                    text: String(localized: "Daisy is already recording. Stop the current session first.")
+                    text: String(localized: "Already recording")
                 ),
                 notificationTitle: String(localized: "Daisy is already recording")
             )
             ToastCenter.shared.show(
-                String(localized: "Daisy is already recording. Stop the current session first."),
+                String(localized: "Already recording"),
                 style: .warning
             )
         case .ignore:

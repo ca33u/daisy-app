@@ -991,7 +991,7 @@ final class DaisyKeyController {
         guard canHold else { return }
         defaults.set(true, forKey: introducedKey)
         let key = settings.voiceNoteHotkey.displayLabel
-        let text = String(localized: "Your voice-note key \(key) is now the Daisy key: hold and say “note …” or what to do, hold without a word over selected text to rewrite it. A tap fixes the keyboard layout")
+        let text = String(localized: "Hold \(key) and say what to do")
         WidgetBubbleCenter.shared.present(
             WidgetBubbleContent(text: text, autoDismiss: 15, tag: "daisy-key-intro"),
             notificationTitle: String(localized: "The Daisy key")
@@ -1069,7 +1069,7 @@ final class DaisyKeyController {
                 } else {
                     holdAbandoned(token: press.token)
                     tell(RecordingSession.dictationNeedsFastEngineMessage, style: .warning,
-                         action: (String(localized: "Open Settings"), { AppNavigation.shared.openInSettings(.dictation, row: .dictationEngine) }),
+                         action: (String(localized: "Choose"), { AppNavigation.shared.openInSettings(.dictation, row: .dictationEngine) }),
                          opensWindow: false)
                 }
                 return
@@ -1247,8 +1247,8 @@ final class DaisyKeyController {
                          opensWindow: false)
                 } else {
                     tell(route.ambiguous
-                         ? String(localized: "Several projects match — saved to \(folderName)")
-                         : String(localized: "No such project — saved to \(folderName)"),
+                         ? String(localized: "Several projects, saved to \(folderName)")
+                         : String(localized: "No such project, saved to \(folderName)"),
                          action: (String(localized: "Move"), { AppNavigation.shared.openInLibrary(saved) }))
                 }
             } else {
@@ -1392,12 +1392,12 @@ final class DaisyKeyController {
         // One command at a time: the pill, Esc and «Ещё работаю» are one
         // slot each (review 21.10). A second one keeps its words as a note.
         guard !isWorking else {
-            return await fallBack(String(localized: "Still working on the last command — saved this one as a note"))
+            return await fallBack(String(localized: "Saved as a note"))
         }
         isWorking = true
         defer { isWorking = false }
         guard await summarizer.isReady(for: .interactive) else {
-            return await fallBack(String(localized: "No summary provider is available — saved as a note"))
+            return await fallBack(String(localized: "Saved as a note: AI isn’t set up"))
         }
         // Commands take the interactive route: with the local model chosen
         // that is the provider chosen before it, and its consent is asked.
@@ -1411,8 +1411,8 @@ final class DaisyKeyController {
                                  outcome: "unclear", message: nil, offerToRun: false)
             }
             let provider = commandProvider.shortName
-            tell(String(localized: "Commands send what you said and selected to \(provider). Saved as a note for now"),
-                 action: (String(localized: "Allow and run"), { [weak self] in
+            tell(String(localized: "Saved as a note"),
+                 action: (String(localized: "Allow sending to \(provider)"), { [weak self] in
                      Self.allowCloud(commandProvider)
                      Task { await self?.runCommand(kind, request: request, context: context, bundleID: bundleID, appName: appName,
                                                    entryID: entryID, samples: [], durationSec: 0, atPress: false, noteKept: true) }
@@ -1442,13 +1442,13 @@ final class DaisyKeyController {
             return
         }
         guard case .text(let result) = written else {
-            return await fallBack(String(localized: "Couldn’t do that — saved as a note"))
+            return await fallBack(String(localized: "Saved as a note"))
         }
         // Written from nothing — «напиши ответ» with no message to answer —
         // it comes back as a skeleton of [?] (Egor 22.10): not a card.
         if role == .none, Self.isHollow(result) {
             DaisyCommandHistory.shared.setOutcome("hollow", for: entryID)
-            tell(String(localized: "Nothing to answer — select the message text and say it again"))
+            tell(String(localized: "Select the message and say it again"))
             log.info("Daisy key command came back as placeholders only — nothing shown")
             return
         }
@@ -1474,7 +1474,7 @@ final class DaisyKeyController {
         }
         if insertable {
             ImprovementStats.record(.daisyKeyFocusChanged)
-            tell(String(localized: "Ready — you moved to another field, so it’s on the clipboard: ⌘V"), style: .success)
+            tell(String(localized: "It’s on the clipboard, press ⌘V"), style: .success)
         }
         // Nowhere to put it (or the field moved): the card at the cursor,
         // and the clipboard.
@@ -1569,8 +1569,6 @@ final class DaisyKeyController {
             indicator.isWriting = false
             indicator.show(ended)
         }
-        _ = WidgetBubbleCenter.shared.show(WidgetBubbleContent(text: String(localized: "Writing…"), autoDismiss: 40, tag: Self.progressTag))
-        defer { WidgetBubbleCenter.shared.dismiss(tag: Self.progressTag) }
         let work = Task<String?, Never> {
             guard let summary = try? await Summarizer.shared.runProbe(
                 transcript: payload, title: "Daisy", localeHint: nil, task: .voiceCommand(context),
@@ -1579,12 +1577,6 @@ final class DaisyKeyController {
             guard !SensitiveDataProtector.containsUnrestoredMarker(text) else { return nil }
             return DaisyKeyCommandParser.cleaned(text, field: context.field)
         }
-        let still = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(Self.stillWritingAfter))
-            guard !Task.isCancelled else { return }
-            _ = WidgetBubbleCenter.shared.show(WidgetBubbleContent(text: String(localized: "Still writing…"), autoDismiss: 20, tag: Self.progressTag))
-        }
-        defer { still.cancel() }
         let escape = EscapeWatch { [weak self] in self?.stopWriting?() }
         defer { escape.stop() }
         var deadline: Task<Void, Never>?
@@ -1609,9 +1601,7 @@ final class DaisyKeyController {
         return finished.map(Written.text) ?? .failed
     }
 
-    nonisolated static let stillWritingAfter: TimeInterval = 15
     nonisolated static let giveUpAfter: TimeInterval = 30
-    nonisolated static let progressTag = "daisy-key-progress"
 
     /// Whether commands may go to this cloud provider (one yes each).
     static func cloudAllowed(_ kind: SummaryProviderKind, defaults: UserDefaults = .standard) -> Bool {
@@ -1782,8 +1772,11 @@ final class DaisyKeyController {
         let fromPill: (@MainActor () -> Void)? = action.map { action in
             { action.run(); if opensWindow { WidgetBubbleCenter.shared.openMainWindow?() } }
         }
+        // «Open» is an icon on the pill (Egor 01.11); the toast keeps the word.
+        let symbol = action?.label == String(localized: "Open") ? "arrow.up.forward.app" : nil
         WidgetBubbleCenter.shared.present(
-            WidgetBubbleContent(text: text, actionTitle: action?.label, autoDismiss: 8, tag: "daisy-key", action: fromPill),
+            WidgetBubbleContent(text: text, actionTitle: action?.label, actionSymbol: symbol, autoDismiss: 8, tag: "daisy-key",
+                                action: fromPill),
             notificationTitle: "Daisy"
         )
     }

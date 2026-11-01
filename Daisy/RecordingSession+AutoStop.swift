@@ -290,7 +290,7 @@ extension RecordingSession {
     private func performAutoStop() async {
         guard status == .recording || status == .paused, !autoStopSuppressed else { return }
         autoStopLog.notice("Auto-stop performing stop() — user confirmed the end-of-meeting ask; the SESSION SUMMARY that follows is this one")
-        ToastCenter.shared.show(String(localized: "Meeting ended — stopping & saving."), style: .info, duration: .seconds(2))
+        ToastCenter.shared.show(String(localized: "Meeting’s over, saving the recording"), style: .info, duration: .seconds(2))
         // A next meeting waiting behind this ask starts right after the
         // stop — same as the old silent rotation, including its one
         // trade-off: the final pass for THIS session is skipped, because

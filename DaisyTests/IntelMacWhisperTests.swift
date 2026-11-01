@@ -83,12 +83,12 @@ struct IntelMacWhisperTests {
     }
 
     @MainActor
-    @Test("A refused dictation names the row that fixes it, in both languages")
+    @Test("A refused dictation names the engines it needs, in both languages")
     func dictationMessage() throws {
         #expect(RecordingSession.dictationNeedsFastEngineMessage
-                == "Dictation can’t start: on an Intel Mac it needs Faster or Apple dictation ready. Check \(SettingsRow.dictationEngine.path).")
+                == "Pick Faster or Apple for dictation")
         let ru = try #require(Bundle.main.path(forResource: "ru", ofType: "lproj").flatMap(Bundle.init(path:)))
-        let key = "Dictation can’t start: on an Intel Mac it needs Faster or Apple dictation ready. Check %@."
+        let key = "Pick Faster or Apple for dictation"
         let value = ru.localizedString(forKey: key, value: "∅", table: nil)
         #expect(value != "∅" && value != key && value.contains("Быстрее"))
     }
@@ -96,9 +96,9 @@ struct IntelMacWhisperTests {
     @Test("The message says what's needed, in both languages")
     func message() throws {
         #expect(WhisperEngineError.unsupportedMac.localizedDescription
-                == "This needs a Mac with Apple silicon (M1 or newer): the speech model doesn’t run on Intel Macs yet.")
+                == "Needs a Mac with M1 or later")
         let ru = try #require(Bundle.main.path(forResource: "ru", ofType: "lproj").flatMap(Bundle.init(path:)))
-        let key = "This needs a Mac with Apple silicon (M1 or newer): the speech model doesn’t run on Intel Macs yet."
+        let key = "Needs a Mac with M1 or later"
         let value = ru.localizedString(forKey: key, value: "∅", table: nil)
         #expect(value != "∅" && value != key)
     }

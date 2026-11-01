@@ -372,7 +372,7 @@ extension RecordingSession {
     /// The dictation's Whisper pass failed and nothing more will be tried:
     /// said on the pill, so it isn't mistaken for silence.
     func presentCouldNotTranscribePill() {
-        let text = String(localized: "Daisy couldn’t transcribe what you said. Try again.")
+        let text = String(localized: "Couldn’t transcribe, say it again")
         WidgetBubbleCenter.shared.present(WidgetBubbleContent(text: text), notificationTitle: "Daisy")
     }
 }
