@@ -24,6 +24,9 @@
 //  app now — version, What's New, the tour, links, licenses, the studio.
 //  Updates went to Settings → General; crash reports, «Help improve
 //  Daisy» and the logs to Settings → Privacy. No switches live here.
+//  2026-11-01 (Egor): two of them are back as copies, since this is where
+//  people look — «Get beta updates» and «Report a bug». Their home rows
+//  (General → Updates, Privacy → Logs) keep the search and deep links.
 //
 
 import AppKit
@@ -31,6 +34,7 @@ import SwiftUI
 
 struct AboutView: View {
     let settings: AppSettings
+    @Bindable private var updater = SparkleUpdater.shared
 
     var body: some View {
         Form {
@@ -115,6 +119,41 @@ struct AboutView: View {
                             .frame(width: 18)
                             .foregroundStyle(.secondary)
                         Text(OnboardingCopy.text(.again))
+                    }
+                }
+
+                // Back where people look for them (Egor 01.11): the
+                // restructure moved them to General → Updates and Privacy →
+                // Logs, which stay their home for search and deep links.
+                Toggle(isOn: $updater.receiveBetaUpdates) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "testtube.2")
+                            .frame(width: 18)
+                            .foregroundStyle(.secondary)
+                        Text("Get beta updates")
+                    }
+                }
+                .toggleStyle(.switch)
+
+                LabeledContent {
+                    Button {
+                        LogReporter.sendReport(settings: settings)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("Send Log Report…")
+                            Image(systemName: "envelope")
+                                .font(.caption)
+                        }
+                        .foregroundStyle(Color.daisyAccent)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Report a bug: send a log report")
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "ladybug")
+                            .frame(width: 18)
+                            .foregroundStyle(.secondary)
+                        Text("Report a bug")
                     }
                 }
             } header: {
