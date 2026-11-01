@@ -293,6 +293,9 @@ struct HotkeyConflictTests {
         #expect(HotkeyWarnings.standing(for: shiftCommand, on: .oneShot).isEmpty)
         // Fn tapped on a one-shot row: macOS acts on the tap too.
         #expect(HotkeyWarnings.standing(for: .fn, on: .oneShot) == [.fnDoesItsOwnToo])
+        // On the Daisy key a tap is the layout fix, and macOS's Fn tap
+        // switches the input source.
+        #expect(HotkeyWarnings.standing(for: .fn, on: .daisyKey) == [.fnDoesItsOwnToo])
     }
 
     /// The layout watcher's tap tells Daisy's own shortcut on a typing

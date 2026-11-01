@@ -102,8 +102,10 @@ nonisolated enum HotkeyWarnings {
         guard choice.keyCode != nil else { return [] }
         if choice.isFnOnly {
             // Held for dictation, Fn is the default and macOS stays out of
-            // the way; tapped, macOS does its own Fn action too.
-            return row == .oneShot ? [.fnDoesItsOwnToo] : []
+            // the way; tapped, macOS does its own Fn action too — and a tap
+            // of the Daisy key is the layout fix, while macOS's own Fn tap
+            // switches the input source (review 01.11).
+            return row == .dictation ? [] : [.fnDoesItsOwnToo]
         }
         if choice.isModifierHold {
             // A tap of a modifier costs the Mac nothing. A hold does: on
