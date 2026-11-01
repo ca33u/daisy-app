@@ -120,7 +120,9 @@ final class AudioImportRunner {
         report(imported: imported, importFailures: importFailures, plan: plan)
         if imported.count == 1, let only = imported.first,
            AppNavigation.shared.section == .library {
-            AppNavigation.shared.openInLibrary(only.sessionID)
+            // After an import that can run for minutes: Daisy's own move,
+            // a Settings sheet opened meanwhile stays.
+            AppNavigation.shared.openInLibrary(only.sessionID, userInitiated: false)
         }
     }
 

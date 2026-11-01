@@ -80,7 +80,13 @@ struct MainPanelSheet: ViewModifier {
                     .modifier(ToastOverlay())
                     // The window the card is in — the one whose keys are
                     // the sheet's (PanelKeys).
-                    .background(WindowFinder { PanelKeys.sheetWindow = $0 })
+                    // The probe also reports nil, late, when it leaves a
+                    // window (Settings → About, a quick close and reopen):
+                    // that must not wipe the current one. A window that
+                    // goes away clears itself (weak).
+                    .background(WindowFinder { window in
+                        if let window { PanelKeys.sheetWindow = window }
+                    })
             }
             .onChange(of: nav.panel, initial: true) { _, _ in sync() }
             .onAppear { PanelKeys.install() }
@@ -184,11 +190,21 @@ enum PanelKeys {
     /// True when the key was the sheet's.
     static func handle(_ event: NSEvent) -> Bool {
         let nav = AppNavigation.shared
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        let commandW = modifiers == .command && isCommandW(event)
+        // A held ⌘W, or a second one while the sheet is still going, must
+        // not fall through to Close and take the main window with it.
+        if commandW, event.window === sheetWindow || event.window === AppNavigation.mainWindow,
+           swallowsCommandW(isRepeat: event.isARepeat, now: ProcessInfo.processInfo.systemUptime) {
+            return true
+        }
         guard nav.panel != nil, let sheet = sheetWindow, sheet.isVisible,
               event.window === sheet, sheet.attachedSheet == nil else { return false }
-        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        if modifiers == .command, isCommandW(event) {
-            if !event.isARepeat { nav.closePanel() }
+        if commandW {
+            if !event.isARepeat {
+                commandWHeld = true
+                nav.closePanel()
+            }
             return true
         }
         guard event.keyCode == 53, modifiers.isEmpty else { return false }   // Escape
@@ -199,6 +215,24 @@ enum PanelKeys {
             editingSearch: nav.settingsSearchFocused,
             endEditing: { _ = sheet.makeFirstResponder(nil) }
         )
+    }
+
+    /// When the sheet last closed (system uptime), and whether the ⌘W
+    /// that closed it may still be held.
+    private(set) static var closedAt: TimeInterval = -.infinity
+    private static var commandWHeld = false
+
+    static func didClose() {
+        closedAt = ProcessInfo.processInfo.systemUptime
+    }
+
+    /// A ⌘W the sheet keeps although it is gone: the auto-repeat of the
+    /// one that closed it, or a fresh one within half a second of closing.
+    static func swallowsCommandW(isRepeat: Bool, now: TimeInterval) -> Bool {
+        if isRepeat { return commandWHeld }
+        // A fresh one this soon is kept — and so are its repeats if held.
+        commandWHeld = now - closedAt < 0.5
+        return commandWHeld
     }
 
     /// ⌘W: the letter W, or the W key when the layout types no Latin

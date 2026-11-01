@@ -230,6 +230,57 @@ struct SettingsPanelTests {
         #expect(nav.panel == nil)
     }
 
+    /// Daisy going to the session it just finished (`showSessionAfterStop`)
+    /// leaves a sheet the person is working in where it is.
+    @Test func backgroundNavigationKeepsTheSheet() {
+        let sandbox = NavigationSandbox()
+        defer { sandbox.restore() }
+        let nav = AppNavigation.shared
+
+        nav.section = .home
+        nav.openSettings()
+        nav.openInLibrary("2026-11-01 10-00-00", userInitiated: false)
+        #expect(nav.panel == .settings)
+        #expect(nav.section == .library)
+        // …and the next move by the person still closes it.
+        nav.section = .home
+        #expect(nav.panel == nil)
+        nav.pendingLibrarySelection = nil
+    }
+
+    /// The finished-session and finished-import auto-opens are Daisy's own
+    /// moves.
+    @Test func theAutoOpensAreBackgroundNavigation() throws {
+        let main = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Daisy/MainView.swift"), encoding: .utf8)
+        #expect(main.contains("openInLibrary(id, userInitiated: false)"))
+        let importSheet = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Daisy/AudioImportSheet.swift"), encoding: .utf8)
+        #expect(importSheet.contains("openInLibrary(only.sessionID, userInitiated: false)"))
+    }
+
+    // MARK: - ⌘W
+
+    /// A held ⌘W, or a second one while the sheet goes, stays with the
+    /// sheet instead of closing the main window.
+    @Test func commandWAfterClosingIsSwallowedForAMoment() {
+        let closed = PanelKeys.closedAt
+        // Long after any close: a fresh ⌘W is the window's.
+        #expect(!PanelKeys.swallowsCommandW(isRepeat: false, now: closed + 10))
+        // Within half a second of the close: kept.
+        #expect(PanelKeys.swallowsCommandW(isRepeat: false, now: closed + 0.2))
+        #expect(!PanelKeys.swallowsCommandW(isRepeat: false, now: closed + 0.6))
+        // Closed by Escape or ×, then ⌘W pressed and held at once: the
+        // press and its repeats stay with the sheet.
+        #expect(PanelKeys.swallowsCommandW(isRepeat: false, now: closed + 0.1))
+        #expect(PanelKeys.swallowsCommandW(isRepeat: true, now: closed + 0.7))
+        // A fresh press later is the window's again, repeats too.
+        #expect(!PanelKeys.swallowsCommandW(isRepeat: false, now: closed + 3))
+        #expect(!PanelKeys.swallowsCommandW(isRepeat: true, now: closed + 3.1))
+    }
+
     // MARK: - Escape
 
     /// Escape's ladder: a Daisy-key command's own Escape, then the search,

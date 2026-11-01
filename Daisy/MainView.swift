@@ -208,10 +208,13 @@ final class AppNavigation {
     /// The main window's page. Going to one — a link, Open Library, a
     /// toast's «Open», an import — closes a Settings or About sheet over
     /// it, even when the page is the one already showing; otherwise the
-    /// page would change unseen under the sheet.
+    /// page would change unseen under the sheet. Not when Daisy goes there
+    /// by itself (`openInLibrary(_:userInitiated: false)`): a sheet the
+    /// person is working in stays.
     var section: MainSection = .home {
-        didSet { if panel != nil { panel = nil } }
+        didSet { if panel != nil, !navigatingInBackground { panel = nil } }
     }
+    @ObservationIgnored private var navigatingInBackground = false
     /// One-shot session selection request. HomeView (and any other
     /// surface that needs to deep-link into a transcript) sets this
     /// together with `section = .library`; LibraryView consumes and
@@ -223,6 +226,7 @@ final class AppNavigation {
     /// however they close.
     var panel: MainPanel? {
         didSet {
+            if oldValue != nil, panel == nil { PanelKeys.didClose() }
             if panel != .settings {
                 if !settingsSearch.isEmpty { settingsSearch = "" }
                 settingsSearchFocused = false
@@ -266,8 +270,17 @@ final class AppNavigation {
     /// Convenience for `Open this session in Library`. Sets both
     /// section and the pending selection so the Library view jumps
     /// straight to the correct row.
-    func openInLibrary(_ id: StoredSession.ID) {
+    ///
+    /// `userInitiated: false` for Daisy going there by itself — the
+    /// session it just finished (`showSessionAfterStop`), the session an
+    /// import made once it is done: a Settings or About sheet stays open
+    /// over the change. Every other caller is a
+    /// click, a toast's or bubble's button, a file opened with Daisy, the
+    /// end of a dialog the person ran — and closes it.
+    func openInLibrary(_ id: StoredSession.ID, userInitiated: Bool = true) {
         pendingLibrarySelection = id
+        navigatingInBackground = !userInitiated
+        defer { navigatingInBackground = false }
         section = .library
     }
 
@@ -1332,7 +1345,8 @@ private struct MainWindowWiring: ViewModifier {
                 if case .finished = new,
                    settings.showSessionAfterStop,
                    let id = session.sessionDirectory?.lastPathComponent {
-                    AppNavigation.shared.openInLibrary(id)
+                    // Daisy's own move: a sheet the person is in stays.
+                    AppNavigation.shared.openInLibrary(id, userInitiated: false)
                 }
             }
     }
