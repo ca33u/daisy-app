@@ -196,6 +196,47 @@ struct DaisyKeyCommandTests {
         #expect(kind("Дейзи, ответь коротко") == .write)
     }
 
+    /// Egor 01.11: «помоги мою задачу оформить промпт для агента…» said
+    /// into a field became a note. In a field it runs (`inFieldDefault`);
+    /// outside one, words no rule knows stay a note, as before — «помоги
+    /// маме в субботу» said on the desktop is not sent to a model.
+    @Test func wordsNoRuleKnowsRunOnlyInAField() {
+        let said = "помоги мою задачу оформить промпт для агента. Пока я проверяю сборку, подготовь мне сообщение"
+        #expect(kind(said) == nil)
+        #expect(kind("помоги маме в субботу") == nil)
+        #expect(kind("обсудили промптинг с командой") == nil)
+        #expect(DaisyKeyCommandParser.asksForPrompt(said), "the prompt rulebook is still picked when it runs")
+    }
+
+    @Test func courtesyBeforeTheCommandIsNotTheCommand() {
+        #expect(kind("пожалуйста, напиши Ане, что перенесём") == .write)
+        #expect(kind("Дейзи, можешь сократить", selection: true, editable: true) == .edit)
+        #expect(kind("Can you rewrite this", selection: true, editable: true) == .edit)
+        #expect(kind("please translate to German", selection: true, editable: false) == .answer)
+        #expect(DaisyKeyIntentParser.parse("Пожалуйста, запиши купить молоко") == .note("купить молоко"))
+        // Kept whole when it stays a note.
+        #expect(DaisyKeyIntentParser.parse("Давай встретимся в пятницу") == .unclear("Давай встретимся в пятницу"))
+        // A courtesy alone is still something said.
+        #expect(DaisyKeyIntentParser.parse("пожалуйста") == .unclear("пожалуйста"))
+    }
+
+    @Test func inAFieldTheKeyIsACommand() {
+        var field = DaisyKeyContext()
+        field.isEditable = true
+        field.element = AXElementBox(AXUIElementCreateSystemWide())
+        #expect(DaisyKeyCommandParser.inFieldDefault(field) == .write)
+        var selected = field
+        selected.selection = "текст письма"
+        #expect(DaisyKeyCommandParser.inFieldDefault(selected) == .answer, "a selection is a source, never replaced")
+        var secure = field
+        secure.isSecureField = true
+        #expect(DaisyKeyCommandParser.inFieldDefault(secure) == nil)
+        var readOnly = field
+        readOnly.isEditable = false
+        #expect(DaisyKeyCommandParser.inFieldDefault(readOnly) == nil)
+        #expect(DaisyKeyCommandParser.inFieldDefault(.empty) == nil)
+    }
+
     @Test func fieldsByApp() {
         #expect(DaisyKeyCommandParser.field(bundleID: "com.apple.mail") == .mail)
         #expect(DaisyKeyCommandParser.field(bundleID: "com.tinyspeck.slackmacgap") == .messenger)

@@ -107,7 +107,12 @@ nonisolated struct DaisyKeyContext: Sendable, Equatable {
             context.selection = marked
             context.selectionReadable = true
         }
+        // Takes text the way a dictation puts it in (a settable
+        // AXSelectedText) counts too: Telegram and Electron fields that
+        // don't expose a settable AXValue were taken for no field, and a
+        // command said there became a note (Egor 01.11).
         context.isEditable = isSettable(element, kAXValueAttribute as CFString)
+            || isSettable(element, kAXSelectedTextAttribute as CFString)
             || (role == "AXWebArea" && isSettable(element, kAXSelectedTextRangeAttribute as CFString))
         return context
     }
@@ -189,8 +194,9 @@ nonisolated enum DaisyKeyIntent: Equatable, Sendable {
     /// «note / запиши / запомни …» — the rest is the note, possibly
     /// opening with «в проект X».
     case note(String)
-    /// Anything the rules don't know: kept as a note (K-2 will offer to
-    /// run it as a command).
+    /// Anything the rules don't know: a command when the key was held in
+    /// a text field (`DaisyKeyCommandParser.inFieldDefault`), else kept as
+    /// a note with a button to run it.
     case unclear(String)
 }
 
@@ -210,13 +216,32 @@ nonisolated enum DaisyKeyIntentParser {
     static let projectOnlyOpenings: Set<[String]> = [["добавь", "заметку"], ["add", "a", "note"]]
     /// A name said before the command («Daisy, запиши …») is not part of it.
     static let addressWords: Set<String> = ["daisy", "дейзи", "дэйзи", "дейси", "дези"]
+    /// Nor is a courtesy before it: «пожалуйста, напиши…», «можешь
+    /// написать…», "can you write…" (Egor 01.11).
+    static let courtesyWords: Set<String> = [
+        "пожалуйста", "можешь", "можете", "давай", "слушай",
+        "please", "can", "could", "would", "you", "hey",
+    ]
+
+    /// The words of a request without the name and the courtesy before it,
+    /// as said (not normalized).
+    static func requestWords(_ text: String) -> [String] {
+        var words = text.split(whereSeparator: \.isWhitespace).map(String.init)
+        if let first = words.first, addressWords.contains(normalized(first)) { words.removeFirst() }
+        while let first = words.first, courtesyWords.contains(normalized(first)), words.count > 1 { words.removeFirst() }
+        return words
+    }
 
     /// nil when nothing was said (silence, a cough, punctuation only).
     static func parse(_ transcript: String) -> DaisyKeyIntent? {
-        var words = transcript.split(whereSeparator: \.isWhitespace).map(String.init)
-        if let first = words.first, addressWords.contains(normalized(first)) { words.removeFirst() }
-        let text = words.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        // What was said, without the name: kept whole when it stays a note
+        // («Давай встретимся в пятницу»). The courtesy is dropped only to
+        // find the opening («пожалуйста, запиши…»).
+        var spoken = transcript.split(whereSeparator: \.isWhitespace).map(String.init)
+        if let first = spoken.first, addressWords.contains(normalized(first)) { spoken.removeFirst() }
+        let text = spoken.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.contains(where: { $0.isLetter || $0.isNumber }) else { return nil }
+        let words = requestWords(transcript)
         for opening in noteOpenings where words.count >= opening.count {
             if zip(words, opening).allSatisfy({ normalized($0) == $1 }) {
                 let rest = words.dropFirst(opening.count).joined(separator: " ")
@@ -293,8 +318,7 @@ nonisolated enum DaisyKeyCommandParser {
     /// объясни этот промпт» works on a prompt, it doesn't write one
     /// (review 23.10).
     static func asksForPrompt(_ text: String) -> Bool {
-        var words = text.split(whereSeparator: \.isWhitespace).map { DaisyKeyIntentParser.normalized(String($0)) }
-        if let first = words.first, DaisyKeyIntentParser.addressWords.contains(first) { words.removeFirst() }
+        let words = DaisyKeyIntentParser.requestWords(text).map(DaisyKeyIntentParser.normalized)
         if let first = words.first, translateVerbs.contains(first) { return false }
         if answerOpenings.contains(where: { opening in words.count >= opening.count && zip(words, opening).allSatisfy { $0 == $1 } }) {
             return false
@@ -308,11 +332,11 @@ nonisolated enum DaisyKeyCommandParser {
     }
     static let promptFollowers: Set<String> = ["for", "to", "about", "that", "which", "of", "in", "on", "with", "describing"]
 
-    /// nil when the words aren't a command by these rules — they are
-    /// then kept as a note, with a button to run them anyway.
+    /// nil when the words aren't a command by these rules — in a text
+    /// field they then run anyway (`inFieldDefault`); elsewhere, and
+    /// during a meeting, they are kept as a note or a comment.
     static func kind(of text: String, hasSelection: Bool, selectionEditable: Bool) -> DaisyKeyCommandKind? {
-        var words = text.split(whereSeparator: \.isWhitespace).map { DaisyKeyIntentParser.normalized(String($0)) }
-        if let first = words.first, DaisyKeyIntentParser.addressWords.contains(first) { words.removeFirst() }
+        let words = DaisyKeyIntentParser.requestWords(text).map(DaisyKeyIntentParser.normalized)
         guard let first = words.first else { return nil }
         if answerOpenings.contains(where: { opening in words.count >= opening.count && zip(words, opening).allSatisfy { $0 == $1 } }) {
             return hasSelection ? .answer : nil
@@ -336,6 +360,18 @@ nonisolated enum DaisyKeyCommandParser {
             return hasSelection ? .answer : .write
         }
         return nil
+    }
+
+    /// What the key held in a text field means when the words follow no
+    /// rule (Egor 01.11, replacing «unclear → note» of the 21.10 spec
+    /// there): the Daisy key in a field is a command. Text goes in at the
+    /// caret; over a selection the selection is the source and the result
+    /// comes in the card, never replacing it. A note is asked for in
+    /// words («запиши…»), or said with no field focused. nil outside a
+    /// field, or in a password field.
+    static func inFieldDefault(_ context: DaisyKeyContext) -> DaisyKeyCommandKind? {
+        guard context.isEditable, !context.isSecureField, context.element != nil else { return nil }
+        return context.hasSelection ? .answer : .write
     }
 
     /// Where the text goes, for its shape, from the app in front.
@@ -1283,7 +1319,8 @@ final class DaisyKeyController {
             // A password field is never read from or written to: what was
             // said there is a note, whatever it sounds like.
             if !context.isSecureField,
-               let kind = DaisyKeyCommandParser.kind(of: words, hasSelection: context.hasSelection, selectionEditable: context.isEditable) {
+               let kind = DaisyKeyCommandParser.kind(of: words, hasSelection: context.hasSelection, selectionEditable: context.isEditable)
+                ?? DaisyKeyCommandParser.inFieldDefault(context) {
                 ImprovementStats.record(.daisyKeyIntent(kind == .edit ? .edit : .write))
                 await runCommand(kind, request: words, context: context, bundleID: hold?.bundleID, appName: hold?.appName,
                                  entryID: entryID, samples: samples, durationSec: durationSec, atPress: true)
