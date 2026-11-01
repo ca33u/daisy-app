@@ -77,7 +77,7 @@ enum CursorInsert {
         }
         try? await Task.sleep(for: .milliseconds(200))
         log.info("Inserting a step (\(trimmed.count) chars) into \(name, privacy: .public)")
-        DictationPaste.shared.insert(trimmed)
+        await DictationPaste.shared.insert(trimmed)
         return name
     }
 }

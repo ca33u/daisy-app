@@ -158,7 +158,7 @@ enum ServiceWiring {
             slot: .repasteLast,
             choice: settings.repasteLastHotkey,
             action: .toggle {
-                Task { @MainActor in DictationPaste.shared.repasteLast() }
+                Task { @MainActor in await DictationPaste.shared.repasteLast() }
             }
         )
     }

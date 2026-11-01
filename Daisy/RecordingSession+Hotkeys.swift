@@ -523,10 +523,10 @@ extension RecordingSession {
         }
         guard currentMode == .dictation else { return }
         guard status == .recording || status == .paused else { return }
-        // End-to-end dictation latency: hotkey release → paste. `stop()`
-        // runs the whole dictation branch inline (stopCapture → final
-        // Whisper pass → DictationPaste.handle → cleanup), so wrapping
-        // it measures exactly what the user feels. Same subsystem/
+        // Dictation latency: hotkey release → the text handed to
+        // `DictationPaste` (stopCapture → engine → hand-off → cleanup).
+        // The delivery itself runs on, without holding the session, and
+        // logs its own «Delivery N ms» — a slow app's wait is in there. Same subsystem/
         // category as the finalizePostStop spans so Instruments and
         // `log show --signpost` line up in one lane.
         let signposter = OSSignposter(subsystem: "app.essazanov.Daisy", category: "PostStop")

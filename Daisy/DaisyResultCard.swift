@@ -119,7 +119,7 @@ final class DaisyResultCard {
     func insert() {
         let text = current
         close()
-        DictationPaste.shared.insert(text)
+        Task { await DictationPaste.shared.insert(text) }
     }
 
     /// The inserted edit, undone with ⌘Z — only while the focus is still

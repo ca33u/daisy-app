@@ -172,7 +172,7 @@ final class DictationPaste {
         return transcript
     }
 
-    func handle(transcript: String) {
+    func handle(transcript: String) async {
         guard !transcript.isEmpty else {
             // Say WHY when we know why (2026-07-26). "Nothing was
             // transcribed" after a full-volume dictation reads like the
@@ -200,7 +200,7 @@ final class DictationPaste {
         // does the once-per-dictation bookkeeping (fixes counter,
         // history, voice-profile corpus); `deliver` puts the result where
         // the caret is. Both are MainActor-isolated same-actor calls.
-        deliver(prepare(transcript), context: .freshDictation)
+        await deliver(prepare(transcript), context: .freshDictation)
     }
 
     /// Where a `deliver` call came from — only a FRESH dictation shows
@@ -216,8 +216,8 @@ final class DictationPaste {
 
     /// Backlog 24 М-10: text that is not a dictation (a next step, the
     /// follow-up) by the same road — no dictation bookkeeping.
-    func insert(_ text: String) {
-        deliver(text, context: .step)
+    func insert(_ text: String) async {
+        await deliver(text, context: .step)
     }
 
     /// How far back the "paste last dictation" hotkey reaches.
@@ -234,7 +234,7 @@ final class DictationPaste {
     /// pasting is not a new dictation — running it through `prepare`
     /// again would double-count fixes and re-grow the profile corpus
     /// from the same words.
-    func repasteLast() {
+    func repasteLast() async {
         // Only the last hour (Egor, 2026-10-13): the history now keeps
         // days, and a hotkey that drops last week's paragraph at the
         // caret is a surprise, not a recovery.
@@ -248,7 +248,7 @@ final class DictationPaste {
             return
         }
         ImprovementStats.record(.dictationRepaste)
-        deliver(last.text, context: .repaste)
+        await deliver(last.text, context: .repaste)
     }
 
     /// Put `transcript` where the caret is: straight into the focused
@@ -256,7 +256,30 @@ final class DictationPaste {
     /// an auto-paste and a timed restore of the user's prior clipboard.
     /// Assumes the text is already corrected — callers that start from a
     /// raw dictation run `prepare` first.
-    private func deliver(_ transcript: String, context: DeliveryContext) {
+    private func deliver(_ transcript: String, context: DeliveryContext) async {
+        // One at a time: a delivery waits for a late write before it falls
+        // back, and a second one starting meanwhile would type into the
+        // middle of it.
+        let previous = deliveryInFlight
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            await self?.deliverNow(transcript, context: context)
+        }
+        deliveryInFlight = task
+        await task.value
+    }
+
+    private var deliveryInFlight: Task<Void, Never>?
+    /// Bumped by every delivery: a watcher from an earlier one stops, so
+    /// the same words delivered again aren't taken for a double landing.
+    private var deliveryGeneration = 0
+
+    private func deliverNow(_ transcript: String, context: DeliveryContext) async {
+        deliveryGeneration &+= 1
+        // The whole delivery, the wait for a slow app included — the
+        // release→paste line stops where the delivery begins.
+        let deliveryStart = Date()
+        defer { log.notice("Delivery \(Int(Date().timeIntervalSince(deliveryStart) * 1000), privacy: .public) ms") }
         // The tour's practice field takes a fresh dictation said into it.
         if context == .freshDictation, NSApp.isActive, let practiceSink, practiceSink(transcript) {
             return
@@ -268,11 +291,38 @@ final class DictationPaste {
         //    and secure fields often refuse, in which case we fall through
         //    to the clipboard route below.
         let axStart = Date()
-        let axOutcome = attemptAXInsert(transcript)
+        let attempt = await attemptAXInsert(transcript)
+        let axOutcome = attempt.outcome
         // `.notice` so it stays in the system log (latency audit 31.10,
         // item 0): the time and the branch, nothing about the app or text.
         log.notice("Accessibility \(Int(Date().timeIntervalSince(axStart) * 1000), privacy: .public) ms (\(axOutcome.logLabel, privacy: .public))")
         if axOutcome == .inserted { return }
+        // A write went out and didn't show up in time. If the person moved
+        // on meanwhile (another app, another field), typing or ⌘V would
+        // land there — as shortcuts, or in the next message — so the text
+        // only goes on the clipboard for them to paste.
+        var focusMoved = false
+        if let pending = attempt.pending {
+            AXUIElementSetMessagingTimeout(pending.element, 0.1)
+            let last = Self.axStringValue(of: pending.element)
+            AXUIElementSetMessagingTimeout(pending.element, 0)
+            if Self.holdsWrite(last, before: pending.before, text: transcript) {
+                // Late, not ignored: the miss counted a moment ago is undone.
+                if let app = pending.app { writeMemory.recordLate(Int(Date().timeIntervalSince(axStart) * 1000), for: app) }
+                log.notice("Dictation inserted via AX (showed up just before the fallback) — clipboard untouched")
+                return
+            }
+            focusMoved = !Self.stillFocused(pending.element)
+            if focusMoved { log.notice("Focus moved while waiting for the AX write — clipboard only, no typing") }
+        }
+        // From here the text goes in another way. A write that went out
+        // and may still land is watched, so a field that ends up holding
+        // it twice is noticed and the app remembered.
+        defer {
+            if let pending = attempt.pending, !focusMoved {
+                watchForLateWrite(pending, text: transcript, generation: deliveryGeneration)
+            }
+        }
 
         // 0b. Second-best path, and the one Electron / web views actually
         //     take: TYPE the text as synthetic key events, the way the
@@ -312,6 +362,7 @@ final class DictationPaste {
         // seeks — whereas a ⌘V with nothing focused does nothing. So
         // `.noFocusedField` keeps the clipboard route, restore and all.
         if !clipboardRoute,
+           !focusMoved,
            axOutcome == .refused,
            AXIsProcessTrusted(),
            attemptTypeInsert(transcript) {
@@ -346,7 +397,7 @@ final class DictationPaste {
 
         // 3. Try to auto-paste. If Accessibility permission is
         //    missing, fall back to the manual-paste toast.
-        let autoPaste = attemptAutoPaste()
+        let autoPaste = focusMoved ? .failed : attemptAutoPaste()
         let didAutoPaste = (autoPaste == .pasted)
         // 4. Schedule restore. Auto-paste already landed → the transcript
         //    only needs to outlive the keystroke (quick restore, prior
@@ -503,14 +554,37 @@ final class DictationPaste {
         return id == "com.apple.finder" || id == Bundle.main.bundleIdentifier
     }
 
+    /// A write that went out and didn't show up in time: what is needed to
+    /// look at the field again once the text has gone in another way.
+    private struct PendingWrite {
+        let element: AXUIElement
+        let before: String
+        /// Per app and version (`AXWriteMemory.key`); nil for Daisy's own
+        /// fields, which are never remembered.
+        let app: String?
+    }
+
+    private struct AXAttempt {
+        let outcome: AXInsertOutcome
+        var pending: PendingWrite? = nil
+    }
+
+    private let writeMemory = AXWriteMemory()
+
     /// Insert `text` at the caret of the system-wide focused UI element
     /// (replacing any selection) via the Accessibility API — no
     /// pasteboard involvement at all.
-    private func attemptAXInsert(_ text: String) -> AXInsertOutcome {
+    ///
+    /// Whether the write took is read back from the field, and a field
+    /// may show it late (Telegram — see AXWriteMemory), whatever the
+    /// write answered: success or an error. So any write that went out is
+    /// watched for a moment before it counts as refused, and how the app
+    /// behaved is remembered per app version.
+    private func attemptAXInsert(_ text: String) async -> AXAttempt {
         // Permission missing → we can't tell whether a field is focused,
         // so don't claim "nowhere"; take the clipboard path and let
         // `attemptAutoPaste` prompt for Accessibility as it always has.
-        guard AXIsProcessTrusted() else { return .refused }
+        guard AXIsProcessTrusted() else { return AXAttempt(outcome: .refused) }
 
         let systemWide = AXUIElementCreateSystemWide()
         var focusedRef: CFTypeRef?
@@ -518,7 +592,7 @@ final class DictationPaste {
             systemWide,
             kAXFocusedUIElementAttribute as CFString,
             &focusedRef
-        ) == .success, let focusedRef else { return .noFocusedField }
+        ) == .success, let focusedRef else { return AXAttempt(outcome: .noFocusedField) }
         // AXUIElement is a CoreFoundation type — an unconditional
         // downcast from CFTypeRef is the sanctioned bridge.
         let element = focusedRef as! AXUIElement
@@ -526,18 +600,19 @@ final class DictationPaste {
         // The app that owns the field — not the frontmost one, which a
         // floating panel (Spotlight, a non-activating window) leaves
         // pointing at the app behind it. Daisy's own fields are never
-        // polled or remembered: the poll below blocks the very main
-        // thread that would apply the write.
+        // remembered.
         var ownerPID: pid_t = 0
         AXUIElementGetPid(element, &ownerPID)
         let ownField = ownerPID == getpid()
-        let owner = ownField ? nil : NSRunningApplication(processIdentifier: ownerPID)?.bundleIdentifier
-        // An app whose write was a no-op twice this run: straight to the
-        // fallback, without the write, the read-back and the wait. Checked
-        // after the focus lookup, so «no field focused» still says so.
-        if let owner, Self.axNoOpStrikes[owner, default: 0] >= 2 {
+        let app = ownField ? nil : Self.memoryKey(pid: ownerPID)
+        let memory = app.map(writeMemory.entry(for:)) ?? AXWriteMemory.Entry()
+        // An app that ignored the write twice and never took one late:
+        // straight to the fallback, without the write, the read-back and
+        // the wait. Checked after the focus lookup, so «no field focused»
+        // still says so.
+        if app != nil, AXWriteMemory.skipsWrite(memory) {
             log.notice("AX insert skipped — this app ignored it before; typing instead")
-            return .refused
+            return AXAttempt(outcome: .refused)
         }
 
         // Only proceed when the element explicitly supports setting the
@@ -548,7 +623,10 @@ final class DictationPaste {
             element,
             kAXSelectedTextAttribute as CFString,
             &settable
-        ) == .success, settable.boolValue else { return .refused }
+        ) == .success, settable.boolValue else {
+            log.notice("AX insert refused — the field doesn't take a write")
+            return AXAttempt(outcome: .refused)
+        }
 
         // Read the field's value BEFORE the write so we can tell whether
         // the write actually took. On macOS 27 Claude (Electron) and
@@ -565,71 +643,120 @@ final class DictationPaste {
             kAXSelectedTextAttribute as CFString,
             text as CFString
         )
-        guard result == .success else { return .refused }
 
-        // Verify by value change, and LOG which branch we took — the
-        // next field report must be able to say, unambiguously, whether
-        // this engaged in Claude / Facebook or slipped through:
-        //   • readable + changed   → verified insert, trust it.
-        //   • readable + unchanged → the web/Electron no-op → refuse, so
-        //                            the caller falls back to clipboard.
-        //   • unreadable           → can't disprove success; keep the old
-        //                            trust rather than regress native
-        //                            fields that expose no AXValue. If a
-        //                            report shows THIS branch for a field
-        //                            that lost text, the next lever is to
-        //                            force clipboard for web/Electron.
-        let after = Self.axStringValue(of: element)
-        if let before, let after {
-            if after == before, !text.isEmpty {
-                // Some native apps take the write a beat later: Telegram
-                // (31.10.2026) showed the old value on the immediate read,
-                // the fallback typed the text again, and the field held it
-                // twice. Look again for a moment before calling it a no-op.
-                if !ownField, let waited = Self.lateChange(of: element, from: before, holding: text, within: Self.lateApplyWindow) {
-                    log.notice("Dictation inserted via AX (applied after \(waited, privacy: .public) ms) — clipboard untouched")
-                    return .inserted
-                }
-                // A no-op twice stays one for this app: from then on the
-                // write is skipped. Not counted when the field already held
-                // the text (a selection replaced by the same words reads as
-                // unchanged).
-                if let owner, !before.contains(text) { Self.axNoOpStrikes[owner, default: 0] += 1 }
-                log.warning("AX write reported success but the field is unchanged — clipboard + ⌘V fallback (web/Electron no-op)")
-                return .refused
+        // Unreadable field: nothing to verify against. A success keeps the
+        // old trust rather than regress native fields that expose no
+        // AXValue; an error is taken at its word.
+        guard let before else {
+            if result == .success {
+                log.notice("Dictation inserted via AX (unverified — field exposes no readable value) — clipboard untouched")
+                return AXAttempt(outcome: .inserted)
             }
-            log.notice("Dictation inserted via AX (verified by value change) — clipboard untouched")
-            return .inserted
+            log.notice("AX write returned error \(result.rawValue, privacy: .public) on a field with no readable value")
+            return AXAttempt(outcome: .refused)
         }
-        log.notice("Dictation inserted via AX (unverified — field exposes no readable value) — clipboard untouched")
-        return .inserted
+
+        // Verify by the text showing up — right away, or within the wait
+        // this app gets. A change without the text (the person typing, a
+        // chat clearing itself) is not taken for the write landing.
+        let reply = result == .success ? "success" : "error \(result.rawValue)"
+        let now = Self.axStringValue(of: element)
+        // Right after a success any change is the write: a field may store
+        // the text a little differently (Word's \r for a new line,
+        // autocorrect, a length cap). An error, or a change later on, has
+        // to show the text, so the person typing or a chat clearing
+        // itself isn't taken for it.
+        let changed = now.map { $0 != before } ?? false
+        if text.isEmpty || (result == .success && changed) || Self.holdsWrite(now, before: before, text: text) {
+            if let app { writeMemory.recordLanded(for: app) }
+            log.notice("Dictation inserted via AX (verified by value change, \(reply, privacy: .public)) — clipboard untouched")
+            return AXAttempt(outcome: .inserted)
+        }
+        let wait = AXWriteMemory.wait(for: memory)
+        if let waited = await Self.lateChange(of: element, from: before, holding: text, within: wait) {
+            if let app { writeMemory.recordLate(waited, for: app) }
+            log.notice("Dictation inserted via AX (applied after \(waited, privacy: .public) ms, \(reply, privacy: .public)) — clipboard untouched")
+            return AXAttempt(outcome: .inserted)
+        }
+        // Not counted when the field already held the text (a selection
+        // replaced by the same words reads as unchanged).
+        if let app, !before.contains(text) { writeMemory.recordIgnored(for: app) }
+        log.warning("AX write (\(reply, privacy: .public)) didn't show up within \(Int(wait * 1000), privacy: .public) ms — falling back")
+        return AXAttempt(outcome: .refused, pending: PendingWrite(element: element, before: before, app: app))
     }
 
-    /// Per app (bundle ID): how many times an AX write reported success and
-    /// the field never changed (Electron, web views). At two, that app goes
-    /// straight to typing for the rest of this run. In memory only: an
-    /// update of the app may fix it.
-    private static var axNoOpStrikes: [String: Int] = [:]
+    /// The app that owns a field, at its version: `bundleID|version`.
+    private static func memoryKey(pid: pid_t) -> String? {
+        guard let running = NSRunningApplication(processIdentifier: pid),
+              let id = running.bundleIdentifier else { return nil }
+        let info = running.bundleURL.flatMap(Bundle.init(url:))?.infoDictionary
+        let version = [info?["CFBundleShortVersionString"], info?["CFBundleVersion"]]
+            .compactMap { $0 as? String }.joined(separator: " ")
+        return AXWriteMemory.key(bundleID: id, version: version.isEmpty ? nil : version)
+    }
 
-    /// How long a field gets to show an AX write it took late.
-    static let lateApplyWindow: TimeInterval = 0.25
+    /// The field moved off `before` and holds the text — line breaks and
+    /// the ends' whitespace as the field may store them.
+    private static func holdsWrite(_ value: String?, before: String, text: String) -> Bool {
+        guard let value, value != before else { return false }
+        let needle = AXWriteMemory.comparable(text)
+        return needle.isEmpty || AXWriteMemory.comparable(value).contains(needle)
+    }
+
+    /// The system-wide focus is still on `element`. When the focus can't
+    /// be read (a busy app timing out), the app in front decides: the
+    /// field's own app still in front counts as staying.
+    private static func stillFocused(_ element: AXUIElement) -> Bool {
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, 0.1)
+        var ref: CFTypeRef?
+        if AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &ref) == .success,
+           let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() {
+            return CFEqual(ref, element)
+        }
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        return pid != 0 && NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+    }
 
     /// Milliseconds until the element's value moved off `before` AND holds
-    /// `text`, polling every 25 ms up to `window`; nil if it never did. A
-    /// change without the text (the person typing, a chat clearing itself)
-    /// is not taken for the write landing. Each read is capped at 100 ms,
-    /// so a busy app can't hold the main thread past the window.
-    private static func lateChange(of element: AXUIElement, from before: String, holding text: String, within window: TimeInterval) -> Int? {
+    /// `text`, looking every 25 ms up to `window`; nil if it never did.
+    /// Sleeps between reads, so the main thread stays free (and Daisy's
+    /// own fields can apply the write meanwhile); each read is capped at
+    /// 100 ms, so a busy app can't hold it past the window.
+    private static func lateChange(of element: AXUIElement, from before: String, holding text: String, within window: TimeInterval) async -> Int? {
         AXUIElementSetMessagingTimeout(element, 0.1)
         defer { AXUIElementSetMessagingTimeout(element, 0) }
         let start = Date()
-        while Date().timeIntervalSince(start) < window {
-            usleep(25_000)
-            if let now = axStringValue(of: element), now != before, now.contains(text) {
+        while Date().timeIntervalSince(start) < window, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(25))
+            if holdsWrite(axStringValue(of: element), before: before, text: text) {
                 return Int(Date().timeIntervalSince(start) * 1000)
             }
         }
         return nil
+    }
+
+    /// After the fallback typed or pasted the text: look at the field
+    /// twice more. Holding it twice means the write landed after all —
+    /// the app is remembered as slow, so next time Daisy waits for it
+    /// instead of typing. Doesn't hold up the delivery.
+    private func watchForLateWrite(_ pending: PendingWrite, text: String, generation: Int) {
+        Task { @MainActor [weak self] in
+            for delay in [800, 1200] {
+                try? await Task.sleep(for: .milliseconds(delay))
+                guard let self, self.deliveryGeneration == generation else { return }
+                AXUIElementSetMessagingTimeout(pending.element, 0.1)
+                let now = Self.axStringValue(of: pending.element)
+                AXUIElementSetMessagingTimeout(pending.element, 0)
+                guard let now else { return }
+                if AXWriteMemory.landedTwice(before: pending.before, after: now, text: text) {
+                    if let app = pending.app { self.writeMemory.recordLandedAfterFallback(for: app) }
+                    self.log.error("Dictation landed twice — the AX write came in after the fallback; this app now gets longer to take it")
+                    return
+                }
+            }
+        }
     }
 
     /// Best-effort read of an element's text value, for the write-took-

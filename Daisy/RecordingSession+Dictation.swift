@@ -352,12 +352,16 @@ extension RecordingSession {
         // Words lost to the engine: the pill already says so — not also
         // «nothing was transcribed», which reads as silence.
         if !couldNotTranscribe {
-            DictationPaste.shared.handle(transcript: transcriptText)
             // The drop lands with the words — not over a recording, whose
             // mic would hear it, and not for an empty dictation.
-            if settings.recordingSoundsEnabled, !dictatesOverLiveRecording,
-               !transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                SoundEffects.playDictationDone()
+            let playsDrop = settings.recordingSoundsEnabled && !dictatesOverLiveRecording
+                && !transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            // Not awaited: a delivery may wait for a slow app to show the
+            // text, and the session must be idle meanwhile, or the next
+            // press of the key would be dropped.
+            Task {
+                await DictationPaste.shared.handle(transcript: transcriptText)
+                if playsDrop { SoundEffects.playDictationDone() }
             }
         }
         if let dir = sessionDirectory {

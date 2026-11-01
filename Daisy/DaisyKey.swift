@@ -1461,7 +1461,7 @@ final class DaisyKeyController {
         let selectionStill = kind != .edit || context.element.flatMap(DaisyKeyContext.currentSelection(in:)) == context.selection
         let used = Self.usedLine(selection: role != .none, appName: appName)
         if insertable, selectionStill, let element = context.element, DaisyKeyContext.focusedElement() == element {
-            DictationPaste.shared.insert(result)
+            await DictationPaste.shared.insert(result)
             DaisyCommandHistory.shared.setOutcome("inserted", for: entryID)
             // An edit is a proposal: the card keeps the original, with
             // «Вернуть» and «Показать изменения» (research 21.10).
