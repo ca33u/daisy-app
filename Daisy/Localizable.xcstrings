@@ -23455,12 +23455,12 @@
         }
       }
     },
-    "The mic went silent" : {
+    "Mic went silent, recording paused" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Микрофон замолчал"
+            "value" : "Микрофон замолчал, запись на паузе"
           }
         }
       }

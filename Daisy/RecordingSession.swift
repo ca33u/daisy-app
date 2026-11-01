@@ -2874,7 +2874,7 @@ final class RecordingSession {
             // and two prompts about one event is worse than one.
             guard reason != .silenceAlreadyAnnounced else { return }
             let message = String(
-                localized: "The mic went silent"
+                localized: "Mic went silent, recording paused"
             )
             WidgetBubbleCenter.shared.present(
                 WidgetBubbleContent(text: message, tag: "mic-fell-to-paused"),
