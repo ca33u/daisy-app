@@ -45,11 +45,32 @@ struct WhatsNewPresenter: ViewModifier {
     let settings: AppSettings
     let tapPermissionShowing: Bool
     @Bindable private var nav = AppNavigation.shared
+    /// `nav.showsWhatsNew`, once the window has no other sheet: asked for
+    /// over Settings (whose sheet closes for it), it comes up after.
+    @State private var presented = false
+    @State private var waiting: Task<Void, Never>?
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $nav.showsWhatsNew) {
+            .sheet(isPresented: Binding(
+                get: { presented },
+                set: { shown in
+                    presented = shown
+                    if !shown { nav.showsWhatsNew = false }
+                }
+            )) {
                 WhatsNewSheet(settings: settings)
+            }
+            .onChange(of: nav.showsWhatsNew, initial: true) { _, wanted in
+                waiting?.cancel()
+                guard wanted else {
+                    presented = false
+                    return
+                }
+                waiting = Task { @MainActor in
+                    guard await SheetQueue.waitUntilClear(), nav.showsWhatsNew else { return }
+                    presented = true
+                }
             }
             .task(id: settings.hasShownFirstRun) {
                 // The process-tap question goes first: when it will be asked,
@@ -58,14 +79,21 @@ struct WhatsNewPresenter: ViewModifier {
                 guard !TestHost.isActive,
                       WhatsNew.shouldOpen(hasShownFirstRun: settings.hasShownFirstRun),
                       !ProcessTapPermission.shouldAsk else { return }
-                // Let the window settle first.
+                // Let the window settle first; a Settings link that brought
+                // Daisy up goes first.
                 try? await Task.sleep(for: .seconds(1.2))
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, await SheetQueue.waitForNoPanel(),
+                      // Opened from Help meanwhile: seen already.
+                      WhatsNew.shouldOpen(hasShownFirstRun: settings.hasShownFirstRun) else { return }
                 nav.showsWhatsNew = true
             }
             .onChange(of: tapPermissionShowing) { _, showing in
                 if !showing, !TestHost.isActive, WhatsNew.shouldOpen(hasShownFirstRun: settings.hasShownFirstRun) {
-                    nav.showsWhatsNew = true
+                    Task { @MainActor in
+                        guard await SheetQueue.waitForNoPanel(),
+                              WhatsNew.shouldOpen(hasShownFirstRun: settings.hasShownFirstRun) else { return }
+                        nav.showsWhatsNew = true
+                    }
                 }
             }
     }

@@ -18,7 +18,6 @@ struct SettingsFrameTests {
     @Test func eightTabsInPlanOrder() {
         #expect(SettingsTab.allCases == [.general, .shortcuts, .meetings, .dictation,
                                          .ai, .library, .connections, .privacy])
-        #expect(SettingsPane.tabs == SettingsTab.allCases.map { .tab($0) })
     }
 
     @Test func oldRawValuesLandOnTheirNewTabs() {
@@ -46,16 +45,17 @@ struct SettingsFrameTests {
         let nav = AppNavigation.shared
 
         nav.openInSettings(.general, row: .layoutFixer)
-        #expect(nav.settingsPane == .tab(.dictation))
+        #expect(nav.settingsTab == .dictation)
         #expect(nav.pendingSettingsRow == .layoutFixer)
-        #expect(sandbox.opened == [SettingsWindow.id])
+        #expect(nav.panel == .settings)
+        #expect(sandbox.opened == ["main"])
 
         nav.openInSettings(.connections, row: .notion)
-        #expect(nav.settingsPane == .tab(.connections))
+        #expect(nav.settingsTab == .connections)
         #expect(nav.pendingConnectionsSection == .autoRouting)
 
         nav.openInSettings(.meetings)
-        #expect(nav.settingsPane == .tab(.meetings))
+        #expect(nav.settingsTab == .meetings)
         #expect(nav.pendingSettingsRow == nil)
     }
 

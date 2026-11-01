@@ -6,9 +6,10 @@
 //  MCP server, auto-start, the calendar, the evening summaries…) is
 //  applied the moment it changes. Until 31.10.2026 this was a chain of
 //  `.onChange` handlers on MainView, which lives only as long as the main
-//  window — fine while Settings were a page of it. With Settings in their
-//  own window the main one can be closed while they are changed, and the
-//  change never took effect (review of the settings window, H1). Started
+//  window — fine while Settings were a page of it. With Settings in a
+//  window of their own (31.10–01.11) the main one could be closed while
+//  they changed, and the change never took effect (review H1); a setting
+//  changed by a link, a menu or an MCP client can do the same. Started
 //  once at launch from DaisyApp.init, right after `ServiceWiring.applyAll`,
 //  and alive until quit: each change is applied exactly once, whichever
 //  windows are open.

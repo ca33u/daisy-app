@@ -142,10 +142,11 @@ struct DaisyApp: App {
         // extend up to the title bar (Mail / Notes / Finder pattern),
         // and toolbar items live in the detail-pane portion only.
         .commands {
-            // «Daisy → Settings…» ⌘, — the Settings window (31.10.2026).
-            // The app has no SwiftUI `Settings` scene, so the item is ours.
+            // «Daisy → Settings…» ⌘, — the Settings sheet of the main
+            // window (01.11.2026). The app has no SwiftUI `Settings`
+            // scene, so the item is ours.
             CommandGroup(replacing: .appSettings) {
-                SettingsWindowMenuItem(title: "Settings…", shortcut: ",") {
+                SettingsMenuItem(title: "Settings…", shortcut: ",") {
                     AppNavigation.shared.openSettings()
                 }
             }
@@ -176,11 +177,11 @@ struct DaisyApp: App {
                     LogReporter.exportLogs(settings: settings)
                 }
             }
-            // «About Daisy» opens the Settings window on its About page
-            // (Egor, 31.10.2026) — version, What's New, links, licenses,
+            // «About Daisy» opens the About sheet of the main window
+            // (Egor, 01.11.2026) — version, What's New, links, licenses,
             // the studio — instead of the system's About panel.
             CommandGroup(replacing: .appInfo) {
-                SettingsWindowMenuItem(title: "About Daisy") {
+                SettingsMenuItem(title: "About Daisy") {
                     AppNavigation.shared.openAbout()
                 }
                 // "Check for Updates…" sits in the App menu directly
@@ -222,17 +223,6 @@ struct DaisyApp: App {
                 .disabled(AppNavigation.shared.section != .home)
             }
         }
-
-        // Settings and About, over the main window (SettingsWindow.swift).
-        // Opened only on demand — never at launch, never restored — and
-        // kept out of the Window menu: ⌘, and «About Daisy» reach it.
-        Window("Settings", id: SettingsWindow.id) {
-            SettingsWindowView(settings: settings)
-        }
-        .windowResizability(.contentMinSize)
-        .defaultPosition(.center)
-        .defaultSize(width: 920, height: 680)
-        .commandsRemoved()
 
         // Menu-bar icon — two MenuBarExtra scenes, one inserted at a time
         // by "Compact menu bar":
@@ -401,10 +391,11 @@ private struct TourAgainMenuItem: View {
     }
 }
 
-/// «Daisy → Settings…» / «About Daisy»: the Settings window, through this
-/// item's own `openWindow` — lent before the call, so the item works even
-/// before any window has appeared to lend one (a launch to the menu bar).
-private struct SettingsWindowMenuItem: View {
+/// «Daisy → Settings…» / «About Daisy»: the Settings or About sheet of the main
+/// window brought up through this item's own `openWindow` — lent before
+/// the call, so the item works even before any window has appeared to
+/// lend one (a launch to the menu bar).
+private struct SettingsMenuItem: View {
     let title: LocalizedStringKey
     var shortcut: KeyEquivalent?
     let open: @MainActor () -> Void

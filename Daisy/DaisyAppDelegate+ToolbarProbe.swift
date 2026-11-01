@@ -6,8 +6,8 @@
 //  screen nor anyone's clicks (25.09): the app opens Dictation, sets its
 //  own window to several widths and writes what the toolbar holds at
 //  each to /tmp/daisy-probe/. (The Settings half of it went with the
-//  Settings tabs, which left the toolbar for the Settings window's
-//  sidebar on 31.10.2026.)
+//  Settings tabs, which left the toolbar for a sidebar of their own on
+//  31.10.2026.)
 //
 //    -daisy.debugToolbarProbe 1
 //

@@ -82,7 +82,7 @@ struct ContentView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-                // Links from the popover open the Settings window.
+                // Links from the popover bring the main window up for Settings.
                 .modifier(LendsWindowOpener())
             Divider()
             systemAudioBanner

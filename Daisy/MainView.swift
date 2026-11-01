@@ -4,9 +4,9 @@
 //
 //  Primary UI. NavigationSplitView with the content sections in the
 //  sidebar (Home / Library / Dictation / My style) and the matching
-//  content in the detail pane. Settings and About open their own window
-//  (SettingsWindow.swift, 31.10.2026); the two rows at the foot of the
-//  sidebar are buttons that bring it up.
+//  content in the detail pane. Settings and About are sheets of this
+//  window (SettingsPanel.swift, 01.11.2026); the two rows at the foot of
+//  the sidebar are buttons that bring them up.
 //
 //  Section selection is held in `AppNavigation.shared` so that other
 //  surfaces (menu bar popover, floating widget) can route to a section
@@ -28,8 +28,8 @@ enum MainSection: String, Hashable, CaseIterable, Identifiable, Sendable {
 
     /// Destinations that hold the user's own material. These fill the
     /// sidebar from the top. Settings and About, pinned under them, are
-    /// not sections since 31.10.2026: they open the Settings window
-    /// (`SidebarUtility`).
+    /// not sections since 31.10.2026: they open the Settings and About
+    /// sheets of this window (`SidebarUtility`).
     static var primaryCases: [MainSection] { allCases }
 
     var title: String {
@@ -71,8 +71,9 @@ enum MainSection: String, Hashable, CaseIterable, Identifiable, Sendable {
 /// under Home/Library/Notes they had the same weight as the content and
 /// pushed the recording capsule further from the eye; bottom-anchored is
 /// also where macOS users look for them (Mail, Music, Xcode). Since
-/// 31.10.2026 they are buttons that open the Settings window — on the
-/// page it was left on, or on About — instead of main-window sections.
+/// 31.10.2026 they are buttons instead of main-window sections; since
+/// 01.11 they open the Settings sheet (on the tab it was left on) and the
+/// About sheet of this window.
 enum SidebarUtility: CaseIterable, Identifiable {
     case settings, about
 
@@ -88,7 +89,7 @@ enum SidebarUtility: CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .settings: "gearshape"
-        case .about:    SettingsPane.about.systemImage
+        case .about:    "info.circle"
         }
     }
 
@@ -211,38 +212,17 @@ final class AppNavigation {
     /// clears it on appear / when it observes the change. nil means
     /// "let the view pick its own default" — usually the first row.
     var pendingLibrarySelection: StoredSession.ID?
-    /// The page of the Settings window (SettingsWindow.swift). Kept here
-    /// rather than in the window, so a link sets it whether or not the
-    /// window is open, and ⌘, reopens on the page it was left on — the
-    /// macOS convention. Set through `openInSettings` / `openAbout`.
-    var settingsPane: SettingsPane = .tab(.general)
-    /// The Settings window is the key window; the main window is open
-    /// (MainView on screen). Together they pick the one window a toast
-    /// shows in (`toastsInSettings`, ToastOverlay).
-    var settingsWindowIsKey = false
-    /// MainView's branches on screen. A count, not a flag: the onboarding
-    /// ↔ shell swap fires one branch's disappear and the other's appear in
-    /// no promised order.
-    private(set) var mainWindowViews = 0
-    var mainWindowIsOpen: Bool { mainWindowViews > 0 }
-
-    func mainWindowViewAppeared() { mainWindowViews += 1 }
-    func mainWindowViewDisappeared() { mainWindowViews = max(0, mainWindowViews - 1) }
-
-    /// Toasts go to Settings while it is the key window, or when the main
-    /// window is closed; to the main window otherwise — never both.
-    var toastsInSettings: Bool {
-        Self.toastsInSettings(settingsIsKey: settingsWindowIsKey, mainIsOpen: mainWindowIsOpen)
-    }
-
-    nonisolated static func toastsInSettings(settingsIsKey: Bool, mainIsOpen: Bool) -> Bool {
-        settingsIsKey || !mainIsOpen
-    }
-
-    /// Bumped by every link into Settings, so the window drops a search
+    /// The sheet of the main window — Settings or About — if any
+    /// (SettingsPanel.swift).
+    var panel: MainPanel?
+    /// The tab of the Settings sheet. Kept here rather than in the sheet,
+    /// so a link sets it whether or not the sheet is up, and ⌘, reopens on
+    /// the tab it was left on — the macOS convention.
+    var settingsTab: SettingsTab = .general
+    /// Bumped by every link into Settings, so the panel drops a search
     /// in progress even when the link's page is the one already open.
     private(set) var settingsLinkCount = 0
-    /// One-shot row request riding with `settingsPane`: the form of the
+    /// One-shot row request riding with `settingsTab`: the form of the
     /// row's tab takes it, scrolls to it and lights it
     /// (`settingsScrollTarget`, SettingsRows.swift).
     var pendingSettingsRow: SettingsRow?
@@ -257,8 +237,11 @@ final class AppNavigation {
     /// appear; the section scrolls to the matching anchor.
     var pendingConnectionsSection: ConnectionSection?
     /// «What's New in Daisy» is on screen (WhatsNew.swift) — set after an
-    /// update, or from the Help menu.
-    var showsWhatsNew = false
+    /// update, or from the Help menu. One sheet at a time: a Settings or
+    /// About sheet steps aside for it.
+    var showsWhatsNew = false {
+        didSet { if showsWhatsNew { panel = nil } }
+    }
     private init() {}
 
     /// Convenience for `Open this session in Library`. Sets both
@@ -279,11 +262,11 @@ final class AppNavigation {
         section = .library
     }
 
-    /// Opens a window scene by id (`"main"`, `SettingsWindow.id`). Lent
-    /// by the SwiftUI views that own an `openWindow` action — the main
-    /// window, the Settings window, the menu-bar popover, the widget —
-    /// because that action is the only way to bring back a `Window`
-    /// scene once it was closed. Tests swap it for a recorder.
+    /// Opens the main window's scene (`"main"`). Lent by the SwiftUI views
+    /// that own an `openWindow` action — the main window, the menu-bar
+    /// popover and compact menu, the widget, the app-menu items — because
+    /// that action is the only way to bring back a `Window` scene once it
+    /// was closed. Tests swap it for a recorder.
     @ObservationIgnored var windowOpener: (@MainActor (String) -> Void)?
 
     func lendWindowOpener(_ openWindow: OpenWindowAction) {
@@ -293,44 +276,49 @@ final class AppNavigation {
         }
     }
 
-    /// The Settings window, over whatever is in front, on the page it
-    /// was left on. «Daisy → Settings…» ⌘,, the main sidebar's Settings
-    /// row, the menu bar and the widget.
+    /// The Settings sheet of the main window, on the tab it was left on.
+    /// «Daisy → Settings…» ⌘,, the main sidebar's Settings row, the menu
+    /// bar and the widget; the main window comes up first if it is closed
+    /// or behind another app.
     func openSettings() {
-        present(SettingsWindow.id)
+        present(.settings)
     }
 
-    /// The Settings window on About: «About Daisy» in the app menu and
-    /// the main sidebar's About row.
+    /// One sheet at a time: «What's New» gives way to the one asked for;
+    /// any other sheet is waited out (MainPanelSheet).
+    private func present(_ sheet: MainPanel) {
+        if showsWhatsNew { showsWhatsNew = false }
+        panel = sheet
+        showMainWindow()
+    }
+
+    /// The About sheet: «About Daisy» in the app menu and the main
+    /// sidebar's About row.
     func openAbout() {
-        settingsLinkCount &+= 1
-        settingsPane = .about
-        present(SettingsWindow.id)
+        present(.about)
     }
 
-    /// The main window brought up — for what lives there and is reached
-    /// from Settings: What's New, the tour, My style.
+    /// Escape or the ×.
+    func closePanel() {
+        panel = nil
+    }
+
+    /// The main window brought up (or back, once closed).
     func showMainWindow() {
-        present("main")
-    }
-
-    private func present(_ id: String) {
         if let windowOpener {
-            windowOpener(id)
+            windowOpener("main")
             return
         }
-        // Nothing lent an opener yet (no SwiftUI window has appeared):
+        // Nothing lent an opener yet (no SwiftUI view has appeared):
         // surface the window if AppKit still has it.
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.windows
-            .first { $0.identifier?.rawValue.hasPrefix(id) == true }?
-            .makeKeyAndOrderFront(nil)
+        Self.mainWindow?.makeKeyAndOrderFront(nil)
     }
 
     /// Convenience for `Open Settings → <tab>`. FirstRun + onboarding
     /// CTAs use this so the user lands exactly where the action they
     /// just read about is configured, not on the default General tab.
-    /// Opens the Settings window on that tab.
+    /// Opens the Settings sheet on that tab, on the main window.
     ///
     /// With `row`, the tab is the row's own (a row knows where it lives)
     /// and the page scrolls to it and lights it for a couple of seconds.
@@ -338,11 +326,11 @@ final class AppNavigation {
         if let section = row?.connectionSection { pendingConnectionsSection = section }
         pendingSettingsRow = row
         settingsLinkCount &+= 1
-        settingsPane = .tab(row?.tab ?? tab)
-        present(SettingsWindow.id)
+        settingsTab = row?.tab ?? tab
+        openSettings()
     }
 
-    /// A link nobody clicked (a refused start): the Settings window comes
+    /// A link nobody clicked (a refused start): the Settings sheet comes
     /// up only while Daisy is the active app, so it never lands over what
     /// the person is typing in elsewhere. Callers offer the link on a
     /// button too.
@@ -351,8 +339,8 @@ final class AppNavigation {
         openInSettings(tab, row: row)
     }
 
-    /// The main window if AppKit still has it — never the Settings
-    /// window, which can become main as well.
+    /// The main window if AppKit still has it, found by its scene id —
+    /// not any other window that can become main.
     static var mainWindow: NSWindow? {
         NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true && $0.canBecomeMain }
     }
@@ -429,10 +417,13 @@ struct MainView: View {
                     .daisyWindowBackground(Color.daisyBgPrimary)
             }
         }
-        .modifier(ToastOverlay(inSettings: false))
+        // Settings and About, sheets of this window (SettingsPanel.swift),
+        // with the window's toasts.
+        .modifier(MainPanelSheet(
+            settings: settings,
+            showsTour: OnboardingTourController.showsTour(hasShownFirstRun: settings.hasShownFirstRun,
+                                                          isActive: tour.isActive)))
         .modifier(LendsWindowOpener())
-        .onAppear { nav.mainWindowViewAppeared() }
-        .onDisappear { nav.mainWindowViewDisappeared() }
         // Review 24.09: the process tap's permission, asked on Daisy's own
         // sheet — after onboarding, before any call.
         .sheet(isPresented: $showsTapPermission) { TapPermissionSheet() }
@@ -442,6 +433,8 @@ struct MainView: View {
             // «What's New» opened from the Help menu is already up: one
             // sheet at a time; the question waits for the next launch.
             if ProcessTapPermission.shouldAsk, !nav.showsWhatsNew {
+                // A Settings link that brought Daisy up goes first.
+                guard await SheetQueue.waitForNoPanel(), !nav.showsWhatsNew else { return }
                 showsTapPermission = true
             } else {
                 ProcessTapPermission.recheckIfDenied()
@@ -469,9 +462,9 @@ struct MainView: View {
             if sidebarSelection != new { sidebarSelection = new }
         }
         // A changed setting is applied by `SettingsWiring`, which lives as
-        // long as the app — Settings has its own window, so this one can be
-        // closed while they change. What stays here is the main window's
-        // own: the Daisy-key introduction and the Library auto-open.
+        // long as the app, whichever windows are open. What stays here is
+        // the main window's own: the Daisy-key introduction, the Library
+        // auto-open and the MCP client refresh.
         .modifier(MainWindowWiring(settings: settings, session: session))
     }
 
@@ -824,8 +817,8 @@ struct MainView: View {
     /// A bottom-pinned row, hand-drawn because it lives outside
     /// `List(selection:)`. Mirrors the List row's geometry and colours so
     /// the two groups read as one sidebar: same ink, same 8pt outer inset.
-    /// A button, never selected: it opens the Settings window over this
-    /// one (31.10.2026).
+    /// A button, never selected: it opens the Settings or About sheet of
+    /// this window (01.11.2026).
     private func utilityRow(_ utility: SidebarUtility) -> some View {
         Button {
             utility.open()

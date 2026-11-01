@@ -4,7 +4,7 @@
 //
 //  A changed setting is applied by `SettingsWiring`, which lives as long
 //  as the app — not by the main window's `.onChange` handlers, gone with
-//  the window while the Settings window stays open (review H1, 31.10).
+//  the window while Settings could stay open (review H1, 31.10).
 //
 
 import Foundation
@@ -106,31 +106,5 @@ struct SettingsWiringTests {
         #expect(!main.contains("ServiceWiring.apply"))
         let app = try String(contentsOf: root.appendingPathComponent("Daisy/DaisyApp.swift"), encoding: .utf8)
         #expect(app.contains("SettingsWiring.start(settings: s, session: sess)"))
-    }
-
-    // MARK: - Toasts in one window
-
-    /// The onboarding ↔ shell swap: the new branch may appear before the
-    /// old one disappears, or after — the main window is open either way.
-    @Test func theMainWindowStaysOpenThroughABranchSwap() {
-        let nav = AppNavigation.shared
-        let before = nav.mainWindowViews
-        defer { #expect(nav.mainWindowViews == before) }
-
-        nav.mainWindowViewAppeared()          // shell
-        nav.mainWindowViewAppeared()          // tour appears first…
-        nav.mainWindowViewDisappeared()       // …then the shell goes
-        #expect(nav.mainWindowIsOpen)
-        nav.mainWindowViewDisappeared()       // the tour goes (window closed)
-        #expect(nav.mainWindowViews == before)
-    }
-
-    @Test func aToastShowsInExactlyOneWindow() {
-        // Settings key → there; otherwise the main window while it is open.
-        #expect(AppNavigation.toastsInSettings(settingsIsKey: true, mainIsOpen: true))
-        #expect(!AppNavigation.toastsInSettings(settingsIsKey: false, mainIsOpen: true))
-        // Main window closed → Settings, key or not.
-        #expect(AppNavigation.toastsInSettings(settingsIsKey: false, mainIsOpen: false))
-        #expect(AppNavigation.toastsInSettings(settingsIsKey: true, mainIsOpen: false))
     }
 }

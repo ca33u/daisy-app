@@ -311,7 +311,8 @@ final class ContextTips {
         }
     }
 
-    /// The Settings window on a tab (it opens itself — SettingsWindow.swift).
+    /// The Settings sheet on a tab, on the main window it brings up
+    /// (SettingsPanel.swift).
     static func openSettings(_ tab: SettingsTab, row: SettingsRow? = nil) {
         AppNavigation.shared.openInSettings(tab, row: row)
     }

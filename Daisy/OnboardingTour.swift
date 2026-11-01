@@ -300,6 +300,8 @@ final class OnboardingTourController {
     /// «Пройти тур заново» (Help, About, the last screen): step 1 again.
     func restart(settings: AppSettings? = nil) {
         guard !TestHost.isActive else { return }
+        // A Settings or About sheet left open would come back after it.
+        AppNavigation.shared.closePanel()
         if let settings { self.settings = settings }
         if let entered = enteredStep { leave(entered) }
         enteredStep = nil

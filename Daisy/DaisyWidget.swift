@@ -325,7 +325,7 @@ struct DaisyWidget: View {
                 openWindow(id: "main")
                 NSApp.activate(ignoringOtherApps: true)
             }
-            // …and to links into the Settings window (SettingsWindow.swift).
+            // …and to links into Settings, which bring the main window up.
             AppNavigation.shared.lendWindowOpener(openWindow)
         }
         .accessibilityElement(children: .ignore)

@@ -4,9 +4,10 @@
 //
 //  About page. Previously a tab inside SettingsView, then a page of the
 //  main window's sidebar so users find studio / contact / license info
-//  in one obvious place; since 31.10.2026 the last page of the Settings
-//  window's sidebar (SettingsWindow.swift), opened straight on it by
-//  «About Daisy» and the main sidebar's About row.
+//  in one obvious place; a page of the Settings window's sidebar for a
+//  day (31.10.2026); since 01.11 a sheet of its own on the main window,
+//  no sidebar (AboutPanel, SettingsPanel.swift), opened by «About Daisy»
+//  and the main sidebar's About row.
 //
 //  Content mirrors the in-app About tab that existed before — brand
 //  block, links, studio note. 2026-06-13: rebuilt onto the SAME
@@ -87,9 +88,9 @@ struct AboutView: View {
                 // after the last update. Also on Settings → General → Updates.
                 LabeledContent {
                     Button("Open") {
-                        // The sheet hangs off the main window.
+                        // One sheet at a time: this one steps aside for
+                        // What's New (AppNavigation.showsWhatsNew).
                         AppNavigation.shared.showsWhatsNew = true
-                        AppNavigation.shared.showMainWindow()
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -106,9 +107,9 @@ struct AboutView: View {
                 // The first-run tour again, from step 1 (Onboarding 2.0).
                 LabeledContent {
                     Button("Open") {
-                        // The tour takes the main window.
+                        // The tour takes the main window, without this sheet.
+                        AppNavigation.shared.closePanel()
                         OnboardingTourController.shared.restart(settings: settings)
-                        AppNavigation.shared.showMainWindow()
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)

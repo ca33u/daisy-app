@@ -12,9 +12,9 @@
 //   • Library      — storage, audio retention, projects, sync, models
 //   • Connections  — ConnectionsView
 //   • Privacy      — PermissionsView
-//  Each tab is a page of the Settings window (SettingsWindow.swift,
-//  31.10.2026), which owns the sidebar and the search; this view draws
-//  the page it is given.
+//  Each tab is a page of the Settings sheet of the main window
+//  (SettingsPanel.swift, 01.11.2026), which owns the sidebar and the
+//  search; this view draws the page it is given.
 //
 
 import AppKit
@@ -218,8 +218,8 @@ struct SettingsView: View {
         return f
     }()
 
-    /// The page to draw — the Settings window's sidebar pick, set by
-    /// links through `AppNavigation.settingsPane`.
+    /// The page to draw — the Settings sheet's sidebar pick, set by
+    /// links through `AppNavigation.settingsTab`.
     let tab: SettingsTab
     /// Live `/api/tags` model list for the Ollama picker (empty until
     /// fetched / when the server is unreachable → static catalog).
@@ -257,8 +257,9 @@ struct SettingsView: View {
         // view turned out to correlate with low disk / a partly-downloaded
         // model / recording start-stop cycles rather than the segmented
         // control itself. The tabs then lived in the main window's
-        // toolbar (25.09) until Settings got their own window and its
-        // sidebar (31.10.2026).
+        // toolbar (25.09) until Settings got a sidebar of their own — in a
+        // separate window on 31.10.2026, a sheet of the main one since
+        // 01.11.
         Group {
             switch tab {
             case .general:     generalTab
@@ -272,9 +273,9 @@ struct SettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        // macOS Settings convention: ~700pt fixed-width per tab. Without
-        // a minimum the form collapses and Hotkey rows cramp horizontally.
-        .frame(minWidth: 640, idealWidth: 720, minHeight: 540, maxHeight: .infinity)
+        // The page fills the Settings sheet, which has a fixed size
+        // (SettingsPanel) — 600 pt of page at the main window's floor.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
         .background(Color.daisyBgPrimary)
         .task { await summarizer.refreshAvailability() }
@@ -2992,8 +2993,8 @@ struct SettingsView: View {
                 Button("Open") {
                     AppNavigation.shared.pendingStyleTab = .voice
                     AppNavigation.shared.section = .voice
-                    // My style is a page of the main window.
-                    AppNavigation.shared.showMainWindow()
+                    // My style is a page of the main window, under this sheet.
+                    AppNavigation.shared.closePanel()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)

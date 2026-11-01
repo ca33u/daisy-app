@@ -63,25 +63,30 @@ struct SettingsAboutMovesTests {
         let nav = AppNavigation.shared
 
         nav.openInSettings(.privacy, row: .calendarApple)
-        #expect(nav.settingsPane == .tab(.connections))
+        #expect(nav.settingsTab == .connections)
         #expect(nav.pendingConnectionsSection == .calendar)
         #expect(nav.pendingSettingsRow == .calendarApple)
 
         nav.openInSettings(.general, row: .crashReports)
-        #expect(nav.settingsPane == .tab(.privacy))
+        #expect(nav.settingsTab == .privacy)
     }
 
     // MARK: - About
 
-    /// About is only about the app: no switch or picker is left on it.
+    /// About is about the app: of the settings, only the beta switch and
+    /// the bug report are there.
     @Test func aboutHoldsNoSettings() throws {
         let about = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // DaisyTests
             .deletingLastPathComponent()   // repository root
             .appendingPathComponent("Daisy/AboutView.swift")
         let source = try String(contentsOf: about, encoding: .utf8)
-        for control in ["Toggle(", "Picker(", "SparkleUpdater", "CrashReports", "ImprovementStats", "LogReporter"] {
+        // «Get beta updates» (a Toggle on SparkleUpdater) and «Report a bug»
+        // (LogReporter) are back on About since d94dd3b (Egor 01.11: where
+        // people looked for them); the rest stays in Settings.
+        for control in ["Picker(", "CrashReports", "ImprovementStats"] {
             #expect(!source.contains(control), "AboutView still has \(control)")
         }
+        #expect(source.components(separatedBy: "Toggle(").count - 1 == 1, "AboutView has one switch: beta updates")
     }
 }
