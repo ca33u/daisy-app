@@ -363,7 +363,7 @@
 			buildSettings = {
 				ARCHS = arm64;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 163;
+				CURRENT_PROJECT_VERSION = 164;
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -373,7 +373,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.8.46;
+				MARKETING_VERSION = 1.0.8.47;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = app.essazanov.Daisy.LLM;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -392,7 +392,7 @@
 			buildSettings = {
 				ARCHS = arm64;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 163;
+				CURRENT_PROJECT_VERSION = 164;
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -402,7 +402,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.8.46;
+				MARKETING_VERSION = 1.0.8.47;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = app.essazanov.Daisy.LLM;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -551,7 +551,7 @@
 				CODE_SIGN_ENTITLEMENTS = Daisy/Daisy.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 163;
+				CURRENT_PROJECT_VERSION = 164;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = LW64FQXZCU;
 				ENABLE_APP_SANDBOX = NO;
@@ -566,7 +566,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.8.46;
+				MARKETING_VERSION = 1.0.8.47;
 				PRODUCT_BUNDLE_IDENTIFIER = app.essazanov.Daisy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -587,7 +587,7 @@
 				CODE_SIGN_ENTITLEMENTS = Daisy/Daisy.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 163;
+				CURRENT_PROJECT_VERSION = 164;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = LW64FQXZCU;
 				ENABLE_APP_SANDBOX = NO;
@@ -602,7 +602,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.8.46;
+				MARKETING_VERSION = 1.0.8.47;
 				PRODUCT_BUNDLE_IDENTIFIER = app.essazanov.Daisy;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
