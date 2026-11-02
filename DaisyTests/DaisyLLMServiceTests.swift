@@ -458,7 +458,9 @@ struct DaisyLLMServiceTests {
         let (connection, proxy) = helper.rawProxy {}
         defer { connection.invalidate() }
         proxy?.cancel(sent.id.uuidString)
-        try await Task.sleep(for: .milliseconds(100))
+        // Waited for, not slept on: 100 ms wasn't enough on a loaded run
+        // (02.11), the request got in first, started, and was then stopped.
+        try #require(await eventually { helper.service.cancelsReceived == 1 })
 
         let failure = try await rawFailure(helper, sending: try DaisyLLMWire.encode(sent))
 

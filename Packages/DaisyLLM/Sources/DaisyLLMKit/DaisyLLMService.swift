@@ -58,6 +58,8 @@ public final class DaisyLLMService: NSObject, NSXPCListenerDelegate, Sendable {
     public var requestsReceived: Int { status.read { $0.requestsReceived } }
     /// Requests waiting behind the running one (tests, logs).
     public var requestsQueued: Int { status.read { $0.requestsQueued } }
+    /// Cancels that reached the service, for a request known or not (tests).
+    public var cancelsReceived: Int { status.read { $0.cancelsReceived } }
 
     /// `peerRequirement` defaults to Daisy from this process's team.
     public init(
@@ -127,6 +129,7 @@ private final class Status: @unchecked Sendable {
         var isExiting = false
         var requestsReceived = 0
         var requestsQueued = 0
+        var cancelsReceived = 0
     }
 
     private let lock = NSLock()
@@ -216,6 +219,7 @@ private actor Coordinator {
     }
 
     private func cancel(_ id: UUID) {
+        status.update { $0.cancelsReceived += 1 }
         if let index = waiting.firstIndex(where: { $0.request.id == id }) {
             let job = waiting.remove(at: index)
             Self.send(.failure(DaisyLLMFailure.cancelled), to: job)

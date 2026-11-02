@@ -17,6 +17,27 @@ struct OllamaLauncherTests {
         func setComesUp(_ v: Bool) { comesUpOnOpen = v }
     }
 
+    /// An open that doesn't return until the test lets it go, or the test
+    /// is cancelled (its time limit): a caller that comes back is then a
+    /// fact, not a wall-clock guess a loaded test run can get wrong (02.11:
+    /// 6.9 s against a 5 s bound).
+    private actor Hang {
+        private var continuation: CheckedContinuation<Void, Never>?
+        private var released = false
+        func wait() async {
+            await withTaskCancellationHandler {
+                if !released { await withCheckedContinuation { continuation = $0 } }
+            } onCancel: {
+                Task { await self.release() }
+            }
+        }
+        func release() {
+            released = true
+            continuation?.resume()
+            continuation = nil
+        }
+    }
+
     private let local = URL(string: "http://127.0.0.1:11434")!
     private let app = URL(fileURLWithPath: "/Applications/Ollama.app")
 
@@ -75,29 +96,32 @@ struct OllamaLauncherTests {
         #expect(await world.opens == 1)
     }
 
-    @Test("A cancelled caller stops waiting at once")
+    // A wait past the time limit: a caller that didn't stop on the cancel
+    // fails there, rather than pass on a loaded run's luck, and the run
+    // still ends when its wait does.
+    @Test("A cancelled caller stops waiting at once", .timeLimit(.minutes(1)))
     func cancellable() async {
         let world = World(); await world.setComesUp(false)
         let l = launcher(world)
         let local = self.local
-        let task = Task { await l.ensureRunning(baseURL: local, wait: 10) { _ in await world.up() } }
+        let task = Task { await l.ensureRunning(baseURL: local, wait: 120) { _ in await world.up() } }
         try? await Task.sleep(for: .milliseconds(50))
-        let began = ContinuousClock.now
         task.cancel()
         #expect(await task.value == false)
-        #expect(ContinuousClock.now - began < .seconds(5))
     }
 
-    @Test("An open that never returns can't hold a caller past the wait")
+    // The time limit is the assertion: a caller held by the open never
+    // comes back.
+    @Test("An open that never returns can't hold a caller past the wait", .timeLimit(.minutes(1)))
     func openHangs() async {
         let world = World()
+        let hang = Hang()
         let app = self.app
         let l = OllamaLauncher(appURL: { app },
-                               open: { _ in try? await Task.sleep(for: .seconds(30)) },
+                               open: { _ in await hang.wait() },
                                pollEvery: .milliseconds(10))
-        let began = ContinuousClock.now
         #expect(!(await l.ensureRunning(baseURL: local, wait: 0.2) { _ in await world.up() }))
-        #expect(ContinuousClock.now - began < .seconds(5))
+        await hang.release()
     }
 
     @Test("A summary whose connection is refused starts Ollama and asks once more")

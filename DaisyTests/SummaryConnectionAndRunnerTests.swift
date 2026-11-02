@@ -217,12 +217,17 @@ struct AgentProcessRunnerTests {
         #expect(result.stderr.count <= 128)
     }
 
-    @Test("Timeout stops a hung child with a friendly runner error")
+    // The two below sleep 120 s, not 5: under a loaded run (02.11) the
+    // runner didn't get to look before a 5 s child ended by itself and took
+    // it for a normal exit. Only the runner can end the child within the
+    // test's minute: a timeout that doesn't stop it fails at the time limit,
+    // a cancel that doesn't at the runner's own 10 s timeout.
+    @Test("Timeout stops a hung child with a friendly runner error", .timeLimit(.minutes(1)))
     func timeout() async throws {
         let runner = try AgentProcessRunner(executable: .testSleep)
         do {
             _ = try await runner.run(.init(
-                arguments: [.literal("5")],
+                arguments: [.literal("120")],
                 stdin: Data(),
                 timeout: 0.1
             ))
@@ -236,12 +241,12 @@ struct AgentProcessRunnerTests {
         }
     }
 
-    @Test("Cancellation terminates the child")
+    @Test("Cancellation terminates the child", .timeLimit(.minutes(1)))
     func cancellation() async throws {
         let runner = try AgentProcessRunner(executable: .testSleep)
         let task = Task {
             try await runner.run(.init(
-                arguments: [.literal("5")],
+                arguments: [.literal("120")],
                 stdin: Data(),
                 timeout: 10
             ))
