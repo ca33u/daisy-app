@@ -14,9 +14,9 @@ import Testing
 struct WhatsNewTests {
     /// A throwaway defaults domain, removed when the test is done.
     private func withDefaults(_ body: (UserDefaults) -> Void) {
-        let name = "whatsnew-\(UUID().uuidString)"
+        let name = ScratchDefaults.suite("whatsnew")
         let d = UserDefaults(suiteName: name)!
-        defer { d.removePersistentDomain(forName: name) }
+        defer { ScratchDefaults.remove(name) }
         body(d)
     }
 

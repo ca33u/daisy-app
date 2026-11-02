@@ -5,8 +5,9 @@ import Testing
 
 @Suite("A downloaded beta keeps receiving beta updates")
 struct BetaChannelDefaultsTests {
+    private let scratch = ScratchDefaults("DaisyTests.beta")
     private func defaults() -> UserDefaults {
-        UserDefaults(suiteName: "DaisyTests.beta.\(UUID().uuidString)")!
+        scratch.make()
     }
     private let beta = BetaChannelDefaults.Item(build: "142", channel: "beta")
 
@@ -30,13 +31,12 @@ struct BetaChannelDefaultsTests {
 
     @Test func explicitChoiceSurvivesAReopenedDefaultsStore() {
         for choice in [false, true] {
-            let suite = "DaisyTests.beta.\(UUID().uuidString)"
+            let suite = scratch.name()
             let first = UserDefaults(suiteName: suite)!
             BetaChannelDefaults.setChoice(choice, defaults: first)
             let reopened = UserDefaults(suiteName: suite)!
             #expect(!BetaChannelDefaults.adoptInstalledBeta(build: "142", items: [beta], defaults: reopened))
             #expect(reopened.object(forKey: BetaChannelDefaults.key) as? Bool == choice)
-            first.removePersistentDomain(forName: suite)
         }
     }
 

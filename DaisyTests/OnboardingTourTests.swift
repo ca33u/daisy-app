@@ -149,11 +149,9 @@ struct OnboardingTourEventTests {
 struct OnboardingTourResumeTests {
     typealias Step = OnboardingTour.Step
 
+    private let scratch = ScratchDefaults("OnboardingTourTests")
     private func defaults() -> UserDefaults {
-        let name = "OnboardingTourTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
-        defaults.removePersistentDomain(forName: name)
-        return defaults
+        scratch.make()
     }
 
     @Test("Saved and loaded: the same step and path")
@@ -221,9 +219,10 @@ struct OnboardingTourResumeTests {
 @Suite("Onboarding tour — the controller's script")
 @MainActor
 struct OnboardingTourControllerTests {
+    private let scratch = ScratchDefaults("OnboardingTourTests")
+
     private func controller(at step: OnboardingTour.Step) -> OnboardingTourController {
-        let name = "OnboardingTourTests.\(UUID().uuidString)"
-        let controller = OnboardingTourController.forTesting(defaults: UserDefaults(suiteName: name)!)
+        let controller = OnboardingTourController.forTesting(defaults: scratch.make())
         controller.startForTesting(OnboardingTour(step: step, path: .full))
         return controller
     }

@@ -192,9 +192,9 @@ struct WidgetOriginTests {
 
     @Test("Saves to and loads from its defaults key")
     func defaultsRoundTrip() throws {
-        let suite = "TourBubbleTests.\(UUID().uuidString)"
+        let suite = ScratchDefaults.suite("TourBubbleTests")
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { ScratchDefaults.remove(suite) }
 
         #expect(WidgetOrigin.load(from: defaults) == nil)
         let saved = WidgetOrigin(displayID: 69_733_382, fx: 0.25, fy: 0.75)

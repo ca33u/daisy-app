@@ -203,9 +203,9 @@ struct DaisyTests {
 
     @Test("Saved Claude models move to their same-tier successors, once")
     func summaryModelMigrationChains() throws {
-        let suite = "daisy.tests.modelMigration.\(UUID().uuidString)"
+        let suite = ScratchDefaults.suite("daisy.tests.modelMigration")
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { ScratchDefaults.remove(suite) }
 
         defaults.set("claude-sonnet-4-6", forKey: "daisy.anthropicModel")
         UserDefaultsMigration.migrateSummaryModels(defaults: defaults)
@@ -219,9 +219,9 @@ struct DaisyTests {
 
         for (from, to) in [("claude-opus-5", "claude-opus-5-5"), ("claude-fable-5", "claude-fable-5-1"),
                            ("claude-haiku-4-5-20251001", "claude-haiku-4-5-20251001"), ("my-own-id", "my-own-id")] {
-            let fresh = "daisy.tests.modelMigration.\(UUID().uuidString)"
+            let fresh = ScratchDefaults.suite("daisy.tests.modelMigration")
             let other = try #require(UserDefaults(suiteName: fresh))
-            defer { other.removePersistentDomain(forName: fresh) }
+            defer { ScratchDefaults.remove(fresh) }
             other.set(from, forKey: "daisy.anthropicModel")
             UserDefaultsMigration.migrateSummaryModels(defaults: other)
             #expect(other.string(forKey: "daisy.anthropicModel") == to, "\(from)")
@@ -999,9 +999,9 @@ struct HotkeyChoiceTests {
 @MainActor
 struct LayoutFixExceptionsTests {
 
+    private let scratch = ScratchDefaults("test.layoutFixExceptions")
     private func freshDefaults() -> UserDefaults {
-        let suite = "test.layoutFixExceptions.\(UUID().uuidString)"
-        return UserDefaults(suiteName: suite)!
+        scratch.make()
     }
 
     @Test("A word is remembered case-insensitively")
@@ -1078,7 +1078,9 @@ struct LayoutFixJudgeExceptionsTests {
         // this test's old `.shared.clear()` cleanup.
         let before = LayoutFixExceptions.shared.words
         let word = "daisyundotestwordxyz"
-        let isolated = LayoutFixExceptions(defaults: UserDefaults(suiteName: "test.judge.\(UUID().uuidString)")!)
+        let suite = ScratchDefaults.suite("test.judge")
+        defer { ScratchDefaults.remove(suite) }
+        let isolated = LayoutFixExceptions(defaults: UserDefaults(suiteName: suite)!)
         isolated.add(word)
 
         let result = LayoutFix.judge(word, exceptions: isolated)

@@ -17,12 +17,12 @@ struct StyleProfileTests {
     /// A store on a throwaway folder and defaults domain — never the real
     /// corpus or the real prefs. Both removed when the test is done.
     private func withStore(_ body: (VoiceProfileStore, UserDefaults, URL) -> Void) {
-        let name = "styleprofile-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
+        let suite = ScratchDefaults.suite("styleprofile")
+        let defaults = UserDefaults(suiteName: suite)!
         let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent(name, isDirectory: true)
+            .appendingPathComponent("styleprofile-\(UUID().uuidString)", isDirectory: true)
         defer {
-            defaults.removePersistentDomain(forName: name)
+            ScratchDefaults.remove(suite)
             try? FileManager.default.removeItem(at: dir)
         }
         body(VoiceProfileStore(storeDirectory: dir, defaults: defaults), defaults, dir)

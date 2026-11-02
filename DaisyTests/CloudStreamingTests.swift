@@ -758,9 +758,9 @@ struct YandexProviderTests {
         #expect(DeepSeekAPISummarizer(model: "deepseek-chat").model == "deepseek-flash")
         #expect(DeepSeekAPISummarizer.resolvedModelID("deepseek-reasoner") == "deepseek-flash")
         #expect(DeepSeekAPISummarizer.resolvedModelID("deepseek-v4-pro") == "deepseek-v4-pro")
-        let suite = "daisy.tests.deepseekModel.\(UUID().uuidString)"
+        let suite = ScratchDefaults.suite("daisy.tests.deepseekModel")
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { ScratchDefaults.remove(suite) }
         defaults.set("deepseek-v4-flash", forKey: "daisy.deepseekModel")
         #expect(DeepSeekAPISummarizer.storedModelID(key: "daisy.deepseekModel", defaults: defaults) == "deepseek-flash")
         #expect(defaults.string(forKey: "daisy.deepseekModel") == "deepseek-flash")
@@ -811,9 +811,9 @@ struct YandexProviderTests {
     }
 
     @Test func aStoredRetiredModelIsWrittenBack() throws {
-        let suite = "daisy.tests.yandexModel.\(UUID().uuidString)"
+        let suite = ScratchDefaults.suite("daisy.tests.yandexModel")
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { ScratchDefaults.remove(suite) }
         #expect(YandexAPISummarizer.storedModelID(key: "daisy.yandexModel", defaults: defaults) == "aliceai-llm")
         #expect(defaults.string(forKey: "daisy.yandexModel") == nil, "nothing stored, nothing written")
         defaults.set("yandexgpt-5-lite", forKey: "daisy.yandexModel")
@@ -853,9 +853,9 @@ struct YandexProviderTests {
 
     @Test func theDaisyKeyStartsWithoutCloudAccessForYandex() throws {
         // A fresh install's prefs: no grant until the person says yes.
-        let suite = "daisy.tests.daisyKeyCloud.\(UUID().uuidString)"
+        let suite = ScratchDefaults.suite("daisy.tests.daisyKeyCloud")
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { ScratchDefaults.remove(suite) }
         #expect(!DaisyKeyController.cloudAllowed(.yandex, defaults: defaults))
         #expect(!DaisyKeyController.cloudAllowed(.gigachat, defaults: defaults))
         #expect(!DaisyKeyController.cloudAllowed(.deepseek, defaults: defaults))

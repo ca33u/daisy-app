@@ -16,9 +16,9 @@ import Testing
 struct ContextTipsTests {
     /// A throwaway defaults domain — never the real prefs.
     private func withDefaults(_ body: (UserDefaults) async -> Void) async {
-        let name = "contexttips-\(UUID().uuidString)"
+        let name = ScratchDefaults.suite("contexttips")
         let defaults = UserDefaults(suiteName: name)!
-        defer { defaults.removePersistentDomain(forName: name) }
+        defer { ScratchDefaults.remove(name) }
         await body(defaults)
     }
 
@@ -136,9 +136,9 @@ struct ContextTipsTests {
         #expect(h.tips.hasShown(.calendar))
 
         // Waiting, then connected in the meantime: dropped, not shown.
-        let other = "contexttips-\(UUID().uuidString)"
+        let other = ScratchDefaults.suite("contexttips")
         let otherDefaults = UserDefaults(suiteName: other)!
-        defer { otherDefaults.removePersistentDomain(forName: other) }
+        defer { ScratchDefaults.remove(other) }
         let g = harness(otherDefaults)
         ContextTips.tourFinished(path: .full, at: yesterday, defaults: otherDefaults)
         g.widgetUp = false

@@ -29,10 +29,9 @@ struct MeetingPreparationTests {
     @MainActor
     @Test("Draft persists by the provider-stable event identity")
     func draftPersistence() throws {
-        let suite = "test.meeting-preparation.\(UUID().uuidString)"
+        let suite = ScratchDefaults.suite("test.meeting-preparation")
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { ScratchDefaults.remove(suite) }
 
         let key = "drafts"
         let first = MeetingPreparationStore(defaults: defaults, storageKey: key)

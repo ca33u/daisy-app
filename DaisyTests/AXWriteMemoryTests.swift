@@ -11,16 +11,16 @@ import Testing
 @testable import Daisy
 
 struct AXWriteMemoryTests {
-    /// A suite of its own per test: the real preferences are never touched.
-    private func memory() -> (AXWriteMemory, UserDefaults, String) {
-        let suite = "AXWriteMemoryTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        return (AXWriteMemory(defaults: defaults), defaults, suite)
+    /// Each test's own suites: the real preferences are never touched.
+    private let scratch = ScratchDefaults("AXWriteMemoryTests")
+
+    private func memory() -> AXWriteMemory {
+        AXWriteMemory(defaults: scratch.make())
     }
 
     @Test("An app Daisy knows nothing about gets the first wait and a write")
     func unknownApp() {
-        let (m, d, suite) = memory(); defer { d.removePersistentDomain(forName: suite) }
+        let m = memory()
         let entry = m.entry(for: AXWriteMemory.key(bundleID: "ru.keepcoder.Telegram", version: "13.1"))
         #expect(entry == AXWriteMemory.Entry())
         #expect(!AXWriteMemory.skipsWrite(entry))
@@ -29,7 +29,7 @@ struct AXWriteMemoryTests {
 
     @Test("Ignored twice and never seen landing: typed straight away")
     func ignoredTwice() {
-        let (m, d, suite) = memory(); defer { d.removePersistentDomain(forName: suite) }
+        let m = memory()
         let key = AXWriteMemory.key(bundleID: "com.anthropic.claudefordesktop", version: "1.0")
         m.recordIgnored(for: key)
         #expect(!AXWriteMemory.skipsWrite(m.entry(for: key)))
@@ -39,7 +39,7 @@ struct AXWriteMemoryTests {
 
     @Test("A write that landed late is waited for, three times as long, within the bounds")
     func landsLate() {
-        let (m, d, suite) = memory(); defer { d.removePersistentDomain(forName: suite) }
+        let m = memory()
         let key = AXWriteMemory.key(bundleID: "ru.keepcoder.Telegram", version: "13.1")
         m.recordIgnored(for: key)
         m.recordLate(400, for: key)
@@ -57,7 +57,7 @@ struct AXWriteMemoryTests {
 
     @Test("A write that came in after the fallback gets the longest wait from then on")
     func landedAfterFallback() {
-        let (m, d, suite) = memory(); defer { d.removePersistentDomain(forName: suite) }
+        let m = memory()
         let key = AXWriteMemory.key(bundleID: "ru.keepcoder.Telegram", version: "13.1")
         m.recordIgnored(for: key)
         m.recordLandedAfterFallback(for: key)
@@ -69,7 +69,7 @@ struct AXWriteMemoryTests {
 
     @Test("A new version of the app starts over, and the old one is dropped")
     func perVersion() {
-        let (m, d, suite) = memory(); defer { d.removePersistentDomain(forName: suite) }
+        let m = memory()
         let old = AXWriteMemory.key(bundleID: "com.example.app", version: "1")
         let new = AXWriteMemory.key(bundleID: "com.example.app", version: "2")
         let other = AXWriteMemory.key(bundleID: "com.example.other", version: "1")
@@ -83,7 +83,7 @@ struct AXWriteMemoryTests {
 
     @Test("It lasts across instances on the same defaults")
     func persists() {
-        let (m, d, suite) = memory(); defer { d.removePersistentDomain(forName: suite) }
+        let d = scratch.make(); let m = AXWriteMemory(defaults: d)
         let key = AXWriteMemory.key(bundleID: "ru.keepcoder.Telegram", version: nil)
         m.recordLate(300, for: key)
         #expect(AXWriteMemory(defaults: d).entry(for: key).lateMs == 300)
@@ -102,7 +102,7 @@ struct AXWriteMemoryTests {
 
     @Test("A skip is tried again after a week")
     func skipExpires() {
-        let (m, d, suite) = memory(); defer { d.removePersistentDomain(forName: suite) }
+        let m = memory()
         let key = AXWriteMemory.key(bundleID: "com.example.electron", version: "1")
         let then = Date(timeIntervalSince1970: 1_800_000_000)
         m.recordIgnored(for: key, at: then); m.recordIgnored(for: key, at: then)
@@ -113,7 +113,7 @@ struct AXWriteMemoryTests {
 
     @Test("A write that showed up right away clears earlier misses")
     func landedClearsMisses() {
-        let (m, d, suite) = memory(); defer { d.removePersistentDomain(forName: suite) }
+        let d = scratch.make(); let m = AXWriteMemory(defaults: d)
         let key = AXWriteMemory.key(bundleID: "com.apple.Safari", version: "26")
         m.recordLanded(for: key)
         #expect(d.data(forKey: AXWriteMemory.defaultsKey) == nil, "nothing written while there is nothing to clear")

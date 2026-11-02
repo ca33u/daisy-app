@@ -10,10 +10,9 @@ import Testing
 @Suite("Summary account connection model")
 struct SummaryConnectionTests {
     private func withDefaults(_ body: (UserDefaults) throws -> Void) rethrows {
-        let suite = "DaisyTests.SummaryConnection.\(UUID().uuidString)"
+        let suite = ScratchDefaults.suite("DaisyTests.SummaryConnection")
         let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { ScratchDefaults.remove(suite) }
         try body(defaults)
     }
 
@@ -116,10 +115,9 @@ struct SummaryConnectionTests {
 struct SubscriptionUsageLedgerTests {
     @Test("Persists request facts without inventing token or price data")
     func persistenceAndAggregation() throws {
-        let suite = "DaisyTests.SubscriptionUsage.\(UUID().uuidString)"
+        let suite = ScratchDefaults.suite("DaisyTests.SubscriptionUsage")
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { ScratchDefaults.remove(suite) }
         let fixedDate = Date(timeIntervalSince1970: 1_900_000_000)
         let key = "test.subscriptionUsage"
 
