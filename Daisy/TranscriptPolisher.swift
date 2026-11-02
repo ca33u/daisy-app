@@ -88,6 +88,22 @@ nonisolated enum TranscriptPolisher {
     static let minTotalDeadlineSeconds: Double = 20
     static let maxTotalDeadlineSeconds: Double = 120
 
+    /// The deadlines above, as one value a test can lift: what a refusal
+    /// does must not depend on a loaded test run getting to an instant
+    /// refusal before a 25 s timer (02.11: a thousand tests at once, and
+    /// the timer won).
+    struct Limits: Sendable {
+        var chunkSeconds: Double
+        var minTotalSeconds: Double
+        var maxTotalSeconds: Double
+
+        static let standard = Limits(
+            chunkSeconds: chunkDeadlineSeconds,
+            minTotalSeconds: minTotalDeadlineSeconds,
+            maxTotalSeconds: maxTotalDeadlineSeconds
+        )
+    }
+
     /// Share of a chunk's word tokens the model may change before we
     /// stop believing it. Name and brand corrections are a small
     /// fraction of any real utterance; a chunk where one word in six
@@ -239,6 +255,7 @@ nonisolated enum TranscriptPolisher {
         context: PromptContext,
         localeHint: String?,
         deadlineSeconds: Double,
+        limits: Limits = .standard,
         summarize: @escaping @Sendable (String, SummaryTask) async throws -> MeetingSummary
     ) async -> Outcome {
         let candidates = segments.filter {
@@ -254,7 +271,7 @@ nonisolated enum TranscriptPolisher {
         // runs per chunk.
         let sanctioned = SanctionedTerms(context: context)
 
-        let budget = min(max(deadlineSeconds, minTotalDeadlineSeconds), maxTotalDeadlineSeconds)
+        let budget = min(max(deadlineSeconds, limits.minTotalSeconds), limits.maxTotalSeconds)
         let start = Date()
         var replacements: [UUID: String] = [:]
         var applied = 0
@@ -284,7 +301,7 @@ nonisolated enum TranscriptPolisher {
                 break
             }
 
-            let deadline = min(chunkDeadlineSeconds, left)
+            let deadline = min(limits.chunkSeconds, left)
             let reply: String
             switch await withDeadlineResult(seconds: deadline, operation: {
                 try await summarize(

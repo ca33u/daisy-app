@@ -47,6 +47,9 @@ struct CaptureAndPolishReviewTests {
             context: .init(attendees: [], vocabulary: [], meetingApp: nil),
             localeHint: "ru",
             deadlineSeconds: 300,
+            // No timer a loaded test run can lose to: a chunk timing out
+            // resets the refusal streak and the provider is asked again.
+            limits: .init(chunkSeconds: 3600, minTotalSeconds: 3600, maxTotalSeconds: 3600),
             summarize: { _, _ in
                 await calls.increment()
                 throw NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "No API key"])
