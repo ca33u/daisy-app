@@ -389,6 +389,23 @@ nonisolated enum DaisyKeyCommandParser {
         return .plain
     }
 
+    /// Whether a result is short enough to type into the field (02.11.2026).
+    /// What was said sets the budget — 600 characters plus 120 per spoken
+    /// second, room for a letter written from a sentence; 2,000 plus 200
+    /// per second for a prompt or a letter to a template, long by design —
+    /// and an edit gets 2.5× its selection on top, as a polish may grow.
+    /// A model that reasons in plain prose has no tag to strip, and this is
+    /// what keeps that out of the person's app (typewhisper-mac#1802: 8 s
+    /// of speech, 2,964 characters of reasoning pasted). Past it the result
+    /// goes to the card, not away.
+    static func fitsInsertion(_ result: String, kind: DaisyKeyCommandKind, selection: String?,
+                              spokenSeconds: Int, longForm: Bool = false) -> Bool {
+        let seconds = max(spokenSeconds, 0)
+        var budget = longForm ? 2_000 + 200 * seconds : 600 + 120 * seconds
+        if kind == .edit, let selection { budget += Int((Double(selection.count) * 2.5).rounded(.up)) }
+        return result.count <= budget
+    }
+
     /// The model's text, as it may be inserted: trimmed, without quotes or
     /// a code fence wrapped round it, one line for a terminal. nil when
     /// nothing usable came back.
@@ -1368,8 +1385,11 @@ final class DaisyKeyController {
                 ImprovementStats.record(.daisyKeyHold)
                 ImprovementStats.record(.daisyKeyMeetingCommand)
                 ImprovementStats.record(.daisyKeyIntent(kind == .edit ? .edit : .write))
+                // No audio of its own (the words are the meeting's), but the
+                // span is what was said: the insertion budget reads it.
                 await runCommand(kind, request: words, context: context, bundleID: hold.bundleID, appName: hold.appName,
-                                 entryID: entryID, samples: [], durationSec: 0, atPress: true)
+                                 entryID: entryID, samples: [], durationSec: 0,
+                                 spokenSeconds: Int(end.timeIntervalSince(start).rounded(.up)), atPress: true)
                 return
             }
         }
@@ -1414,8 +1434,8 @@ final class DaisyKeyController {
     /// note's button — the result then goes to the clipboard). Anything
     /// that doesn't work out keeps the words as a note.
     private func runCommand(_ kind: DaisyKeyCommandKind, request: String, context: DaisyKeyContext, bundleID: String?,
-                            appName: String? = nil, entryID: UUID, samples: [Float], durationSec: Int, atPress: Bool,
-                            noteKept: Bool = false) async {
+                            appName: String? = nil, entryID: UUID, samples: [Float], durationSec: Int,
+                            spokenSeconds: Int? = nil, atPress: Bool, noteKept: Bool = false) async {
         let summarizer = Summarizer.shared
         func fallBack(_ message: String) async {
             if noteKept {
@@ -1491,13 +1511,23 @@ final class DaisyKeyController {
         }
         ImprovementStats.record(.daisyKeyGenerated(local: local))
         if let named { MeetingTemplateStore.shared.markUsed(named.id.uuidString) }
+        // Longer than what was said could have asked for is not typed into
+        // the field: it goes to the card below, where it can still be copied.
+        let spoken = spokenSeconds ?? durationSec
+        let fits = DaisyKeyCommandParser.fitsInsertion(result, kind: kind, selection: context.selection,
+                                                       spokenSeconds: spoken,
+                                                       longForm: commandContext.prompt || named != nil)
         let insertable = atPress && (kind == .edit || (kind == .write && role == .none))
             && context.isEditable && !context.isSecureField
+        if insertable, !fits {
+            log.info("Daisy key result too long to insert (\(result.count, privacy: .public) chars for \(spoken, privacy: .public) s) — to the card")
+            tell(String(localized: "Longer than expected — it’s on the card, not in the field"), style: .warning)
+        }
         // An edit goes in only over the same selection: a click elsewhere in
         // the same field during the wait would put it beside the original.
         let selectionStill = kind != .edit || context.element.flatMap(DaisyKeyContext.currentSelection(in:)) == context.selection
         let used = Self.usedLine(selection: role != .none, appName: appName)
-        if insertable, selectionStill, let element = context.element, DaisyKeyContext.focusedElement() == element {
+        if insertable, fits, selectionStill, let element = context.element, DaisyKeyContext.focusedElement() == element {
             await DictationPaste.shared.insert(result)
             DaisyCommandHistory.shared.setOutcome("inserted", for: entryID)
             // An edit is a proposal: the card keeps the original, with
@@ -1509,7 +1539,7 @@ final class DaisyKeyController {
             log.info("Daisy key command inserted (\(result.count, privacy: .public) chars, \(local ? "local" : "cloud", privacy: .public))")
             return
         }
-        if insertable {
+        if insertable, fits {
             ImprovementStats.record(.daisyKeyFocusChanged)
             tell(String(localized: "It’s on the clipboard, press ⌘V"), style: .success)
         }
@@ -1610,7 +1640,9 @@ final class DaisyKeyController {
             guard let summary = try? await Summarizer.shared.runProbe(
                 transcript: payload, title: "Daisy", localeHint: nil, task: .voiceCommand(context),
                 route: .interactive) else { return nil }
-            let text = summary.clientFollowUp
+            // Thinking the model put inside the text itself, unless what it
+            // was given has that tag too (a selected prompt template).
+            let text = ModelReasoning.withoutLeadingThinking(summary.clientFollowUp, unlessIn: payload)
             guard !SensitiveDataProtector.containsUnrestoredMarker(text) else { return nil }
             return DaisyKeyCommandParser.cleaned(text, field: context.field)
         }

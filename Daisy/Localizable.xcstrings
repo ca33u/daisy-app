@@ -3433,6 +3433,16 @@
         }
       }
     },
+    "Longer than expected — it’s on the card, not in the field" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Текст длиннее, чем ждали, — он на карточке, а не в поле"
+          }
+        }
+      }
+    },
     "Recent meetings it would apply to: %lld of %lld — %@" : {
       "localizations" : {
         "ru" : {

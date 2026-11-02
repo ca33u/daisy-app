@@ -1652,7 +1652,9 @@ nonisolated extension CloudSummaryDTO {
     ///     pre-1.0.3 "Couldn't encode response as UTF-8" (which had
     ///     fired before but with confusing wording).
     static func decode(from text: String) throws -> CloudSummaryDTO {
-        var s = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A reasoning model's thinking first: drafted JSON inside it would
+        // otherwise be the first balanced object found below.
+        var s = ModelReasoning.answer(from: text)
         if s.hasPrefix("```") {
             if let firstNL = s.firstIndex(of: "\n") {
                 s = String(s[s.index(after: firstNL)...])

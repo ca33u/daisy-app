@@ -1796,8 +1796,9 @@ extension RecordingSession {
                     task: .dictationPolish(instruction: instruction),
                     route: route
                 )
-                guard let polished = summary?.clientFollowUp
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                // Thinking inside the text itself is taken off its front,
+                // unless the text sent has that tag too.
+                guard let polished = summary.map({ ModelReasoning.withoutLeadingThinking($0.clientFollowUp, unlessIn: text) }),
                     !polished.isEmpty else { return nil }
                 // Sanity gate: polish preserves meaning and stays "in the
                 // same ballpark" length-wise (the prompt's own words). A
@@ -1808,10 +1809,7 @@ extension RecordingSession {
                 // about to PASTE this over the user's own words. Reject
                 // and keep the raw dictation instead. The +40 slack keeps
                 // very short dictations from tripping the upper bound.
-                let inCount = text.count
-                let outCount = polished.count
-                guard Double(outCount) >= Double(inCount) * minShare,      // ≥ 40% of input by default
-                      Double(outCount) <= Double(inCount) * maxShare + 40  // ≤ 250% + slack by default
+                guard acceptsPolish(of: text, result: polished, minShare: minShare, maxShare: maxShare)
                 else { return nil }
                 // …and never paste a privacy placeholder. If the cloud
                 // filter's pseudonym came back in a shape `restore`
@@ -1833,6 +1831,17 @@ extension RecordingSession {
             group.cancelAll()
             return first
         }
+    }
+
+    /// The length half of the polish sanity gate above, on its own so it
+    /// can be tested. Also what stops a model that reasons in plain prose,
+    /// with no tag to strip (typewhisper-mac#1802: 85 characters in, 2,964
+    /// of reasoning out; «Understood.» for 140).
+    nonisolated static func acceptsPolish(of input: String, result: String,
+                                          minShare: Double = 0.4, maxShare: Double = 2.5) -> Bool {
+        let inCount = Double(input.count)
+        let outCount = Double(result.count)
+        return outCount >= inCount * minShare && outCount <= inCount * maxShare + 40
     }
 
     // MARK: - Side notes (voice notes layered over a meeting)
