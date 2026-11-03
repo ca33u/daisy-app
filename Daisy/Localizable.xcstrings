@@ -11514,6 +11514,36 @@
         }
       }
     },
+    "Couldn’t get Cursor’s model list: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось получить список моделей Cursor: %@"
+          }
+        }
+      }
+    },
+    "Cursor listed no models." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cursor не вернул ни одной модели."
+          }
+        }
+      }
+    },
+    "%@ — default" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ — по умолчанию"
+          }
+        }
+      }
+    },
     "Cursor Agent found at %@" : {
       "localizations" : {
         "ru" : {
@@ -24340,12 +24370,12 @@
         }
       }
     },
-    "Transcripts are sent to Cursor through its Agent CLI using your API key, stored in macOS Keychain and passed only through `CURSOR_API_KEY`. Every run uses an empty temporary folder, never passes `--force`, and installs deny rules for shell, file reads/writes, and MCP." : {
+    "Transcripts are sent to Cursor through its Agent CLI using your API key, stored in macOS Keychain and passed only through `CURSOR_API_KEY`. Every run uses an empty temporary folder, never passes `--force`, and installs deny rules for shell, file reads/writes, and MCP. Unless Privacy Mode is on, Cursor may store transcripts and train its models on them: turn it on in Cursor Settings → General → Privacy Mode (it’s on by default for teams)." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Транскрипты отправляются в Cursor через Agent CLI с твоим API-ключом. Ключ хранится в Связке ключей macOS и передаётся только через `CURSOR_API_KEY`. Каждый запуск идёт в пустой временной папке, без `--force`, с запретом команд оболочки, чтения и записи файлов и MCP."
+            "value" : "Транскрипты отправляются в Cursor через Agent CLI с твоим API-ключом. Ключ хранится в Связке ключей macOS и передаётся только через `CURSOR_API_KEY`. Каждый запуск идёт в пустой временной папке, без `--force`, с запретом команд оболочки, чтения и записи файлов и MCP. Если в Cursor не включён Privacy Mode, Cursor может хранить транскрипты и обучать на них свои модели: включи его в Cursor Settings → General → Privacy Mode (у команд он включён по умолчанию)."
           }
         }
       }

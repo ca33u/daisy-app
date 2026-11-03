@@ -161,4 +161,46 @@ struct CursorAgentProcessContractTests {
         #expect(result.contains(#""summary":"Safe""#))
     }
 
+    @Test("The model list: `id - Name` rows, the default marked, the header and colours skipped")
+    func parsesModelList() {
+        let output = """
+        \u{1B}[1mAvailable models\u{1B}[0m
+
+        auto - Auto (default)
+        grok-4.7 - Grok 4.7
+        grok-4.5 - Grok 4.5 (current)
+        composer-2.5 - Composer 2.5
+        claude-opus-5-5-thinking - Claude Opus 5.5 Thinking (current, default)
+        grok-4.7 - Grok 4.7 again
+        \u{1B}[32mgpt-5.6-sol\u{1B}[0m - GPT-5.6 Sol - High
+        * Tip - use --model <id> to pick one
+        Tip: use --model <id> to pick one
+        """
+        let models = CursorAgentService.parseModelList(output)
+        #expect(models.map(\.id) == ["auto", "grok-4.7", "grok-4.5", "composer-2.5", "claude-opus-5-5-thinking", "gpt-5.6-sol"])
+        #expect(models.map(\.name) == ["Auto", "Grok 4.7", "Grok 4.5", "Composer 2.5", "Claude Opus 5.5 Thinking", "GPT-5.6 Sol - High"])
+        #expect(models.map(\.isDefault) == [true, false, false, false, true, false])
+        #expect(CursorAgentService.parseModelList("Available models\n\nNo models available").isEmpty)
+    }
+
+    @Test("Listing models runs `models` with the key in the environment only, in the deny-policy folder")
+    func listModelsProcess() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("daisy-cursor-fixture-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("cursor-agent")
+        let script = #"""
+        #!/bin/sh
+        test "$*" = "models" || exit 80
+        test "$CURSOR_API_KEY" = "SECRET_CURSOR_KEY" || exit 82
+        test -f .cursor/cli.json || exit 83
+        printf 'Available models\n\nauto - Auto (default)\ngrok-4.7 - Grok 4.7\n'
+        """#
+        FileManager.default.createFile(atPath: executable.path, contents: Data(script.utf8))
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+
+        let models = try await CursorAgentService.shared.listModels(apiKey: "SECRET_CURSOR_KEY", executableOverride: executable.path)
+        #expect(models.map(\.id) == ["auto", "grok-4.7"])
+    }
 }

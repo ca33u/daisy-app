@@ -48,6 +48,10 @@ struct SettingsView: View {
     /// "off", "" before one) — read for the footer, written by
     /// GrokAPISummarizer.
     @AppStorage(GrokAPISummarizer.zeroDataRetentionKey) private var grokZeroDataRetention = ""
+    /// The models `cursor-agent models` lists for the key, for the Model
+    /// menu; empty until it answers. Its error, if it couldn't.
+    @State private var cursorModels: [CursorAgentModel] = []
+    @State private var cursorModelsError: String?
     // Notion destination config (token / parent / auto-send / Test
     // connection) moved to the top-level Connections page →
     // Auto-routing tab in 1.0.7.16 — it's an external send-to
@@ -3242,11 +3246,39 @@ struct SettingsView: View {
             }
 
             LabeledContent("Model") {
-                TextField("", text: $summarizer.cursorModel, prompt: Text(CursorAgentService.defaultModelID))
-                    .textFieldStyle(.roundedBorder)
-                    .labelsHidden()
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity)
+                HStack(spacing: 6) {
+                    TextField("", text: $summarizer.cursorModel, prompt: Text(CursorAgentService.defaultModelID))
+                        .textFieldStyle(.roundedBorder)
+                        .labelsHidden()
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity)
+                    // The plan decides the models (Free and Plus: only
+                    // Cursor's own, Grok and Composer), so the list is the
+                    // CLI's; the field still takes any id.
+                    Menu {
+                        ForEach(cursorModels) { model in
+                            Button(model.isDefault
+                                   ? String(localized: "\(model.name) — default")
+                                   : model.name) {
+                                summarizer.cursorModel = model.id
+                            }
+                        }
+                    } label: {
+                        Text("Choose")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .disabled(cursorModels.isEmpty)
+                }
+            }
+            // The key's hash, not the key: it stays out of SwiftUI's state.
+            .task(id: "\(settings.cursorAPIKey.hashValue)|\(summarizer.cursorAgentPath)") {
+                await loadCursorModels()
+            }
+            if let cursorModelsError {
+                Text(String(localized: "Couldn’t get Cursor’s model list: \(cursorModelsError)"))
+                    .font(.caption)
+                    .foregroundStyle(Color.daisyWarning)
             }
 
             if let found = CursorAgentService.resolveExecutable(override: summarizer.cursorAgentPath) {
@@ -3611,6 +3643,42 @@ struct SettingsView: View {
         }
     }
 
+    /// What `cursor-agent models` lists for the key in the field — after a
+    /// pause, so typing the key doesn't start the CLI on every letter, and
+    /// once per key and path while Daisy runs (the section reappears on
+    /// every visit).
+    private func loadCursorModels() async {
+        let key = settings.cursorAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let path = summarizer.cursorAgentPath
+        guard !key.isEmpty, CursorAgentService.resolveExecutable(override: path) != nil else {
+            cursorModels = []
+            cursorModelsError = nil
+            return
+        }
+        let cacheKey = "\(key.hashValue)|\(path)"
+        if let cached = Self.cursorModelCache[cacheKey] {
+            cursorModels = cached
+            cursorModelsError = nil
+            return
+        }
+        do {
+            try await Task.sleep(for: .milliseconds(700))
+            let models = try await CursorAgentService.shared.listModels(apiKey: key, executableOverride: path)
+            // A list that came in as the key or path changed is the old one's.
+            try Task.checkCancellation()
+            cursorModels = models
+            cursorModelsError = models.isEmpty ? String(localized: "Cursor listed no models.") : nil
+            if !models.isEmpty { Self.cursorModelCache[cacheKey] = models }
+        } catch is CancellationError {
+        } catch {
+            cursorModels = []
+            cursorModelsError = error.localizedDescription
+        }
+    }
+
+    /// `cursor-agent models` answers per key and CLI path, for the run.
+    private static var cursorModelCache: [String: [CursorAgentModel]] = [:]
+
     /// Per-provider footer copy for the unified Summary section.
     /// Rolls "where transcripts go" + "where to get keys" + "cost"
     /// into one paragraph so the user doesn't read four scattered
@@ -3627,7 +3695,10 @@ struct SettingsView: View {
             }
             return String(localized: "Transcripts are sent to OpenAI over HTTPS using your own API key. Create one at platform.openai.com/api-keys — it's stored in your macOS Keychain. Each summary costs roughly $0.01–0.05.")
         case .cursor:
-            return String(localized: "Transcripts are sent to Cursor through its Agent CLI using your API key, stored in macOS Keychain and passed only through `CURSOR_API_KEY`. Every run uses an empty temporary folder, never passes `--force`, and installs deny rules for shell, file reads/writes, and MCP.")
+            // Privacy Mode is the account's (cursor.com/help/security-and-privacy/privacy,
+            // 2026-11-03): without it Cursor may keep prompts and train on
+            // them — and Grok is trained with Cursor's data.
+            return String(localized: "Transcripts are sent to Cursor through its Agent CLI using your API key, stored in macOS Keychain and passed only through `CURSOR_API_KEY`. Every run uses an empty temporary folder, never passes `--force`, and installs deny rules for shell, file reads/writes, and MCP. Unless Privacy Mode is on, Cursor may store transcripts and train its models on them: turn it on in Cursor Settings → General → Privacy Mode (it’s on by default for teams).")
         case .gemini:
             return String(localized: "Transcripts are sent to Google over HTTPS using your own API key. Create one at aistudio.google.com/apikey — it's stored in your macOS Keychain. On a paid-tier key Google doesn't use your data to train its models; on a free-tier key it may. Roughly $0.01–0.03 per summary on 3.8 Flash.")
         case .yandex:

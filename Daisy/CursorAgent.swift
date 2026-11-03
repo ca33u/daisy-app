@@ -151,6 +151,72 @@ nonisolated struct CursorAgentService: CursorAgentServing, Sendable {
     }
 }
 
+// MARK: - Models this account may use
+
+/// One row of `cursor-agent models`.
+nonisolated struct CursorAgentModel: Identifiable, Equatable, Sendable {
+    let id: String
+    let name: String
+    let isDefault: Bool
+}
+
+extension CursorAgentService {
+    /// The models this key's account may use, as `cursor-agent models`
+    /// prints them (cursor.com/docs/cli/reference/parameters, 2026-11-03):
+    /// an «Available models» header, then `id - Name` rows, the default
+    /// marked «(default)». Which ones depends on the plan — Free and Plus
+    /// get only Cursor's own (Grok 4.7, 4.6, 4.5, Composer 2.5) — so the
+    /// list comes from the CLI, not from Daisy. Sends the key, nothing else.
+    func listModels(apiKey: String, executableOverride: String) async throws -> [CursorAgentModel] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["CURSOR_API_KEY"] = apiKey
+        do {
+            let result = try await run(
+                arguments: [.literal("models")],
+                stdin: Data(),
+                executableOverride: executableOverride,
+                environment: environment,
+                timeout: 30,
+                inputFiles: [".cursor/cli.json": Self.denyPolicy]
+            )
+            guard !result.stdoutWasTruncated else { throw CursorAgentError.responseTooLarge }
+            return Self.parseModelList(String(decoding: result.stdout, as: UTF8.self))
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as CursorAgentError {
+            throw error
+        } catch let error as AgentProcessRunnerError {
+            throw Self.map(error)
+        } catch {
+            throw CursorAgentError.invalidResponse
+        }
+    }
+
+    /// `id - Name` rows; anything else (the header, blank lines, notices)
+    /// is skipped. Terminal colours are taken off first, and trailing
+    /// «(default)» / «(current)» markers off the name.
+    static func parseModelList(_ output: String) -> [CursorAgentModel] {
+        let plain = output.replacingOccurrences(of: #"\x{1B}\[[0-9;?]*[A-Za-z]"#, with: "", options: .regularExpression)
+        var seen = Set<String>()
+        var models: [CursorAgentModel] = []
+        for raw in plain.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard let dash = line.range(of: " - ") else { continue }
+            let id = String(line[..<dash.lowerBound])
+            guard id.range(of: #"^[A-Za-z0-9][A-Za-z0-9._:/-]*$"#, options: .regularExpression) != nil,
+                  seen.insert(id).inserted else { continue }
+            var name = String(line[dash.upperBound...]).trimmingCharacters(in: .whitespaces)
+            var isDefault = false
+            if let marks = name.range(of: #"\s*\((default|current)(,\s*(default|current))*\)$"#, options: .regularExpression) {
+                isDefault = name[marks].contains("default")
+                name = String(name[..<marks.lowerBound])
+            }
+            models.append(CursorAgentModel(id: id, name: name.isEmpty ? id : name, isDefault: isDefault))
+        }
+        return models
+    }
+}
+
 private nonisolated struct CursorResultEnvelope: Decodable {
     let type: String
     let subtype: String?
