@@ -73,6 +73,8 @@ nonisolated struct CursorAgentSummarizer: SummaryProvider {
             throw CancellationError()
         } catch let error as SummaryProviderError {
             throw error
+        } catch let error as CloudSummaryDTO.DecodeFailure {
+            throw SummaryProviderError.parseFailed(provider: "Cursor", message: error.localizedDescription)
         } catch let error as CursorAgentError {
             switch error {
             case .invalidResponse, .responseTooLarge:

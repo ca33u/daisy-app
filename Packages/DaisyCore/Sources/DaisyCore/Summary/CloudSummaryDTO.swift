@@ -5,12 +5,13 @@
 //  Copied from daisy-app/Daisy/SummaryProvider.swift @ 1.0.7.72,
 //  2026-09-19 (backlog 4 B-2): the tolerant decoder for what a cloud
 //  model returns — strips Markdown fences, extracts the outermost JSON
-//  object, remaps the key aliases models emit despite the schema.
+//  object, reads the key aliases models emit despite the schema.
 //
 
 import Foundation
+import os
 
-nonisolated struct CloudSummaryDTO: Codable {
+nonisolated struct CloudSummaryDTO: Decodable {
     let summary: String?
     let sections: [DTOSection]?
     let actionItems: [String]?
@@ -20,7 +21,20 @@ nonisolated struct CloudSummaryDTO: Codable {
     let actions: [DTOAction]?
     /// The meeting's short name (03.10.2026); absent from the proxy until
     /// it carries the field.
-    var title: String? = nil
+    let title: String?
+
+    /// Element by element (03.11.2026): a field of the wrong type reads as
+    /// absent, and a broken section, bullet, action item or action is
+    /// mended or left out — never the whole summary. See `LenientJSON`.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: LenientJSON.Key.self)
+        summary = LenientJSON.string(container, Self.summaryKeys)
+        clientFollowUp = LenientJSON.string(container, Self.clientFollowUpKeys)
+        title = LenientJSON.string(container, ["title"])
+        actionItems = (LenientJSON.list(container, Self.actionItemsKeys) as [DTOText]?)?.map(\.text)
+        actions = LenientJSON.list(container, ["actions"])
+        sections = (LenientJSON.list(container, Self.sectionsKeys) as [DTOSection]?).map(DTOSection.titled)
+    }
 
     func toMeetingSummary() -> MeetingSummary {
         let lede: String = {
@@ -46,22 +60,13 @@ nonisolated struct CloudSummaryDTO: Codable {
         return actions.compactMap { $0.toActionItem() }
     }
 
-    var isEffectivelyEmpty: Bool {
-        (summary ?? "").isEmpty && (sections ?? []).isEmpty && (actionItems ?? []).isEmpty
-    }
-
-    /// Alias → canonical key, longest first.
-    static let keyAliases: [(String, String)] = [
-        ("client_follow_up", "clientFollowUp"),
-        ("action_items",     "actionItems"),
-        ("outline",          "sections"),
-        ("topics",           "sections"),
-        ("follow_up",        "clientFollowUp"),
-        ("followup",         "clientFollowUp"),
-        ("lede",             "summary"),
-        ("tldr",             "summary"),
-        ("headline",         "summary"),
-    ]
+    /// Each field under its canonical name first, then the names models
+    /// use for it despite the schema, case ignored — read straight off the
+    /// keys since 03.11.2026 (a string rewrite of the JSON ran before).
+    static let summaryKeys = ["summary", "lede", "tldr", "headline"]
+    static let sectionsKeys = ["sections", "outline", "topics"]
+    static let actionItemsKeys = ["actionItems", "action_items"]
+    static let clientFollowUpKeys = ["clientFollowUp", "client_follow_up", "follow_up", "followup"]
 
     static func decode(from text: String) throws -> CloudSummaryDTO {
         var s = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -74,29 +79,25 @@ nonisolated struct CloudSummaryDTO: Codable {
         }
         if let extracted = extractOutermostJSONObject(s) { s = extracted }
         if s.isEmpty {
-            throw SummaryProviderError.parseFailed(provider: "cloud", message: "Empty response — the model returned nothing after fence stripping.")
+            throw DecodeFailure(reason: "Empty response — the model returned nothing after fence stripping.")
         }
         guard let data = s.data(using: .utf8) else {
-            throw SummaryProviderError.parseFailed(provider: "cloud", message: "Couldn't encode response as UTF-8.")
+            throw DecodeFailure(reason: "Couldn't encode response as UTF-8.")
         }
-        let decoder = JSONDecoder()
         do {
-            let dto = try decoder.decode(CloudSummaryDTO.self, from: data)
-            if dto.isEffectivelyEmpty,
-               let remappedData = remapKeyAliases(jsonString: s).data(using: .utf8),
-               let retried = try? decoder.decode(CloudSummaryDTO.self, from: remappedData),
-               !retried.isEffectivelyEmpty {
-                return retried
-            }
-            return dto
+            return try JSONDecoder().decode(CloudSummaryDTO.self, from: data)
         } catch {
-            guard let remappedData = remapKeyAliases(jsonString: s).data(using: .utf8) else { throw error }
-            do {
-                return try decoder.decode(CloudSummaryDTO.self, from: remappedData)
-            } catch {
-                throw SummaryProviderError.parseFailed(provider: "cloud", message: "JSON schema mismatch (\(error.localizedDescription)).")
-            }
+            // Every field and element is read leniently, so only text that
+            // isn't JSON, or JSON that isn't an object, gets here.
+            throw DecodeFailure(reason: "JSON schema mismatch: \(LenientJSON.reason(error)).")
         }
+    }
+
+    /// Only the reason: the provider wraps it once as «<provider>: <reason>»
+    /// (it read «Anthropic: cloud: …» before 03.11.2026).
+    struct DecodeFailure: LocalizedError {
+        let reason: String
+        var errorDescription: String? { reason }
     }
 
     /// Outermost balanced `{ … }`, ignoring braces inside string literals.
@@ -128,36 +129,128 @@ nonisolated struct CloudSummaryDTO: Codable {
         }
         return nil
     }
+}
 
-    /// `"lede":` → `"summary":` and friends; only keys (followed by a colon).
-    private static func remapKeyAliases(jsonString: String) -> String {
-        var result = jsonString
-        for (alias, canonical) in keyAliases {
-            let variants = [alias, alias.uppercased(), alias.prefix(1).uppercased() + alias.dropFirst()]
-            for v in variants {
-                result = result.replacingOccurrences(of: "\"\(v)\":", with: "\"\(canonical)\":")
-                result = result.replacingOccurrences(of: "\"\(v)\" :", with: "\"\(canonical)\":")
+nonisolated struct DTOSection {
+    /// Nil only straight out of the decoder; `titled` gives every section
+    /// one before anything else reads it.
+    let title: String?
+    let bullets: [DTOBullet]?
+
+    func toSummarySection() -> SummarySection {
+        SummarySection(
+            title: title ?? "",
+            bullets: (bullets ?? []).flatMap { $0.toSummaryBullets() }
+        )
+    }
+
+    /// Every section titled, no bullet lost: one without a title joins the
+    /// section before it (the first titled one when it comes first); when
+    /// none has a title, the first bullet becomes it.
+    static func titled(_ sections: [DTOSection]) -> [DTOSection] {
+        var result: [DTOSection] = []
+        var leading: [DTOBullet] = []
+        for (index, section) in sections.enumerated() {
+            let bullets = section.bullets ?? []
+            if let title = section.title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                result.append(DTOSection(title: title, bullets: leading + bullets))
+                leading = []
+            } else if let previous = result.popLast() {
+                LenientJSON.log.error("Summary JSON: sections[\(index, privacy: .public)] has no title — its bullets join the section before")
+                result.append(DTOSection(title: previous.title, bullets: (previous.bullets ?? []) + bullets))
+            } else {
+                LenientJSON.log.error("Summary JSON: sections[\(index, privacy: .public)] has no title — its bullets join the next titled section")
+                leading += bullets
             }
+        }
+        let orphans = leading.flatMap(\.withTextPromoted)
+        if let first = orphans.first, let title = first.text {
+            result.append(DTOSection(title: title, bullets: (first.children ?? []) + orphans.dropFirst()))
         }
         return result
     }
 }
 
-nonisolated struct DTOSection: Codable {
-    let title: String
-    let bullets: [DTOBullet]?
-
-    func toSummarySection() -> SummarySection {
-        SummarySection(title: title, bullets: (bullets ?? []).map { $0.toSummaryBullet() })
+nonisolated extension DTOSection: Decodable {
+    /// `{"title": …, "bullets": […]}`, under a few other names models
+    /// use, or a bare string as a title with no bullets.
+    init(from decoder: Decoder) throws {
+        if let title = try? decoder.singleValueContainer().decode(String.self) {
+            self.init(title: title, bullets: nil)
+            return
+        }
+        let container = try decoder.container(keyedBy: LenientJSON.Key.self)
+        let title = LenientJSON.string(container, ["title", "heading", "header", "name"])
+        let bullets: [DTOBullet]? = LenientJSON.list(container, ["bullets", "items", "points"])
+        guard title != nil || !(bullets ?? []).isEmpty else {
+            throw DecodingError.keyNotFound(LenientJSON.Key(stringValue: "title"), .init(codingPath: decoder.codingPath, debugDescription: "No title and no bullets"))
+        }
+        self.init(title: title, bullets: bullets)
     }
 }
 
-nonisolated struct DTOBullet: Codable {
-    let text: String
+/// JSON shape of a bullet. `children` is optional; missing/null in
+/// the LLM output is treated as "no sub-bullets", which is the
+/// common case for shallow facts.
+nonisolated struct DTOBullet {
+    /// Nil or blank when the model wrote only children; those stand in
+    /// for it (`toSummaryBullets`).
+    let text: String?
     let children: [DTOBullet]?
 
-    func toSummaryBullet() -> SummaryBullet {
-        SummaryBullet(text: text, children: (children ?? []).map { $0.toSummaryBullet() })
+    private var hasText: Bool {
+        !(text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// This bullet, or its children in its place when it has no text.
+    var withTextPromoted: [DTOBullet] {
+        hasText ? [self] : (children ?? []).flatMap(\.withTextPromoted)
+    }
+
+    func toSummaryBullets() -> [SummaryBullet] {
+        withTextPromoted.map { bullet in
+            SummaryBullet(
+                text: bullet.text ?? "",
+                children: (bullet.children ?? []).flatMap { $0.toSummaryBullets() }
+            )
+        }
+    }
+}
+
+nonisolated extension DTOBullet: Decodable {
+    /// `{"text": …, "children": […]}`, under a few other names models
+    /// use, or a bare string.
+    init(from decoder: Decoder) throws {
+        if let text = try? decoder.singleValueContainer().decode(String.self) {
+            self.init(text: text, children: nil)
+            return
+        }
+        let container = try decoder.container(keyedBy: LenientJSON.Key.self)
+        // `title` last: a bullet written like a section keeps its heading
+        // as its text and its bullets as children.
+        let text = LenientJSON.string(container, ["text", "content", "point", "bullet", "title"])
+        let children: [DTOBullet]? = LenientJSON.list(container, ["children", "subBullets", "sub_bullets", "bullets"])
+        guard text != nil || !(children ?? []).isEmpty else {
+            throw DecodingError.keyNotFound(LenientJSON.Key(stringValue: "text"), .init(codingPath: decoder.codingPath, debugDescription: "No text and no children"))
+        }
+        self.init(text: text, children: children)
+    }
+}
+
+/// One `actionItems` entry: a string, or an object a model made of it.
+nonisolated struct DTOText: Decodable {
+    let text: String
+
+    init(from decoder: Decoder) throws {
+        if let text = try? decoder.singleValueContainer().decode(String.self) {
+            self.text = text
+            return
+        }
+        let container = try decoder.container(keyedBy: LenientJSON.Key.self)
+        guard let text = LenientJSON.string(container, ["text", "task", "action", "title"]) else {
+            throw DecodingError.keyNotFound(LenientJSON.Key(stringValue: "text"), .init(codingPath: decoder.codingPath, debugDescription: "No text"))
+        }
+        self.text = text
     }
 }
 

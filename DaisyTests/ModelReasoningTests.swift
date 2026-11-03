@@ -52,7 +52,7 @@ struct ModelReasoningTests {
     @Test("Thinking cut off before it closed is no answer at all")
     func unclosedThinking() {
         #expect(ModelReasoning.answer(from: "<think>Let me draft {\"clientFollowUp\":\"draft\"} and") == "")
-        #expect(throws: SummaryProviderError.self) {
+        #expect(throws: CloudSummaryDTO.DecodeFailure.self) {
             try CloudSummaryDTO.decode(from: "<think>Let me draft {\"clientFollowUp\":\"draft\"} and")
         }
     }

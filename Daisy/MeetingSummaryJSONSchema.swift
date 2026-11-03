@@ -128,4 +128,24 @@ nonisolated enum MeetingSummaryJSONSchema {
       }
     }
     """#
+
+    /// `localModelJSON` for an API that holds its reply to a schema
+    /// (Anthropic's `output_config.format`, 03.11.2026): two levels because
+    /// such APIs refuse recursive schemas, nothing by `$ref`, no `$schema` /
+    /// `$id`, and `title` only for the meeting summary — the one task whose
+    /// prompt asks for it. Text, not a dictionary, because the model writes
+    /// the fields in the schema's order: the envelope as the prompt lays it
+    /// out, a bullet's `text` before its `children`. A dictionary through
+    /// JSONSerialization came out in a different order each launch.
+    static func constrainedReplyJSON(includesTitle: Bool) -> String {
+        let leaf = #"{"type":"object","additionalProperties":false,"properties":{"text":{"type":"string"}},"required":["text"]}"#
+        let bullet = #"{"type":"object","additionalProperties":false,"properties":{"text":{"type":"string"},"children":{"type":"array","items":"# + leaf + #"}},"required":["text","children"]}"#
+        let section = #"{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"bullets":{"type":"array","items":"# + bullet + #"}},"required":["title","bullets"]}"#
+        let title = includesTitle ? #""title":{"type":"string"},"# : ""
+        let required = (includesTitle ? #""title","# : "") + #""summary","sections","actionItems","clientFollowUp""#
+        return #"{"type":"object","additionalProperties":false,"properties":{"# + title
+            + #""summary":{"type":"string"},"sections":{"type":"array","items":"# + section
+            + #"},"actionItems":{"type":"array","items":{"type":"string"}},"clientFollowUp":{"type":"string"}},"required":["#
+            + required + "]}"
+    }
 }

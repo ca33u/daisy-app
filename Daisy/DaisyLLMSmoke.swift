@@ -161,7 +161,7 @@ nonisolated enum DaisyLLMSmoke {
             let wall = ContinuousClock.now - started
             print(response.text)
             let json = (try? JSONSerialization.jsonObject(with: Data(response.text.utf8))) != nil
-            let summary = (try? CloudSummaryDTO.decode(from: response.text)) != nil
+            let summary = (try? CloudSummaryDTO.decode(from: response.text))?.hasContent == true
             say(String(format: """
                 prompt_tokens %d · read %.1f s (%.0f tok/s) · out_tokens %d · write %.1f s (%.1f tok/s) \
                 · load %.1f s · peak %.2f GB · wall %.1f s · json %@ · CloudSummaryDTO %@

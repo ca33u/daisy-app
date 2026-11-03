@@ -126,6 +126,14 @@ nonisolated struct CodexAppServerSummarizer: SummaryProvider {
                     reason: error.localizedDescription
                 )
             }
+        } catch let error as CloudSummaryDTO.DecodeFailure {
+            await SubscriptionUsageLedgerSink.record(
+                provider: .openai,
+                model: model,
+                elapsed: startedAt.duration(to: clock.now),
+                successful: false
+            )
+            throw SummaryProviderError.parseFailed(provider: "ChatGPT", message: error.localizedDescription)
         } catch {
             await SubscriptionUsageLedgerSink.record(
                 provider: .openai,

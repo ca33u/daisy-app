@@ -245,6 +245,49 @@ struct CloudStreamingTests {
         #expect(body["output_config"] == nil)
     }
 
+    @Test("Anthropic: the reply is held to the envelope's schema, with a title only for the meeting summary")
+    func anthropicReplySchema() async throws {
+        func format(model: String = AnthropicAPISummarizer.defaultModelID, task: SummaryTask) async throws -> [String: Any]? {
+            let s = session([(200, anthropicSSE(text: summaryJSON, stop: "end_turn"))])
+            _ = try await AnthropicAPISummarizer(model: model, urlSession: s, apiKeyOverride: "test")
+                .summarize(transcript: twoHourTranscript, title: "Launch", localeHint: "en", task: task)
+            return (try requestJSON()["output_config"] as? [String: Any])?["format"] as? [String: Any]
+        }
+        let meeting = try #require(try await format(task: .meeting(forceFollowUp: false)))
+        #expect(meeting["type"] as? String == "json_schema")
+        #expect(((meeting["schema"] as? [String: Any])?["required"] as? [String])?.contains("title") == true)
+        // Sent in its own order, byte for byte, not reordered by the
+        // body's serialization.
+        let sent = String(decoding: StubProtocol.bodies[0], as: UTF8.self)
+        #expect(sent.contains(MeetingSummaryJSONSchema.constrainedReplyJSON(includesTitle: true)))
+        #expect(!sent.contains("daisy-reply-schema-"))
+
+        let catchUp = try #require(try await format(task: .catchUp))
+        #expect(((catchUp["schema"] as? [String: Any])?["required"] as? [String])?.contains("title") == false)
+
+        // Haiku 4.5 takes a schema but not `effort`.
+        let s = session([(200, anthropicSSE(text: summaryJSON, stop: "end_turn"))])
+        _ = try await AnthropicAPISummarizer(model: "claude-haiku-4-5-20251001", urlSession: s, apiKeyOverride: "test")
+            .summarize(transcript: twoHourTranscript, title: "Launch", localeHint: "en", task: .standard)
+        let haiku = try #require(try requestJSON()["output_config"] as? [String: Any])
+        #expect(haiku["effort"] == nil)
+        #expect(haiku["format"] != nil)
+    }
+
+    @Test("Anthropic: a reply the decoder can't read says so once, without «cloud»")
+    func anthropicParseFailureWording() async throws {
+        let s = session([(200, anthropicSSE(text: "[\"not\", \"an object\"]", stop: "end_turn"))])
+        do {
+            _ = try await AnthropicAPISummarizer(urlSession: s, apiKeyOverride: "test")
+                .summarize(transcript: twoHourTranscript, title: "Launch", localeHint: "en", task: .standard)
+            Issue.record("expected parseFailed")
+        } catch SummaryProviderError.parseFailed(let provider, let message) {
+            #expect(provider == "Anthropic")
+            #expect(!message.contains("cloud") && !message.contains("couldn't parse"))
+            #expect(message.contains("the top level"))
+        }
+    }
+
     /// OpenAI-shaped SSE: content deltas, a finish chunk, then usage —
     /// top-level (`usageInChoice: false`) or inside the choice (Moonshot).
     private func openAISSE(_ content: String, finish: String, usageInChoice: Bool = false) -> String {

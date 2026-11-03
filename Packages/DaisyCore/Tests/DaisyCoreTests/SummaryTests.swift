@@ -27,6 +27,34 @@ struct SummaryTests {
         #expect(summary.actionItems == ["Maria: send contract"])
     }
 
+    /// Log report 03.11.2026: one section or bullet short of a field threw
+    /// the whole reply away. Now it is mended or left out.
+    @Test func brokenElementsDoNotCostTheSummary() throws {
+        let reply = """
+        {"summary": "Lede", "sections": [
+           {"title": "Plan", "bullets": [{"text": "Ship in May", "children": [{"text": null}]}, {"text": null}]},
+           {"title": null, "bullets": [{"text": "Budget agreed"}]}, null],
+         "actionItems": ["Anna: send the budget", null],
+         "actions": [null, {"text": "Send the budget", "kind": "email"}],
+         "clientFollowUp": ""}
+        """
+        let summary = try CloudSummaryDTO.decode(from: reply).toMeetingSummary()
+        #expect(summary.sections.map(\.title) == ["Plan"])
+        #expect(summary.sections.first?.bullets.map(\.text) == ["Ship in May", "Budget agreed"])
+        #expect(summary.actionItems == ["Anna: send the budget"])
+        #expect(summary.actions.map(\.text) == ["Send the budget"])
+    }
+
+    @Test func whatStillFailsSaysWhereWithoutCloud() {
+        #expect(throws: CloudSummaryDTO.DecodeFailure.self) { try CloudSummaryDTO.decode(from: "[1, 2]") }
+        do {
+            _ = try CloudSummaryDTO.decode(from: "[1, 2]")
+        } catch {
+            #expect(error.localizedDescription.contains("the top level"))
+            #expect(!error.localizedDescription.contains("cloud"))
+        }
+    }
+
     @Test func aliasKeysAreRemapped() throws {
         let reply = #"{"lede": "Intro call", "outline": [], "action_items": ["Call back"], "follow_up": ""}"#
         let summary = try CloudSummaryDTO.decode(from: reply).toMeetingSummary()

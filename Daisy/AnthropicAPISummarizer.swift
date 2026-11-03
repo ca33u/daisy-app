@@ -70,10 +70,27 @@ nonisolated struct AnthropicAPISummarizer: SummaryProvider {
                 ["role": "user", "content": userPrompt]
             ]
         ]
+        var outputConfig: [String: Any] = [:]
         // A summary is mid-difficulty work over many tokens: medium effort
         // keeps the thinking proportionate. Haiku 4.5 rejects `effort`.
         if Self.acceptsEffort(model) {
-            body["output_config"] = ["effort": "medium"]
+            outputConfig["effort"] = "medium"
+        }
+        // The reply held to the envelope's schema, not just asked for it in
+        // the prompt: a reply that left one section or bullet without a
+        // field cost a user a 48-minute summary three times running (log
+        // report 03.11.2026). `CloudSummaryDTO` stays lenient for the
+        // models below, which take no schema. The schema goes in as its own
+        // text (`constrainedReplyJSON` says why its order matters), spliced
+        // over this placeholder once the body is serialized.
+        let schemaPlaceholder = "daisy-reply-schema-\(UUID().uuidString)"
+        let replySchema = Self.acceptsReplySchema(model)
+            ? MeetingSummaryJSONSchema.constrainedReplyJSON(includesTitle: task.asksForTitle) : nil
+        if replySchema != nil {
+            outputConfig["format"] = ["type": "json_schema", "schema": schemaPlaceholder]
+        }
+        if !outputConfig.isEmpty {
+            body["output_config"] = outputConfig
         }
 
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
@@ -83,7 +100,12 @@ nonisolated struct AnthropicAPISummarizer: SummaryProvider {
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         // Idle, not total: see CloudStreaming.
         request.timeoutInterval = CloudStreaming.idleTimeout
-        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        var httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        if let replySchema {
+            httpBody = Data(String(decoding: httpBody, as: UTF8.self)
+                .replacingOccurrences(of: "\"\(schemaPlaceholder)\"", with: replySchema).utf8)
+        }
+        request.httpBody = httpBody
 
         // Retries (429 / 5xx / a connection that never opened) happen only
         // before the answer starts — see CloudStreaming.
@@ -169,6 +191,14 @@ nonisolated struct AnthropicAPISummarizer: SummaryProvider {
     /// `output_config.effort`: the modern models only — Haiku 4.5 and
     /// older reject it.
     static func acceptsEffort(_ model: String) -> Bool { isModern(model) }
+
+    /// `output_config.format`: the modern models and the 4.5 generation
+    /// (platform.claude.com structured outputs, 03.11.2026); anything
+    /// older, or a typed-in id we don't know, would 400 on it.
+    static func acceptsReplySchema(_ model: String) -> Bool {
+        let id = model.lowercased()
+        return isModern(model) || ["claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-5"].contains { id.hasPrefix($0) }
+    }
 
     // MARK: - Catalog of model IDs offered in Settings
 
