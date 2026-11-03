@@ -21,6 +21,8 @@ import Testing
 final class StubProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var responses: [(status: Int, body: String)] = []
     nonisolated(unsafe) static var failAfterBody: URLError.Code?
+    /// Headers every response carries besides `Content-Type`.
+    nonisolated(unsafe) static var headers: [String: String] = [:]
     /// What the summarizers handed the token ledger (see `session`).
     nonisolated(unsafe) static var spends: [(kind: SummaryProviderKind, model: String, spend: TokenSpend)] = []
     nonisolated(unsafe) static var requests: [URLRequest] = []
@@ -54,7 +56,7 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
             return
         }
         let response = HTTPURLResponse(url: request.url!, statusCode: next.status, httpVersion: "HTTP/1.1",
-                                       headerFields: ["Content-Type": "text/event-stream"])!
+                                       headerFields: Self.headers.merging(["Content-Type": "text/event-stream"]) { $1 })!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(next.body.utf8))
         if let code = Self.failAfterBody {
@@ -87,6 +89,7 @@ struct CloudStreamingTests {
     private func session(_ responses: [(Int, String)]) -> URLSession {
         StubProtocol.responses = responses.map { (status: $0.0, body: $0.1) }
         StubProtocol.failAfterBody = nil
+        StubProtocol.headers = [:]
         StubProtocol.spends = []
         StubProtocol.requests = []
         StubProtocol.bodies = []
@@ -702,6 +705,286 @@ struct CloudStreamingTests {
         #expect(StubProtocol.requests.count == 1)
     }
 
+    // MARK: - Grok on xAI's Responses API (03.11.2026)
+
+    /// A Responses API SSE body as xAI documents it: created, a reasoning
+    /// item and its summary deltas, the JSON in `output_text` deltas, then
+    /// the final response with usage — `output_tokens` without the
+    /// reasoning, which only the total includes.
+    private func responsesSSE(_ content: String, status: String = "completed", reason: String? = nil,
+                              deltas: Bool = true) -> String {
+        func event(_ object: [String: Any]) -> String {
+            "data: " + String(decoding: try! JSONSerialization.data(withJSONObject: object), as: UTF8.self) + "\n\n"
+        }
+        var out = event(["type": "response.created", "response": ["id": "r", "status": "in_progress"]])
+        out += event(["type": "response.output_item.added", "output_index": 0,
+                      "item": ["type": "reasoning", "id": "rs", "summary": []]])
+        out += event(["type": "response.reasoning_summary_text.delta", "item_id": "rs", "delta": "Weighing the plan."])
+        if deltas {
+            var rest = Substring(content)
+            while !rest.isEmpty {
+                out += event(["type": "response.output_text.delta", "item_id": "msg", "output_index": 1,
+                              "content_index": 0, "delta": String(rest.prefix(20))])
+                rest = rest.dropFirst(20)
+            }
+        }
+        var response: [String: Any] = [
+            "id": "r", "status": status,
+            "output": [
+                ["type": "reasoning", "id": "rs", "summary": [["type": "summary_text", "text": "Weighing the plan."]]],
+                ["type": "message", "id": "msg", "role": "assistant",
+                 "content": [["type": "output_text", "text": content, "annotations": []]]],
+            ],
+            "usage": ["input_tokens": 30_000, "input_tokens_details": ["cached_tokens": 10_000],
+                      "output_tokens": 900, "output_tokens_details": ["reasoning_tokens": 400],
+                      "total_tokens": 31_300],
+        ]
+        if let reason { response["incomplete_details"] = ["reason": reason] }
+        let type = status == "completed" ? "response.completed" : status == "failed" ? "response.failed" : "response.incomplete"
+        out += event(["type": type, "response": response])
+        return out + "data: [DONE]\n\n"
+    }
+
+    private func grok(_ responses: [(Int, String)], model: String = GrokAPISummarizer.defaultModelID,
+                      task: SummaryTask = .meeting(forceFollowUp: false), transcript: String? = nil,
+                      retention: @escaping @Sendable (Bool) -> Void = { _ in }) async throws -> MeetingSummary {
+        try await GrokAPISummarizer(model: model, urlSession: session(responses), apiKeyOverride: "xai-test",
+                                    recordRetention: retention)
+            .summarize(transcript: transcript ?? twoHourTranscript, title: "Launch", localeHint: "ru", task: task)
+    }
+
+    @Test("Grok: the Responses API, not stored, the envelope's schema, reasoning off on 4.3, usage with reasoning")
+    func grokRequest() async throws {
+        let summary = try await grok([(200, responsesSSE(summaryJSON))])
+        #expect(summary.summary == "Launch plan agreed.", "the reasoning summary is not the answer")
+        let request = try #require(StubProtocol.requests.first)
+        #expect(request.url?.absoluteString == "https://api.x.ai/v1/responses")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer xai-test")
+        #expect(request.timeoutInterval == 300)
+        let body = try requestJSON()
+        #expect(body["model"] as? String == "grok-4.3")
+        #expect(body["store"] as? Bool == false)
+        #expect(body["stream"] as? Bool == true)
+        #expect(body["max_output_tokens"] as? Int == 8192)
+        #expect((body["reasoning"] as? [String: Any])?["effort"] as? String == "none")
+        #expect(body["instructions"] is String)
+        let input = try #require(body["input"] as? [[String: Any]])
+        #expect(input.count == 1 && input[0]["role"] as? String == "user")
+        let format = try #require((body["text"] as? [String: Any])?["format"] as? [String: Any])
+        #expect(format["type"] as? String == "json_schema" && format["strict"] as? Bool == true)
+        #expect(format["name"] as? String == MeetingSummaryJSONSchema.identifier)
+        #expect(((format["schema"] as? [String: Any])?["required"] as? [String])?.contains("title") == true)
+        let sent = String(decoding: StubProtocol.bodies[0], as: UTF8.self)
+        #expect(sent.contains(MeetingSummaryJSONSchema.constrainedReplyJSON(includesTitle: true)), "byte for byte, in its own order")
+        #expect(!sent.contains("daisy-reply-schema-"))
+        for unsent in ["temperature", "top_p", "tools", "messages", "stop", "presence_penalty", "frequency_penalty",
+                       "response_format", "stream_options", "max_tokens", "previous_response_id"] {
+            #expect(body[unsent] == nil, "\(unsent)")
+        }
+        let recorded = try #require(StubProtocol.spends.first)
+        #expect(recorded.kind == .grok && recorded.model == "grok-4.3")
+        #expect(recorded.spend.inputTokens == 20_000 && recorded.spend.cachedInputTokens == 10_000)
+        #expect(recorded.spend.outputTokens == 1_300, "reasoning is billed as output and sits outside output_tokens")
+
+        // 4.7 can't stop reasoning: the least effort. A catch-up asks no title.
+        _ = try await grok([(200, responsesSSE(summaryJSON))], model: "grok-4.7", task: .catchUp)
+        let flagship = try requestJSON()
+        #expect((flagship["reasoning"] as? [String: Any])?["effort"] as? String == "low")
+        let catchUpFormat = try #require((flagship["text"] as? [String: Any])?["format"] as? [String: Any])
+        #expect(((catchUpFormat["schema"] as? [String: Any])?["required"] as? [String])?.contains("title") == false)
+        // An id typed by hand gets the model's own default.
+        _ = try await grok([(200, responsesSSE(summaryJSON))], model: "grok-4.20-0309-reasoning")
+        #expect(try requestJSON()["reasoning"] == nil)
+    }
+
+    @Test("Grok: OpenAI's Responses usage counts reasoning inside output — not added twice")
+    func responsesUsageReadings() {
+        let inside = TokenSpend.responsesAPI(from: ["usage": [
+            "input_tokens": 1000, "input_tokens_details": ["cached_tokens": 0],
+            "output_tokens": 500, "output_tokens_details": ["reasoning_tokens": 300], "total_tokens": 1500]])
+        #expect(inside.outputTokens == 500)
+        // xAI's own reference example: 32 + 9 + 110 = 151.
+        let xai = TokenSpend.responsesAPI(from: ["usage": [
+            "input_tokens": 32, "input_tokens_details": ["cached_tokens": 8],
+            "output_tokens": 9, "output_tokens_details": ["reasoning_tokens": 110], "total_tokens": 151]])
+        #expect(xai.inputTokens == 24 && xai.cachedInputTokens == 8 && xai.outputTokens == 119)
+        #expect(TokenSpend.responsesAPI(from: [:]).isEmpty)
+        // No total: nothing tells inside from outside — output as it stands.
+        let noTotal = TokenSpend.responsesAPI(from: ["usage": [
+            "input_tokens": 100, "output_tokens": 9, "output_tokens_details": ["reasoning_tokens": 110]]])
+        #expect(noTotal.outputTokens == 9)
+    }
+
+    @Test("Grok: the reply's x-zero-data-retention reaches Settings; other values don't")
+    func grokZeroDataRetention() async throws {
+        final class Seen: @unchecked Sendable { var values: [Bool] = [] }
+        let seen = Seen()
+        for (header, expected) in [("true", [true]), ("FALSE", [false]), ("maybe", []), (nil, [])] as [(String?, [Bool])] {
+            seen.values = []
+            let s = session([(200, responsesSSE(summaryJSON))])
+            if let header { StubProtocol.headers = ["x-zero-data-retention": header] }
+            _ = try await GrokAPISummarizer(urlSession: s, apiKeyOverride: "xai-test", recordRetention: { seen.values.append($0) })
+                .summarize(transcript: twoHourTranscript, title: "Launch", localeHint: "en", task: .standard)
+            #expect(seen.values == expected, "\(header ?? "no header")")
+        }
+        // A reply that fails still came with the header.
+        seen.values = []
+        let failing = session([(200, responsesSSE("", status: "incomplete", reason: "content_filter"))])
+        StubProtocol.headers = ["x-zero-data-retention": "true"]
+        await #expect(throws: SummaryProviderError.self) {
+            _ = try await GrokAPISummarizer(urlSession: failing, apiKeyOverride: "xai-test", recordRetention: { seen.values.append($0) })
+                .summarize(transcript: twoHourTranscript, title: "Launch", localeHint: "en", task: .standard)
+        }
+        #expect(seen.values == [true])
+        let suite = ScratchDefaults.suite("daisy.tests.grokRetention")
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { ScratchDefaults.remove(suite) }
+        GrokAPISummarizer.recordZeroDataRetention(true, defaults: defaults)
+        #expect(defaults.string(forKey: GrokAPISummarizer.zeroDataRetentionKey) == "on")
+        GrokAPISummarizer.recordZeroDataRetention(false, defaults: defaults)
+        #expect(defaults.string(forKey: GrokAPISummarizer.zeroDataRetentionKey) == "off")
+    }
+
+    @Test("Grok: a cut-off, a filtered, a failed and an empty reply each say so, billed first; text without deltas is read")
+    func grokStops() async throws {
+        do {
+            _ = try await grok([(200, responsesSSE(String(summaryJSON.prefix(40)), status: "incomplete", reason: "max_output_tokens"))])
+            Issue.record("expected outputTruncated")
+        } catch SummaryProviderError.outputTruncated {
+        }
+        #expect(StubProtocol.spends.count == 1, "billed before the throw")
+        do {
+            _ = try await grok([(200, responsesSSE("", status: "incomplete", reason: "content_filter"))])
+            Issue.record("expected refused")
+        } catch SummaryProviderError.refused {
+        }
+        do {
+            _ = try await grok([(200, responsesSSE("", status: "failed"))])
+            Issue.record("expected streamInterrupted")
+        } catch SummaryProviderError.streamInterrupted {
+        }
+        do {
+            _ = try await grok([(200, "data: {\"type\":\"error\",\"code\":\"server_error\",\"message\":\"overloaded\"}\n\n")])
+            Issue.record("expected streamInterrupted")
+        } catch SummaryProviderError.streamInterrupted(_, let message) {
+            #expect(message == "overloaded")
+        }
+        do {
+            _ = try await grok([(200, responsesSSE(""))])
+            Issue.record("expected invalidResponse")
+        } catch SummaryProviderError.invalidResponse {
+        }
+        // A stream that sent the answer only in the final response.
+        let whole = try await grok([(200, responsesSSE(summaryJSON, deltas: false))])
+        #expect(whole.summary == "Launch plan agreed.")
+        do {
+            _ = try await grok([(200, responsesSSE("", status: "incomplete", reason: "interrupted"))])
+            Issue.record("expected streamInterrupted")
+        } catch SummaryProviderError.streamInterrupted {
+        }
+        do {
+            _ = try await grok([(200, "data: {\"type\":\"error\",\"error\":{\"message\":\"nested\"}}\n\n")])
+            Issue.record("expected streamInterrupted")
+        } catch SummaryProviderError.streamInterrupted(_, let message) {
+            #expect(message == "nested")
+        }
+        // A strict-schema refusal: no text, a refusal delta.
+        do {
+            _ = try await grok([(200, "data: {\"type\":\"response.refusal.delta\",\"delta\":\"I can't\"}\n\n"
+                                   + responsesSSE("", status: "completed"))])
+            Issue.record("expected refused")
+        } catch SummaryProviderError.refused {
+        }
+    }
+
+    /// What the stream reader hands on is exactly the answer: no reasoning
+    /// summary, no text of another output item.
+    @Test("Responses stream: the answer is the output_text alone")
+    func responsesAccumulatorText() {
+        var deltas = ResponsesStreamAccumulator()
+        for line in responsesSSE(summaryJSON).components(separatedBy: "\n") where line.hasPrefix("data: ") {
+            deltas.consume(String(line.dropFirst(6)))
+        }
+        #expect(deltas.answerText == summaryJSON)
+        #expect(deltas.status == "completed" && !deltas.refused)
+        var whole = ResponsesStreamAccumulator()
+        for line in responsesSSE(summaryJSON, deltas: false).components(separatedBy: "\n") where line.hasPrefix("data: ") {
+            whole.consume(String(line.dropFirst(6)))
+        }
+        #expect(whole.answerText == summaryJSON, "only the message item's output_text, not the reasoning summary")
+        // A refusal part in the final message; text beside it still wins.
+        var declined = ResponsesStreamAccumulator()
+        declined.consume(#"{"type":"response.completed","response":{"status":"completed","output":[{"type":"message","content":[{"type":"refusal","refusal":"No."}]}]}}"#)
+        #expect(declined.refused && declined.answerText.isEmpty)
+        var both = ResponsesStreamAccumulator()
+        both.consume(#"{"type":"response.refusal.delta","delta":"Partly"}"#)
+        both.consume(#"{"type":"response.output_text.delta","delta":"{}"}"#)
+        #expect(both.answerText == "{}")
+    }
+
+    @Test func grokIsACloudProviderEverywhere() async {
+        #expect(!SummaryProviderKind.grok.isLocal)
+        #expect(SummaryProviderKind.grok.requiresAPIKey)
+        #expect(TokenLedger.isBilled(.grok))
+        #expect(SummaryProviderKind.grok.displayName == "Grok")
+        #expect(SummaryProviderKind.grok.rawValue == "grok")
+        #expect(await GrokAPISummarizer(apiKeyOverride: "xai-test").isReady())
+        #expect(GrokAPISummarizer(model: "  ").model == "grok-4.3")
+        #expect(GrokAPISummarizer.defaultModelID == GrokAPISummarizer.availableModels.first?.id)
+        // 1M in + 1M out on grok-4.3 is $3.75; on grok-4.7 $8.
+        let spend = TokenSpend(inputTokens: 1_000_000, outputTokens: 1_000_000)
+        #expect(abs(TokenCostEstimator.estimate(provider: .grok, model: "grok-4.3", spend: spend).usd - 3.75) < 1e-9)
+        #expect(abs(TokenCostEstimator.estimate(provider: .grok, model: "grok-4.7", spend: spend).usd - 8.0) < 1e-9)
+        #expect(!TokenCostEstimator.estimate(provider: .grok, model: "grok-4.3-mini", spend: spend).hasPricedUsage)
+    }
+
+    @Test("Grok: the key, credits, rate limit, a missing model and a long meeting in words")
+    func grokErrors() async throws {
+        do {
+            _ = try await grok([(401, #"{"code":"Client specified an invalid argument","error":"Incorrect API key provided"}"#)])
+            Issue.record("expected the key message")
+        } catch SummaryProviderError.modelUnavailable(_, let reason) {
+            #expect(reason.contains("API key"))
+        }
+        #expect(StubProtocol.requests.count == 1, "a 401 is not retried")
+        let credits = GrokAPISummarizer.worded(
+            status: 403, body: "Your newly created team doesn't have any credits yet.", model: "grok-4.3")
+        guard case .modelUnavailable(_, let topUp) = credits, topUp.contains("console.x.ai") else { Issue.record("\(credits)"); return }
+        let forbidden = GrokAPISummarizer.worded(status: 403, body: "Forbidden", model: "grok-4.3")
+        guard case .modelUnavailable(_, let key) = forbidden, key.contains("API key") else { Issue.record("\(forbidden)"); return }
+        let busy = GrokAPISummarizer.worded(status: 429, body: "", model: "grok-4.3")
+        guard case .modelUnavailable(_, let wait) = busy, wait.contains("too many requests") else { Issue.record("\(busy)"); return }
+        let gone = GrokAPISummarizer.worded(status: 404, body: "The model grok-9 does not exist", model: "grok-9")
+        guard case .modelUnavailable(_, let why) = gone, why.contains("grok-9") else { Issue.record("\(gone)"); return }
+        // A 400 that merely mentions the model is not «no such model».
+        let other = GrokAPISummarizer.worded(status: 400, body: "max_output_tokens is too large for this model", model: "grok-4.3")
+        guard case .httpError(_, 400, _) = other else { Issue.record("\(other)"); return }
+        let tooLong = GrokAPISummarizer.worded(status: 400, body: "This model's maximum context length is 1000000 tokens.", model: "grok-4.3")
+        guard case .modelUnavailable(_, let long) = tooLong, long.contains("Grok 4.3") else { Issue.record("\(tooLong)"); return }
+        let promptLength = GrokAPISummarizer.worded(
+            status: 400, body: "This model's maximum prompt length is 1000000 but the request contains 1100000 tokens.", model: "grok-4.3")
+        guard case .modelUnavailable(_, let longer) = promptLength, longer.contains("Grok 4.3") else { Issue.record("\(promptLength)"); return }
+        let limit = GrokAPISummarizer.worded(status: 429, body: "Your team has reached its monthly spending limit.", model: "grok-4.3")
+        guard case .modelUnavailable(_, let spent) = limit, spent.contains("console.x.ai") else { Issue.record("\(limit)"); return }
+
+        // grok-4.7 reads 500K: a meeting past it is refused before sending.
+        let huge = String(repeating: twoHourTranscript + "\n\n", count: 12)
+        #expect(LocalContextGuard.estimatedTokens(promptChars: huge.count) > 500_000 - 8192)
+        do {
+            _ = try await grok([], model: "grok-4.7", transcript: huge)
+            Issue.record("expected a refusal")
+        } catch SummaryProviderError.modelUnavailable(_, let reason) {
+            #expect(reason.contains("Grok 4.7"))
+        }
+        #expect(StubProtocol.requests.isEmpty)
+        do {
+            _ = try await grok([(-1001, ""), (200, responsesSSE(summaryJSON))])
+            Issue.record("expected a timeout")
+        } catch SummaryProviderError.timedOut(_, _, false) {
+        }
+        #expect(StubProtocol.requests.count == 1, "a timeout may still be generating — a retry would bill it twice")
+    }
+
     @Test("YandexGPT: no folder ID — not ready, and nothing is sent")
     func yandexNeedsFolder() async throws {
         let provider = YandexAPISummarizer(folderID: "  ", urlSession: session([]), apiKeyOverride: "AQVNtest")
@@ -880,14 +1163,14 @@ struct YandexProviderTests {
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
         let strings = try #require(json?["strings"] as? [String: [String: Any]])
         let keys = strings.keys.filter {
-            ["Yandex", "GigaChat", "DeepSeek", "deepseek", "cloud.ru", "Key Secret", "it may have been retired",
+            ["Yandex", "GigaChat", "DeepSeek", "deepseek", "cloud.ru", "Key Secret", "it may have been retired", "xAI", "Grok",
              "too many requests", "the balance has run out", "ran out of capacity"].contains(where: $0.contains)
         }
         #expect(keys.count >= 8)
         for key in keys {
             let ru = (((strings[key]?["localizations"] as? [String: Any])?["ru"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String
             #expect(ru != nil, "no Russian for \(key)")
-            for word in ["Russia", "Росс", "РФ", "China", "Китай", "КНР"] {
+            for word in ["Russia", "Росс", "РФ", "China", "Китай", "КНР", "United States", "США"] {
                 #expect(!key.localizedCaseInsensitiveContains(word), "\(key)")
                 #expect(!(ru ?? "").localizedCaseInsensitiveContains(word), "\(key)")
             }
@@ -902,6 +1185,7 @@ struct YandexProviderTests {
         #expect(!DaisyKeyController.cloudAllowed(.yandex, defaults: defaults))
         #expect(!DaisyKeyController.cloudAllowed(.gigachat, defaults: defaults))
         #expect(!DaisyKeyController.cloudAllowed(.deepseek, defaults: defaults))
+        #expect(!DaisyKeyController.cloudAllowed(.grok, defaults: defaults))
         defaults.set(true, forKey: "daisy.daisyKey.cloudAllowed.yandex")
         #expect(DaisyKeyController.cloudAllowed(.yandex, defaults: defaults), "the grant is per provider, under its raw value")
     }

@@ -121,6 +121,34 @@ nonisolated struct TokenSpend: Sendable {
         return spend
     }
 
+    /// A Responses API `usage` (xAI): `input_tokens` with the cache hit
+    /// inside `input_tokens_details.cached_tokens`, and `output_tokens`
+    /// that on xAI LEAVES OUT the reasoning — its own reference shows 32
+    /// input, 9 output and 110 reasoning tokens adding up to a total of
+    /// 151 — though the reasoning is billed as output. OpenAI counts it
+    /// inside. The reasoning is added only when the total says it's
+    /// outside, and the largest reading wins (03.11.2026). Without a
+    /// `total_tokens` there is nothing to tell the two apart, and
+    /// `output_tokens` is taken as it stands.
+    static func responsesAPI(from json: [String: Any]) -> TokenSpend {
+        guard let usage = json["usage"] as? [String: Any] else { return TokenSpend() }
+        var spend = TokenSpend()
+        let input = intValue(usage["input_tokens"])
+        if let details = usage["input_tokens_details"] as? [String: Any] {
+            spend.cachedInputTokens = intValue(details["cached_tokens"])
+        }
+        spend.inputTokens = max(0, input - spend.cachedInputTokens)
+        let output = intValue(usage["output_tokens"])
+        let fromTotal = intValue(usage["total_tokens"]) - input
+        var withReasoning = output
+        if let details = usage["output_tokens_details"] as? [String: Any] {
+            let reasoning = intValue(details["reasoning_tokens"])
+            if reasoning > 0, fromTotal >= output + reasoning { withReasoning = output + reasoning }
+        }
+        spend.outputTokens = max(output, fromTotal, withReasoning)
+        return spend
+    }
+
     /// Ollama `/api/chat`: `prompt_eval_count` + `eval_count` at the top
     /// level. Known upstream quirk — `prompt_eval_count` can be absent
     /// or reset when the prompt is served from Ollama's own cache
@@ -482,6 +510,25 @@ nonisolated enum TokenCostEstimator {
             }
             if id == "deepseek-v4-pro" {
                 return Price(input: 1.32, output: 3.96, cachedInput: 0.044, cacheWrite: 0, webSearch: 0)
+            }
+        case .grok:
+            // docs.x.ai/developers/pricing, 2026-11-03, per 1M, global
+            // endpoint. A request whose prompt reaches 200K tokens is billed
+            // at twice these for all its tokens; the ledger keeps per-day
+            // totals, not per-request sizes, and 200K is some eight hours
+            // of talk, so the standard tier is the honest single number
+            // (as for Claude Haiku 5.5's 100K tier). Exact ids, plus the
+            // `-latest` alias grok-4.3 documents.
+            switch id {
+            case "grok-4.3", "grok-4.3-latest",
+                 "grok-4.20-0309-reasoning", "grok-4.20-0309-non-reasoning":
+                return Price(input: 1.25, output: 2.50, cachedInput: 0.20, cacheWrite: 0, webSearch: 0)
+            case "grok-4.7", "grok-4.6":
+                return Price(input: 2.00, output: 6.00, cachedInput: 0.50, cacheWrite: 0, webSearch: 0)
+            case "grok-4.5":
+                return Price(input: 2.00, output: 6.00, cachedInput: 0.30, cacheWrite: 0, webSearch: 0)
+            default:
+                break
             }
         case .kimi:
             // platform.kimi.ai, 2026-07-31. K3's cached input is a tenth
@@ -1147,7 +1194,7 @@ final class TokenLedger {
     /// rather than showing a number we'd be inventing.
     nonisolated static func isBilled(_ kind: SummaryProviderKind) -> Bool {
         switch kind {
-        case .anthropic, .openai, .cursor, .kimi, .gemini, .yandex, .gigachat, .deepseek: return true
+        case .anthropic, .openai, .cursor, .kimi, .gemini, .yandex, .gigachat, .deepseek, .grok: return true
         case .appleIntelligence, .ollama, .lmStudio, .mcp, .agentCLI, .daisyLocal: return false
         }
     }

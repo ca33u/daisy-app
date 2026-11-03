@@ -186,6 +186,75 @@ extension CloudStreaming {
     }
 }
 
+// MARK: - Responses API summary (Grok)
+
+extension CloudStreaming {
+    /// Stream a Responses API request (`POST /v1/responses`) and return its
+    /// text, after recording the spend and turning a cut-off, refused,
+    /// failed or empty answer into its own error — what
+    /// `openAICompatibleText` does for chat completions. The request must
+    /// already carry `stream: true`; usage comes with the final response.
+    /// `opened` gets the 2xx response the stream came on, whatever the
+    /// answer turns out to be — for headers a provider reads (xAI's
+    /// `x-zero-data-retention`).
+    static func responsesText(
+        _ request: URLRequest,
+        session: URLSession,
+        provider: String,
+        kind: SummaryProviderKind,
+        model: String,
+        log: Logger,
+        opened: (HTTPURLResponse?) -> Void = { _ in }
+    ) async throws -> String {
+        let bytes = try await open(request, session: session, provider: provider, log: log)
+        opened(bytes.task.response as? HTTPURLResponse)
+        var stream = ResponsesStreamAccumulator()
+        do {
+            try await forEachData(in: bytes) { stream.consume($0) }
+        } catch {
+            TokenLedgerSink.record(provider: kind, model: model, spend: TokenSpend.responsesAPI(from: stream.responseJSON))
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+            log.error("\(provider, privacy: .public) stream broke off: \(error.localizedDescription, privacy: .public)")
+            if (error as? URLError)?.code == .timedOut {
+                throw timeoutWorded(error, provider: provider, request: request, midAnswer: true)
+            }
+            throw SummaryProviderError.streamInterrupted(provider: provider, message: error.localizedDescription)
+        }
+        // Billable even when the answer proves unusable: record first.
+        TokenLedgerSink.record(provider: kind, model: model, spend: TokenSpend.responsesAPI(from: stream.responseJSON))
+        if let message = stream.streamError {
+            log.error("\(provider, privacy: .public) stream error: \(message, privacy: .public)")
+            throw SummaryProviderError.streamInterrupted(provider: provider, message: message)
+        }
+        switch stream.status {
+        case "incomplete":
+            switch stream.incompleteReason {
+            case "max_output_tokens":
+                throw SummaryProviderError.outputTruncated(provider: provider)
+            case "content_filter":
+                throw SummaryProviderError.refused(provider: provider)
+            default:
+                log.error("\(provider, privacy: .public) reply incomplete: \(stream.incompleteReason ?? "no reason", privacy: .public)")
+                throw SummaryProviderError.streamInterrupted(
+                    provider: provider, message: String(localized: "the server stopped it"))
+            }
+        case "failed":
+            throw SummaryProviderError.streamInterrupted(
+                provider: provider, message: stream.failureMessage ?? String(localized: "the server stopped it"))
+        default:
+            break
+        }
+        let text = stream.answerText
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            // A model that declined answers in a refusal, not in text.
+            if stream.refused { throw SummaryProviderError.refused(provider: provider) }
+            log.error("\(provider, privacy: .public) reply had no content (status: \(stream.status ?? "none", privacy: .public))")
+            throw SummaryProviderError.invalidResponse(provider: provider)
+        }
+        return text
+    }
+}
+
 // MARK: - Anthropic Messages stream
 
 /// Accumulates an Anthropic Messages SSE stream: the text of every text
@@ -280,5 +349,85 @@ nonisolated struct OpenAIStreamAccumulator {
             text += piece
         }
         if let reason = choice["finish_reason"] as? String { finishReason = reason }
+    }
+}
+
+// MARK: - Responses API stream
+
+/// Accumulates a Responses API SSE stream (xAI's, in OpenAI's event
+/// format): the `response.output_text.delta` text, and the final response
+/// that `response.completed` / `.incomplete` / `.failed` carries — its
+/// status, why it stopped, and usage. Reasoning arrives as events of its
+/// own (`response.reasoning_*`) and output items of type `reasoning`, and
+/// is never read as the answer.
+nonisolated struct ResponsesStreamAccumulator {
+    private(set) var text = ""
+    private(set) var status: String?
+    private(set) var incompleteReason: String?
+    private(set) var failureMessage: String?
+    private(set) var usage: [String: Any]?
+    /// An `error` event mid-stream, if one came.
+    private(set) var streamError: String?
+    /// The model declined: a `refusal` delta or content part came
+    /// (structured outputs answer a refusal there, not in the text).
+    private(set) var refused = false
+    /// The final response's `message` text, for a stream that sent it
+    /// whole without deltas.
+    private var finalText = ""
+
+    var responseJSON: [String: Any] { usage.map { ["usage": $0] } ?? [:] }
+
+    /// The deltas when there were any, else the final response's text.
+    var answerText: String { text.isEmpty ? finalText : text }
+
+    mutating func consume(_ payload: String) {
+        if payload == "[DONE]" { return }
+        guard let data = payload.data(using: .utf8),
+              let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = event["type"] as? String else { return }
+        switch type {
+        case "response.output_text.delta":
+            if let piece = event["delta"] as? String { text += piece }
+        case "response.refusal.delta", "response.refusal.done":
+            refused = true
+        case "response.completed", "response.incomplete", "response.failed":
+            guard let response = event["response"] as? [String: Any] else { return }
+            status = (response["status"] as? String)
+                ?? (type == "response.completed" ? "completed" : type == "response.failed" ? "failed" : "incomplete")
+            if let details = response["incomplete_details"] as? [String: Any] {
+                incompleteReason = details["reason"] as? String
+            }
+            if let error = response["error"] as? [String: Any] {
+                failureMessage = error["message"] as? String
+            }
+            if let used = response["usage"] as? [String: Any] { usage = used }
+            finalText = Self.messageText(in: response)
+            if Self.hasRefusal(in: response) { refused = true }
+        case "error":
+            let nested = event["error"] as? [String: Any]
+            streamError = (event["message"] as? String) ?? (nested?["message"] as? String)
+                ?? (event["code"] as? String) ?? "stream error"
+        default:
+            break  // response.created / in_progress, output items, reasoning
+        }
+    }
+
+    /// The `output_text` of the response's `message` items — never a
+    /// `reasoning` item's summary.
+    private static func messageText(in response: [String: Any]) -> String {
+        messageContent(in: response)
+            .filter { $0["type"] as? String == "output_text" }
+            .compactMap { $0["text"] as? String }
+            .joined()
+    }
+
+    private static func hasRefusal(in response: [String: Any]) -> Bool {
+        messageContent(in: response).contains { $0["type"] as? String == "refusal" }
+    }
+
+    private static func messageContent(in response: [String: Any]) -> [[String: Any]] {
+        guard let output = response["output"] as? [[String: Any]] else { return [] }
+        return output.filter { $0["type"] as? String == "message" }
+            .flatMap { ($0["content"] as? [[String: Any]]) ?? [] }
     }
 }

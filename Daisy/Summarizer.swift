@@ -419,6 +419,9 @@ final class Summarizer {
     var deepseekModel: String {
         didSet { UserDefaults.standard.set(deepseekModel, forKey: Self.kDeepSeekModel) }
     }
+    var grokModel: String {
+        didSet { UserDefaults.standard.set(grokModel, forKey: Self.kGrokModel) }
+    }
     var yandexFolderID: String {
         didSet {
             UserDefaults.standard.set(yandexFolderID, forKey: Self.kYandexFolderID)
@@ -507,6 +510,7 @@ final class Summarizer {
     private static let kYandexFolderID = "daisy.yandexFolderID"
     private static let kGigaChatModel = "daisy.gigachatModel"
     private static let kDeepSeekModel = "daisy.deepseekModel"
+    private static let kGrokModel = "daisy.grokModel"
     private static let kOllamaModel = "daisy.ollamaModel"
     private static let kOllamaBaseURL = "daisy.ollamaBaseURL"
     private static let kAgentCLIKind = "daisy.agentCLIKind"
@@ -557,6 +561,8 @@ final class Summarizer {
             ?? GigaChatAPISummarizer.defaultModelID
         // Retired DeepSeek names move on here, every launch.
         self.deepseekModel = DeepSeekAPISummarizer.storedModelID(key: Self.kDeepSeekModel, defaults: .standard)
+        self.grokModel = GrokAPISummarizer.resolvedModelID(
+            UserDefaults.standard.string(forKey: Self.kGrokModel) ?? GrokAPISummarizer.defaultModelID)
         self.ollamaModel = UserDefaults.standard.string(forKey: Self.kOllamaModel)
             ?? OllamaAPISummarizer.defaultModelID
         self.ollamaBaseURL = UserDefaults.standard.string(forKey: Self.kOllamaBaseURL)
@@ -630,6 +636,8 @@ final class Summarizer {
             return String(localized: "GigaChat API key is missing. Add it in \(SettingsRow.summaryProvider.path).")
         case .deepseek:
             return String(localized: "DeepSeek API key is missing. Add it in \(SettingsRow.summaryProvider.path).")
+        case .grok:
+            return String(localized: "Grok API key is missing. Add it in \(SettingsRow.summaryProvider.path).")
         case .ollama:
             return String(localized: "Couldn't reach Ollama at \(ollamaBaseURL). Install or open Ollama — \(SettingsRow.summaryProvider.path) has the install button when Ollama is chosen, and the model downloads from there.")
         case .lmStudio:
@@ -863,7 +871,7 @@ final class Summarizer {
     func isEffectivelyLocal(_ kind: SummaryProviderKind) -> Bool {
         switch kind {
         case .appleIntelligence, .daisyLocal: return true
-        case .anthropic, .openai, .cursor, .kimi, .gemini, .yandex, .gigachat, .deepseek: return false
+        case .anthropic, .openai, .cursor, .kimi, .gemini, .yandex, .gigachat, .deepseek, .grok: return false
         case .ollama:
             return Self.isLoopbackURL(URL(string: ollamaBaseURL))
                 && !OllamaAPISummarizer.isCloudModel(ollamaModel)
@@ -926,6 +934,8 @@ final class Summarizer {
             return GigaChatAPISummarizer(model: gigachatModel)
         case .deepseek:
             return DeepSeekAPISummarizer(model: deepseekModel)
+        case .grok:
+            return GrokAPISummarizer(model: grokModel)
         case .ollama:
             // Parse base URL with fallback to default if user typed
             // something malformed. Both adapters tolerate a missing

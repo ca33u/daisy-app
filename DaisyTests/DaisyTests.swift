@@ -199,6 +199,10 @@ struct DaisyTests {
             let estimate = TokenCostEstimator.estimate(provider: .deepseek, model: model, spend: spend)
             #expect(estimate.hasPricedUsage, "unpriced DeepSeek model: \(model)")
         }
+        for model in GrokAPISummarizer.availableModels.map(\.id) {
+            let estimate = TokenCostEstimator.estimate(provider: .grok, model: model, spend: spend)
+            #expect(estimate.hasPricedUsage, "unpriced Grok model: \(model)")
+        }
     }
 
     @Test("Saved Claude models move to their same-tier successors, once")

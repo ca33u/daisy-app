@@ -26449,6 +26449,106 @@
         }
       }
     },
+    "Sent to xAI over HTTPS, using your API key." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправляется в xAI по HTTPS с использованием твоего API-ключа."
+          }
+        }
+      }
+    },
+    "Grok API key" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "API-ключ Grok"
+          }
+        }
+      }
+    },
+    "Grok API key is missing. Add it in %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отсутствует API-ключ Grok. Добавь его в «%@»."
+          }
+        }
+      }
+    },
+    "your xAI team is out of credits or at its spending limit. Top up at console.x.ai and try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "у твоей команды в xAI закончились кредиты или достигнут лимит расходов. Пополни баланс на console.x.ai и попробуй ещё раз."
+          }
+        }
+      }
+    },
+    "Grok 4.3 (recommended)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grok 4.3 (рекомендуется)"
+          }
+        }
+      }
+    },
+    "Grok 4.7 (highest quality, priciest)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grok 4.7 (лучшее качество, дороже всех)"
+          }
+        }
+      }
+    },
+    "Zero Data Retention is on for your xAI team (as of the last summary): xAI doesn’t store requests." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У твоей команды в xAI включён Zero Data Retention (по последнему саммари): xAI не хранит запросы."
+          }
+        }
+      }
+    },
+    "Zero Data Retention is off for your xAI team (as of the last summary): xAI keeps requests for 30 days to check for abuse. A team admin can turn it on in console.x.ai → Team Settings." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У твоей команды в xAI выключен Zero Data Retention (по последнему саммари): xAI хранит запросы 30 дней для проверки на злоупотребления. Администратор команды может включить его в console.x.ai → Team Settings."
+          }
+        }
+      }
+    },
+    "xAI keeps requests for 30 days to check for abuse, unless a team admin turns on Zero Data Retention in console.x.ai → Team Settings." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "xAI хранит запросы 30 дней для проверки на злоупотребления, если администратор команды не включил Zero Data Retention в console.x.ai → Team Settings."
+          }
+        }
+      }
+    },
+    "Transcripts are sent to xAI over HTTPS using your own API key. Create one at console.x.ai — it’s stored in your macOS Keychain. xAI doesn’t train on API requests without your permission. %@ About $0.03 per hour of meeting on Grok 4.3." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Транскрипты отправляются в xAI по HTTPS с использованием твоего собственного API-ключа. Создай его на console.x.ai — он хранится в Keychain macOS. xAI не обучает модели на запросах к API без твоего разрешения. %@ Около $0.03 за час встречи на Grok 4.3."
+          }
+        }
+      }
+    },
     "DeepSeek Flash (recommended)" : {
       "localizations" : {
         "ru" : {

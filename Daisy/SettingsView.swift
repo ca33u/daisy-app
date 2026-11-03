@@ -44,6 +44,10 @@ struct SettingsView: View {
 
     @State private var summaryTestResult: TestResult = .idle
     @State private var pendingAccountDisclosure: SummaryConnectionProvider?
+    /// What the last Grok reply said about Zero Data Retention ("on",
+    /// "off", "" before one) — read for the footer, written by
+    /// GrokAPISummarizer.
+    @AppStorage(GrokAPISummarizer.zeroDataRetentionKey) private var grokZeroDataRetention = ""
     // Notion destination config (token / parent / auto-send / Test
     // connection) moved to the top-level Connections page →
     // Auto-routing tab in 1.0.7.16 — it's an external send-to
@@ -3136,6 +3140,23 @@ struct SettingsView: View {
             }
             .pickerStyle(.menu)
 
+        case .grok:
+            LabeledContent("API key") {
+                SecureField("", text: $settings.grokAPIKey, prompt: Text("xai-…"))
+                    .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+            }
+            Picker("Model", selection: $summarizer.grokModel) {
+                ForEach(GrokAPISummarizer.availableModels, id: \.id) { item in
+                    Text(item.label).tag(item.id)
+                }
+                if !GrokAPISummarizer.availableModels.contains(where: { $0.id == summarizer.grokModel }) {
+                    Text(String(localized: "Custom: \(summarizer.grokModel)")).tag(summarizer.grokModel)
+                }
+            }
+            .pickerStyle(.menu)
+
         case .kimi:
             LabeledContent("API key") {
                 SecureField("", text: $settings.kimiAPIKey, prompt: Text("sk-…"))
@@ -3575,6 +3596,7 @@ struct SettingsView: View {
                 || YandexAPISummarizer.normalizedFolderID(summarizer.yandexFolderID) == nil
         case .gigachat: return settings.gigachatAPIKey.isBlank
         case .deepseek: return settings.deepseekAPIKey.isBlank
+        case .grok: return settings.grokAPIKey.isBlank
         case .ollama: return summarizer.ollamaBaseURL.isEmpty || summarizer.ollamaModel.isEmpty
         case .lmStudio: return summarizer.lmStudioBaseURL.isEmpty || summarizer.lmStudioModel.isEmpty
         case .mcp:
@@ -3619,6 +3641,15 @@ struct SettingsView: View {
             // No country (Egor, 27.10). The training line is DeepSeek's
             // policy, as Gemini's footer states Google's for a free key.
             return String(localized: "Transcripts are sent to DeepSeek over HTTPS using your own API key. Create one at platform.deepseek.com/api_keys — it’s stored in your macOS Keychain. DeepSeek’s privacy policy allows using requests to train its models. Daisy turns DeepSeek’s thinking off for summaries. About $0.01 per hour of meeting on DeepSeek Flash.")
+        case .grok:
+            // No country, as for the other cloud providers. The retention
+            // line follows what the last reply's x-zero-data-retention said.
+            let retention = switch grokZeroDataRetention {
+            case "on": String(localized: "Zero Data Retention is on for your xAI team (as of the last summary): xAI doesn’t store requests.")
+            case "off": String(localized: "Zero Data Retention is off for your xAI team (as of the last summary): xAI keeps requests for 30 days to check for abuse. A team admin can turn it on in console.x.ai → Team Settings.")
+            default: String(localized: "xAI keeps requests for 30 days to check for abuse, unless a team admin turns on Zero Data Retention in console.x.ai → Team Settings.")
+            }
+            return String(localized: "Transcripts are sent to xAI over HTTPS using your own API key. Create one at console.x.ai — it’s stored in your macOS Keychain. xAI doesn’t train on API requests without your permission. \(retention) About $0.03 per hour of meeting on Grok 4.3.")
         case .kimi:
             return String(localized: "Transcripts are sent to Moonshot over HTTPS using your own API key — and Moonshot's documentation states that requests to its international endpoint are processed in China. Create a key at platform.kimi.ai — it's stored in your macOS Keychain. Cheapest of the cloud providers here: roughly $0.005–0.02 per summary on K2.6.")
         case .ollama:

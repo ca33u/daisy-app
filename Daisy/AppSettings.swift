@@ -1211,6 +1211,17 @@ final class AppSettings {
             Task { @MainActor in await Summarizer.shared.refreshAvailability() }
         }
     }
+    var grokAPIKey: String {
+        didSet {
+            Self.persist(grokAPIKey, account: SecretKey.grokAPIKey, label: String(localized: "Grok API key"))
+            // Zero Data Retention is a setting of the key's xAI team: what
+            // the old key's replies said doesn't hold for a new one.
+            if grokAPIKey != oldValue {
+                UserDefaults.standard.removeObject(forKey: GrokAPISummarizer.zeroDataRetentionKey)
+            }
+            Task { @MainActor in await Summarizer.shared.refreshAvailability() }
+        }
+    }
 
     /// The secrets `init` deliberately did not look for in the old
     /// keychain. Runs after launch, off the main thread; a value found
@@ -1229,6 +1240,7 @@ final class AppSettings {
             (SecretKey.yandexAPIKey, \.yandexAPIKey),
             (SecretKey.gigachatAPIKey, \.gigachatAPIKey),
             (SecretKey.deepseekAPIKey, \.deepseekAPIKey),
+            (SecretKey.grokAPIKey, \.grokAPIKey),
         ].filter { self[keyPath: $0.1].isEmpty }
         guard !wanted.isEmpty else { return }
         Task.detached(priority: .utility) { [weak self] in
@@ -1784,6 +1796,7 @@ final class AppSettings {
         self.yandexAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.yandexAPIKey) ?? ""
         self.gigachatAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.gigachatAPIKey) ?? ""
         self.deepseekAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.deepseekAPIKey) ?? ""
+        self.grokAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.grokAPIKey) ?? ""
         self.kimiAPIKey = KeychainStore.getWithoutPrompting(account: SecretKey.kimiAPIKey) ?? ""
 
         // Reconcile substrate to the policy ONCE at launch — but ONLY

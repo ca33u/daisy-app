@@ -51,6 +51,10 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
     /// off for summaries. Added 2026-10-27 (Egor); see
     /// DeepSeekAPISummarizer's header.
     case deepseek
+    /// Grok on xAI's own Responses API, on the user's key, the reply held
+    /// to the envelope's schema. Added 2026-11-03 (Egor); see
+    /// GrokAPISummarizer's header.
+    case grok
     /// Ollama (https://ollama.com) on `127.0.0.1:11434` via its native
     /// `/api/chat` REST endpoint. Build 40 added this as a first-class
     /// provider after the pre-PH audit caught the MCP-shim disguise:
@@ -93,6 +97,7 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
         case .yandex: return "YandexGPT"
         case .gigachat: return "GigaChat"
         case .deepseek: return "DeepSeek"
+        case .grok: return "Grok"
         case .ollama: return String(localized: "Ollama (local)")
         case .lmStudio: return String(localized: "LM Studio (local)")
         case .mcp: return String(localized: "Custom MCP server (advanced)")
@@ -111,6 +116,7 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
         case .yandex: return "YandexGPT"
         case .gigachat: return "GigaChat"
         case .deepseek: return "DeepSeek"
+        case .grok: return "Grok"
         case .gemini: return "Gemini"
         case .ollama: return String(localized: "Ollama")
         case .lmStudio: return String(localized: "LM Studio")
@@ -128,7 +134,7 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
 
     var requiresAPIKey: Bool {
         self == .anthropic || self == .openai || self == .cursor || self == .kimi || self == .gemini
-            || self == .yandex || self == .gigachat || self == .deepseek
+            || self == .yandex || self == .gigachat || self == .deepseek || self == .grok
     }
 
     /// Six-words-ish, parallel structure so users can compare
@@ -159,6 +165,8 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
             return String(localized: "Sent to GigaChat over HTTPS, using your API key.")
         case .deepseek:
             return String(localized: "Sent to DeepSeek over HTTPS, using your API key.")
+        case .grok:
+            return String(localized: "Sent to xAI over HTTPS, using your API key.")
         case .ollama:
             return String(localized: "Sent to your local Ollama on 127.0.0.1 — stays on your Mac.")
         case .lmStudio:
