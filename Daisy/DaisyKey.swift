@@ -1335,8 +1335,13 @@ final class DaisyKeyController {
             // Open: anything without a fresh selection. Closed (five
             // minutes): only an edit said with nothing selected — selecting
             // the inserted text is an edit of the field, not of the card.
-            // Words said to be translated are new text, not the card's.
-            let saysNewText = DaisyKeyTranslateParser.parse(words).map { !$0.text.isEmpty } ?? false
+            // Words said to be translated are new text, not the card's. A
+            // message in a language is the model's command when there is one,
+            // as it was before (review 03.11).
+            var saysNewText = false
+            if let translation = DaisyKeyTranslateParser.parse(words), !translation.text.isEmpty {
+                saysNewText = translation.compose ? !(await Summarizer.shared.isReady(for: .interactive)) : true
+            }
             let takesCard = !saysNewText && (card.isOpen ? !freshSelection : (!context.hasSelection && saysAnEdit && card.canRefineLast))
             if !context.isSecureField, takesCard {
                 ImprovementStats.record(.daisyKeyIntent(Self.intentName(words, kind: saysAnEdit ? .edit : .write)))
@@ -1466,8 +1471,10 @@ final class DaisyKeyController {
         let providerReady = await summarizer.isReady(for: .interactive)
         let field = DaisyKeyCommandParser.field(bundleID: bundleID)
         // «переведи на португальский…» (03.11): the words said with the
-        // command are translated, else the selection.
-        let translation = DaisyKeyTranslateParser.parse(request)
+        // command are translated, else the selection. A message in a
+        // language («напиши Пете по-португальски, что…») is the model's to
+        // write; with no model, what it says is translated on this Mac.
+        let translation = DaisyKeyTranslateParser.parse(request)?.translated(providerReady: providerReady)
         var translationText: String?
         var onDevice = false
         if let translation {
@@ -1629,9 +1636,10 @@ final class DaisyKeyController {
         log.info("Daisy key command to the card (\(result.count, privacy: .public) chars, kind \(String(describing: kind), privacy: .public))")
     }
 
-    /// What a command is counted as: a translation, an edit, new text.
+    /// What a command is counted as: a translation, an edit, new text (a
+    /// message in a language is new text).
     nonisolated static func intentName(_ words: String, kind: DaisyKeyCommandKind) -> ImprovementStats.DaisyKeyIntentName {
-        if DaisyKeyTranslateParser.parse(words) != nil { return .translate }
+        if let translation = DaisyKeyTranslateParser.parse(words), !translation.compose { return .translate }
         return kind == .edit ? .edit : .write
     }
 
@@ -1668,8 +1676,9 @@ final class DaisyKeyController {
         let summarizer = Summarizer.shared
         let base = card.current
         // «переведи на английский» over the card: its text, translated as a
-        // command's would be (Egor 03.11).
-        let translation = DaisyKeyTranslateParser.parse(request)
+        // command's would be (Egor 03.11). A message to write («напиши
+        // по-английски, что…») is new text: it never gets here.
+        let translation = DaisyKeyTranslateParser.parse(request).flatMap { $0.compose ? nil : $0 }
         let providerReady = await summarizer.isReady(for: .interactive)
         let written: Written
         let local: Bool

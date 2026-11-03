@@ -7,6 +7,9 @@
 //  language is said, never set in Settings (Egor): «переведи на
 //  португальский: …» or «…, переведи на португальский», and what goes in
 //  is the translation. Nothing is remembered between holds (Egor 03.11).
+//  Said freely (Egor 03.11): «скажи по-португальски…», «как будет
+//  по-португальски…», «по-английски переведи…», and a message in a
+//  language — «напиши Пете по-португальски, что я опоздаю».
 //
 //  Who translates (Egor 03.11): the model chosen for summaries, under the
 //  Daisy key's own rules (a local one at once, a cloud one after its one
@@ -56,24 +59,69 @@ nonisolated struct DaisyKeyTranslation: Equatable, Sendable {
     /// «переведи мне…», "translate for me": the selection is read, not
     /// replaced.
     var forMe = false
+    /// «напиши Пете по-португальски, что я опоздаю», "tell Pete in Spanish
+    /// that…" (Egor 03.11: free form): a message to write in that language,
+    /// not words to carry over one by one. A model writes it as the command
+    /// it is — in the person's voice, in the language the request names;
+    /// `text` (what comes after «что») is for Apple's translation when there
+    /// is no model.
+    var compose = false
 
     /// Where the result goes, as the other commands decide it: words said
     /// go in at the caret; with only the command said, an editable
-    /// selection is translated in place unless it is «for me».
+    /// selection is translated in place unless it is «for me». A message
+    /// goes where «напиши» puts one.
     func kind(hasSelection: Bool, selectionEditable: Bool) -> DaisyKeyCommandKind {
+        if compose { return hasSelection ? .answer : .write }
         guard text.isEmpty, hasSelection else { return .write }
         return selectionEditable && !forMe ? .edit : .answer
+    }
+
+    /// What is translated as such: a message to write is the model's
+    /// command when there is a model, and a translation only for Apple's.
+    func translated(providerReady: Bool) -> DaisyKeyTranslation? {
+        compose && providerReady ? nil : self
     }
 }
 
 // MARK: - Recognizing it (no model)
 
 nonisolated enum DaisyKeyTranslateParser {
+    /// How a request opens.
+    enum Opener: Equatable {
+        /// «переведи», "translate".
+        case translate
+        /// «скажи по-португальски…», "say it in Spanish…": a translation
+        /// when the language follows the verb; with someone to say it to
+        /// first («скажи Пете по-португальски, что…») a message.
+        case say
+        /// «как будет по-португальски…», "how do you say … in Spanish".
+        case howToSay
+        /// «напиши», «ответь», «передай», "tell": a message in that language.
+        case write
+        /// «перепиши по-английски» over a selection: it, translated.
+        case rewrite
+    }
+
     /// The verb itself. The infinitive only when asked for: «можешь
     /// перевести…» — «Задача: перевести на английский» is a to-do (review 03.11).
-    static let verbs: Set<String> = ["переведи", "translate"]
-    static let infinitive = "перевести"
+    static let verbs: Set<String> = ["переведи", "переведите", "translate"]
+    static let sayVerbs: Set<String> = ["скажи", "скажите", "say"]
+    static let infinitives: [String: Opener] = ["перевести": .translate, "сказать": .say]
     static let askWords: Set<String> = ["можешь", "можете", "can", "could", "would"]
+    /// The question, longest first.
+    static let howToSayOpenings: [[String]] = [
+        ["how", "would", "you", "say"], ["how", "would", "i", "say"], ["how", "do", "you", "say"], ["how", "do", "i", "say"],
+        ["how", "can", "i", "say"], ["как", "это", "будет"], ["how", "to", "say"],
+        ["как", "будет"], ["как", "сказать"], ["как", "перевести"],
+    ]
+    /// «как по-португальски будет …»: «как», the language, then one of these.
+    static let howToSayAfterLanguage: Set<String> = ["будет", "сказать", "звучит"]
+    /// Verbs of a message to write. «передай», "tell": what to tell someone.
+    static var writeVerbs: Set<String> {
+        DaisyKeyCommandParser.writeVerbs.union(["напишите", "ответьте", "передай", "передайте", "tell"])
+    }
+    static let rewriteVerbs: Set<String> = ["перепиши", "перепишите", "rewrite"]
     /// What may stand between the verb and the language: «переведи это
     /// сообщение на…», "translate this message into…".
     static let objectWords: Set<String> = [
@@ -90,6 +138,16 @@ nonisolated enum DaisyKeyTranslateParser {
     static let enInto: Set<String> = ["into", "to", "in"]
     /// Around the command: «переведи на английский, пожалуйста».
     static let courtesy: Set<String> = ["пожалуйста", "please"]
+    /// What a message says opens after one of these: «напиши Пете
+    /// по-португальски, что я опоздаю».
+    static let saysWords: Set<String> = ["что", "that"]
+    /// A message whose words open with one of these is described, not
+    /// said: «напиши по-английски письмо Джону о встрече», «…, чтобы
+    /// перезвонил» — the model's to write; Apple has nothing to translate.
+    static let describedOpenings: Set<String> = [
+        "письмо", "сообщение", "пост", "ответ", "текст", "статью", "комментарий", "отзыв", "о", "об", "про", "чтобы",
+        "email", "letter", "message", "post", "reply", "text", "article", "comment", "review", "note", "tweet", "about", "to",
+    ]
     /// Before a command at the end, these make it part of the sentence:
     /// «попроси его перевести на английский», "ask them to translate into…".
     static let notACommandBefore: Set<String> = ["to", "чтобы", "надо", "нужно", "попроси", "просил", "просила"]
@@ -98,9 +156,27 @@ nonisolated enum DaisyKeyTranslateParser {
     /// write in English, not «Напиши Пете…» word for word (review 03.11):
     /// the model gets it as the command it is. (A note opening never gets
     /// here: «запиши…» is a note before any command is looked for.)
+    /// «Скажи, ты завтра будешь?», «Напишите, когда…» are the person's
+    /// words, not a command: only the command verbs count (review 03.11).
     static var commandOpenings: Set<String> {
         DaisyKeyCommandParser.editVerbs.union(DaisyKeyCommandParser.writeVerbs).union(DaisyKeyCommandParser.makeVerbs)
             .union(DaisyKeyCommandParser.answerOpenings.filter { $0.count == 1 }.compactMap(\.first))
+    }
+
+    /// «переведи-ка» is «переведи».
+    static func bare(_ word: String) -> String {
+        word.hasSuffix("-ка") ? String(word.dropLast(3)) : word
+    }
+
+    /// The opener of one word, or nil.
+    static func verb(_ word: String, asked: Bool) -> Opener? {
+        let word = bare(word)
+        if verbs.contains(word) { return .translate }
+        if sayVerbs.contains(word) { return .say }
+        if rewriteVerbs.contains(word) { return .rewrite }
+        if writeVerbs.contains(word) { return .write }
+        if asked, let opener = infinitives[word] { return opener }
+        return nil
     }
 
     /// `macRegion`: this Mac's region, for the variant nobody named.
@@ -116,11 +192,40 @@ nonisolated enum DaisyKeyTranslateParser {
             if askWords.contains(first) { asked = true }
             tokens.removeFirst()
         }
+        tokens = languageFirst(tokens, asked: asked, macRegion: macRegion)
         let words = tokens.map(DaisyKeyIntentParser.normalized)
         guard !words.isEmpty else { return nil }
-        let opensWithVerb = verbs.contains(words[0]) || (asked && words[0] == infinitive)
+        if let found = request(tokens, words, asked: asked, macRegion: macRegion) { return found }
+        // The language last: «привет, как дела? Переведи на португальский».
+        // Only a whole last clause, opened by the verb (or «можешь
+        // перевести», "please translate", "can you translate") after a stop
+        // or a comma, with nothing after it but «пожалуйста». The text is
+        // as said: only the name before it goes («Давай встретимся…» keeps
+        // its «Давай», review 03.11).
+        return textFirst(said, macRegion: macRegion)
+    }
+
+    /// A request that opens with its verb (or the question).
+    private static func request(_ tokens: [String], _ words: [String], asked: Bool, macRegion: String?) -> DaisyKeyTranslation? {
+        let colons = colons(in: tokens)
+        // «как по-португальски будет «спасибо»».
+        if words[0] == "как", let language = language(words, at: 1, macRegion: macRegion, colons: colons),
+           language.end < words.count, howToSayAfterLanguage.contains(words[language.end]) {
+            return DaisyKeyTranslation(target: language.target,
+                                       text: textBetween(leadTrimmed(tokens[(language.end + 1)...].joined(separator: " "))))
+        }
+        let opener: Opener
+        let length: Int
+        if let question = howToSayOpenings.first(where: { words.count > $0.count && Array(words.prefix($0.count)) == $0 }) {
+            (opener, length) = (.howToSay, question.count)
+        } else if let found = verb(words[0], asked: asked) {
+            (opener, length) = (found, 1)
+        } else {
+            return nil
+        }
+        if opener == .write { return message(tokens, words, from: length, macRegion: macRegion) }
         // The language first: «переведи на португальский: привет».
-        if opensWithVerb, let command = command(words, from: 0, macRegion: macRegion, colons: colons(in: tokens)) {
+        if let command = command(words, from: length - 1, macRegion: macRegion, colons: colons) {
             var forMe = command.forMe
             var rest = Array(tokens[command.end...])
             // «…, пожалуйста: привет», «…for me: hi», «…сообщение: привет».
@@ -138,28 +243,134 @@ nonisolated enum DaisyKeyTranslateParser {
                     forMe = true; taken = 2
                 } else if objectWords.contains(first), rest[0].hasSuffix(":") {
                     taken = 1
+                } else if opener == .howToSay, howToSayAfterLanguage.contains(first) {
+                    taken = 1
+                } else if opener == .say, saysWords.contains(first), !rest.joined().hasSuffix("?") {
+                    // «скажи по-португальски, что я опоздаю»: what to say,
+                    // not «что я опоздаю». «…, что ты делаешь?» is the question.
+                    taken = 1
                 }
                 guard taken > 0 else { break }
                 textOpened = rest[taken - 1].hasSuffix(":")
                 rest.removeFirst(taken)
             }
-            return DaisyKeyTranslation(target: command.target, text: textBetween(leadTrimmed(rest.joined(separator: " "))), forMe: forMe)
+            let text = textBetween(leadTrimmed(rest.joined(separator: " ")))
+            // «перепиши по-английски»: only the selection, rewritten.
+            if opener == .rewrite, !text.isEmpty { return nil }
+            return DaisyKeyTranslation(target: command.target, text: text, forMe: forMe)
         }
         // The text between: «переведи «добрый день» на японский»,
-        // "translate good morning into Japanese".
-        if opensWithVerb, let tail = tailCommand(words, macRegion: macRegion) {
-            let middle = (1..<tail.start).filter { !fillerWords.contains(words[$0]) }
-            let text = middle.isEmpty ? "" : leadTrimmed(tokens[middle.first!...middle.last!].joined(separator: " "))
-            let forMe = (1..<tail.start).contains { forMeWords.contains(words[$0]) || meWords.contains(words[$0]) }
-            return DaisyKeyTranslation(target: tail.target, text: textBetween(text), forMe: forMe)
+        // "how do you say good morning in Japanese", «скажи «спасибо»
+        // по-японски».
+        func between() -> DaisyKeyTranslation? {
+            guard let tail = tailCommand(words, from: length, macRegion: macRegion) else { return nil }
+            let middle = (length..<tail.start).filter { !fillerWords.contains(words[$0]) }
+            var text = textBetween(middle.isEmpty ? "" : leadTrimmed(tokens[middle.first!...middle.last!].joined(separator: " ")))
+            var said = length..<tail.start
+            // A quote is taken whole, «мне» inside it too: «как будет «напиши мне» по-английски».
+            if let first = middle.first {
+                let quoted = textBetween(leadTrimmed(tokens[first..<tail.start].joined(separator: " ")))
+                if isQuoted(quoted) { text = quoted; said = length..<first }
+            }
+            let forMe = said.contains { forMeWords.contains(words[$0]) || meWords.contains(words[$0]) }
+            // «Как будет готово, напиши Пете по-английски» is no question:
+            // another verb inside, unless it is the quoted phrase (review 03.11).
+            if opener == .howToSay, !isQuoted(text), middle.contains(where: { verb(words[$0], asked: false) != nil }) { return nil }
+            return DaisyKeyTranslation(target: tail.target, text: text, forMe: forMe)
         }
-        // The language last: «привет, как дела? Переведи на португальский».
-        // Only a whole last clause, opened by the verb (or «можешь
-        // перевести», "please translate", "can you translate") after a stop
-        // or a comma, with nothing after it but «пожалуйста». The text is
-        // as said: only the name before it goes («Давай встретимся…» keeps
-        // its «Давай», review 03.11).
-        return textFirst(said, macRegion: macRegion)
+        switch opener {
+        case .translate, .howToSay:
+            return between()
+        case .say:
+            // Quoted, what to say; else someone to say it to: «скажи Пете
+            // по-португальски, что я опоздаю» — a message.
+            if let quoted = between(), isQuoted(quoted.text) { return quoted }
+            return message(tokens, words, from: length, macRegion: macRegion)
+        case .write, .rewrite:
+            return nil
+        }
+    }
+
+    /// «спасибо» in quotes, as said.
+    static func isQuoted(_ text: String) -> Bool {
+        guard text.count > 1, let first = text.first, let last = text.last else { return false }
+        return "«\"“„'".contains(first) && "»\"”“'".contains(last)
+    }
+
+    /// «по-португальски скажи…», «на английский переведи: …»: the verb
+    /// is put first, the mark after it moved to the language.
+    private static func languageFirst(_ tokens: [String], asked: Bool, macRegion: String?) -> [String] {
+        let words = tokens.map(DaisyKeyIntentParser.normalized)
+        guard let found = language(words, at: 0, macRegion: macRegion, colons: []), found.end < words.count,
+              verb(words[found.end], asked: asked) != nil else { return tokens }
+        var verbToken = tokens[found.end]
+        var mark = ""
+        while let last = verbToken.last, ",:;—".contains(last) { mark = String(last) + mark; verbToken.removeLast() }
+        var name = Array(tokens[..<found.end])
+        name[name.count - 1] += mark
+        return [verbToken] + name + Array(tokens[(found.end + 1)...])
+    }
+
+    /// A message in a language: «напиши Пете по-португальски, что я
+    /// опоздаю», «ответь на английском: согласен», «напиши Пете, что я
+    /// опоздаю, по-португальски», "tell Anna in Spanish that I'm late".
+    /// `text` is what the message says — after «что» or a colon, or right
+    /// after a language that follows the verb. nil when the message is
+    /// described rather than said, or names no language.
+    private static func message(_ tokens: [String], _ words: [String], from start: Int, macRegion: String?) -> DaisyKeyTranslation? {
+        guard start < words.count else { return nil }
+        // Where what it says opens: after «что» / "that", or a colon.
+        var opens: Int?
+        var headEnd = words.count
+        for i in start..<words.count {
+            if saysWords.contains(words[i]) { opens = i + 1; headEnd = i; break }
+            if tokens[i].hasSuffix(":") { opens = i + 1; headEnd = i + 1; break }
+        }
+        let colons = colons(in: tokens)
+        func said(_ range: Range<Int>, colonOpened: Bool) -> String? {
+            guard !range.isEmpty else { return nil }
+            let text = textBetween(leadTrimmed(tokens[range].joined(separator: " ")))
+            guard text.contains(where: { $0.isLetter || $0.isNumber }) else { return nil }
+            if !colonOpened, let first = text.split(whereSeparator: \.isWhitespace).first.map({ DaisyKeyIntentParser.normalized(String($0)) }),
+               describedOpenings.contains(first) { return nil }
+            return text
+        }
+        // The language before what it says.
+        var i = start
+        while i < headEnd {
+            guard let found = language(words, at: i, macRegion: macRegion, colons: colons), found.end <= headEnd else { i += 1; continue }
+            let rightAfterVerb = (start..<i).allSatisfy { fillerWords.contains(words[$0]) }
+            let marked = tokens[found.end - 1].last.map { ",:;—".contains($0) } ?? false
+            // «на испанском побережье» is a place, not the language: the
+            // name has to close the head.
+            guard rightAfterVerb || marked || found.end == headEnd else { i += 1; continue }
+            if let opens {
+                guard let text = said(opens..<words.count, colonOpened: tokens[opens - 1].hasSuffix(":")) else { return nil }
+                return DaisyKeyTranslation(target: found.target, text: text, compose: true)
+            }
+            // Without «что» or a colon, only after a mark: «ответь
+            // по-английски вежливо» says how, not what (review 03.11).
+            guard marked,
+                  let text = said(found.end..<words.count, colonOpened: tokens[found.end - 1].hasSuffix(":")) else { return nil }
+            return DaisyKeyTranslation(target: found.target, text: text, compose: true)
+        }
+        // The language after it: «…, что я опоздаю, по-португальски»,
+        // «…, что я согласен. Переведи на английский» — the verb before it
+        // is not what the message says.
+        guard let opens, let tail = tailCommand(words, from: opens, macRegion: macRegion) else { return nil }
+        var end = tail.start
+        while end > opens, fillerWords.contains(words[end - 1]) { end -= 1 }
+        if end > opens, verb(words[end - 1], asked: true) != nil {
+            end -= 1
+            while end > opens, askWords.contains(words[end - 1]) || courtesy.contains(words[end - 1]) || words[end - 1] == "you" { end -= 1 }
+        } else {
+            // Set off by a mark: «…, что встреча будет на английском» says
+            // what the meeting is in (review 03.11).
+            guard let mark = tokens[tail.start - 1].last, ",.;—".contains(mark) || tokens[tail.start - 1] == "—" else { return nil }
+            end = tail.start
+        }
+        guard let text = said(opens..<end, colonOpened: tokens[opens - 1].hasSuffix(":")) else { return nil }
+        return DaisyKeyTranslation(target: tail.target, text: text, compose: true)
     }
 
     private static func textFirst(_ said: [String], macRegion: String?) -> DaisyKeyTranslation? {
@@ -174,11 +385,15 @@ nonisolated enum DaisyKeyTranslateParser {
             break
         }
         let words = tokens.map(DaisyKeyIntentParser.normalized)
-        for start in stride(from: words.count - 1, to: 0, by: -1) where verbs.contains(words[start]) || words[start] == infinitive {
-            guard let command = command(words, from: start, macRegion: macRegion, colons: []),
+        for start in stride(from: words.count - 1, to: 0, by: -1) {
+            // «Переведи», «Скажи это по-португальски», «Напиши это
+            // по-португальски» — that one a message, the model's to write.
+            let infinitive = infinitives[bare(words[start])] != nil
+            guard let opener = verb(words[start], asked: true), opener != .rewrite,
+                  let command = command(words, from: start, macRegion: macRegion, colons: []),
                   words[command.end...].allSatisfy({ courtesy.contains($0) || $0.isEmpty }) else { continue }
             var clause = start
-            if words[start] == infinitive {
+            if infinitive {
                 guard askWords.contains(words[start - 1]) else { return nil }
                 clause -= 1
             } else if courtesy.contains(words[start - 1]) {
@@ -194,8 +409,8 @@ nonisolated enum DaisyKeyTranslateParser {
             let text = textBetween(tokens[..<clause].joined(separator: " "))
             guard text.contains(where: { $0.isLetter || $0.isNumber }),
                   let first = DaisyKeyIntentParser.requestWords(text).first.map(DaisyKeyIntentParser.normalized),
-                  !commandOpenings.contains(first) else { return nil }
-            return DaisyKeyTranslation(target: command.target, text: text, forMe: command.forMe)
+                  !commandOpenings.contains(bare(first)) else { return nil }
+            return DaisyKeyTranslation(target: command.target, text: text, forMe: command.forMe, compose: opener == .write)
         }
         return nil
     }
@@ -219,26 +434,38 @@ nonisolated enum DaisyKeyTranslateParser {
     /// Words around the text that aren't it: «переведи мне, пожалуйста, на…».
     static let fillerWords: Set<String> = objectWords.union(forMeWords).union(courtesy).union(["", "для", "меня", "for"])
 
-    /// «на японский» / "into Japanese" closing the request, after the verb
-    /// that opened it: where it starts, and the language.
-    private static func tailCommand(_ words: [String], macRegion: String?) -> (start: Int, target: DaisyKeyTranslationTarget)? {
+    /// A language at `start`: «на португальский», "into Japanese",
+    /// «по-португальски».
+    private static func language(_ words: [String], at start: Int, macRegion: String?, colons: Set<Int>)
+        -> (target: DaisyKeyTranslationTarget, end: Int)? {
+        guard start < words.count else { return nil }
+        if words[start] == ruInto || enInto.contains(words[start]) {
+            return DaisyKeyLanguageNames.match(words, at: start + 1, macRegion: macRegion, colons: colons)
+        }
+        return DaisyKeyLanguageNames.matchAdverb(words, at: start, macRegion: macRegion)
+    }
+
+    /// «на японский» / "into Japanese" / «по-японски» closing the request,
+    /// after the words from `first` on: where it starts, and the language.
+    private static func tailCommand(_ words: [String], from first: Int, macRegion: String?)
+        -> (start: Int, target: DaisyKeyTranslationTarget)? {
         var end = words.count
-        while end > 1, courtesy.contains(words[end - 1]) || words[end - 1].isEmpty { end -= 1 }
-        for start in stride(from: end - 1, to: 1, by: -1) where words[start] == ruInto || enInto.contains(words[start]) {
-            if let found = DaisyKeyLanguageNames.match(words, at: start + 1, macRegion: macRegion, colons: []), found.end == end {
+        while end > first, courtesy.contains(words[end - 1]) || words[end - 1].isEmpty { end -= 1 }
+        for start in stride(from: end - 1, to: first, by: -1) {
+            if let found = language(words, at: start, macRegion: macRegion, colons: []), found.end == end {
                 return (start, found.target)
             }
         }
         return nil
     }
 
-    /// The command's words from the verb at `start`: the target and where
-    /// the command ends. nil when no language is named.
     /// Where a word ends with a colon: the text opens after it.
     private static func colons(in tokens: [String]) -> Set<Int> {
         Set(tokens.indices.filter { tokens[$0].hasSuffix(":") })
     }
 
+    /// The command's words from the verb at `start`: the target and where
+    /// the command ends. nil when no language is named.
     private static func command(_ words: [String], from start: Int, macRegion: String?, colons: Set<Int>)
         -> (target: DaisyKeyTranslationTarget, end: Int, forMe: Bool)? {
         var i = start + 1
@@ -256,16 +483,8 @@ nonisolated enum DaisyKeyTranslateParser {
             }
             break
         }
-        guard i < words.count else { return nil }
-        if words[i] == ruInto || enInto.contains(words[i]),
-           let found = DaisyKeyLanguageNames.match(words, at: i + 1, macRegion: macRegion, colons: colons) {
-            return (found.target, found.end, forMe)
-        }
-        // «по-португальски», or «по португальски» as some engines write it.
-        if let found = DaisyKeyLanguageNames.matchAdverb(words, at: i, macRegion: macRegion) {
-            return (found.target, found.end, forMe)
-        }
-        return nil
+        guard let found = language(words, at: i, macRegion: macRegion, colons: colons) else { return nil }
+        return (found.target, found.end, forMe)
     }
 }
 

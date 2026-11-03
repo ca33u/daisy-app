@@ -121,22 +121,157 @@ struct DaisyKeyTranslationTests {
     }
 
     /// Review 03.11: another command before the language is the model's to
-    /// do — «Напиши Пете…» in English is a letter, not those words.
+    /// do — «Напиши Пете…» in English is a letter, not those words. With no
+    /// model, what the letter says is translated (Egor 03.11: free form).
     @Test func anotherCommandBeforeItStaysACommand() {
-        #expect(parse("Напиши Пете, что я согласен. Переведи на английский") == nil)
+        let letter = parse("Напиши Пете, что я согласен. Переведи на английский")
+        #expect(letter?.compose == true)
+        #expect(letter?.text == "я согласен.")
+        #expect(letter?.target.code == "en")
         #expect(parse("Сократи это. Переведи на английский") == nil)
         #expect(DaisyKeyCommandParser.kind(of: "Напиши Пете, что я согласен. Переведи на английский",
                                            hasSelection: false, selectionEditable: false) == .write)
         #expect(DaisyKeyController.intentName("Напиши Пете, что я согласен. Переведи на английский", kind: .write) == .write)
+        // «Скажи, …», «Напишите, …», "Tell me…" are the person's words (review 03.11).
+        #expect(parse("Скажи, ты завтра будешь? Переведи на английский")?.text == "Скажи, ты завтра будешь?")
+        #expect(parse("Напишите, когда будете свободны. Переведи на английский")?.text == "Напишите, когда будете свободны.")
+        #expect(parse("Tell me when you're free. Translate into Spanish")?.text == "Tell me when you're free.")
         // But text that merely starts with «что» is text.
         #expect(parse("Что ты делаешь вечером? Переведи на английский")?.text == "Что ты делаешь вечером?")
+    }
+
+    // MARK: Said freely (Egor 03.11)
+
+    @Test func sayItInALanguage() {
+        let said = parse("скажи по-португальски: я опоздаю на десять минут")
+        #expect(said?.target.identifier == "pt-PT")
+        #expect(said?.text == "я опоздаю на десять минут")
+        #expect(said?.compose == false)
+        #expect(parse("Daisy, скажи на английском, я буду через пять минут")?.text == "я буду через пять минут")
+        // «…, что я опоздаю» is what to say.
+        #expect(parse("скажи по-португальски, что я опоздаю")?.text == "я опоздаю")
+        // But a question stays one.
+        #expect(parse("скажи по-английски, что ты делаешь?")?.text == "что ты делаешь?")
+        #expect(parse("Say it in Spanish: I'm running late")?.text == "I'm running late")
+        #expect(parse("Can you say in German: see you tomorrow")?.target.code == "de")
+        #expect(parse("можешь сказать по-французски: спасибо")?.text == "спасибо")
+        #expect(parse("скажи мне по-английски")?.forMe == true)
+        #expect(parse("скажи это по-английски")?.text == "")
+        #expect(parse("скажи «спасибо» по-японски")?.text == "«спасибо»")
+        #expect(parse("скажи «спасибо» по-японски")?.compose == false)
+    }
+
+    @Test func howDoYouSayIt() {
+        #expect(parse("как будет по-португальски «спасибо»")?.text == "«спасибо»")
+        #expect(parse("как будет спасибо по-португальски?")?.text == "спасибо")
+        #expect(parse("как будет спасибо по-португальски?")?.target.code == "pt")
+        #expect(parse("как по-японски будет доброе утро")?.text == "доброе утро")
+        #expect(parse("как по-японски будет доброе утро")?.target.code == "ja")
+        #expect(parse("как сказать «я скучаю» на итальянском")?.target.code == "it")
+        #expect(parse("как сказать «я скучаю» на итальянском")?.text == "«я скучаю»")
+        let how = parse("Daisy, how do you say thank you in Japanese?")
+        #expect(how?.text == "thank you")
+        #expect(how?.target.code == "ja")
+        #expect(parse("how would I say good night in Korean")?.target.code == "ko")
+        // A verb inside quotes is the phrase asked about.
+        #expect(parse("как будет «напиши мне» по-английски")?.text == "«напиши мне»")
+        #expect(parse("how do you say 'answer' in German")?.text == "'answer'")
+    }
+
+    @Test func theLanguageBeforeTheVerb() {
+        let said = parse("По-португальски скажи: я опоздаю")
+        #expect(said?.target.code == "pt")
+        #expect(said?.text == "я опоздаю")
+        #expect(parse("на английский переведи: привет")?.text == "привет")
+        #expect(parse("на английский переведи")?.text == "")
+        #expect(parse("по-английски напиши Пете, что я согласен")?.text == "я согласен")
+        #expect(parse("по-английски напиши Пете, что я согласен")?.compose == true)
+    }
+
+    @Test func otherFormsOfTheVerb() {
+        #expect(parse("переведите на английский: добрый день")?.text == "добрый день")
+        #expect(parse("переведи-ка на английский: добрый день")?.text == "добрый день")
+        #expect(parse("скажи-ка по-немецки: спасибо")?.target.code == "de")
+        #expect(parse("Привет, как дела? Скажи это по-португальски")?.text == "Привет, как дела?")
+        #expect(parse("I'll be late. Say it in Spanish")?.text == "I'll be late.")
+        // «перепиши по-английски» over a selection: it, translated.
+        #expect(parse("перепиши по-английски")?.text == "")
+        #expect(parse("перепиши по-английски и короче") == nil)
+    }
+
+    /// «напиши человеку по-португальски»: a message in that language. The
+    /// model writes it; with no model, what it says is translated.
+    @Test func aMessageInALanguage() {
+        let message = parse("напиши Пете по-португальски, что я опоздаю на десять минут")
+        #expect(message?.compose == true)
+        #expect(message?.target.identifier == "pt-PT")
+        #expect(message?.text == "я опоздаю на десять минут")
+        #expect(parse("напиши по-португальски, что опоздаю")?.text == "опоздаю")
+        #expect(parse("ответь на английском: согласен, давай в пятницу")?.text == "согласен, давай в пятницу")
+        #expect(parse("напиши Пете, что я опоздаю, по-португальски")?.text == "я опоздаю")
+        #expect(parse("напиши по-испански, я уже еду")?.text == "я уже еду")
+        #expect(parse("передай Ане по-английски, что созвон в пять")?.text == "созвон в пять")
+        #expect(parse("скажи Пете по-португальски, что я опоздаю")?.text == "я опоздаю")
+        #expect(parse("скажи Пете по-португальски, что я опоздаю")?.compose == true)
+        let tell = parse("Tell Anna in Spanish that I'm running late")
+        #expect(tell?.text == "I'm running late")
+        #expect(tell?.compose == true)
+        #expect(parse("write to the team in German: the release is on Monday")?.text == "the release is on Monday")
+        // The text before it: «…. Напиши это по-португальски».
+        let before = parse("Я опоздаю на десять минут. Напиши это по-португальски")
+        #expect(before?.text == "Я опоздаю на десять минут.")
+        #expect(before?.compose == true)
+    }
+
+    /// Described, not said: the model's to write — Apple has nothing to
+    /// translate, and a place is not a language.
+    @Test func aMessageDescribedIsNotTranslated() {
+        #expect(parse("напиши по-английски письмо Джону о встрече") == nil)
+        #expect(parse("напиши по-английски о встрече в пятницу") == nil)
+        #expect(parse("напиши ему по-английски, чтобы перезвонил") == nil)
+        #expect(parse("напиши пост о жизни на испанском побережье") == nil)
+        #expect(parse("напиши Пете по-португальски") == nil)
+        #expect(parse("tell him in Spanish to call me back") == nil)
+        // Review 03.11: how, not what — and a language the message mentions.
+        #expect(parse("ответь по-английски вежливо") == nil)
+        #expect(parse("ответь по-английски на это письмо") == nil)
+        #expect(parse("напиши сообщение по-английски Пете") == nil)
+        #expect(parse("напиши по-испански я уже еду") == nil)
+        #expect(parse("напиши Пете, что встреча будет на английском") == nil)
+        #expect(parse("скажи Пете, что я говорю по-английски") == nil)
+        #expect(parse("Tell Anna that the meeting is in English") == nil)
+        #expect(parse("Как будет готово, напиши Пете по-английски") == nil)
+        // But said after a colon, it is what the message says.
+        #expect(parse("напиши по-английски сообщение: я опоздаю")?.text == "я опоздаю")
+    }
+
+    @Test func aMessageIsTheModelsCommandWhenThereIsOne() {
+        let message = parse("напиши Пете по-португальски, что я опоздаю")!
+        #expect(message.translated(providerReady: true) == nil)
+        #expect(message.translated(providerReady: false) == message)
+        let translation = parse("переведи на португальский: я опоздаю")!
+        #expect(translation.translated(providerReady: true) == translation)
+        // Where it goes, as «напиши» decides it.
+        func kind(_ text: String, selection: Bool = false, editable: Bool = false) -> DaisyKeyCommandKind? {
+            DaisyKeyCommandParser.kind(of: text, hasSelection: selection, selectionEditable: editable)
+        }
+        #expect(kind("напиши Пете по-португальски, что я опоздаю") == .write)
+        #expect(kind("ответь по-английски: согласен", selection: true, editable: true) == .answer)
+        #expect(kind("скажи Пете по-португальски, что я опоздаю") == .write)
+        #expect(kind("скажи по-португальски: спасибо") == .write)
+        #expect(kind("как будет по-португальски спасибо") == .write)
+        // Counted as what it is.
+        #expect(DaisyKeyController.intentName("напиши Пете по-португальски, что я опоздаю", kind: .write) == .write)
+        #expect(DaisyKeyController.intentName("скажи по-португальски: спасибо", kind: .write) == .translate)
+        #expect(DaisyKeyController.intentName("как будет спасибо по-японски", kind: .write) == .translate)
     }
 
     // MARK: What isn't one
 
     @Test func wordsThatOnlyMentionALanguageAreNotATranslation() {
         #expect(parse("Я говорю по-португальски") == nil)
-        #expect(parse("напиши по-португальски, что опоздаю") == nil)
+        #expect(parse("Скажи по-честному, ты придёшь?") == nil)
+        #expect(parse("Как дела? Как там погода?") == nil)
         #expect(parse("переведи это") == nil)
         #expect(parse("переведи на завтра встречу с Аней") == nil)
         #expect(parse("попроси Петю, чтобы перевести на английский") == nil)
