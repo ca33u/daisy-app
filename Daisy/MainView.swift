@@ -221,6 +221,9 @@ final class AppNavigation {
     /// clears it on appear / when it observes the change. nil means
     /// "let the view pick its own default" — usually the first row.
     var pendingLibrarySelection: StoredSession.ID?
+    /// One-shot project request (a `daisy://project/…` link): the Library
+    /// list consumes it into its project filter and clears it.
+    var pendingLibraryFolderSlug: String?
     /// The sheet of the main window — Settings or About — if any
     /// (SettingsPanel.swift). Settings' search goes whenever Settings do,
     /// however they close.
@@ -281,6 +284,13 @@ final class AppNavigation {
         pendingLibrarySelection = id
         navigatingInBackground = !userInitiated
         defer { navigatingInBackground = false }
+        section = .library
+    }
+
+    /// The Library filtered to one project, nothing else narrowing it — a
+    /// `daisy://project/…` link.
+    func openProjectInLibrary(_ folder: SessionFolder) {
+        pendingLibraryFolderSlug = folder.slug
         section = .library
     }
 

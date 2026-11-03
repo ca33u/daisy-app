@@ -45,6 +45,21 @@
     <key>LSMinimumSystemVersion</key>
     <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 
+    <!-- Backlog 41: daisy://session/<ID> opens a meeting, daisy://project/<id>
+         a project in the Library — the links `.linked-source.json` gives
+         readers such as Flow. -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>app.essazanov.Daisy</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>daisy</string>
+            </array>
+        </dict>
+    </array>
+
     <!-- Audio and video files can be opened with Daisy (Finder "Open
          With", a drop on the Dock icon) — they go straight to the
          Library's import dialog. Alternate rank: Daisy never claims to

@@ -906,8 +906,68 @@ reference would silently move the user's recording to Inbox.
 The two system projects, `inbox` and `notes`, always exist and cannot be
 deleted.
 
+Besides its slug, every other project has a **stable id**: a UUID given out
+once, kept through renames, shared between devices with the project list.
+A rename that changes the slug rewrites `daisy_folder` in every session;
+the id is what stays. Two devices that gave the same project different
+ids before they synchronised keep the one given out first. A deleted
+project's id is not handed to a new project of the same name. The id is
+never written into a session; it reaches readers through the manifest
+(§10).
+
 `daisy_kind` is independent of the project. A note can live in any
 project and a recording can live in Notes. Legacy sessions with no
 `daisy_kind` are inferred from the project, which is why every move must
 stamp the field explicitly — otherwise the inference flips the kind the
 next time the file is read.
+
+## 10. `.linked-source.json`: the library for other apps
+
+`<base>/Daisy/.linked-source.json`, beside `Sessions/`, describes the
+library to apps that read it — Flow first — under the open contract
+Linked Sources 1 (`linked-source/1`). It changes nothing in the session
+folders: it tells a reader where sessions are and which frontmatter field
+means what, and lists the projects under ids that survive a rename.
+
+What Daisy writes:
+
+- `source` — the library's `id` (a UUID: stable for this base, new for a
+  new one), `app: io.mydaisy.Daisy`, `name: Daisy`, and the URL templates
+  `open_item: daisy://session/{id}` and `open_project: daisy://project/{id}`.
+- `items` — one entry, the same in every library: `Sessions/*/transcript.md`,
+  the session ID is the directory name (§1.1), `title`, `started`,
+  `duration_sec`, `daisy_folder` (the project's key), `daisy_tag`,
+  `daisy_event_attendees` and `daisy_event_emails`; the summary from
+  `summary.json` `/summary`, else the `## Summary` section; the action
+  items from `/actionItems`; the text after `## Transcript`;
+  `busy_if_exists: .recording` (§6.1); and type rules — the demo meeting
+  and rehearsal takes are hidden, screenshot notes and `daisy_kind: note`
+  are notes, a recording is a meeting wherever it is filed, and a session
+  with no `daisy_kind` in `notes` is a note (§3).
+- `projects` — `inbox` and `notes` (`system: true`, their slug as id),
+  then every other project: `id` (its stable id, §9), `key` (its slug,
+  what `daisy_folder` carries), `name`, and `parent` (the parent's `id`,
+  or `null`). Older sessions may carry the key in another case
+  (`daisy_folder: Work`): compare keys case-insensitively, as Daisy does.
+  While a slug-changing rename moves its sessions, the old and new key
+  both appear, with the same id; a rename the app quit in the middle of,
+  or one whose sessions didn't all move, is finished at the next launch.
+- `state.moving` — `true` while Daisy moves sessions to another base.
+
+When it is written: at launch, whenever the project list changes, and when
+the active base changes — atomically (a temporary file renamed over it),
+so a reader never finds half a file, and only when its bytes change. Only
+the active base gets one. Moving sessions to a new base takes the
+library's id along: both manifests say `moving` for the duration, and when
+nothing is left behind the old base's manifest goes to the Trash; when
+something is, it stays there, with the same id. A move the app quit in the
+middle of is settled the same way at the next launch. Putting the old
+sessions in the Trash instead takes the old manifest with them once all
+of them are there (otherwise it stays); leaving them where they are keeps
+it, and the new base starts a new library.
+
+What a reader may expect: the file is valid JSON whenever it exists;
+unknown keys may appear and should be ignored. Ids do not change, with one
+exception: a project two devices gave different ids before they first
+synchronised keeps the earlier one, so the later id disappears once. What
+a reader must not do: write anything into the Daisy folder.

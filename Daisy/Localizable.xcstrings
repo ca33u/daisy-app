@@ -1,6 +1,36 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Daisy can’t open this link." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не удалось открыть эту ссылку."
+          }
+        }
+      }
+    },
+    "Daisy couldn’t find this meeting. It may have been deleted or moved." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не удалось найти эту встречу. Возможно, её удалили или перенесли."
+          }
+        }
+      }
+    },
+    "Daisy couldn’t find this project. It may have been deleted." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не удалось найти этот проект. Возможно, его удалили."
+          }
+        }
+      }
+    },
     "Select the word or turn on fixing as you type." : {
       "localizations" : {
         "ru" : {

@@ -63,6 +63,14 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         // Ф3-C: the project list rides in iCloud's key-value store.
         FolderRegistryBridge.shared.start()
         VocabularyBridge.shared.start()
+        // Backlog 41: `.linked-source.json` for readers such as Flow.
+        Task { @MainActor in await LinkedSourcePublisher.shared.start() }
+        // Project renames the app quit in the middle of are finished once
+        // the sessions are read. Not in the test host: those are the real
+        // library's.
+        if !TestHost.isActive {
+            Task { @MainActor in await FolderStore.shared.resumeInterruptedRenames(in: SessionStore.shared) }
+        }
 
         // Secrets that live only in the old login keychain: fetched now,
         // off the main thread, with the app already on screen. Never in
@@ -433,7 +441,8 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
     /// Finder "Open With → Daisy" and files dropped on the Dock icon
     /// (CFBundleDocumentTypes: public.audio / public.movie). Routed into
     /// the Library's import dialog; the main window is surfaced first
-    /// so the sheet has somewhere to appear.
+    /// so the sheet has somewhere to appear. `daisy://` links
+    /// (CFBundleURLTypes, backlog 41) open a meeting or a project there.
     func application(_ application: NSApplication, open urls: [URL]) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
@@ -445,8 +454,13 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         // `.daisy` archives from the iPhone go straight into the
         // sessions folder (backlog 4, part C); everything else is audio
         // for the import dialog.
-        let archives = urls.filter(SessionArchiveImporter.isSessionArchive)
-        let others = urls.filter { !SessionArchiveImporter.isSessionArchive($0) }
+        let links = urls.filter(DaisyLink.isDaisyLink)
+        let files = urls.filter { !DaisyLink.isDaisyLink($0) }
+        if let link = links.last {
+            Task { @MainActor in await DaisyLinkRouter.open(link) }
+        }
+        let archives = files.filter(SessionArchiveImporter.isSessionArchive)
+        let others = files.filter { !SessionArchiveImporter.isSessionArchive($0) }
         if !archives.isEmpty {
             Task { @MainActor in await SessionArchiveImporter.importAndReport(archives) }
         }

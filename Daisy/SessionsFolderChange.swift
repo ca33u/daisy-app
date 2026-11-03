@@ -109,6 +109,7 @@ enum SessionsFolderChange {
             throw SessionsFolderChangeError.bookmarkFailed
         }
         await SessionStore.shared.refresh()
+        LinkedSourcePublisher.shared.setNeedsWrite()
     }
 
     static func apply(
@@ -131,6 +132,9 @@ enum SessionsFolderChange {
 
         if action == .keep {
             await SessionStore.shared.refresh()
+            // A new base is a new library, with an id of its own; the old
+            // one stays as it was.
+            LinkedSourcePublisher.shared.setNeedsWrite()
             return SessionsFolderChangeReport(
                 completedCount: 0,
                 remainingCount: request.existingFolderCount,
@@ -143,6 +147,7 @@ enum SessionsFolderChange {
             : nil
         if request.sourceWasCustom, sourceTicket == nil {
             await SessionStore.shared.refresh()
+            LinkedSourcePublisher.shared.setNeedsWrite()
             throw SessionsFolderChangeError.sourceUnavailable
         }
         defer { sourceTicket?.release() }
@@ -155,12 +160,17 @@ enum SessionsFolderChange {
             )
         if !request.destinationIsDefault, destinationTicket == nil {
             await SessionStore.shared.refresh()
+            LinkedSourcePublisher.shared.setNeedsWrite()
             throw SessionsFolderChangeError.destinationUnavailable
         }
         defer { destinationTicket?.release() }
 
         let sourceDirectory = SessionsFolder.sessionsDirectory(in: request.sourceBaseURL)
         let destinationDirectory = SessionsFolder.sessionsDirectory(in: request.destinationBaseURL)
+        // Backlog 41: readers see the library move, not its sessions vanish.
+        if action == .move {
+            await LinkedSourcePublisher.shared.beginMove(from: request.sourceBaseURL, to: request.destinationBaseURL)
+        }
         let report = await Task.detached(priority: .utility) {
             switch action {
             case .move:
@@ -171,6 +181,7 @@ enum SessionsFolderChange {
                 preconditionFailure("Handled before filesystem work")
             }
         }.value
+        await LinkedSourcePublisher.shared.endMove(from: request.sourceBaseURL, complete: report.isComplete)
 
         // `isComplete`, not `remainingCount == 0`. The count comes from
         // re-listing the source, and that listing swallows its error

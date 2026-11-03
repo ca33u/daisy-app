@@ -17,9 +17,17 @@
 //  fresh stamp, on whichever device meets it.
 //
 //  Slug-changing renames are NOT a registry operation (a slug is the
-//  identity): they are add-new + rewrite `daisy_folder` in every session
-//  + tombstone-old, on the device that renames — exactly what the Mac
-//  already does. The sessions then ride through CloudKit like any edit.
+//  identity here): they are add-new + rewrite `daisy_folder` in every
+//  session + tombstone-old, on the device that renames — exactly what the
+//  Mac already does. The sessions then ride through CloudKit like any edit.
+//
+//  Backlog 41: the slug is what sessions carry, but readers outside Daisy
+//  (`.linked-source.json`) need a project to keep one identity through a
+//  rename. Every entry therefore carries a stable `id`: the new slug of a
+//  rename takes the old one's. Two devices that gave out ids to the same
+//  live project before they met settle on the earlier one, whichever entry
+//  is newer otherwise. A tombstone never hands its id to a live entry:
+//  the slug a rename left may be a new project's by now.
 //
 
 import Foundation
@@ -72,16 +80,31 @@ public nonisolated struct FolderRegistry: Codable, Sendable, Equatable {
         public var isDeleted: Bool { deletedAt != nil }
         /// Backlog 24 М-8: the folder's trackers.
         public var project: ProjectContext?
+        /// Backlog 41: the project's stable id, unchanged by renames.
+        /// Nil only in entries an older version wrote.
+        public var id: String?
+        /// When `id` was given out: of two ids for one slug, the earlier wins.
+        public var idAssignedAt: Date?
         /// Fields a newer version wrote; kept as they were.
         public var extra: [String: JSONValue] = [:]
         public init(name: String, parentSlug: String? = nil, updatedAt: Date = Date(), deletedAt: Date? = nil,
-                    project: ProjectContext? = nil) {
+                    project: ProjectContext? = nil, id: String? = nil, idAssignedAt: Date? = nil) {
             self.name = name; self.parentSlug = parentSlug; self.updatedAt = updatedAt; self.deletedAt = deletedAt
-            self.project = project
+            self.project = project; self.id = id; self.idAssignedAt = idAssignedAt
         }
         var stamp: Date { max(updatedAt, deletedAt ?? .distantPast) }
 
-        private static let known: Set<String> = ["name", "parentSlug", "updatedAt", "deletedAt", "project"]
+        /// Orders ids for the merge: the earlier given out first, a missing
+        /// one last, the string itself breaking a tie — so both sides pick
+        /// the same.
+        fileprivate func idPrecedes(_ other: Entry) -> Bool {
+            guard let id else { return false }
+            guard let otherID = other.id else { return true }
+            let mine = idAssignedAt ?? .distantFuture, theirs = other.idAssignedAt ?? .distantFuture
+            return mine != theirs ? mine < theirs : id < otherID
+        }
+
+        private static let known: Set<String> = ["name", "parentSlug", "updatedAt", "deletedAt", "project", "id", "idAssignedAt"]
 
         public init(from decoder: any Decoder) throws {
             let c = try decoder.container(keyedBy: AnyCodingKey.self)
@@ -90,6 +113,8 @@ public nonisolated struct FolderRegistry: Codable, Sendable, Equatable {
             updatedAt = try c.decodeIfPresent(Date.self, forKey: .init("updatedAt")) ?? .distantPast
             deletedAt = try c.decodeIfPresent(Date.self, forKey: .init("deletedAt"))
             project = try? c.decodeIfPresent(ProjectContext.self, forKey: .init("project"))
+            id = try c.decodeIfPresent(String.self, forKey: .init("id"))
+            idAssignedAt = try c.decodeIfPresent(Date.self, forKey: .init("idAssignedAt"))
             extra = c.extras(except: Self.known)
         }
 
@@ -101,6 +126,8 @@ public nonisolated struct FolderRegistry: Codable, Sendable, Equatable {
             try c.encode(updatedAt, forKey: .init("updatedAt"))
             try c.encodeIfPresent(deletedAt, forKey: .init("deletedAt"))
             try c.encodeIfPresent(project, forKey: .init("project"))
+            try c.encodeIfPresent(id, forKey: .init("id"))
+            try c.encodeIfPresent(idAssignedAt, forKey: .init("idAssignedAt"))
         }
     }
 
@@ -150,19 +177,46 @@ public nonisolated struct FolderRegistry: Codable, Sendable, Equatable {
     // MARK: - Mutations (all stamp "now")
 
     /// Add or revive; returns the slug.
+    ///
+    /// `id` is the device's own stable id for the project. A live entry
+    /// keeps the id it has (the device adopts it from the registry); an
+    /// entry that has none takes this one — with the time it was given out
+    /// when another entry already carries it (the new slug of a rename) —
+    /// or, without one, the id of the tombstone it revives or a new one.
     @discardableResult
-    public mutating func upsert(name: String, parentSlug: String? = nil, at now: Date = Date()) -> String {
+    public mutating func upsert(name: String, parentSlug: String? = nil, id: String? = nil, at now: Date = Date()) -> String {
         let slug = Self.slug(for: name)
         guard !slug.isEmpty, !Self.systemSlugs.contains(slug) else { return slug.isEmpty ? "inbox" : slug }
         let parent = parentSlug?.lowercased()
+        let previous = entries[slug]
         // A rename or a revival keeps what the folder carried (М-8's trackers,
         // a newer version's fields).
         var entry = Entry(name: name.trimmingCharacters(in: .whitespacesAndNewlines),
                           parentSlug: parent == slug ? nil : parent, updatedAt: now, deletedAt: nil,
-                          project: entries[slug]?.project)
-        entry.extra = entries[slug]?.extra ?? [:]
+                          project: previous?.project)
+        entry.extra = previous?.extra ?? [:]
+        if let previous, !previous.isDeleted, let kept = previous.id {
+            entry.id = kept
+            entry.idAssignedAt = previous.idAssignedAt
+        } else if let id {
+            entry.id = id
+            entry.idAssignedAt = entries.values.first { $0.id == id }?.idAssignedAt ?? now
+        } else if let revived = previous?.id, self.slug(forID: revived) == nil {
+            // §9 brings the project back — unless the id lives on under
+            // another slug (the project was renamed), when this is a new one.
+            entry.id = revived
+            entry.idAssignedAt = previous?.idAssignedAt
+        } else {
+            entry.id = UUID().uuidString
+            entry.idAssignedAt = now
+        }
         entries[slug] = entry
         return slug
+    }
+
+    /// The live entry carrying this stable id, if any.
+    public func slug(forID id: String) -> String? {
+        entries.first { !$0.value.isDeleted && $0.value.id == id }?.key
     }
 
     /// Backlog 24 М-8: the folder's trackers; empty clears them.
@@ -189,12 +243,35 @@ public nonisolated struct FolderRegistry: Codable, Sendable, Equatable {
 
     // MARK: - Merge
 
-    /// Per slug, the newer stamp wins; a tie keeps the local entry.
+    /// Per slug, the newer stamp wins; a tie keeps the local entry. The
+    /// stable id of a live project is settled apart from that: the earlier
+    /// given out wins on both sides, so two devices that each gave it an
+    /// id agree — passing over an id another live project carries on
+    /// either side (it was renamed away, and this is a new project under
+    /// the old name) for the other one. Between a live entry and a
+    /// tombstone the winner keeps its own — the tombstone's may belong to
+    /// the renamed project now.
     public func merged(with remote: FolderRegistry) -> FolderRegistry {
         var out = self
         for (slug, theirs) in remote.entries {
-            if let mine = out.entries[slug], mine.stamp >= theirs.stamp { continue }
-            out.entries[slug] = theirs
+            guard let mine = out.entries[slug] else {
+                out.entries[slug] = theirs
+                continue
+            }
+            var winner = mine.stamp >= theirs.stamp ? mine : theirs
+            if mine.isDeleted == theirs.isDeleted {
+                let byAge = theirs.idPrecedes(mine) ? [theirs, mine] : [mine, theirs]
+                let carriedElsewhere = { (entry: Entry) -> Bool in
+                    guard let id = entry.id else { return true }
+                    return [self, remote].contains { $0.entries.contains { $0.key != slug && !$0.value.isDeleted && $0.value.id == id } }
+                }
+                // Neither free: the winner keeps its own.
+                if let idSource = byAge.first(where: { !carriedElsewhere($0) }) {
+                    winner.id = idSource.id
+                    winner.idAssignedAt = idSource.idAssignedAt
+                }
+            }
+            out.entries[slug] = winner
         }
         return out
     }

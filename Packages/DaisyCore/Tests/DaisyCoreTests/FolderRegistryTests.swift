@@ -53,6 +53,79 @@ struct FolderRegistryTests {
         let data = r.encoded()!
         #expect(FolderRegistry.decode(data) == r)
     }
+
+    // MARK: Backlog 41 — stable ids
+
+    @Test func anEntryKeepsItsIDThroughARecaseARemovalAndARevival() throws {
+        let t0 = Date(timeIntervalSince1970: 3_000)
+        var r = FolderRegistry()
+        r.upsert(name: "Acme", at: t0)
+        let id = try #require(r.entry("acme")?.id)
+        #expect(r.entry("acme")?.idAssignedAt == t0)
+        r.upsert(name: "ACME", id: "SOMETHING-ELSE", at: t0.addingTimeInterval(1))   // a live id stays
+        #expect(r.entry("acme")?.id == id)
+        r.remove("acme", at: t0.addingTimeInterval(2))
+        #expect(r.entries["acme"]?.id == id)
+        r.upsert(name: "Acme", at: t0.addingTimeInterval(3))                         // §9 brings it back
+        #expect(r.entry("acme")?.id == id)
+        #expect(r.slug(forID: id) == "acme")
+        let data = try #require(r.encoded())
+        #expect(FolderRegistry.decode(data) == r)
+    }
+
+    @Test func theNewSlugOfARenameTakesTheOldID() throws {
+        let t0 = Date(timeIntervalSince1970: 4_000)
+        var r = FolderRegistry()
+        r.upsert(name: "Acme", id: "A", at: t0)
+        r.upsert(name: "Acme Corp", id: "A", at: t0.addingTimeInterval(5))
+        r.remove("acme", at: t0.addingTimeInterval(6))
+        #expect(r.entry("acme corp")?.id == "A")
+        #expect(r.entry("acme corp")?.idAssignedAt == t0)   // when it was first given out
+        #expect(r.slug(forID: "A") == "acme corp")
+        // A new project under the old name is not the renamed one — with an
+        // id of its own, or with none (another device's §9 revival)…
+        let kvs = r
+        r.upsert(name: "Acme", id: "NEW", at: t0.addingTimeInterval(7))
+        #expect(r.entry("acme")?.id == "NEW")
+        var phone = kvs
+        phone.upsert(name: "Acme", at: t0.addingTimeInterval(8))
+        let phoneID = try #require(phone.entry("acme")?.id)
+        #expect(phoneID != "A")
+        // …and no merge with the stored tombstone hands it the renamed one's.
+        #expect(r.merged(with: kvs).entry("acme")?.id == "NEW")
+        #expect(kvs.merged(with: r).entry("acme")?.id == "NEW")
+        #expect(phone.merged(with: kvs).entry("acme")?.id == phoneID)
+        #expect(r.merged(with: kvs).slug(forID: "A") == "acme corp")
+        // A device that was offline through all of it still has the old
+        // project live under A: the new one keeps its own, on both sides.
+        var offline = FolderRegistry()
+        offline.upsert(name: "Acme", id: "A", at: t0)
+        #expect(offline.merged(with: r).entry("acme")?.id == "NEW")
+        #expect(r.merged(with: offline).entry("acme")?.id == "NEW")
+        #expect(r.merged(with: offline).entry("acme corp")?.id == "A")
+        // …also when the offline device edited it last, and its entry wins.
+        offline.upsert(name: "ACME", at: t0.addingTimeInterval(9))
+        #expect(offline.merged(with: r).entry("acme")?.name == "ACME")
+        #expect(offline.merged(with: r).entry("acme")?.id == "NEW")
+        #expect(r.merged(with: offline).entry("acme")?.id == "NEW")
+    }
+
+    @Test func twoDevicesThatGaveOutIDsSettleOnTheEarlier() {
+        let t0 = Date(timeIntervalSince1970: 5_000)
+        var mac = FolderRegistry(), phone = FolderRegistry()
+        mac.upsert(name: "Acme", id: "MAC", at: t0)
+        phone.upsert(name: "Acme", id: "PHONE", at: t0.addingTimeInterval(10))
+        phone.upsert(name: "ACME", at: t0.addingTimeInterval(20))   // the phone's entry is newer…
+        let merged = mac.merged(with: phone)
+        #expect(merged.entry("acme")?.name == "ACME")                // …and wins the name,
+        #expect(merged.entry("acme")?.id == "MAC")                   // not the id.
+        #expect(merged.entry("acme")?.idAssignedAt == t0)
+        #expect(phone.merged(with: mac) == merged)
+        // An entry an older version wrote has no id; the merge takes the other's.
+        var old = FolderRegistry(entries: ["acme": .init(name: "Acme", updatedAt: t0.addingTimeInterval(30))])
+        old = old.merged(with: mac)
+        #expect(old.entry("acme")?.id == "MAC")
+    }
 }
 
 @Suite("Forward compatibility (backlog 9 rule)")

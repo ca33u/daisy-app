@@ -313,10 +313,12 @@ struct FolderManagementSection: View {
             return false
         }
 
-        // Accepted. Add the target now so the UI shows it immediately and
-        // the migration's re-parses find it; move every session over; then
-        // drop the old folder (safe once nothing points at it).
-        folders.addFolder(named: trimmed)
+        // Accepted. Add the target now — with the old folder's parent,
+        // children and stable id (backlog 14, 41) — so the UI shows it
+        // immediately and the migration's re-parses find it; move every
+        // session over; then drop the old folder (safe once nothing points
+        // at it).
+        guard let renamed = folders.beginRename(old, to: trimmed) else { return false }
         // Keep the meeting-default setting pointed at the renamed folder.
         if settings.defaultMeetingFolderSlug == old.slug {
             settings.defaultMeetingFolderSlug = new.slug
@@ -325,10 +327,7 @@ struct FolderManagementSection: View {
             settings.defaultNoteFolderSlug = new.slug
         }
         Task {
-            for s in store.sessions where s.folderSlug == old.slug {
-                await store.moveSession(s, to: new)
-            }
-            folders.removeFolder(old)
+            await folders.completeRename(from: old, to: renamed, in: store)
         }
         return true
     }

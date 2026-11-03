@@ -246,9 +246,12 @@ struct LibraryListColumn: View {
                 await store.monitorExternalChanges()
             }
             .onAppear {
+                consumePendingFolder()
                 consumePendingSelection()
                 consumePendingImport()
-                if model.selectedIDs.isEmpty, let first = store.sessions.first?.id {
+                // The first row the list shows — a project link may have
+                // just narrowed it.
+                if model.selectedIDs.isEmpty, let first = filteredSessions.first?.id {
                     model.selectedIDs = [first]
                 }
             }
@@ -261,6 +264,9 @@ struct LibraryListColumn: View {
             }
             .onChange(of: AppNavigation.shared.pendingLibrarySelection) { _, _ in
                 consumePendingSelection()
+            }
+            .onChange(of: AppNavigation.shared.pendingLibraryFolderSlug) { _, _ in
+                consumePendingFolder()
             }
             // Backspace / forward-Delete trigger the bulk-delete
             // confirmation. `.onDeleteCommand` only fires when the
@@ -345,9 +351,33 @@ struct LibraryListColumn: View {
     private func consumePendingSelection() {
         guard let pending = AppNavigation.shared.pendingLibrarySelection else { return }
         if store.sessions.contains(where: { $0.id == pending }) {
+            // A link to a row the current filters hide (a `daisy://` link,
+            // a toast's «Open» after the person narrowed the list) clears
+            // them: the detail pane must not show a row the list lacks.
+            if !filteredSessions.contains(where: { $0.id == pending }) {
+                clearFilters()
+            }
             model.selectedIDs = [pending]
         }
         AppNavigation.shared.pendingLibrarySelection = nil
+    }
+
+    /// Backlog 41: `daisy://project/…` — that project, nothing else
+    /// narrowing it.
+    private func consumePendingFolder() {
+        guard let slug = AppNavigation.shared.pendingLibraryFolderSlug else { return }
+        AppNavigation.shared.pendingLibraryFolderSlug = nil
+        guard let folder = folders.existingFolder(slug: slug) else { return }
+        clearFilters()
+        model.folderFilter = folder
+        pruneSelectionToVisibleRows()
+    }
+
+    private func clearFilters() {
+        model.scope = .all
+        model.folderFilter = nil
+        model.tagFilter = nil
+        model.query = ""
     }
 
     /// Resolve the current selection into a delete-confirmation
