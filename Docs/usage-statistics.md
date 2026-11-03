@@ -94,12 +94,12 @@ refuses anything else.
 | `ask.undone` | an answer from "Ask Daisy" was undone |
 | `daisy_key.tap_note` | a tap on the Daisy key started a long note |
 | `daisy_key.hold` | a hold on the Daisy key ended with something to do |
-| `daisy_key.intent.note` / `edit` / `write` / `ask` / `action` / `unclear` | what the hold was understood as: a note, an edit of the selection, new text, a question about past meetings, an action, or not clear (then it is kept as a note) |
+| `daisy_key.intent.note` / `edit` / `write` / `translate` / `ask` / `action` / `unclear` | what the hold was understood as: a note, an edit of the selection, new text, a translation, a question about past meetings, an action, or not clear (then it is kept as a note) |
 | `daisy_key.rewrite_silent` | a silent hold over a selection rewrote it in your voice |
 | `daisy_key.moment` | a hold during a meeting marked a moment with a comment |
 | `daisy_key.screenshot_context` | a hold after a screenshot added spoken context to it |
 | `daisy_key.undone` | a result the Daisy key inserted was undone |
-| `daisy_key.local` / `daisy_key.cloud` | the result was written by a provider on this Mac / in the cloud |
+| `daisy_key.local` / `daisy_key.cloud` | the result was written on this Mac (a local model, or Apple's translation) / in the cloud |
 | `daisy_key.focus_changed` | the focus moved while Daisy worked, so the result went to the clipboard |
 | `daisy_key.meeting_command` | a command ran during a meeting ("Commands during a meeting" turned on) |
 | `template.followup.created` / `template.summary.created` | a follow-up template / a meeting-notes template was saved in My style |

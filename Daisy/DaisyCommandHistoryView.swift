@@ -106,6 +106,9 @@ struct DaisyCommandHistorySection: View {
         case "silent": return String(localized: "Nothing recognized")
         case "failed": return String(localized: "Note not saved — text copied")
         case "hollow": return String(localized: "Nothing to answer")
+        case "nothingToTranslate": return String(localized: "Nothing to translate")
+        case "alreadyInLanguage": return String(localized: "Already in that language")
+        case "needsProvider": return String(localized: "Note — nothing to translate with")
         default: return String(localized: "Kept as a note")
         }
     }

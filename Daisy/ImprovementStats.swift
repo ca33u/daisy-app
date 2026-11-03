@@ -237,6 +237,8 @@ nonisolated enum ImprovementStats {
     /// «Намерения»). Names only — the words said are never counted.
     enum DaisyKeyIntentName: String, CaseIterable, Sendable {
         case note, edit, write, ask, action, unclear
+        /// «переведи на португальский…» (03.11.2026).
+        case translate
     }
 
     /// Every counter name, as daisy-api's src/usage.ts lists them and

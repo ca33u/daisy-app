@@ -227,8 +227,12 @@ nonisolated enum DaisyKeyIntentParser {
     /// as said (not normalized).
     static func requestWords(_ text: String) -> [String] {
         var words = text.split(whereSeparator: \.isWhitespace).map(String.init)
-        if let first = words.first, addressWords.contains(normalized(first)) { words.removeFirst() }
-        while let first = words.first, courtesyWords.contains(normalized(first)), words.count > 1 { words.removeFirst() }
+        // In either order: «Слушай, Дейзи, напиши…», "Hey Daisy, write…".
+        while let first = words.first.map(normalized) {
+            if addressWords.contains(first) { words.removeFirst(); continue }
+            if courtesyWords.contains(first), words.count > 1 { words.removeFirst(); continue }
+            break
+        }
         return words
     }
 
@@ -336,6 +340,10 @@ nonisolated enum DaisyKeyCommandParser {
     /// field they then run anyway (`inFieldDefault`); elsewhere, and
     /// during a meeting, they are kept as a note or a comment.
     static func kind(of text: String, hasSelection: Bool, selectionEditable: Bool) -> DaisyKeyCommandKind? {
+        // «переведи на португальский…» before or after its text (03.11).
+        if let translation = DaisyKeyTranslateParser.parse(text) {
+            return translation.kind(hasSelection: hasSelection, selectionEditable: selectionEditable)
+        }
         let words = DaisyKeyIntentParser.requestWords(text).map(DaisyKeyIntentParser.normalized)
         guard let first = words.first else { return nil }
         if answerOpenings.contains(where: { opening in words.count >= opening.count && zip(words, opening).allSatisfy { $0 == $1 } }) {
@@ -1327,9 +1335,11 @@ final class DaisyKeyController {
             // Open: anything without a fresh selection. Closed (five
             // minutes): only an edit said with nothing selected — selecting
             // the inserted text is an edit of the field, not of the card.
-            let takesCard = card.isOpen ? !freshSelection : (!context.hasSelection && saysAnEdit && card.canRefineLast)
+            // Words said to be translated are new text, not the card's.
+            let saysNewText = DaisyKeyTranslateParser.parse(words).map { !$0.text.isEmpty } ?? false
+            let takesCard = !saysNewText && (card.isOpen ? !freshSelection : (!context.hasSelection && saysAnEdit && card.canRefineLast))
             if !context.isSecureField, takesCard {
-                ImprovementStats.record(.daisyKeyIntent(saysAnEdit ? .edit : .write))
+                ImprovementStats.record(.daisyKeyIntent(Self.intentName(words, kind: saysAnEdit ? .edit : .write)))
                 await refineCard(words, entryID: entryID)
                 return
             }
@@ -1338,7 +1348,7 @@ final class DaisyKeyController {
             if !context.isSecureField,
                let kind = DaisyKeyCommandParser.kind(of: words, hasSelection: context.hasSelection, selectionEditable: context.isEditable)
                 ?? DaisyKeyCommandParser.inFieldDefault(context) {
-                ImprovementStats.record(.daisyKeyIntent(kind == .edit ? .edit : .write))
+                ImprovementStats.record(.daisyKeyIntent(Self.intentName(words, kind: kind)))
                 await runCommand(kind, request: words, context: context, bundleID: hold?.bundleID, appName: hold?.appName,
                                  entryID: entryID, samples: samples, durationSec: durationSec, atPress: true)
                 return
@@ -1384,7 +1394,7 @@ final class DaisyKeyController {
                 session.cutFromMeeting(from: start, to: end, entryID: entryID)
                 ImprovementStats.record(.daisyKeyHold)
                 ImprovementStats.record(.daisyKeyMeetingCommand)
-                ImprovementStats.record(.daisyKeyIntent(kind == .edit ? .edit : .write))
+                ImprovementStats.record(.daisyKeyIntent(Self.intentName(words, kind: kind)))
                 // No audio of its own (the words are the meeting's), but the
                 // span is what was said: the insertion budget reads it.
                 await runCommand(kind, request: words, context: context, bundleID: hold.bundleID, appName: hold.appName,
@@ -1453,44 +1463,111 @@ final class DaisyKeyController {
         }
         isWorking = true
         defer { isWorking = false }
-        guard await summarizer.isReady(for: .interactive) else {
-            return await fallBack(String(localized: "Saved as a note: AI isn’t set up"))
-        }
-        // Commands take the interactive route: with the local model chosen
-        // that is the provider chosen before it, and its consent is asked.
-        let local = summarizer.interactiveProviderIsEffectivelyLocal
-        let commandProvider = summarizer.interactiveProviderKind
-        if !local, !Self.cloudAllowed(commandProvider) {
-            // One yes per provider (spec 21.10): until then the words stay
-            // a note, and the button is the yes.
-            if !noteKept {
-                await keepAsNote(request, samples: samples, durationSec: durationSec, entryID: entryID,
-                                 outcome: "unclear", message: nil, offerToRun: false)
-            }
-            let provider = commandProvider.shortName
-            tell(String(localized: "Saved as a note"),
-                 action: (String(localized: "Allow sending to \(provider)"), { [weak self] in
-                     Self.allowCloud(commandProvider)
-                     Task { await self?.runCommand(kind, request: request, context: context, bundleID: bundleID, appName: appName,
-                                                   entryID: entryID, samples: [], durationSec: 0, atPress: false, noteKept: true) }
-                 }))
-            return
-        }
-        let role: VoiceCommandContext.Role = kind == .edit ? .edit : (context.hasSelection ? .source : .none)
+        let providerReady = await summarizer.isReady(for: .interactive)
         let field = DaisyKeyCommandParser.field(bundleID: bundleID)
+        // «переведи на португальский…» (03.11): the words said with the
+        // command are translated, else the selection.
+        let translation = DaisyKeyTranslateParser.parse(request)
+        var translationText: String?
+        var onDevice = false
+        if let translation {
+            guard let text = DaisyKeyCommandParser.cleaned(translation.text, field: .plain)
+                    ?? (context.hasSelection ? context.selection : nil) else {
+                DaisyCommandHistory.shared.setOutcome("nothingToTranslate", for: entryID)
+                let name = translation.target.displayName
+                // Slack, VS Code and other Electron apps don't give the
+                // selection away: say so, not «say the text» to someone who
+                // selected it.
+                tell(context.accessibilityTrusted && context.element != nil && !context.selectionReadable && !context.isSecureField
+                     ? String(localized: "Daisy can’t see the selection here — say the text along with “translate into \(name)”")
+                     : String(localized: "Say the text along with “translate into \(name)”"))
+                return
+            }
+            translationText = text
+            // The summary model when there is one, else Apple's translation
+            // on this Mac, else the person is told (Egor 03.11).
+            if !providerReady {
+                let availability = await onDeviceTranslator.availability(of: text, to: translation.target.language)
+                switch DaisyKeyTranslationEngine.choose(providerReady: false, onDevice: availability) {
+                case .onDevice where availability == .sameLanguage && translation.text.isEmpty:
+                    // The selection is in that language already: left as it is.
+                    DaisyCommandHistory.shared.setOutcome("alreadyInLanguage", for: entryID)
+                    tell(String(localized: "The text is in that language already"))
+                    return
+                case .onDevice:
+                    onDevice = true
+                case .none(let downloadable):
+                    if !noteKept {
+                        await keepAsNote(request, samples: samples, durationSec: durationSec, entryID: entryID,
+                                         outcome: "needsProvider", message: nil, offerToRun: false)
+                    }
+                    tellNeedsProvider(translation.target, downloadable: downloadable)
+                    log.info("Daisy key translation: no provider, Apple's translation \(downloadable ? "needs the language" : "unavailable", privacy: .public)")
+                    return
+                case .provider:
+                    break
+                }
+            }
+        }
+        if !onDevice {
+            guard providerReady else {
+                return await fallBack(String(localized: "Saved as a note: AI isn’t set up"))
+            }
+            // Commands take the interactive route: with the local model chosen
+            // that is the provider chosen before it, and its consent is asked.
+            let commandProvider = summarizer.interactiveProviderKind
+            if !summarizer.interactiveProviderIsEffectivelyLocal, !Self.cloudAllowed(commandProvider) {
+                // One yes per provider (spec 21.10): until then the words stay
+                // a note, and the button is the yes.
+                if !noteKept {
+                    await keepAsNote(request, samples: samples, durationSec: durationSec, entryID: entryID,
+                                     outcome: "unclear", message: nil, offerToRun: false)
+                }
+                let provider = commandProvider.shortName
+                tell(String(localized: "Saved as a note"),
+                     action: (String(localized: "Allow sending to \(provider)"), { [weak self] in
+                         Self.allowCloud(commandProvider)
+                         Task { await self?.runCommand(kind, request: request, context: context, bundleID: bundleID, appName: appName,
+                                                       entryID: entryID, samples: [], durationSec: 0, atPress: false, noteKept: true) }
+                     }))
+                return
+            }
+        }
+        let local = onDevice || summarizer.interactiveProviderIsEffectivelyLocal
+        let role: VoiceCommandContext.Role
+        if let translation {
+            // Words said go in at the caret; a selection translated in place
+            // is an edit. Read «for me», or said over a selection: the card.
+            role = kind == .edit ? .edit : (translation.text.isEmpty || context.hasSelection ? .source : .none)
+        } else {
+            role = kind == .edit ? .edit : (context.hasSelection ? .source : .none)
+        }
         // The voice is the language of what's being written: the selection's
-        // for an edit, what was said for the rest.
-        let voice = VoiceProfileStore.shared.resolveStyle(
+        // for an edit, what was said for the rest. A translation keeps the
+        // person's words, not their voice.
+        let voice = translation != nil ? nil : VoiceProfileStore.shared.resolveStyle(
             forTextIn: LanguageDetector.detect(kind == .edit ? (context.selection ?? request) : request))?.promptInstruction
         // «…по шаблону продажи»: a follow-up template the request names
         // gives the letter its structure (backlog 35 Ш-1).
-        let named = kind == .write ? MeetingTemplateStore.shared.followUpTemplate(mentionedIn: request) : nil
+        let named = kind == .write && translation == nil ? MeetingTemplateStore.shared.followUpTemplate(mentionedIn: request) : nil
         let commandContext = VoiceCommandContext(role: role, field: field, voice: voice, structure: named?.structure,
                                                  // «переведи этот промпт» edits a prompt, it doesn't write one.
-                                                 prompt: kind != .edit && DaisyKeyCommandParser.asksForPrompt(request))
+                                                 prompt: translation == nil && kind != .edit && DaisyKeyCommandParser.asksForPrompt(request),
+                                                 translateTo: translation?.target.englishName)
 
-        let payload = SummaryPrompt.voiceCommandPayload(request: request, source: role == .none ? nil : context.selection)
-        let written = await write(payload: payload, context: commandContext)
+        let written: Written
+        if let translation, let text = translationText {
+            if onDevice {
+                let translator = onDeviceTranslator
+                let target = translation.target
+                written = await write { await DaisyKeyTranslation.onDevice(text, to: target, field: field, translator: translator) }
+            } else {
+                written = await write(payload: Self.translationPayload(text, into: translation.target), context: commandContext)
+            }
+        } else {
+            let payload = SummaryPrompt.voiceCommandPayload(request: request, source: role == .none ? nil : context.selection)
+            written = await write(payload: payload, context: commandContext)
+        }
         if case .stopped = written {
             // Esc or the deadline: stopped on purpose, the words are in the
             // command history (spec 21.10) — no note made of them.
@@ -1503,7 +1580,7 @@ final class DaisyKeyController {
         }
         // Written from nothing — «напиши ответ» with no message to answer —
         // it comes back as a skeleton of [?] (Egor 22.10): not a card.
-        if role == .none, Self.isHollow(result) {
+        if role == .none, translation == nil, Self.isHollow(result) {
             DaisyCommandHistory.shared.setOutcome("hollow", for: entryID)
             tell(String(localized: "Select the message and say it again"))
             log.info("Daisy key command came back as placeholders only — nothing shown")
@@ -1526,7 +1603,8 @@ final class DaisyKeyController {
         // An edit goes in only over the same selection: a click elsewhere in
         // the same field during the wait would put it beside the original.
         let selectionStill = kind != .edit || context.element.flatMap(DaisyKeyContext.currentSelection(in:)) == context.selection
-        let used = Self.usedLine(selection: role != .none, appName: appName)
+        let usedSelection = translation.map { $0.text.isEmpty } ?? (role != .none)
+        let used = Self.usedLine(selection: usedSelection, appName: appName, onDevice: onDevice)
         if insertable, fits, selectionStill, let element = context.element, DaisyKeyContext.focusedElement() == element {
             await DictationPaste.shared.insert(result)
             DaisyCommandHistory.shared.setOutcome("inserted", for: entryID)
@@ -1551,6 +1629,12 @@ final class DaisyKeyController {
         log.info("Daisy key command to the card (\(result.count, privacy: .public) chars, kind \(String(describing: kind), privacy: .public))")
     }
 
+    /// What a command is counted as: a translation, an edit, new text.
+    nonisolated static func intentName(_ words: String, kind: DaisyKeyCommandKind) -> ImprovementStats.DaisyKeyIntentName {
+        if DaisyKeyTranslateParser.parse(words) != nil { return .translate }
+        return kind == .edit ? .edit : .write
+    }
+
     /// A text that is mostly «[?]»: placeholders where the body would go,
     /// a greeting and a sign-off around them. A short line with one
     /// unknown («Приду в [?].») is a real answer.
@@ -1561,10 +1645,11 @@ final class DaisyKeyController {
         return text.replacingOccurrences(of: "[?]", with: "").filter(\.isLetter).count < 25
     }
 
-    /// «Использовано: выделение · Mail».
-    static func usedLine(selection: Bool, appName: String?) -> String {
+    /// «Использовано: выделение · Mail», «…: перевод на Маке · Telegram».
+    static func usedLine(selection: Bool, appName: String?, onDevice: Bool = false) -> String {
         var parts: [String] = []
         if selection { parts.append(String(localized: "selection")) }
+        if onDevice { parts.append(String(localized: "translation on this Mac")) }
         if let appName, !appName.isEmpty { parts.append(appName) }
         guard !parts.isEmpty else { return "Daisy" }
         return String(localized: "Used: \(parts.joined(separator: " · "))")
@@ -1581,25 +1666,51 @@ final class DaisyKeyController {
         isWorking = true
         defer { isWorking = false }
         let summarizer = Summarizer.shared
-        guard await summarizer.isReady(for: .interactive) else {
-            history.setOutcome("cardUnchanged", for: entryID)
-            return tell(String(localized: "No summary provider is available"), style: .warning)
-        }
-        let local = summarizer.interactiveProviderIsEffectivelyLocal
-        guard local || Self.cloudAllowed(summarizer.interactiveProviderKind) else {
-            // The provider changed since the card's text was written: the
-            // new one needs its own yes.
-            history.setOutcome("cardUnchanged", for: entryID)
-            let kind = summarizer.interactiveProviderKind
-            return tell(String(localized: "Commands send what you said and the card’s text to \(kind.shortName)"),
-                        action: (String(localized: "Allow and run"), { [weak self] in
-                            Self.allowCloud(kind)
-                            Task { await self?.refineCard(request, entryID: entryID) }
-                        }))
-        }
         let base = card.current
-        let payload = SummaryPrompt.voiceCommandPayload(request: request, source: base)
-        switch await write(payload: payload, context: VoiceCommandContext(role: .edit, field: card.field, voice: card.voice)) {
+        // «переведи на английский» over the card: its text, translated as a
+        // command's would be (Egor 03.11).
+        let translation = DaisyKeyTranslateParser.parse(request)
+        let providerReady = await summarizer.isReady(for: .interactive)
+        let written: Written
+        let local: Bool
+        if let translation, !providerReady {
+            let translator = onDeviceTranslator
+            let availability = await translator.availability(of: base, to: translation.target.language)
+            if case .none(let downloadable) = DaisyKeyTranslationEngine.choose(providerReady: false, onDevice: availability) {
+                history.setOutcome("cardUnchanged", for: entryID)
+                return tellNeedsProvider(translation.target, downloadable: downloadable)
+            }
+            if availability == .sameLanguage {
+                history.setOutcome("alreadyInLanguage", for: entryID)
+                return tell(String(localized: "The text is in that language already"))
+            }
+            let field = card.field
+            local = true
+            written = await write { await DaisyKeyTranslation.onDevice(base, to: translation.target, field: field, translator: translator) }
+        } else {
+            guard providerReady else {
+                history.setOutcome("cardUnchanged", for: entryID)
+                return tell(String(localized: "No summary provider is available"), style: .warning)
+            }
+            local = summarizer.interactiveProviderIsEffectivelyLocal
+            guard local || Self.cloudAllowed(summarizer.interactiveProviderKind) else {
+                // The provider changed since the card's text was written: the
+                // new one needs its own yes.
+                history.setOutcome("cardUnchanged", for: entryID)
+                let kind = summarizer.interactiveProviderKind
+                return tell(String(localized: "Commands send what you said and the card’s text to \(kind.shortName)"),
+                            action: (String(localized: "Allow and run"), { [weak self] in
+                                Self.allowCloud(kind)
+                                Task { await self?.refineCard(request, entryID: entryID) }
+                            }))
+            }
+            let payload = translation.map { Self.translationPayload(base, into: $0.target) }
+                ?? SummaryPrompt.voiceCommandPayload(request: request, source: base)
+            written = await write(payload: payload, context: VoiceCommandContext(
+                role: .edit, field: card.field, voice: translation == nil ? card.voice : nil,
+                translateTo: translation?.target.englishName))
+        }
+        switch written {
         case .text(let result):
             ImprovementStats.record(.daisyKeyGenerated(local: local))
             card.addVersion(result)
@@ -1625,6 +1736,20 @@ final class DaisyKeyController {
     }
 
     private func write(payload: String, context: VoiceCommandContext) async -> Written {
+        await write {
+            guard let summary = try? await Summarizer.shared.runProbe(
+                transcript: payload, title: "Daisy", localeHint: nil, task: .voiceCommand(context),
+                route: .interactive) else { return nil }
+            // Thinking the model put inside the text itself, unless what it
+            // was given has that tag too (a selected prompt template).
+            let text = ModelReasoning.withoutLeadingThinking(summary.clientFollowUp, unlessIn: payload)
+            guard !SensitiveDataProtector.containsUnrestoredMarker(text) else { return nil }
+            return DaisyKeyCommandParser.cleaned(text, field: context.field)
+        }
+    }
+
+    /// `produce`'s text, with the flower, Esc and the time limit around it.
+    private func write(_ produce: @escaping @MainActor () async -> String?) async -> Written {
         defer { stopWriting = nil }
         // The flower writes with it, and says how it ended: one flash for a
         // result, red for none, back to rest for a stop.
@@ -1636,16 +1761,7 @@ final class DaisyKeyController {
             indicator.isWriting = false
             indicator.show(ended)
         }
-        let work = Task<String?, Never> {
-            guard let summary = try? await Summarizer.shared.runProbe(
-                transcript: payload, title: "Daisy", localeHint: nil, task: .voiceCommand(context),
-                route: .interactive) else { return nil }
-            // Thinking the model put inside the text itself, unless what it
-            // was given has that tag too (a selected prompt template).
-            let text = ModelReasoning.withoutLeadingThinking(summary.clientFollowUp, unlessIn: payload)
-            guard !SensitiveDataProtector.containsUnrestoredMarker(text) else { return nil }
-            return DaisyKeyCommandParser.cleaned(text, field: context.field)
-        }
+        let work = Task<String?, Never> { await produce() }
         let escape = EscapeWatch { [weak self] in self?.stopWriting?() }
         defer { escape.stop() }
         var deadline: Task<Void, Never>?
@@ -1671,6 +1787,27 @@ final class DaisyKeyController {
     }
 
     nonisolated static let giveUpAfter: TimeInterval = 30
+
+    /// Apple's translation on this Mac; a stand-in in tests.
+    var onDeviceTranslator: any OnDeviceTranslating = AppleOnDeviceTranslator()
+
+    /// What a model gets for a translation: the text as the SOURCE, fenced
+    /// like a selection, so what it says is never taken as a request.
+    nonisolated static func translationPayload(_ text: String, into target: DaisyKeyTranslationTarget) -> String {
+        SummaryPrompt.voiceCommandPayload(request: "Translate the SOURCE into \(target.englishName).", source: text)
+    }
+
+    /// No model set up and Apple can't (Egor 03.11): say a provider is
+    /// needed, and where; when Apple could once the language is downloaded,
+    /// say that too.
+    private func tellNeedsProvider(_ target: DaisyKeyTranslationTarget, downloadable: Bool) {
+        let name = target.displayName
+        tell(downloadable
+             ? String(localized: "To translate into \(name), connect a summary provider or download the language in System Settings → General → Language & Region")
+             : String(localized: "To translate into \(name), connect a summary provider"),
+             style: .warning,
+             action: (String(localized: "Open Settings"), { ContextTips.openSettings(.ai, row: .summaryProvider) }))
+    }
 
     /// Whether commands may go to this cloud provider (one yes each).
     static func cloudAllowed(_ kind: SummaryProviderKind, defaults: UserDefaults = .standard) -> Bool {

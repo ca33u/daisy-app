@@ -1,12 +1,32 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Already in that language" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Уже на этом языке"
+          }
+        }
+      }
+    },
     "Daisy can’t open this link." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Daisy не удалось открыть эту ссылку."
+          }
+        }
+      }
+    },
+    "Daisy can’t see the selection here — say the text along with “translate into %@”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Здесь Daisy не видит выделение — скажи текст вместе с «переведи на %@»"
           }
         }
       }
@@ -27,6 +47,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Daisy не удалось найти этот проект. Возможно, его удалили."
+          }
+        }
+      }
+    },
+    "Note — nothing to translate with" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заметка — нечем перевести"
+          }
+        }
+      }
+    },
+    "Nothing to translate" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нечего переводить"
+          }
+        }
+      }
+    },
+    "Say the text along with “translate into %@”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скажи текст вместе с «переведи на %@»"
           }
         }
       }
@@ -117,6 +167,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "macOS оставляет это сочетание за «%@» — у Daisy оно может вообще не срабатывать."
+          }
+        }
+      }
+    },
+    "The text is in that language already" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Текст уже на этом языке"
+          }
+        }
+      }
+    },
+    "To translate into %@, connect a summary provider" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чтобы переводить на %@, подключи провайдера саммари"
+          }
+        }
+      }
+    },
+    "To translate into %@, connect a summary provider or download the language in System Settings → General → Language & Region" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чтобы переводить на %@, подключи провайдера саммари или скачай этот язык в «Системных настройках → Основные → Язык и регион»"
+          }
+        }
+      }
+    },
+    "translation on this Mac" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "перевод на этом Mac"
           }
         }
       }
