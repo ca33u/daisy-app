@@ -11,9 +11,10 @@
 //  latency than Whisper's 30 s-window batch model) and covers 25 European
 //  languages incl. Russian/Ukrainian.
 //
-//  Gated behind `AppSettings.dictationUseParakeet` (default OFF). Shipped
-//  dark so we can A/B latency + RU quality on real dictation before
-//  making it the default or adding a UI toggle. See the research note
+//  Chosen in Settings → Dictation (`AppSettings.dictationEngine`); loaded
+//  at launch when chosen and on disk
+//  (`DictationModelGate.preloadsParakeetAtLaunch`), released under memory
+//  pressure. See the research note
 //  2026-06-04-dictation-latency-optimization.
 //
 //  API note (FluidAudio 0.15.4): we deliberately drive the explicit
@@ -23,7 +24,7 @@
 //  also ships Nemotron 3.5 streaming ASR (40 locales, ANE) — a
 //  candidate for a future LIVE dictation path — and
 //  `ModelHub.offlineMode` for a hard no-network guarantee
-//  once models are cached (not yet adopted; see backlog).
+//  once models are cached (adopted: `FluidAudioNetworkGuard`).
 //
 
 import DaisyCore
@@ -216,6 +217,36 @@ final class ParakeetEngine {
                 await self.ensureLoaded()
             }
         }
+    }
+
+    /// Hand the model's memory back when the system is critically short
+    /// (`MemoryPressureWatch`). Launch loads Parakeet for everyone who
+    /// dictates with it, so without this it stayed resident all day next
+    /// to Whisper. Never mid-load or while a session is in flight; the
+    /// next dictation loads it again from disk (`DictationModelGate`'s
+    /// `.loadParakeet`), seconds rather than a download.
+    func releaseUnderMemoryPressure() {
+        #if canImport(FluidAudio)
+        guard loadTask == nil else {
+            log.info("Memory pressure: keeping Parakeet — a load is running")
+            return
+        }
+        guard !RecordingSession.isCapturingOrTranscribing else {
+            log.info("Memory pressure: keeping Parakeet — a session is in flight")
+            return
+        }
+        // Model preparation (onboarding, Settings) finishes only with
+        // Parakeet ready; released mid-way, it would end neither ready
+        // nor failed.
+        guard ModelPreparation.activePreparations == 0 else {
+            log.info("Memory pressure: keeping Parakeet — model preparation is running")
+            return
+        }
+        guard manager != nil else { return }
+        manager = nil
+        state = .notLoaded
+        log.info("Memory pressure: released Parakeet")
+        #endif
     }
 
     /// Stop an in-progress Parakeet model download. Cancels the load task

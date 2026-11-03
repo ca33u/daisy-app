@@ -40,6 +40,25 @@ struct DictationModelGateTests {
         #expect(Gate.plan(engine: .whisper, parakeet: parakeet(ready: true), appleSpeechReady: true) == .whisper)
     }
 
+    @Test("Launch loads a Parakeet that is chosen and on disk, never downloads one")
+    func launchPreload() {
+        #expect(Gate.preloadsParakeetAtLaunch(engine: .parakeet, hasCompleteModel: true))
+        #expect(!Gate.preloadsParakeetAtLaunch(engine: .parakeet, hasCompleteModel: false))
+        #expect(!Gate.preloadsParakeetAtLaunch(engine: .whisper, hasCompleteModel: true))
+        #expect(!Gate.preloadsParakeetAtLaunch(engine: .appleSpeech, hasCompleteModel: true))
+    }
+
+    @Test("Only a Parakeet user pays the disk check at launch")
+    func launchPreloadChecksDiskOnlyForParakeet() {
+        var checks = 0
+        func check() -> Bool { checks += 1; return true }
+        _ = Gate.preloadsParakeetAtLaunch(engine: .whisper, hasCompleteModel: check())
+        _ = Gate.preloadsParakeetAtLaunch(engine: .appleSpeech, hasCompleteModel: check())
+        #expect(checks == 0)
+        _ = Gate.preloadsParakeetAtLaunch(engine: .parakeet, hasCompleteModel: check())
+        #expect(checks == 1)
+    }
+
     @Test("The wait caption says what's happening, how far, and how to cancel")
     func waitCaption() {
         #expect(Gate.waitCaption(whisper: .downloading(progress: 0.42), loadProgress: 0)

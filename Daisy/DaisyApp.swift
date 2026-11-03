@@ -74,6 +74,21 @@ struct DaisyApp: App {
         // the only explicit switch.
         AppSettings.applyBelarusianLanguageFallbackIfNeeded()
 
+        // FluidAudio (diarization / Silero VAD / Parakeet) network policy:
+        // hard-block every download surface outside explicit, logged
+        // model-download windows — "nothing leaves your Mac" enforced in
+        // code via ModelHub.offlineMode (FluidAudio 0.15.5+; called
+        // DownloadUtils.enforceOffline before that), not
+        // just promised. Loaders retry inside a download window when the
+        // model cache is missing. See FluidAudioNetworkGuard. Before the
+        // session: its init starts the Parakeet launch load, and
+        // FluidAudio wants offline mode set before any loader runs —
+        // otherwise a model it finds broken is fetched again straight
+        // from Hugging Face.
+        #if canImport(FluidAudio)
+        FluidAudioNetworkGuard.engage()
+        #endif
+
         let s = AppSettings()
         let sess = RecordingSession(settings: s)
         // Weak handle for the Quit-during-recording save path

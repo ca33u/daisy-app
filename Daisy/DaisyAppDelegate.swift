@@ -33,16 +33,8 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         // chrome, menu-bar popover, floating widget, and alerts move together.
         AppearanceController.apply(AppearancePreference.stored())
 
-        // FluidAudio (diarization / Silero VAD / Parakeet) network policy:
-        // hard-block every download surface outside explicit, logged
-        // model-download windows — "nothing leaves your Mac" enforced in
-        // code via ModelHub.offlineMode (FluidAudio 0.15.5+; called
-        // DownloadUtils.enforceOffline before that), not
-        // just promised. Loaders retry inside a download window when the
-        // model cache is missing. See FluidAudioNetworkGuard.
-        #if canImport(FluidAudio)
-        FluidAudioNetworkGuard.engage()
-        #endif
+        // FluidAudio's offline mode is engaged in `DaisyApp.init`, before
+        // the session's launch load of Parakeet.
 
         // Silence-prompt notification category needs to be on file
         // before the first time `SilenceMonitor` decides to fire

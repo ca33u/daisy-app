@@ -485,8 +485,8 @@ final class DiarizationEngine {
 ///
 /// Call sites: DiarizationEngine.ensureLoaded (diarizer models),
 /// WhisperEngine.ensureVADLoadStarted (Silero VAD), ParakeetEngine
-/// .performLoad (Parakeet v3 ASR). Engaged at launch from
-/// DaisyAppDelegate.applicationDidFinishLaunching.
+/// .performLoad (Parakeet v3 ASR). Engaged at launch from DaisyApp.init,
+/// before the session that starts the Parakeet launch load.
 @MainActor
 enum FluidAudioNetworkGuard {
     private static let log = Logger(subsystem: "app.essazanov.Daisy", category: "FluidAudioNet")

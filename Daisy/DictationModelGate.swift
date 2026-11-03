@@ -53,6 +53,19 @@ enum DictationModelGate {
         }
     }
 
+    /// Whether app launch puts Parakeet in memory (Egor 03.11: the first
+    /// dictation after an update waited 15 s for a model that had been on
+    /// disk all along — likely an uncached Neural Engine compile). Only
+    /// the chosen engine, and only a model complete on disk: a launch
+    /// never starts the first ~600 MB download, which stays with Settings,
+    /// onboarding and the first press. A model FluidAudio finds broken is
+    /// repaired from the mirror, as the first press would do. The disk
+    /// check runs only for a Parakeet user.
+    static func preloadsParakeetAtLaunch(engine: DictationEngine,
+                                         hasCompleteModel: @autoclosure () -> Bool) -> Bool {
+        engine == .parakeet && hasCompleteModel()
+    }
+
     /// The caption over the widget while a dictation waits for a model.
     /// A dictation is started from another app, so the hover tooltip
     /// never shows; this pill is where the wait is visible. It also says

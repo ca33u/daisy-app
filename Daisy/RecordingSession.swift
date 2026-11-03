@@ -1207,8 +1207,8 @@ final class RecordingSession {
         // have two sessions acting on one tap.
         guard !isDictationSidecar else { return }
 
-        // Preload the Whisper + diarization models so the first Record click
-        // is instant. An XCTest bundle is hosted inside Daisy.app, however,
+        // Preload Whisper (and Parakeet, when it is the dictation engine)
+        // so the first Record click or dictation press is instant. An XCTest bundle is hosted inside Daisy.app, however,
         // and must reach the test runner before app-startup model I/O begins.
         // Otherwise a slow or unavailable model volume can block every unit
         // test at "waiting for workers to materialize" without running one.
@@ -1216,6 +1216,13 @@ final class RecordingSession {
         if !isRunningTests {
             if settings.hasShownFirstRun {
                 Task { await WhisperEngine.shared.ensureLoaded() }
+                // The dictation model too, so the first press after a
+                // launch or an update doesn't wait for it
+                // (`DictationModelGate.preloadsParakeetAtLaunch`).
+                if DictationModelGate.preloadsParakeetAtLaunch(engine: settings.dictationEngine,
+                                                               hasCompleteModel: ParakeetEngine.hasCompleteModel()) {
+                    Task { await ParakeetEngine.shared.ensureLoaded() }
+                }
             }
             // The diarizer is NOT preloaded any more. It's needed only
             // once a meeting with system audio is under way, and both
@@ -2332,10 +2339,11 @@ final class RecordingSession {
         // a minute and the start was refused). Whisper stays the
         // fallback: a Parakeet that can't load, or an Apple model that
         // isn't installed, sends this dictation to Whisper as before.
-        // Parakeet is NOT preloaded at launch (Whisper is), so the first
-        // dictation after a launch usually finds it `.notLoaded`: a cached
-        // load is a few seconds and worth waiting for, a first-ever
-        // ~600 MB download is not (`DictationModelGate`).
+        // Launch preloads a Parakeet that is on disk, so this usually
+        // finds it ready; not ready while that load runs, after memory
+        // pressure released it, after a failed load, or when Parakeet was
+        // chosen after launch. A cached load is seconds and worth waiting
+        // for, a first-ever ~600 MB download is not (`DictationModelGate`).
         var needsWhisper = true
         if currentMode == .dictation {
             switch await dictationModelPlan() {

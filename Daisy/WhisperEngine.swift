@@ -1301,6 +1301,12 @@ final class WhisperEngine {
             log.info("Memory pressure: keeping Whisper loaded — a session is in flight")
             return
         }
+        // Model preparation finishes only with Whisper ready; released
+        // mid-way, it would end neither ready nor failed.
+        guard ModelPreparation.activePreparations == 0 else {
+            log.info("Memory pressure: keeping Whisper loaded — model preparation is running")
+            return
+        }
         guard kitBox != nil || alternateKitBox != nil else { return }
         kitBox = nil
         alternateKitBox = nil

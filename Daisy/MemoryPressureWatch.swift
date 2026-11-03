@@ -6,8 +6,10 @@
 //  engines back their memory when the machine is short.
 //
 //  Why this exists: Daisy loads Whisper (626 MB by default, 1.5 GB for
-//  the largest variant) and the FluidAudio diarizer at app start and,
-//  before this, never unloaded either one. A Mac that opened Daisy in
+//  the largest variant) at app start, and Parakeet too when it is the
+//  dictation engine (since 2026-11-03); until 2026-09-01 it also
+//  loaded the FluidAudio diarizer there, and before this it never
+//  unloaded any of them. A Mac that opened Daisy in
 //  the morning and recorded nothing carried that all day; a
 //  re-transcription with a different variant could hold two graphs at
 //  once. On the 8 GB machines most of our users have, that is the
@@ -56,6 +58,7 @@ enum MemoryPressureWatch {
                 log.warning("System memory pressure: \(event.rawValue, privacy: .public) — asking the ML engines to release")
                 WhisperEngine.shared.releaseModelsUnderMemoryPressure()
                 DiarizationEngine.shared.releaseUnderMemoryPressure()
+                ParakeetEngine.shared.releaseUnderMemoryPressure()
                 // The local summary model's 4–7 GB first of all: unlike
                 // Whisper it lives in its own process, which can just go.
                 DaisyLLMClient.shared.releaseUnderMemoryPressure()
