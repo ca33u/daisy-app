@@ -231,9 +231,16 @@ nonisolated enum MacModelHosting {
                          progress: (@Sendable (Double) -> Void)? = nil,
                          fetch: Fetch? = nil, catalog files: [File]? = nil) async throws {
         let entries = try entries(for: set, in: files ?? catalog())
+        try await place(entries, into: directory, progress: progress, fetch: fetch ?? defaultFetch)
+        log.info("\(set.name, privacy: .public): \(entries.count, privacy: .public) files verified")
+    }
+
+    /// Puts `entries` in place under `directory`, keeping the intact ones;
+    /// `progress` gets the share of their bytes in place (0…1).
+    private static func place(_ entries: [Entry], into directory: URL,
+                              progress: (@Sendable (Double) -> Void)?, fetch: Fetch) async throws {
         let total = max(1, entries.reduce(0) { $0 + $1.file.size })
         let done = ByteCounter()
-        let fetcher = fetch ?? defaultFetch
         for entry in entries {
             try Task.checkCancellation()
             let target = directory.appendingPathComponent(entry.localPath)
@@ -241,12 +248,11 @@ nonisolated enum MacModelHosting {
                 progress?(Double(done.add(entry.file.size)) / Double(total))
                 continue
             }
-            try await ensure(entry, at: target, fetch: fetcher) { written in
+            try await ensure(entry, at: target, fetch: fetch) { written in
                 progress?(Double(done.peek() + written) / Double(total))
             }
             progress?(Double(done.add(entry.file.size)) / Double(total))
         }
-        log.info("\(set.name, privacy: .public): \(entries.count, privacy: .public) files verified")
     }
 
     private static func ensure(_ entry: Entry, at target: URL, fetch: Fetch,
@@ -403,21 +409,97 @@ nonisolated enum MacModelHosting {
             log.notice("\(set.name, privacy: .public): not enough free space to fetch it — the library's check follows")
             return false
         }
-        let work = Task.detached(priority: .userInitiated) {
-            try await prefetch(set, into: directory, progress: progress)
-        }
         do {
-            try await withTaskCancellationHandler {
-                try await work.value
-            } onCancel: {
-                work.cancel()
-            }
+            try await offMain { try await prefetch(set, into: directory, progress: progress) }
             return true
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             log.notice("\(set.name, privacy: .public) not fetched from the mirror or pinned Hugging Face (\(error.localizedDescription, privacy: .public)) — the library's own download follows")
             return false
+        }
+    }
+
+    // MARK: After a cached model didn't load
+
+    /// Called when a library found the set's files but couldn't load them
+    /// (FluidAudio #1067). A `.mlmodelc` bundle is several files, and a
+    /// fetch cut short — the app quit, the Mac slept, the network dropped,
+    /// the disk filled up — leaves the folder with only some of them.
+    /// FluidAudio 0.15.6 checks only that the folder is there, and with
+    /// downloads blocked hands back the load's error as is (its own
+    /// «coremldata.bin is missing», or CoreML's), not `DownloadError`, so
+    /// the cache stayed broken until the person cleared it by hand.
+    ///
+    /// Checks every file against the bundled manifest, then fetches only
+    /// the missing or wrong ones; `progress` covers just those bytes, so a
+    /// check that finds nothing never looks like a download. Returns whether
+    /// it put any in place. False means fetching can't help: the cache is
+    /// the pinned copy already (a model this Mac can't run, FluidAudio
+    /// #828) — remembered while its files stay as they were, so a load that
+    /// keeps failing doesn't hash 460 MB on every dictation — or the set
+    /// isn't in the catalog. Throws when there's no room for the files, or
+    /// one couldn't be fetched (offline, say).
+    static func repairAfterFailedLoad(_ set: ModelSet, in directory: URL? = nil,
+                                      progress: (@Sendable (Double) -> Void)? = nil,
+                                      fetch: Fetch? = nil, catalog files: [File]? = nil) async throws -> Bool {
+        guard let directory = directory ?? destination(for: set) else { return false }
+        let entries: [Entry]
+        do {
+            entries = try self.entries(for: set, in: files ?? catalog())
+        } catch {
+            log.error("\(set.name, privacy: .public): no catalog entry to check it against (\(error.localizedDescription, privacy: .public))")
+            return false
+        }
+        let key = directory.standardizedFileURL.path
+        let seen = fingerprint(of: entries, in: directory)
+        if checkedIntact.withLock({ $0[key] == seen }) { return false }
+        let broken = try await offMain {
+            try entries.filter { entry in
+                try Task.checkCancellation()
+                return !valid(entry.file, at: directory.appendingPathComponent(entry.localPath))
+            }
+        }
+        guard !broken.isEmpty else {
+            checkedIntact.withLock { $0[key] = seen }
+            log.notice("\(set.name, privacy: .public): every file is the pinned copy")
+            return false
+        }
+        let needed = broken.reduce(Int64(0)) { $0 + $1.file.size }
+        if let free = DiskSpace.freeBytes(at: FileManager.default.homeDirectoryForCurrentUser), free < needed + needed / 5 {
+            throw ModelDownloadDiskError(required: needed + needed / 5, available: free)
+        }
+        log.notice("\(set.name, privacy: .public): \(broken.count, privacy: .public) of \(entries.count, privacy: .public) files missing or wrong — fetching them")
+        try await offMain { try await place(broken, into: directory, progress: progress, fetch: fetch ?? defaultFetch) }
+        return true
+    }
+
+    /// Model folders found intact after a failed load, this launch, with
+    /// what their files looked like then: a file replaced, cut short or
+    /// gone since changes it, and the folder is checked again.
+    private static let checkedIntact = OSAllocatedUnfairLock(initialState: [String: [String]]())
+
+    /// Size, modification date and inode of each file — a few `stat`s
+    /// instead of hashing the set.
+    private static func fingerprint(of entries: [Entry], in directory: URL) -> [String] {
+        entries.map { entry in
+            let path = directory.appendingPathComponent(entry.localPath).path
+            guard let a = try? FileManager.default.attributesOfItem(atPath: path) else { return "-" }
+            let size = (a[.size] as? NSNumber)?.int64Value ?? -1
+            let modified = (a[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+            let inode = (a[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
+            return "\(size) \(modified) \(inode)"
+        }
+    }
+
+    /// Hashing a 1.3 GB file on the main actor froze the UI (review 21.10);
+    /// a cancellation of the caller reaches the work.
+    private static func offMain<T: Sendable>(_ body: @escaping @Sendable () async throws -> T) async throws -> T {
+        let work = Task.detached(priority: .userInitiated) { try await body() }
+        return try await withTaskCancellationHandler {
+            try await work.value
+        } onCancel: {
+            work.cancel()
         }
     }
 }

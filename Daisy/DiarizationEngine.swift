@@ -147,10 +147,13 @@ final class DiarizationEngine {
             // hard-blocked by `FluidAudioNetworkGuard`, a complete cache
             // loads with NO network possible; a missing/incomplete cache
             // throws DownloadError and we retry inside an explicit,
-            // logged download window.
+            // logged download window. A cache that's there but broken is
+            // fetched again file by file (FluidAudio #1067).
             let models: DiarizerModels
             do {
-                models = try await DiarizerModels.downloadIfNeeded()
+                models = try await FluidAudioNetworkGuard.loadRepairingCache(.diarizer) {
+                    try await DiarizerModels.downloadIfNeeded()
+                }
             } catch let error where FluidAudioNetworkGuard.isOfflineRejection(error) {
                 // Our mirror first, pinned and verified (backlog 31); then
                 // FluidAudio's own Hugging Face download.
@@ -461,18 +464,23 @@ final class DiarizationEngine {
 /// `DownloadUtils.enforceOffline` before 0.15.5): when true, every
 /// download surface throws `DownloadError.networkDisabled` /
 /// `.modelMissing` instead of touching the
-/// network, and a corrupt model cache fails loudly instead of silently
-/// re-downloading mid-meeting. Daisy keeps the flag ON for the whole app
-/// lifetime — "nothing leaves your Mac" enforced in code, not just
-/// promised — and opens short, explicit, logged download windows only
-/// when a loader reports its cache is missing/incomplete (first run, or
-/// the user enabling a new engine). Loaders use the offline-first shape:
+/// network, and a corrupt model cache fails instead of FluidAudio
+/// deleting it and re-downloading from Hugging Face mid-meeting. Daisy
+/// keeps the flag ON for the whole app lifetime — "nothing leaves your
+/// Mac" enforced in code, not just promised. A cache with files missing
+/// or wrong is mended file by file from our pinned mirror
+/// (`loadRepairingCache`, 2026-11-03 — which can mean a fetch when a
+/// meeting starts); a cache that isn't there at all is fetched from the
+/// mirror, and only then does Daisy open a short, explicit, logged
+/// FluidAudio download window (first run, or the user enabling a new
+/// engine). Loaders use the offline-first shape:
 ///
-///     do { try await load() }
-///     catch let e where FluidAudioNetworkGuard.isOfflineRejection(e) {
-///         try await FluidAudioNetworkGuard.withDownloadsAllowed("x") {
-///             try await load()
-///         }
+///     do {
+///         try await FluidAudioNetworkGuard.loadRepairingCache(.set) { try await load() }
+///     } catch let e where FluidAudioNetworkGuard.isOfflineRejection(e) {
+///         if try await MacModelHosting.prefetchBeforeLibraryDownload(.set),
+///            let loaded = try? await load() { … }
+///         else { try await FluidAudioNetworkGuard.withDownloadsAllowed("x") { try await load() } }
 ///     }
 ///
 /// Call sites: DiarizationEngine.ensureLoaded (diarizer models),
@@ -533,6 +541,34 @@ enum FluidAudioNetworkGuard {
             return true
         default:
             return false
+        }
+    }
+
+    /// `load`, and when the cache is there but doesn't load — a bundle a
+    /// cut-short fetch left without some of its files — the set's files
+    /// checked against the manifest, the broken ones fetched again
+    /// (`MacModelHosting.repairAfterFailedLoad`), and `load` once more.
+    /// An offline rejection (nothing cached) and a cancellation go to the
+    /// caller as they are; so does the load's own error when fetching
+    /// can't help. `progress` moves only while files are being fetched.
+    static func loadRepairingCache<T>(
+        _ set: MacModelHosting.ModelSet,
+        progress: (@Sendable (Double) -> Void)? = nil,
+        repair: (MacModelHosting.ModelSet, (@Sendable (Double) -> Void)?) async throws -> Bool
+            = { set, progress in try await MacModelHosting.repairAfterFailedLoad(set, progress: progress) },
+        _ load: () async throws -> T
+    ) async throws -> T {
+        do {
+            return try await load()
+        } catch {
+            guard !isOfflineRejection(error), !(error is CancellationError), !Task.isCancelled else { throw error }
+            log.notice("\(set.name, privacy: .public) is on disk but didn't load (\(error.localizedDescription, privacy: .public)) — checking its files against the manifest")
+            guard try await repair(set, progress) else {
+                log.error("\(set.name, privacy: .public): nothing to fetch that would help — the load's error stands")
+                throw error
+            }
+            log.info("\(set.name, privacy: .public): broken files fetched again — loading once more")
+            return try await load()
         }
     }
 }

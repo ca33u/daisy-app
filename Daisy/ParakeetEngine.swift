@@ -139,10 +139,28 @@ final class ParakeetEngine {
             }
             // Offline-first: cached models load with FluidAudio's network
             // hard-blocked; a missing cache throws DownloadError and we
-            // retry inside an explicit download window (first enable).
+            // retry inside an explicit download window (first enable). A
+            // cache that's there but broken is fetched again file by file
+            // (FluidAudio #1067).
             let models: AsrModels
             do {
-                models = try await load()
+                models = try await FluidAudioNetworkGuard.loadRepairingCache(.parakeetV3, progress: { fraction in
+                    // Only while broken files are fetched. At their last
+                    // byte what follows is compiling; a file whose bytes
+                    // were wrong comes again from Hugging Face and moves
+                    // this back to downloading for a moment.
+                    Task { @MainActor in
+                        if case .ready = self.state { return }
+                        if fraction >= 1 {
+                            fetchedByUs.value = true
+                            self.state = .loading
+                        } else {
+                            self.state = .downloading(progress: fraction)
+                        }
+                    }
+                }) {
+                    try await load()
+                }
             } catch let error where FluidAudioNetworkGuard.isOfflineRejection(error) {
                 // Our mirror first, pinned and verified (backlog 31); then
                 // FluidAudio's own Hugging Face download.

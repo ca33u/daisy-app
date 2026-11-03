@@ -584,10 +584,13 @@ final class WhisperEngine {
                 let cfg = VadConfig(defaultThreshold: 0.85)
                 // Offline-first: cached Silero loads with FluidAudio's
                 // network hard-blocked; first run opens an explicit
-                // download window via the guard.
+                // download window via the guard. A cache that's there but
+                // broken is fetched again file by file (FluidAudio #1067).
                 let vad: VadManager
                 do {
-                    vad = try await VadManager(config: cfg)
+                    vad = try await FluidAudioNetworkGuard.loadRepairingCache(.sileroVAD) {
+                        try await VadManager(config: cfg)
+                    }
                 } catch let error where FluidAudioNetworkGuard.isOfflineRejection(error) {
                     // Our mirror first (backlog 31), then FluidAudio's own
                     // Hugging Face download.
