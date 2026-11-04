@@ -26,9 +26,10 @@
 #
 #   ./scripts/release.sh promote 1.0.1         (beta → stable, + GitHub Release)
 #   ./scripts/release.sh github-release 1.0.1  (GitHub Release only)
+#   ./scripts/release.sh upload-dmg build/Daisy-1.0.1.dmg 3  (R2 upload only)
 #
-# The publish step copies the DMG, injects the appcast item, updates the
-# channel pointer, and commits daisy-web. DAISY_AUTO_PUSH=1 also pushes it.
+# The publish step uploads the DMG to R2, injects the appcast item, updates
+# the channel pointer, and commits daisy-web. DAISY_AUTO_PUSH=1 also pushes it.
 #
 
 set -euo pipefail
@@ -56,7 +57,13 @@ TEAM_ID="${DAISY_TEAM_ID:-LW64FQXZCU}"  # Apple Developer team ID; override via 
 SIGNING_IDENTITY="${DAISY_SIGNING_IDENTITY:-Developer ID Application}"
 NOTARY_PROFILE="daisy-notary"
 APPCAST_URL="https://mydaisy.io/appcast.xml"
+# The public address of every DMG: the appcast, the site's buttons and old
+# links all use it. Since 2026-11-04 the files are not in daisy-web's git
+# (2.6 GB had Vercel's clone take 13 min): they live in Cloudflare R2, the
+# models bucket under downloads/, and mydaisy.io/downloads/* redirects there
+# (daisy-web next.config.mjs). Moving storage again is that one redirect.
 DOWNLOAD_URL_BASE="https://mydaisy.io/downloads"
+R2_DOWNLOADS_URL="https://models.mydaisy.io/downloads"
 
 # -----------------------------------------------------------------------------
 # notarise_with_retry <path> <human-label>
@@ -95,6 +102,142 @@ notarise_with_retry() {
 }
 
 # -----------------------------------------------------------------------------
+# upload_dmg <dmg> <build>
+#
+# Puts Daisy-<version>.dmg into R2 at downloads/<build>/<name> — the address
+# the appcast item and the site's buttons use — and, for the first build of
+# a version, at downloads/<name> too (older links). Objects are never
+# overwritten: a re-released version gets a new build path while the live
+# appcast still points at the previous one, so Sparkle can't get one
+# build's bytes under another build's EdDSA signature, and no cache can
+# hold stale bytes. Fails unless the public copy has the same size and
+# SHA-256, so the release stops here, before the appcast is touched.
+#
+# Same bucket, Keychain record and pinned packages as scripts/models_sync.py
+# (models_sync.py.lock); the secret goes from the Keychain into boto3 only,
+# never into an argument or this script's output.
+# -----------------------------------------------------------------------------
+upload_dmg() {
+    UV_CACHE_DIR="${DAISY_REPO}/build/uv-cache" \
+    R2_DOWNLOADS_URL="${R2_DOWNLOADS_URL}" \
+    uv run --quiet --no-project \
+        --with boto3==1.43.112 --with botocore==1.43.112 --with s3transfer==0.19.2 \
+        --with jmespath==1.1.0 --with python-dateutil==2.9.0.post0 --with six==1.17.0 \
+        --with urllib3==2.8.0 \
+        python3 - "$@" <<'PY'
+import hashlib, json, os, re, subprocess, sys, time
+from pathlib import Path
+from urllib.request import Request, urlopen
+
+import boto3
+from botocore.config import Config
+
+BUCKET = "daisy-models"
+PUBLIC = os.environ["R2_DOWNLOADS_URL"]
+
+
+def client():
+    result = subprocess.run(["/usr/bin/security", "find-generic-password", "-s", "io.mydaisy.models.r2",
+                             "-a", "daisy-models", "-w"], capture_output=True, timeout=120)
+    if result.returncode:
+        sys.exit("  ✗ R2 credentials unavailable in the Keychain (io.mydaisy.models.r2) — unlock or allow access")
+    credentials = json.loads(result.stdout)
+    if (credentials["bucket"] != BUCKET or
+            not re.fullmatch(r"https://[0-9a-f]{32}\.eu\.r2\.cloudflarestorage\.com", credentials["endpoint"])):
+        sys.exit("  ✗ Keychain R2 bucket or EU endpoint invalid")
+    return boto3.client("s3", endpoint_url=credentials["endpoint"], region_name="auto",
+                        aws_access_key_id=credentials["accessKeyID"],
+                        aws_secret_access_key=credentials["secretAccessKey"],
+                        config=Config(signature_version="s3v4", s3={"addressing_style": "path"},
+                                      connect_timeout=10, read_timeout=60,
+                                      request_checksum_calculation="when_required",
+                                      response_checksum_validation="when_required",
+                                      retries={"max_attempts": 3, "mode": "standard"}))
+
+
+def digest(chunks):
+    sha256, size = hashlib.sha256(), 0
+    for chunk in chunks:
+        sha256.update(chunk)
+        size += len(chunk)
+    return sha256.hexdigest(), size
+
+
+def stored(r2, key):
+    try:
+        return r2.head_object(Bucket=BUCKET, Key=key)
+    except Exception as error:
+        if getattr(error, "response", {}).get("Error", {}).get("Code", "") in ("404", "NoSuchKey", "NotFound"):
+            return None
+        raise
+
+
+def same(head, sha, size):
+    return bool(head) and head.get("ContentLength") == size and head.get("Metadata", {}).get("sha256") == sha
+
+
+def public(path, sha):
+    # A query of its own: Cloudflare caches .dmg keyed with it, so this reads
+    # what R2 holds, never an edge copy.
+    request = Request(f"{PUBLIC}/{path}?sha256={sha}", headers={"User-Agent": "Daisy-release/1"})
+    with urlopen(request, timeout=60) as response:
+        return digest(iter(lambda: response.read(1024 * 1024), b""))
+
+
+path, build = Path(sys.argv[1]), sys.argv[2]
+name = path.name
+if not re.fullmatch(r"Daisy-[0-9]+(\.[0-9]+)+\.dmg", name) or not path.is_file():
+    sys.exit(f"  ✗ not a Daisy-<version>.dmg file: {path}")
+if not re.fullmatch(r"[0-9]+", build):
+    sys.exit(f"  ✗ not a build number: {build}")
+with path.open("rb") as f:
+    sha, size = digest(iter(lambda: f.read(1024 * 1024), b""))
+headers = {
+    "ContentType": "application/x-apple-diskimage",
+    "ContentDisposition": f'attachment; filename="{name}"',
+    "CacheControl": "public, max-age=31536000, immutable",
+    "Metadata": {"sha256": sha},
+}
+
+r2 = client()
+key, flat = f"downloads/{build}/{name}", f"downloads/{name}"
+head = stored(r2, key)
+if head and not same(head, sha, size):
+    sys.exit(f"  ✗ R2 {key} already holds other bytes — build {build} was published; never overwritten")
+if head:
+    print(f"  ⊘ R2 already has {key}")
+else:
+    if same(stored(r2, flat), sha, size):
+        # The same bytes are there under the old flat name: copy in R2.
+        r2.copy_object(Bucket=BUCKET, Key=key, CopySource={"Bucket": BUCKET, "Key": flat},
+                       MetadataDirective="REPLACE", **headers)
+    else:
+        r2.upload_file(str(path), BUCKET, key, ExtraArgs=headers)
+    if not same(stored(r2, key), sha, size):
+        sys.exit(f"  ✗ R2 {key} doesn't match {path} after upload")
+    print(f"  → R2 {key} ({size} bytes)")
+checks = [f"{build}/{name}"]
+if stored(r2, flat) is None:
+    r2.copy_object(Bucket=BUCKET, Key=flat, CopySource={"Bucket": BUCKET, "Key": key},
+                   MetadataDirective="REPLACE", **headers)
+    checks.append(name)
+    print(f"  → R2 {flat} (first build of this version)")
+
+for check in checks:
+    for attempt in range(3):
+        try:
+            if public(check, sha) == (sha, size):
+                break
+        except OSError as error:  # HTTPError and URLError included
+            print(f"  ⚠ {PUBLIC}/{check}: {error}", file=sys.stderr)
+        time.sleep(10)
+    else:
+        sys.exit(f"  ✗ {PUBLIC}/{check} doesn't serve the uploaded bytes (sha256 {sha})")
+    print(f"  ✓ {PUBLIC}/{check} serves sha256 {sha}")
+PY
+}
+
+# -----------------------------------------------------------------------------
 # github_release <marketing-version>
 #
 # Every stable release is also a GitHub Release with the SAME DMG the site
@@ -102,8 +245,9 @@ notarise_with_retry() {
 # after `promote` and after a stable release; `release.sh github-release
 # <version>` runs it alone.
 #
-# The DMG is taken from daisy-web/public/downloads — the published bytes,
-# never a rebuild. The release hangs on the tag v<version>, which must
+# The DMG is downloaded from R2 at the appcast item's build — the published
+# bytes, never a rebuild.
+# The release hangs on the tag v<version>, which must
 # already be on GitHub: this script never pushes the app repository, so
 # for a stable/hotfix release (tagged after the build, see RELEASING.md)
 # it prints the command to run once the tag is pushed. Publishing is
@@ -115,15 +259,10 @@ GITHUB_REPO="${DAISY_GITHUB_REPO:-ca33u/daisy-app}"
 github_release() {
     local version="$1"
     local tag="v${version}"
-    local dmg="${DAISY_WEB_REPO}/public/downloads/Daisy-${version}.dmg"
     local notes="${DAISY_REPO}/scripts/release-notes/${version}.md"
     local retry="./scripts/release.sh github-release ${version}"
 
     echo "▸ GitHub Release ${tag} on ${GITHUB_REPO}…"
-    if [[ ! -f "${dmg}" ]]; then
-        echo "  ⚠ ${dmg} not found — no GitHub Release. Fix, then: ${retry}" >&2
-        return 0
-    fi
     if [[ "${DAISY_AUTO_PUSH:-0}" != "1" ]]; then
         echo "    Not published (DAISY_AUTO_PUSH is off). After pushing: ${retry}"
         return 0
@@ -141,13 +280,45 @@ github_release() {
         return 0
     fi
 
-    local sha body latest_flag="--latest=false" site_latest=""
-    if ! sha=$(shasum -a 256 "${dmg}" | awk '{print $1}') || [[ -z "${sha}" ]]; then
-        echo "  ⚠ couldn't hash ${dmg}. Retry: ${retry}" >&2
+    local item build length url work dmg sha body latest_flag="--latest=false" site_latest=""
+    # The appcast item names the published build — its R2 path — and the
+    # signed DMG's length.
+    if ! item=$(VERSION="${version}" APPCAST_FILE="${DAISY_WEB_REPO}/public/appcast.xml" python3 - <<'PY'
+import os, re, pathlib, sys
+content = pathlib.Path(os.environ["APPCAST_FILE"]).read_text(encoding="utf-8")
+m = re.search(r"<item>\s*<title>Daisy " + re.escape(os.environ["VERSION"]) + r"</title>(.*?)</item>", content, re.DOTALL)
+build = m and re.search(r"<sparkle:version>(\d+)</sparkle:version>", m.group(1))
+length = m and re.search(r'length="(\d+)"', m.group(1))
+if not (build and length):
+    sys.exit(1)
+print(build.group(1), length.group(1))
+PY
+    ); then
+        echo "  ⚠ no appcast item with a build and length for Daisy ${version} — no GitHub Release. Retry: ${retry}" >&2
         return 0
     fi
-    if ! body=$(mktemp); then
+    read -r build length <<< "${item}"
+    url="${R2_DOWNLOADS_URL}/${build}/Daisy-${version}.dmg"
+    if ! work=$(mktemp -d); then
         echo "  ⚠ mktemp failed. Retry: ${retry}" >&2
+        return 0
+    fi
+    # The asset takes the file's name, so it keeps Daisy-<version>.dmg.
+    dmg="${work}/Daisy-${version}.dmg"
+    body="${work}/notes.md"
+    if ! curl -fsSL --retry 3 -o "${dmg}" "${url}"; then
+        echo "  ⚠ couldn't download ${url} — no GitHub Release. Retry: ${retry}" >&2
+        rm -rf "${work}"
+        return 0
+    fi
+    if [[ "$(stat -f%z "${dmg}")" != "${length}" ]]; then
+        echo "  ⚠ ${url} isn't the ${length} bytes the appcast signed — no GitHub Release. Retry: ${retry}" >&2
+        rm -rf "${work}"
+        return 0
+    fi
+    if ! sha=$(shasum -a 256 "${dmg}" | awk '{print $1}') || [[ -z "${sha}" ]]; then
+        echo "  ⚠ couldn't hash ${dmg}. Retry: ${retry}" >&2
+        rm -rf "${work}"
         return 0
     fi
     # "Latest" on GitHub only for the version the site's Download button
@@ -177,7 +348,7 @@ github_release() {
     else
         echo "  ⚠ gh release create failed. Retry: ${retry}" >&2
     fi
-    rm -f "${body}"
+    rm -rf "${work}"
     return 0
 }
 
@@ -195,6 +366,19 @@ if [[ "${1:-}" == "github-release" ]]; then
         exit 1
     fi
     DAISY_AUTO_PUSH=1 github_release "$2"
+    exit 0
+fi
+
+# ── R2 upload only ───────────────────────────────────────────────────
+# `release.sh upload-dmg build/Daisy-1.0.8.49.dmg 166` — put one build's
+# DMG into R2 and check the public copy, nothing else: the 2026-11-04 move
+# of the old DMGs out of daisy-web, or a check of R2 on its own.
+if [[ "${1:-}" == "upload-dmg" ]]; then
+    if [[ $# -ne 3 ]]; then
+        echo "Usage: $0 upload-dmg <Daisy-<version>.dmg> <build-number>" >&2
+        exit 1
+    fi
+    upload_dmg "$2" "$3"
     exit 0
 fi
 
@@ -244,8 +428,8 @@ PY
 // appcast.xml is the source of truth for Sparkle updates.
 export const LATEST_VERSION = "${PROMOTE_VERSION}";
 export const LATEST_BUILD = ${PROMOTED_BUILD};
-// ?v= is a cache-bust key — see release.sh step [6/6] notes.
-export const LATEST_DMG_URL = \`/downloads/Daisy-\${LATEST_VERSION}.dmg?v=\${LATEST_BUILD}\`;
+// Each build has its own path — see release.sh step [6/6] notes.
+export const LATEST_DMG_URL = \`/downloads/\${LATEST_BUILD}/Daisy-\${LATEST_VERSION}.dmg\`;
 EOF
     (
         cd "${DAISY_WEB_REPO}"
@@ -273,6 +457,7 @@ if [[ $# -lt 2 ]]; then
     echo "        $0 1.0.8 62 beta     # beta channel (opt-in clients only)" >&2
     echo "        $0 promote 1.0.8     # beta → stable, no rebuild" >&2
     echo "        $0 github-release 1.0.8  # GitHub Release with the published DMG" >&2
+    echo "        $0 upload-dmg build/Daisy-1.0.8.dmg 62  # R2 upload only" >&2
     exit 1
 fi
 
@@ -366,6 +551,31 @@ fi
 # -----------------------------------------------------------------------------
 
 echo "▸ [0/6] quality gates…"
+
+# [6/6] uploads the DMG to R2; missing uv or Keychain record found there
+# would cost the archive and both notary rounds.
+if ! command -v uv >/dev/null 2>&1; then
+    echo "  ✗ uv not installed (brew install uv) — [6/6] uploads the DMG to R2 with it." >&2
+    exit 1
+fi
+# Read, not just found: an access prompt shows up now, not after notarising.
+if ! security find-generic-password -s io.mydaisy.models.r2 -a daisy-models -w >/dev/null 2>&1; then
+    echo "  ✗ No readable R2 credentials in the Keychain (service io.mydaisy.models.r2, account daisy-models)." >&2
+    exit 1
+fi
+# R2 never overwrites a build. A run that stopped after the upload left
+# downloads/<build>/ taken although the appcast doesn't list it (step 0
+# passes); a rebuild makes new bytes, which upload_dmg would refuse only
+# at the end.
+R2_STATUS=$(curl -s --max-time 20 -o /dev/null -w "%{http_code}" -I "${R2_DOWNLOADS_URL}/${BUILD}/${DMG_NAME}?free=$$" || true)
+if [[ "${R2_STATUS}" == "200" ]]; then
+    echo "  ✗ R2 already has downloads/${BUILD}/${DMG_NAME} (an earlier run stopped after its upload)." >&2
+    echo "    Re-run with the next build: $0 ${VERSION} $((BUILD + 1))${3:+ ${3}}" >&2
+    exit 1
+elif [[ "${R2_STATUS}" != "404" ]]; then
+    echo "  ✗ Couldn't check R2 for build ${BUILD} (HTTP ${R2_STATUS:-none})." >&2
+    exit 1
+fi
 
 if ! git -C "${DAISY_REPO}" diff --quiet || ! git -C "${DAISY_REPO}" diff --cached --quiet; then
     echo "  ⚠ Working tree has uncommitted changes — releasing from a dirty tree."
@@ -587,13 +797,13 @@ echo "  → length ${DMG_LENGTH} bytes"
 echo
 
 # -----------------------------------------------------------------------------
-# 6. Publish — copy DMG to daisy-web, build the appcast <item> from the
-#    release-notes markdown, inject it into public/appcast.xml, and
-#    commit. Push is gated behind DAISY_AUTO_PUSH=1 so you get a chance
+# 6. Publish — upload the DMG to R2, build the appcast <item> from the
+#    release-notes markdown, inject it into daisy-web's public/appcast.xml,
+#    and commit. Push is gated behind DAISY_AUTO_PUSH=1 so you get a chance
 #    to review the commit before it goes live.
 # -----------------------------------------------------------------------------
 
-echo "▸ [6/6] publishing to daisy-web…"
+echo "▸ [6/6] publishing…"
 
 NOTES_MD="${DAISY_REPO}/scripts/release-notes/${VERSION}.md"
 # Р-3: the Russian notes are optional. Their absence must never fail a
@@ -608,18 +818,22 @@ if [[ ! -f "${NOTES_MD}" ]]; then
     exit 1
 fi
 
-mkdir -p "${DAISY_WEB_REPO}/public/downloads"
-cp "${DMG_PATH}" "${DAISY_WEB_REPO}/public/downloads/${DMG_NAME}"
-echo "  → DMG copied: public/downloads/${DMG_NAME}"
+# Before the appcast: an item must never point at a DMG that isn't served,
+# so a failed upload stops the release here (`release.sh upload-dmg` checks
+# R2 alone).
+upload_dmg "${DMG_PATH}" "${BUILD}"
 
 # APPCAST_FILE defined at top — used here for inject step.
 PUBDATE=$(date -u "+%a, %d %b %Y %H:%M:%S +0000")
 
+# The build's own path (see upload_dmg): a version re-released under the
+# same file name never reaches Sparkle as another build's bytes, which
+# would fail the item's EdDSA signature.
 VERSION="${VERSION}" \
 BUILD="${BUILD}" \
 CHANNEL="${CHANNEL}" \
 PUBDATE="${PUBDATE}" \
-DOWNLOAD_URL="${DOWNLOAD_URL_BASE}/${DMG_NAME}" \
+DOWNLOAD_URL="${DOWNLOAD_URL_BASE}/${BUILD}/${DMG_NAME}" \
 SIGNATURE_LINE="${SIGNATURE_OUTPUT}" \
 NOTES_MD="${NOTES_MD}" \
 NOTES_MD_RU="${NOTES_MD_RU}" \
@@ -783,7 +997,7 @@ if [[ "${CHANNEL}" == "beta" ]]; then
 // hides itself when BETA_BUILD <= LATEST_BUILD (beta promoted/obsolete).
 export const BETA_VERSION: string | null = "${VERSION}";
 export const BETA_BUILD: number = ${BUILD};
-export const BETA_DMG_URL: string | null = \`/downloads/Daisy-${VERSION}.dmg?v=${BUILD}\`;
+export const BETA_DMG_URL: string | null = \`/downloads/${BUILD}/Daisy-${VERSION}.dmg\`;
 EOF
     echo "  ✓ Rewrote lib/betaVersion.ts → ${VERSION} (beta; stable Download button untouched)"
 elif [[ -f "${LATEST_VERSION_FILE}" ]]; then
@@ -802,15 +1016,12 @@ elif [[ -f "${LATEST_VERSION_FILE}" ]]; then
 
 export const LATEST_VERSION = "${VERSION}";
 export const LATEST_BUILD = ${BUILD};
-// ?v=\${LATEST_BUILD} is a cache-bust query string. DMG filename only
-// encodes the marketing version (Daisy-1.0.7.3.dmg) and gets re-published
-// across builds under the same marketing version. Without the query
-// string, browsers that downloaded an earlier build stay stuck on the
-// cached copy for the lifetime of /downloads' Cache-Control max-age.
-// Bumping the build number on every release moves the cache key forward
-// so the next visit fetches the freshly-published binary. Added
-// 2026-05-27 after build 33→35 cache-trap caught users on stale DMG.
-export const LATEST_DMG_URL = \`/downloads/Daisy-\${LATEST_VERSION}.dmg?v=\${LATEST_BUILD}\`;
+// The build number is in the path. The DMG file name only encodes the
+// marketing version (Daisy-1.0.7.3.dmg), which gets re-published across
+// builds; browsers that downloaded an earlier build used to stay stuck on
+// the cached copy (build 33→35, 2026-05-27, fixed then with ?v=<build>).
+// Since 2026-11-04 every build has its own never-overwritten object in R2.
+export const LATEST_DMG_URL = \`/downloads/\${LATEST_BUILD}/Daisy-\${LATEST_VERSION}.dmg\`;
 EOF
     echo "  ✓ Rewrote lib/latestVersion.ts → ${VERSION}"
 else
@@ -819,7 +1030,7 @@ fi
 
 (
     cd "${DAISY_WEB_REPO}"
-    git add public/appcast.xml "public/downloads/${DMG_NAME}" lib/latestVersion.ts
+    git add public/appcast.xml lib/latestVersion.ts
     [[ -f lib/betaVersion.ts ]] && git add lib/betaVersion.ts
     if git diff --staged --quiet; then
         echo "  ⊘ nothing to commit in daisy-web (already published?)"
