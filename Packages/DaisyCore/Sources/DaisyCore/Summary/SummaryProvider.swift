@@ -100,6 +100,9 @@ public nonisolated enum SummaryProviderError: LocalizedError, Sendable {
     case outputTruncated(provider: String)
     /// The model declined to answer (`stop_reason: refusal`).
     case refused(provider: String)
+    /// A refusal a person can act on, in words (04.11): the key, the
+    /// balance, the limit, the model. `reason` follows «Provider: ».
+    case unavailable(provider: String, reason: String)
 
     public var errorDescription: String? {
         switch self {
@@ -111,6 +114,7 @@ public nonisolated enum SummaryProviderError: LocalizedError, Sendable {
         case .streamInterrupted(let p, let message): "\(p): the answer broke off (\(message))."
         case .outputTruncated(let p): "\(p): the answer was cut off at its length limit."
         case .refused(let p): "\(p): the model declined to summarize this transcript."
+        case .unavailable(let p, let reason): "\(p): \(reason)"
         }
     }
 }

@@ -87,4 +87,26 @@ struct CompatibleProviderTests {
         #expect(SummaryProviderKind.yandex.keyAccount == "yandex.api_key")
         #expect(SummaryProviderKind.gigachat.keyAccount == "gigachat.api_key")
     }
+
+    private func reason(_ kind: SummaryProviderKind, _ status: Int, _ body: String = "") -> String? {
+        guard case .unavailable(_, let reason) = CompatibleProvider.worded(kind: kind, status: status, body: body) else { return nil }
+        return reason
+    }
+
+    @Test func refusalsSayWhatToDo() {
+        #expect(reason(.deepseek, 402)?.contains("platform.deepseek.com") == true)
+        #expect(reason(.gigachat, 403, #"{"message":"Insufficient balance"}"#)?.contains("console.cloud.ru") == true)
+        #expect(reason(.grok, 403, "Your team has run out of credits")?.contains("console.x.ai") == true)
+        // A bad key: on the Mac, where keys are entered.
+        #expect(reason(.deepseek, 401, "Authentication Fails")?.contains("on the Mac") == true)
+        #expect(reason(.gigachat, 400, "invalid api key secret")?.contains("on the Mac") == true)
+        #expect(reason(.gemini, 400, "API key not valid. Please pass a valid API key.")?.contains("on the Mac") == true)
+        #expect(reason(.yandex, 401)?.contains("folder ID") == true)
+        #expect(reason(.deepseek, 400, "Model Not Exist")?.contains("DeepSeek Flash") == true)
+        #expect(reason(.grok, 400, "This model's maximum context length is 1000000 tokens")?.contains("longer than") == true)
+        #expect(reason(.yandex, 429)?.contains("two at a time") == true)
+        // Nothing to say: the status stays.
+        #expect(reason(.gemini, 500) == nil)
+        #expect(reason(.gigachat, 400, "max_tokens is too large") == nil)
+    }
 }

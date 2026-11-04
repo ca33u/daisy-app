@@ -124,8 +124,71 @@ public nonisolated enum CompatibleProvider {
                          messages: [CloudText.Message], maxTokens: Int, log: Logger) async throws -> String {
         let request = try request(kind: kind, apiKey: apiKey, folderID: YandexFolder.current,
                                   system: system, messages: messages, maxTokens: maxTokens)
-        let json = try await CloudSummaryCall.send(request, provider: kind.displayName, log: log)
+        let json: [String: Any]
+        do {
+            json = try await CloudSummaryCall.send(request, provider: kind.displayName, log: log)
+        } catch SummaryProviderError.httpError(_, let status, let body) {
+            throw worded(kind: kind, status: status, body: body)
+        }
         return try replyText(json, kind: kind)
+    }
+
+    /// The HTTP failures a person can do something about, in words — the
+    /// Mac adapters' `worded`, with the phone's own advice: keys are
+    /// entered on the Mac, there is no model picker here. The rest keep
+    /// the status. 429 and 5xx arrive here only after the retries.
+    static func worded(kind: SummaryProviderKind, status: Int, body: String) -> SummaryProviderError {
+        let provider = kind.displayName
+        let lowered = body.lowercased()
+        let model = modelName(kind)
+        func say(_ reason: String) -> SummaryProviderError { .unavailable(provider: provider, reason: reason) }
+
+        let moneyWords = ["insufficient balance", "insufficient funds", "insufficient_balance", "insufficient_funds",
+                          "credit", "spending limit", "баланс", "недостаточно средств"]
+        if status == 402 || ((status == 403 || status == 429) && moneyWords.contains { lowered.contains($0) }) {
+            switch kind {
+            case .deepseek: return say(String(localized: "the balance has run out. Top it up at platform.deepseek.com and try again."))
+            case .gigachat: return say(String(localized: "the cloud.ru balance has run out. Top it up at console.cloud.ru and try again."))
+            case .grok: return say(String(localized: "your xAI team is out of credits or at its spending limit. Top up at console.x.ai and try again."))
+            default: return say(String(localized: "the account's balance has run out. Top it up with the provider and try again."))
+            }
+        }
+        // cloud.ru answers a bad key with 400 «invalid api key secret».
+        let keyRefused = status == 401 || status == 403
+            || (status == 400 && (lowered.contains("api key") || lowered.contains("api_key") || lowered.contains("authorization")))
+        if keyRefused {
+            if kind == .yandex {
+                return say(String(localized: "the API key or the folder ID wasn’t accepted. Check the key in Daisy on the Mac and the folder ID in Profile → Summary provider."))
+            }
+            return say(String(localized: "the API key wasn’t accepted. Check it in Daisy on the Mac; it comes to this phone through iCloud Keychain."))
+        }
+        if status == 429 {
+            if kind == .yandex {
+                return say(String(localized: "too many requests — an account without a subscription runs two at a time. Try again in a minute."))
+            }
+            return say(String(localized: "too many requests. Try again in a minute."))
+        }
+        if lowered.contains("context length") || lowered.contains("maximum context")
+            || lowered.contains("prompt is too long") || lowered.contains("prompt length") {
+            return say(String(localized: "this meeting is longer than \(model) can read."))
+        }
+        let modelMissing = lowered.contains("model not exist") || lowered.contains("model_uri") || lowered.contains("model uri")
+            || (lowered.contains("model") && ["not found", "does not exist", "unknown", "deprecated", "retired"].contains { lowered.contains($0) })
+        if status == 404 || (status == 400 && modelMissing) {
+            return say(String(localized: "no model \(model) — the provider may have retired it. Update Daisy from the App Store."))
+        }
+        return .httpError(provider: provider, status: status, body: body)
+    }
+
+    static func modelName(_ kind: SummaryProviderKind) -> String {
+        switch kind {
+        case .deepseek: "DeepSeek Flash"
+        case .gigachat: "GigaChat-3-Pro"
+        case .yandex: "Alice AI LLM"
+        case .gemini: "Gemini 3.8 Flash"
+        case .grok: "Grok 4.3"
+        case .anthropic, .openai, .kimi: kind.displayName
+        }
     }
 }
 
