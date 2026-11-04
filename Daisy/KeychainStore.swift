@@ -259,6 +259,10 @@ nonisolated enum SecretKey {
     static let gigachatAPIKey = "gigachat.api_key"
     static let deepseekAPIKey = "deepseek.api_key"
     static let grokAPIKey = "grok.api_key"
+    /// YandexGPT's folder ID, mirrored from `Summarizer.yandexFolderID`
+    /// for the iPhone (04.11). Not a secret and not in `all`: it never
+    /// lived in the legacy keychain.
+    static let yandexFolderID = "yandex.folder_id"
     /// Google OAuth refresh token — long-lived, used to mint new
     /// access tokens. Cleared on Disconnect (after a revoke roundtrip
     /// to Google so the consent grant is gone server-side too).

@@ -425,6 +425,7 @@ final class Summarizer {
     var yandexFolderID: String {
         didSet {
             UserDefaults.standard.set(yandexFolderID, forKey: Self.kYandexFolderID)
+            Self.shareYandexFolder(yandexFolderID)
             Task { await refreshAvailability() }
         }
     }
@@ -508,6 +509,26 @@ final class Summarizer {
     private static let kGeminiModel = "daisy.geminiModel"
     private static let kYandexModel = "daisy.yandexModel"
     private static let kYandexFolderID = "daisy.yandexFolderID"
+
+    /// The iPhone (DaisyLite) can't read this app's preferences, and
+    /// YandexGPT needs the folder beside the key: it goes to the shared
+    /// keychain too, where the key already is (Egor 04.11). Not a secret
+    /// — it is in every request's model URI — the keychain is just the
+    /// road both apps share. Only a well-formed ID; an invalid or empty
+    /// field removes it.
+    private static func shareYandexFolder(_ raw: String) {
+        if let folder = YandexAPISummarizer.normalizedFolderID(raw) {
+            try? KeychainStore.set(folder, account: SecretKey.yandexFolderID)
+        } else {
+            _ = KeychainStore.remove(account: SecretKey.yandexFolderID)
+        }
+    }
+
+    private nonisolated static func shareYandexFolderAtLaunch(_ raw: String) {
+        guard let folder = YandexAPISummarizer.normalizedFolderID(raw),
+              KeychainStore.getWithoutPrompting(account: SecretKey.yandexFolderID) != folder else { return }
+        try? KeychainStore.set(folder, account: SecretKey.yandexFolderID)
+    }
     private static let kGigaChatModel = "daisy.gigachatModel"
     private static let kDeepSeekModel = "daisy.deepseekModel"
     private static let kGrokModel = "daisy.grokModel"
@@ -557,6 +578,10 @@ final class Summarizer {
         // stored retired id moves to its successor here, every launch.
         self.yandexModel = YandexAPISummarizer.storedModelID(key: Self.kYandexModel, defaults: .standard)
         self.yandexFolderID = UserDefaults.standard.string(forKey: Self.kYandexFolderID) ?? ""
+        // A folder typed before 04.11 reaches the phone too. Off the main
+        // thread and without prompting, as everything keychain at launch.
+        let folderAtLaunch = UserDefaults.standard.string(forKey: Self.kYandexFolderID) ?? ""
+        Task.detached(priority: .utility) { Self.shareYandexFolderAtLaunch(folderAtLaunch) }
         self.gigachatModel = UserDefaults.standard.string(forKey: Self.kGigaChatModel)
             ?? GigaChatAPISummarizer.defaultModelID
         // Retired DeepSeek names move on here, every launch.
