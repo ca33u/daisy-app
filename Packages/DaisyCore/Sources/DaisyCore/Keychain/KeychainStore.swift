@@ -119,6 +119,15 @@ public nonisolated enum SecretKey {
     public static let openaiAPIKey = "openai.api_key"
     public static let cursorAPIKey = "cursor.api_key"
     public static let kimiAPIKey = "kimi.api_key"
+    // 04.11: the rest of the Mac's provider keys.
+    public static let deepseekAPIKey = "deepseek.api_key"
+    public static let gigachatAPIKey = "gigachat.api_key"
+    public static let yandexAPIKey = "yandex.api_key"
+    public static let geminiAPIKey = "gemini.api_key"
+    public static let grokAPIKey = "grok.api_key"
+    /// Not written by the Mac yet: it keeps the folder in its own
+    /// preferences. Read first when it appears (`YandexFolder`).
+    public static let yandexFolderID = "yandex.folder_id"
     /// Written by the Mac's OAuth flow only. The phone mints access
     /// tokens from it and keeps them in memory; connecting and
     /// disconnecting Google stays a Mac action.

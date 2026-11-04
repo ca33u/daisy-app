@@ -3,8 +3,9 @@
 //  DaisyCore
 //
 //  Copied (the cloud subset) from daisy-app/Daisy/SummaryProvider.swift
-//  @ 1.0.7.72, 2026-09-19 — backlog 4 B-2. The phone has the three
-//  key-based cloud providers the Mac has; Apple Intelligence, the
+//  @ 1.0.7.72, 2026-09-19 — backlog 4 B-2. The phone has the key-based
+//  cloud providers the Mac has (the five added 04.11 live in
+//  CompatibleProviders.swift); Apple Intelligence, the
 //  local servers (Ollama / LM Studio / MCP) and the agent CLIs are Mac
 //  things. Same prompt, same JSON schema, same `summary.json` — a
 //  summary made here is indistinguishable from one made on the Mac.
@@ -17,6 +18,13 @@ public nonisolated enum SummaryProviderKind: String, Codable, CaseIterable, Send
     case anthropic
     case openai
     case kimi
+    // 04.11: the rest of the Mac's key-based providers. Raw values are
+    // the Mac's, so `summary.json` names them the same way.
+    case deepseek
+    case gigachat
+    case yandex
+    case gemini
+    case grok
 
     public var id: String { rawValue }
 
@@ -25,6 +33,11 @@ public nonisolated enum SummaryProviderKind: String, Codable, CaseIterable, Send
         case .anthropic: "Anthropic"
         case .openai: "OpenAI"
         case .kimi: "Kimi"
+        case .deepseek: "DeepSeek"
+        case .gigachat: "GigaChat"
+        case .yandex: "YandexGPT"
+        case .gemini: "Gemini"
+        case .grok: "Grok"
         }
     }
 
@@ -35,12 +48,23 @@ public nonisolated enum SummaryProviderKind: String, Codable, CaseIterable, Send
         case .anthropic: SecretKey.anthropicAPIKey
         case .openai: SecretKey.openaiAPIKey
         case .kimi: SecretKey.kimiAPIKey
+        case .deepseek: SecretKey.deepseekAPIKey
+        case .gigachat: SecretKey.gigachatAPIKey
+        case .yandex: SecretKey.yandexAPIKey
+        case .gemini: SecretKey.geminiAPIKey
+        case .grok: SecretKey.grokAPIKey
         }
     }
 
-    public var hasKey: Bool {
+    /// The key came from the Mac.
+    public var keyArrived: Bool {
         guard let key = KeychainStore.get(account: keyAccount) else { return false }
         return !key.isEmpty
+    }
+
+    /// Ready to use: the key, and for YandexGPT its folder ID too.
+    public var hasKey: Bool {
+        keyArrived && (self != .yandex || YandexFolder.current != nil)
     }
 
     public func makeProvider() -> any SummaryProvider {
@@ -48,6 +72,7 @@ public nonisolated enum SummaryProviderKind: String, Codable, CaseIterable, Send
         case .anthropic: AnthropicSummaryProvider()
         case .openai: OpenAISummaryProvider()
         case .kimi: KimiSummaryProvider()
+        case .deepseek, .gigachat, .yandex, .gemini, .grok: CompatibleSummaryProvider(kind: self)
         }
     }
 }
@@ -90,7 +115,7 @@ public nonisolated enum SummaryProviderError: LocalizedError, Sendable {
     }
 }
 
-/// Shared by the three providers: the guard rails, the prompt pair, the
+/// Shared by the providers: the guard rails, the prompt pair, the
 /// HTTP round trip with retries, the tolerant decode.
 nonisolated enum CloudSummaryCall {
     static func prepare(transcript: String, keyAccount: String, provider: String) throws -> (transcript: String, apiKey: String) {

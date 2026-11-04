@@ -3,7 +3,7 @@
 //  DaisyCore
 //
 //  One text completion through the provider whose key the person has —
-//  the same three the summary uses, the same key, the same retries. For
+//  the same ones the summary uses, the same key, the same retries. For
 //  what is not a meeting summary: questions about a meeting (the phone's
 //  chat, 28.09), people worth following up (leads), a document's gist.
 //
@@ -56,6 +56,10 @@ public nonisolated enum CloudText {
             let text = try await AnthropicStreaming.text(
                 try AnthropicStreaming.request(apiKey: apiKey, body: body), provider: provider, log: log)
             return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if CompatibleProvider.handles(kind) {
+            return try await CompatibleProvider.complete(kind: kind, apiKey: apiKey, system: system,
+                                                         messages: messages, maxTokens: maxTokens, log: log)
         }
         // OpenAI and Kimi: one chat-completions round trip.
         let model = kind == .openai ? OpenAISummaryProvider.defaultModelID : KimiSummaryProvider.defaultModelID
