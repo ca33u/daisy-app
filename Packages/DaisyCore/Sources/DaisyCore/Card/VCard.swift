@@ -9,11 +9,14 @@
 //
 //  Three rules the backlog fixes, all about the code staying scannable:
 //
-//  • **Under 250 bytes.** A denser code needs a steadier hand, better
+//  • **Under 400 bytes.** A denser code needs a steadier hand, better
 //    light and a better scanner; ZXing — under half the scanner apps in
 //    the world — decodes version-20-and-up codes about one time in
-//    twenty. The card reports its size so the person sees it before a
-//    conference, not during one.
+//    twenty. At level Q (a logo on the card) version 19 holds 427
+//    bytes, so 400 stays below it. It was 250 until 2026-11-04: an
+//    ordinary card in Cyrillic (name, role, company, phone, email) came
+//    to 251 and was refused (Egor: raise the limit). The card reports
+//    its size so the person sees it before a conference, not during one.
 //  • **The byte counter is the honest lever.** UTF-8 Cyrillic costs two
 //    bytes a letter plus a mode switch, so a card written in Cyrillic
 //    is nearly twice the payload of the same one in latin letters. The
@@ -35,11 +38,12 @@
 import Foundation
 
 public nonisolated enum VCard {
-    /// The byte budget for a comfortably scannable code.
-    public static let comfortableByteLimit = 250
-    /// Past this the code is dense enough that older scanners start to
-    /// struggle; the UI warns rather than refuses.
-    public static let warningByteLimit = 200
+    /// The byte budget for a scannable code: below version 20 even at
+    /// level Q.
+    public static let comfortableByteLimit = 400
+    /// Past this (version 16 at level Q) the code is dense enough that
+    /// older scanners start to struggle; the UI warns rather than refuses.
+    public static let warningByteLimit = 300
 
     /// vCard 3.0 for one card.
     public static func text(for card: BusinessCard) -> String {

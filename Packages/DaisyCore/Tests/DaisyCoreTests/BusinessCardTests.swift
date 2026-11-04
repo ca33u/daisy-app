@@ -55,6 +55,21 @@ struct BusinessCardCoreTests {
         #expect(VCard.fit(VCard.comfortableByteLimit + 1).isScannable == false)
     }
 
+    /// Egor 04.11: an ordinary Russian card (name, role, company, phone,
+    /// email) came to 251 bytes and was refused at the old 250. It fits
+    /// now, without the "dense" warning.
+    @Test func anOrdinaryRussianCardFits() {
+        var card = BusinessCard()
+        card.name = "Анна Соколова"
+        card.role = "Руководитель продукта"
+        card.company = "Северный ветер"
+        card.phone = "+7 912 345-67-89"
+        card.email = "anna@example.com"
+        let bytes = VCard.byteCount(for: card)
+        #expect(bytes > 250)
+        #expect(VCard.fit(bytes) == .comfortable)
+    }
+
     /// A card written before the latin fields went away keeps the
     /// spelling that was being handed out (the latin one), not the
     /// other (Egor, 2026-09-22).
@@ -410,6 +425,30 @@ struct QRRoundTripTests {
         try VNImageRequestHandler(cgImage: drawn).perform([request])
         #expect((request.results ?? []).compactMap(\.payloadStringValue).first == payload,
                 "a logo of \(Int(QRCode.maxLogoFraction * 100))% must still leave a readable code")
+    }
+
+    /// The raised limit (04.11) checked rather than assumed: a Russian
+    /// card just under 400 bytes, with a logo in the middle, still reads.
+    @Test func aCardAtTheLimitWithALogoStillDecodes() throws {
+        var card = BusinessCard(kind: .work)
+        card.name = "Анна Соколова"
+        card.role = "Руководитель продукта"
+        card.company = "Северный ветер"
+        card.phone = "+7 912 345-67-89"
+        card.email = "anna@example.com"
+        card.hasLogo = true
+        var path = "severveter.example/anna"
+        card.link = path
+        while VCard.byteCount(for: card) < VCard.comfortableByteLimit - 8 { path += "x"; card.link = path }
+        #expect(VCard.fit(VCard.byteCount(for: card)).isScannable)
+        let payload = VCard.text(for: card)
+
+        let grid = QRCode.matrix(from: payload, correction: QRCode.correction(hasLogo: true))
+        let drawn = try #require(draw(grid, side: 600, logoFraction: QRCode.maxLogoFraction))
+
+        let request = VNDetectBarcodesRequest()
+        try VNImageRequestHandler(cgImage: drawn).perform([request])
+        #expect((request.results ?? []).compactMap(\.payloadStringValue).first == payload)
     }
 
     /// Rounded modules still scan — the look Egor asked for on
