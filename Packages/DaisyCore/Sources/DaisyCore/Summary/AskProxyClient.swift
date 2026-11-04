@@ -71,7 +71,7 @@ public nonisolated struct AskProxyClient: Sendable {
         }
         switch (response as? HTTPURLResponse)?.statusCode ?? 0 {
         case 200: break
-        case 401: throw SummaryProxyClient.Failure.subscription
+        case 401: throw SummaryProxyClient.unauthorized(data)
         case 402: throw SummaryProxyClient.Failure.trialUsed
         case 429: throw SummaryProxyClient.Failure.limit
         case 502: throw SummaryProxyClient.Failure.provider

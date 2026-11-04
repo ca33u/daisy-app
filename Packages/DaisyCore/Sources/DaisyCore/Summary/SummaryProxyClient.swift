@@ -17,15 +17,19 @@ import Foundation
 
 /// What lets the phone use Daisy's proxy (backlog 19 А-1): a live
 /// subscription Apple signed, or the trial — the first three summaries or
-/// questions, counted by the server per device token.
+/// questions, counted by the server per device token, or (signed in,
+/// 04.11) per account.
 public nonisolated enum ProxyCredential: Sendable, Equatable {
     case subscription(String)
     case trial(String)
+    /// The free three of a signed-in person: our session token.
+    case account(String)
 
-    var fields: [String: Any] {
+    public var fields: [String: Any] {
         switch self {
         case .subscription(let jws): ["signedTransaction": jws]
         case .trial(let token): ["trialToken": token]
+        case .account(let session): ["sessionToken": session]
         }
     }
 }
@@ -34,11 +38,20 @@ public nonisolated struct SummaryProxyClient: Sendable {
     /// Where `daisy-api` answers. Not live until it is deployed.
     public static let defaultEndpoint = URL(string: "https://api.mydaisy.io/api/summary")!
 
+    /// A 401 is the subscription's, unless the server says the account's
+    /// session is over (src/account.ts in daisy-api).
+    public static func unauthorized(_ data: Data) -> Failure {
+        let code = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+        return code == "invalid_session" || code == "session_expired" ? .signedOut : .subscription
+    }
+
     public enum Failure: LocalizedError, Equatable, Sendable {
         /// The subscription ran out, was refunded, or the receipt is not ours.
         case subscription
         /// The free three are used; a subscription is next.
         case trialUsed
+        /// The account's session ended or the account is gone: sign in again.
+        case signedOut
         /// Today's characters are spent, or too many requests this minute.
         case limit
         /// The provider refused or answered with something that is not a summary.
@@ -51,6 +64,7 @@ public nonisolated struct SummaryProxyClient: Sendable {
             switch self {
             case .subscription: String(localized: "The summary subscription isn't active. The transcript is safe; renew to get the summary.")
             case .trialUsed: String(localized: "Your free summaries and questions are used. The transcript is safe; subscribe to get the summary.")
+            case .signedOut: String(localized: "You're signed out of Daisy. The transcript is safe; sign in to get the summary.")
             case .limit: String(localized: "Today's summary allowance is used up. The transcript is safe; the summary will be made later.")
             case .provider: String(localized: "The summary service couldn't make this summary. The transcript is safe; Daisy will try again.")
             case .server: String(localized: "Daisy's summary server can't be reached. The transcript is safe; Daisy will try again.")
@@ -107,7 +121,7 @@ public nonisolated struct SummaryProxyClient: Sendable {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         switch status {
         case 200: break
-        case 401: throw Failure.subscription
+        case 401: throw Self.unauthorized(data)
         case 402: throw Failure.trialUsed
         case 429: throw Failure.limit
         case 502: throw Failure.provider

@@ -86,6 +86,21 @@ struct SummaryProxyClientTests {
         }
     }
 
+    /// Signed in (04.11): the session goes instead of the device token, and
+    /// a session the server no longer accepts means "sign in", not "subscribe".
+    @Test func aSignedInPersonSendsTheSessionAndHearsWhenItIsOver() async throws {
+        #expect(ProxyCredential.account("s1.x.y").fields["sessionToken"] as? String == "s1.x.y")
+        #expect(ProxyCredential.account("s1.x.y").fields["trialToken"] == nil)
+        for code in ["invalid_session", "session_expired"] {
+            ProxyStub.status = 401
+            ProxyStub.reply = ["error": code]
+            await #expect(throws: SummaryProxyClient.Failure.signedOut) {
+                try await client().summarize(transcript: transcript, title: "t", localeHint: nil, singleVoice: false,
+                                             credential: .account("s1.x.y"), knownPeople: [])
+            }
+        }
+    }
+
     /// Backlog 19 А-1: before a subscription, the device token goes instead
     /// of a transaction, and the server's count of free uses comes back.
     @Test func theTrialSendsTheTokenAndReadsWhatIsLeft() async throws {
