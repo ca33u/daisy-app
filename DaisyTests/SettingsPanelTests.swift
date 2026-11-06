@@ -10,6 +10,7 @@
 //  brought up first.
 //
 
+import AppKit
 import Foundation
 import Testing
 @testable import Daisy
@@ -283,6 +284,200 @@ struct SettingsPanelTests {
         // A fresh press later is the window's again, repeats too.
         #expect(!PanelKeys.swallowsCommandW(isRepeat: false, now: closed + 3))
         #expect(!PanelKeys.swallowsCommandW(isRepeat: true, now: closed + 3.1))
+    }
+
+    // MARK: - A click around the sheet
+
+    /// A press on the backdrop released where it went down closes the
+    /// sheet; one that travelled (a drag of the window), was released in
+    /// another window, or started off the backdrop doesn't.
+    @Test func backdropClickIsAPressReleasedInPlace() {
+        let windows = (NSObject(), NSObject())   // held: ids of live objects
+        let main = ObjectIdentifier(windows.0)
+        let other = ObjectIdentifier(windows.1)
+        defer { withExtendedLifetime(windows) {} }
+        var clicks = PanelBackdrop.Clicks()
+        var closes = false
+
+        clicks.press(window: main, at: NSPoint(x: 40, y: 40), onBackdrop: true, activating: false)
+        closes = clicks.release(window: main, at: NSPoint(x: 42, y: 43))
+        #expect(closes)
+
+        // Dragged: the window moved by its top, or a selection swept out.
+        clicks.press(window: main, at: NSPoint(x: 40, y: 40), onBackdrop: true, activating: false)
+        closes = clicks.release(window: main, at: NSPoint(x: 140, y: 40))
+        #expect(!closes)
+
+        // Pressed inside the sheet (not the backdrop), released anywhere.
+        clicks.press(window: main, at: NSPoint(x: 40, y: 40), onBackdrop: false, activating: false)
+        closes = clicks.release(window: main, at: NSPoint(x: 40, y: 40))
+        #expect(!closes)
+
+        // Released in another window.
+        clicks.press(window: main, at: NSPoint(x: 40, y: 40), onBackdrop: true, activating: false)
+        closes = clicks.release(window: other, at: NSPoint(x: 40, y: 40))
+        #expect(!closes)
+
+        // A release with no press of ours before it.
+        closes = clicks.release(window: main, at: NSPoint(x: 40, y: 40))
+        #expect(!closes)
+    }
+
+    /// The click that brings Daisy back from another app only activates.
+    @Test func activatingClickKeepsTheSheet() {
+        let window = NSObject()
+        let main = ObjectIdentifier(window)
+        defer { withExtendedLifetime(window) {} }
+        var clicks = PanelBackdrop.Clicks()
+        clicks.press(window: main, at: NSPoint(x: 10, y: 10), onBackdrop: true, activating: true)
+        let closes = clicks.release(window: main, at: NSPoint(x: 10, y: 10))
+        #expect(!closes)
+    }
+
+    /// The rest of a double click that closed the sheet is swallowed —
+    /// in that window, within the double-click interval — and nothing else.
+    @Test func restOfAClosingDoubleClickIsSwallowed() {
+        let windows = (NSObject(), NSObject())   // held: ids of live objects
+        let main = ObjectIdentifier(windows.0)
+        let other = ObjectIdentifier(windows.1)
+        defer { withExtendedLifetime(windows) {} }
+        var clicks = PanelBackdrop.Clicks()
+        var closes = false
+        var swallowed = false
+
+        // Nothing closed yet: a double click is the window's.
+        swallowed = clicks.swallows(window: main, clickCount: 2, at: 0.1, doubleClickInterval: 0.5)
+        #expect(!swallowed)
+
+        clicks.press(window: main, at: .zero, onBackdrop: true, activating: false)
+        closes = clicks.release(window: main, at: .zero)
+        #expect(closes)
+        // A click that ended on the backdrop but closed nothing (a sheet of
+        // the sheet came up meanwhile): its double click is the window's.
+        swallowed = clicks.swallows(window: main, clickCount: 2, at: 0.3, doubleClickInterval: 0.5)
+        #expect(!swallowed)
+
+        clicks.closedSheet(window: main, at: 10)
+        swallowed = clicks.swallows(window: main, clickCount: 2, at: 10.2, doubleClickInterval: 0.5)
+        #expect(swallowed)
+        swallowed = clicks.swallows(window: main, clickCount: 3, at: 10.7, doubleClickInterval: 0.5)
+        #expect(swallowed)
+        swallowed = clicks.swallows(window: other, clickCount: 2, at: 10.2, doubleClickInterval: 0.5)
+        #expect(!swallowed)
+        swallowed = clicks.swallows(window: main, clickCount: 2, at: 11, doubleClickInterval: 0.5)
+        #expect(!swallowed)
+
+        // A fresh single click ends it: a later double click is the window's.
+        swallowed = clicks.swallows(window: main, clickCount: 1, at: 12, doubleClickInterval: 0.5)
+        #expect(!swallowed)
+        swallowed = clicks.swallows(window: main, clickCount: 2, at: 12.2, doubleClickInterval: 0.5)
+        #expect(!swallowed)
+    }
+
+    /// The monitor's handler on real windows: a main window with a sheet
+    /// up as Settings' is. A click on the window around the sheet closes
+    /// it; a click where the sheet is, a drag, the title bar's buttons, a
+    /// modified click, the activating click and a click while a sheet of
+    /// the sheet is up don't. The rest of a closing double click is
+    /// swallowed.
+    @Test func backdropClickOnRealWindows() throws {
+        let sandbox = NavigationSandbox()
+        let savedSheet = PanelKeys.sheetWindow
+        defer {
+            PanelKeys.sheetWindow = savedSheet
+            // No closing click left behind for a window about to go.
+            PanelBackdrop.clicks = PanelBackdrop.Clicks()
+            sandbox.restore()
+        }
+        let nav = AppNavigation.shared
+
+        let main = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+                            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                            backing: .buffered, defer: false)
+        main.isReleasedWhenClosed = false
+        main.alphaValue = 0             // on screen for AppKit, not for the eye
+        main.orderFrontRegardless()
+        let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+                             styleMask: [.titled], backing: .buffered, defer: false)
+        sheet.isReleasedWhenClosed = false
+        main.beginSheet(sheet)
+        defer {
+            main.endSheet(sheet)
+            sheet.orderOut(nil)
+            main.orderOut(nil)
+        }
+        try #require(main.attachedSheet === sheet && sheet.sheetParent === main)
+        PanelKeys.sheetWindow = sheet
+
+        var now = ProcessInfo.processInfo.systemUptime + 1
+        func mouse(_ type: NSEvent.EventType, at point: NSPoint, clickCount: Int = 1,
+                   modifiers: NSEvent.ModifierFlags = [], in window: NSWindow? = nil) -> NSEvent {
+            now += 1   // clicks a second apart: never one double click
+            return NSEvent.mouseEvent(with: type, location: point, modifierFlags: modifiers,
+                                      timestamp: now, windowNumber: (window ?? main).windowNumber,
+                                      context: nil, eventNumber: 0, clickCount: clickCount, pressure: 1)!
+        }
+        /// A press and release on `main`; true when the sheet closed.
+        func click(at point: NSPoint, to end: NSPoint? = nil, modifiers: NSEvent.ModifierFlags = [],
+                   active: Bool = true) -> Bool {
+            nav.openSettings()
+            _ = PanelBackdrop.handle(mouse(.leftMouseDown, at: point, modifiers: modifiers), appIsActive: active)
+            _ = PanelBackdrop.handle(mouse(.leftMouseUp, at: end ?? point, modifiers: modifiers), appIsActive: active)
+            return nav.panel == nil
+        }
+
+        let backdrop = NSPoint(x: 20, y: 20)   // bottom-left corner of the content
+        let underSheet = main.convertPoint(fromScreen: NSPoint(x: sheet.frame.midX, y: sheet.frame.midY))
+        let zoom = try #require(main.standardWindowButton(.zoomButton))
+        let onZoom = NSPoint(x: zoom.convert(zoom.bounds, to: nil).midX, y: zoom.convert(zoom.bounds, to: nil).midY)
+
+        #expect(click(at: backdrop))
+        #expect(!click(at: underSheet))
+        #expect(!click(at: backdrop, to: NSPoint(x: 220, y: 20)))     // a drag
+        #expect(!click(at: onZoom))
+        #expect(!click(at: backdrop, modifiers: .command))
+        #expect(!click(at: backdrop, active: false))
+
+        // Settings asked for while our card isn't the sheet on the window
+        // (it waits for another sheet to close): the click isn't ours.
+        PanelKeys.sheetWindow = nil
+        #expect(!click(at: backdrop))
+        #expect(nav.panel == .settings)
+        PanelKeys.sheetWindow = sheet
+        nav.closePanel()
+
+        // Pressed with the sheet up, closed some other way before the
+        // release: no closing click recorded, so a quick second click is
+        // the window's.
+        nav.openSettings()
+        _ = PanelBackdrop.handle(mouse(.leftMouseDown, at: backdrop), appIsActive: true)
+        nav.closePanel()
+        _ = PanelBackdrop.handle(mouse(.leftMouseUp, at: backdrop), appIsActive: true)
+        nav.openSettings()
+        let afterNothingClosed = NSEvent.mouseEvent(with: .leftMouseDown, location: backdrop, modifierFlags: [],
+                                                    timestamp: now + 0.1, windowNumber: main.windowNumber,
+                                                    context: nil, eventNumber: 0, clickCount: 2, pressure: 1)!
+        #expect(!PanelBackdrop.handle(afterNothingClosed, appIsActive: true))
+        nav.closePanel()
+
+        // A sheet of the sheet (a confirmation) takes the click.
+        let inner = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+                             styleMask: [.titled], backing: .buffered, defer: false)
+        inner.isReleasedWhenClosed = false
+        sheet.beginSheet(inner)
+        try #require(sheet.attachedSheet === inner)
+        #expect(!click(at: backdrop))
+        sheet.endSheet(inner)
+        inner.orderOut(nil)
+        try #require(sheet.attachedSheet == nil)
+
+        // A double click: the first closes, the second is swallowed — it
+        // can't open what the window shows underneath.
+        #expect(click(at: backdrop))
+        let second = NSEvent.mouseEvent(with: .leftMouseDown, location: backdrop, modifierFlags: [],
+                                        timestamp: now + 0.1, windowNumber: main.windowNumber, context: nil,
+                                        eventNumber: 0, clickCount: 2, pressure: 1)!
+        #expect(PanelBackdrop.handle(second, appIsActive: true))
     }
 
     // MARK: - Escape

@@ -13,9 +13,10 @@
 //   • Settings — its own always-visible sidebar of the eight tabs of the
 //     2026-10-23 structure, the row search at the top of it;
 //   • About — no sidebar, just its page, narrower.
-//  The × or Escape closes them (Escape in a search field with text clears
-//  the search first). A sheet also keeps the window behind out of reach —
-//  its own sheets, its toolbar, its menu commands.
+//  The ×, Escape or a click on the window around them closes them (Escape
+//  in a search field with text clears the search first). A sheet also
+//  keeps the window behind out of reach — its own sheets, its toolbar, its
+//  menu commands.
 //
 //  From 31.10 to 01.11 Settings were a window of their own (`Window(id:
 //  "settings")`, About a page of its sidebar). What that brought and
@@ -89,7 +90,10 @@ struct MainPanelSheet: ViewModifier {
                     })
             }
             .onChange(of: nav.panel, initial: true) { _, _ in sync() }
-            .onAppear { PanelKeys.install() }
+            .onAppear {
+                PanelKeys.install()
+                PanelBackdrop.install()
+            }
             // The tour starting (a replay from About or Help) closes the
             // sheet; one asked for during the tour isn't kept for after it.
             .onChange(of: showsTour) { _, tour in
@@ -267,6 +271,141 @@ enum PanelKeys {
         }
         nav.closePanel()
         return true
+    }
+}
+
+/// A click on the main window around a Settings or About sheet — on the
+/// softened backdrop macOS draws behind it — closes the sheet, as the ×
+/// and Escape do (Egor 06.11). A click, not a press: the button goes down
+/// and comes back up on the main window without the pointer travelling,
+/// so dragging the window by its top keeps the sheet, and so does anything
+/// begun inside it — a selection, a slider, a list row dragged out past
+/// its edge: those presses belong to the sheet's own window. It closes
+/// through `closePanel`, the ×'s path, so whatever the × keeps or lets go
+/// of on closing goes the same way. Not a dismissing click:
+///  • the one that brings Daisy back from another app — it only
+///    activates, as a first click into a background window does;
+///  • one with a modifier key (⌘-click moves a background window, ⌃-click
+///    is a right click);
+///  • the main window's own title-bar buttons, which act;
+///  • while a sheet of the sheet, a popover of it, or a modal window (a
+///    file chooser Settings opened) is up — the click is theirs.
+/// The rest of a double click that closed the sheet is swallowed, so it
+/// can't open whatever the window shows underneath.
+@MainActor
+enum PanelBackdrop {
+    private static var monitor: Any?
+    private static var activationObserver: NSObjectProtocol?
+    /// When Daisy last became the active app (system uptime, the clock of
+    /// `NSEvent.timestamp`).
+    private static var activatedAt: TimeInterval = -.infinity
+    /// Internal so the tests can start from a clean slate.
+    static var clicks = Clicks()
+
+    static func install() {
+        guard monitor == nil else { return }
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { activatedAt = ProcessInfo.processInfo.systemUptime }
+        }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { event in
+            handle(event) ? nil : event
+        }
+    }
+
+    /// True when the event was swallowed. `appIsActive`: whether Daisy is
+    /// the active app — the tests' host never is.
+    static func handle(_ event: NSEvent, appIsActive: Bool = NSApp.isActive) -> Bool {
+        guard let window = event.window else { return false }
+        let id = ObjectIdentifier(window)
+        if clicks.swallows(window: id, clickCount: event.clickCount, at: event.timestamp,
+                           doubleClickInterval: NSEvent.doubleClickInterval) {
+            return true
+        }
+        // On the screen, not in the window: a window dragged or resized
+        // from its left or bottom edge carries the pointer's window
+        // coordinates along with it.
+        let onScreen = window.convertPoint(toScreen: event.locationInWindow)
+        switch event.type {
+        case .leftMouseDown:
+            let plain = event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
+            let onBackdrop = plain && isBackdrop(event.locationInWindow, of: window)
+            clicks.press(window: id, at: onScreen, onBackdrop: onBackdrop,
+                         activating: !appIsActive || activatedAt >= event.timestamp)
+        case .leftMouseUp:
+            // Still ours: a sheet of the sheet may have come up meanwhile.
+            guard clicks.release(window: id, at: onScreen),
+                  isBackdrop(event.locationInWindow, of: window) else { return false }
+            AppNavigation.shared.closePanel()
+            clicks.closedSheet(window: id, at: event.timestamp)
+        default:
+            break
+        }
+        return false
+    }
+
+    /// `point` of `window` is the backdrop around our sheet: the window is
+    /// the one the sheet is on, nothing is over the sheet — nor a modal
+    /// window such as a file chooser Settings opened — and the point is
+    /// neither under the sheet nor on a title-bar button.
+    private static func isBackdrop(_ point: NSPoint, of window: NSWindow) -> Bool {
+        guard AppNavigation.shared.panel != nil, NSApp.modalWindow == nil,
+              let sheet = PanelKeys.sheetWindow, sheet.isVisible,
+              sheet.sheetParent === window, window.attachedSheet === sheet,
+              sheet.attachedSheet == nil,
+              !(sheet.childWindows ?? []).contains(where: \.isVisible) else { return false }
+        if sheet.frame.contains(window.convertPoint(toScreen: point)) { return false }
+        let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+        return !buttons.contains { type in
+            guard let button = window.standardWindowButton(type), !button.isHidden else { return false }
+            return button.convert(button.bounds, to: nil).contains(point)
+        }
+    }
+
+    /// The press-and-release bookkeeping, apart from AppKit for the tests.
+    struct Clicks {
+        /// How far the pointer may travel between press and release and
+        /// still make a click.
+        nonisolated static let slop: CGFloat = 4
+
+        private var pressed: (window: ObjectIdentifier, at: NSPoint)?
+        /// The window and moment the backdrop's click closed the sheet.
+        private var closed: (window: ObjectIdentifier, at: TimeInterval)?
+
+        /// The button went down (`point` on the screen). Only a press on
+        /// the backdrop that isn't the activating click can become a
+        /// closing one.
+        mutating func press(window: ObjectIdentifier, at point: NSPoint, onBackdrop: Bool, activating: Bool) {
+            pressed = onBackdrop && !activating ? (window, point) : nil
+        }
+
+        /// The button came up: true when this ends a click on the
+        /// backdrop — the same window, the pointer where it went down.
+        mutating func release(window: ObjectIdentifier, at point: NSPoint) -> Bool {
+            defer { pressed = nil }
+            guard let pressed, pressed.window == window else { return false }
+            return hypot(point.x - pressed.at.x, point.y - pressed.at.y) <= Self.slop
+        }
+
+        /// The click on the backdrop closed the sheet: the rest of its
+        /// multi-click is swallowed (`swallows`).
+        mutating func closedSheet(window: ObjectIdentifier, at time: TimeInterval) {
+            closed = (window, time)
+        }
+
+        /// The second (third…) press and release of a multi-click whose
+        /// first click closed the sheet.
+        mutating func swallows(window: ObjectIdentifier, clickCount: Int, at time: TimeInterval,
+                               doubleClickInterval: TimeInterval) -> Bool {
+            guard let closed else { return false }
+            guard clickCount > 1, closed.window == window,
+                  time - closed.at <= doubleClickInterval * Double(clickCount - 1) else {
+                if clickCount <= 1 { self.closed = nil }
+                return false
+            }
+            return true
+        }
     }
 }
 
