@@ -50,10 +50,13 @@ final class RecordingSession {
     ///     to History.
     ///
     ///   - `.voiceNote` — quick personal capture. Mic only (no
-    ///     system audio, no remote participants), NO LLM summary
-    ///     (just the transcript). Persisted with `daisy_kind: note`
-    ///     (SessionKind) so it surfaces in the Notes tab regardless of
-    ///     which project it lives in; defaults to Inbox like any capture.
+    ///     system audio, no remote participants). Persisted with
+    ///     `daisy_kind: note` + `daisy_voice_note: true` so it surfaces
+    ///     in the Notes tab regardless of which project it lives in;
+    ///     defaults to the default notes project. Summarized in its
+    ///     author's voice when `VoiceNoteProfile.Gate` lets it (07.11):
+    ///     always on this Mac, with a cloud provider only when the person
+    ///     allowed it. Never auto-sent anywhere it isn't filed for.
     ///     Useful for "remember this before I forget" moments.
     ///
     ///   - `.dictation` — Wispr-Flow-lite. Mic only, no summary,
@@ -925,6 +928,60 @@ final class RecordingSession {
     /// no longer reflects where the session lives. Cleared on `reset()`.
     @ObservationIgnored
     var persistedKindOverride: SessionKind?
+
+    /// A voice note as its files say (`VoiceNoteProfile`, Egor 07.11):
+    /// recorded as one and still a note. One the person moved to the
+    /// Library while it finished is a recording now, and its transcript
+    /// says only that — never `daisy_kind: recording` beside the marker.
+    /// Its summary is in the author's voice, gated by
+    /// `VoiceNoteProfile.summarizesOnItsOwn`.
+    var isVoiceNote: Bool {
+        Self.isVoiceNote(mode: currentMode, kind: sessionKind)
+    }
+
+    static func isVoiceNote(mode: RecordingMode, kind: SessionKind) -> Bool {
+        mode == .voiceNote && kind == .note
+    }
+
+    /// Stop's decision: is this session's kind summarized? A meeting is;
+    /// a voice note when the gate lets a note recorded at `startedAt`
+    /// through (Egor 07.11). The rest of `willSummarize` — the setting,
+    /// the provider, the audio — is checked beside it.
+    static func summarizesAtStop(mode: RecordingMode, kind: SessionKind, startedAt: Date?,
+                                 gate: VoiceNoteProfile.Gate) -> Bool {
+        mode == .meeting || (isVoiceNote(mode: mode, kind: kind) && gate.allows(recordedAt: startedAt))
+    }
+
+    /// `willSummarize` read again right before something is sent: a voice
+    /// note's gate may have closed since Stop — the switch turned off, the
+    /// provider changed — and finalize spends minutes on the final pass
+    /// first. A meeting's answer doesn't change here.
+    static func summaryStillAllowed(willSummarize: Bool, isVoiceNote: Bool, startedAt: Date?,
+                                    gate: VoiceNoteProfile.Gate) -> Bool {
+        willSummarize && (!isVoiceNote || gate.allows(recordedAt: startedAt))
+    }
+
+    /// What finalize knows of a voice note, read once at Stop: by the
+    /// time the summary is sent a new recording's `reset()` may have
+    /// changed the mode and the start (07.11). `isVoiceNote` is how it was
+    /// recorded, not the kind it may since have been moved to: a voice
+    /// note the person moved to the Library while it finished keeps the
+    /// voice-note gate and the one-voice prompt (it is still one voice, and
+    /// was recorded under the gate), while its file follows the kind and
+    /// carries no key.
+    struct FinalizeVoiceNote: Sendable, Equatable {
+        let isVoiceNote: Bool
+        let startedAt: Date?
+
+        static let none = FinalizeVoiceNote(isVoiceNote: false, startedAt: nil)
+
+        /// `willSummarize`, read again with the gate as it stands now.
+        @MainActor
+        func summaryStillAllowed(willSummarize: Bool) -> Bool {
+            RecordingSession.summaryStillAllowed(willSummarize: willSummarize, isVoiceNote: isVoiceNote,
+                                                 startedAt: startedAt, gate: .current)
+        }
+    }
 
     /// Mode the next `start()` should adopt. Set by mode-specific
     /// entry points (`toggleVoiceNoteByHotkey`, etc.) right before
@@ -2560,8 +2617,10 @@ final class RecordingSession {
         // is recognised as a recoverable recording on next launch. Only when
         // we're actually archiving audio: in the
         // no-audio retention mode there's nothing on disk to recover.
+        // A voice note's marker says so (07.11), so a crash recovery writes
+        // it back as a voice note, under its gate, not as a meeting.
         if !skipAudioArchive, let dir {
-            try? Data(ISO8601DateFormatter().string(from: nowStarted).utf8)
+            try? Data(RecordingMarker.contents(startedAt: nowStarted, isVoiceNote: isVoiceNote).utf8)
                 .write(to: dir.appendingPathComponent(SessionStore.recordingMarkerName))
         }
 
@@ -2712,8 +2771,9 @@ final class RecordingSession {
         // given up before it came up): ask again now, which starts it.
         // `stop()` reads the cached availability and must not wait 20 s
         // for a launch, so it has to be settled before the meeting ends
-        // (review 28.10).
-        if currentMode == .meeting, settings.autoSummarize,
+        // (review 28.10). A voice note it will summarize too (07.11).
+        if Self.summarizesAtStop(mode: currentMode, kind: sessionKind, startedAt: nowStarted, gate: .current),
+           settings.autoSummarize,
            summarizer.providerKind == .ollama, summarizer.availability != .available {
             Task { [summarizer] in await summarizer.refreshAvailability() }
         }
@@ -3696,10 +3756,11 @@ final class RecordingSession {
         // LLM call (15-30 s) and downstream auto-send happen in a
         // detached task below and report progress through
         // `summaryGenerationState`, not through `status`.
-        // LLM summary only runs for full `.meeting` mode. Voice
-        // notes are bare transcript + audio (kept in History under
-        // Notes folder), dictation is ephemeral and skipped
-        // entirely below.
+        // LLM summary runs for a meeting, and for a voice note when its
+        // gate lets it (Egor 07.11): always with a provider that keeps it
+        // on this Mac, with a cloud one only when «Summarize voice notes
+        // with …» is on — then in the author's voice. Dictation is
+        // ephemeral and skipped entirely above.
         //
         // `|| capturedAnyAudio`: with live transcription off a meeting
         // has no segments at Stop by design — its words come from the
@@ -3708,10 +3769,12 @@ final class RecordingSession {
         // Summarize over a transcript of screenshot links (31.10). If the
         // final pass hears nothing, `Summarizer.summarize` says so and
         // writes nothing.
+        let summarizesThisKind = Self.summarizesAtStop(mode: currentMode, kind: sessionKind,
+                                                       startedAt: startedAt, gate: .current)
         let willSummarize = settings.autoSummarize
             && summarizer.availability == .available
             && (!segments.isEmpty || capturedAnyAudio)
-            && currentMode == .meeting
+            && summarizesThisKind
             && !captureLikelyFailed
 
         guard let dir = sessionDirectory else {
@@ -3728,6 +3791,10 @@ final class RecordingSession {
         // Summaries are on but the provider isn't usable (Apple
         // Intelligence switched off, a missing key): finalize won't even
         // try, and that used to be silent. Keep and say why (07.10.2026).
+        // A meeting only: a voice note whose provider can't run (Apple
+        // Intelligence off, an older macOS) is left without a summary in
+        // silence — the reason would name cloud providers as the fix, for
+        // a summary nobody asked for (07.11).
         if settings.autoSummarize, currentMode == .meeting, !segments.isEmpty || capturedAnyAudio, !captureLikelyFailed,
            case .unavailable(let reason) = summarizer.availability {
             SummaryFailureNote.announce(
@@ -3775,6 +3842,7 @@ final class RecordingSession {
         // skip launching the task at all; now it still launches,
         // just sets willSummarize=false so the LLM step is no-op'd.
         let titleSnapshot = title
+        let voiceNoteSnapshot = FinalizeVoiceNote(isVoiceNote: currentMode == .voiceNote, startedAt: startedAt)
         let localeHint = localeHintForSummary
         // Snapshot the complete on-disk archive URLs NOW (capture is
         // stopped, files are flushed/closed), before the detached task
@@ -3876,6 +3944,7 @@ final class RecordingSession {
                 title: titleSnapshot,
                 localeHint: localeHint,
                 willSummarize: willSummarize,
+                voiceNote: voiceNoteSnapshot,
                 generation: myGeneration,
                 micArchiveURLs: micArchiveURLs,
                 systemArchiveURLs: systemArchiveURLs
@@ -4316,8 +4385,8 @@ final class RecordingSession {
                 .map { "[\($0.speakerLabel(displayName: myName))] \($0.text)" }
                 .joined(separator: "\n\n")
         case .voiceNote, .dictation:
-            // Single-speaker, no diarization, no LLM downstream.
-            // The speaker tag is noise — for dictation it'd end
+            // Single-speaker, no diarization. A voice note's summary
+            // (07.11) is told there is one voice; the speaker tag is noise — for dictation it'd end
             // up pasted into the user's text field as "[Me] hi
             // there", which is exactly what they don't want.
             //
@@ -4373,7 +4442,8 @@ final class RecordingSession {
         await summarizer.summarize(
             transcript: fullTranscriptText,
             title: title,
-            localeHint: localeHintForSummary
+            localeHint: localeHintForSummary,
+            task: .summary(oneVoice: isVoiceNote)
         )
         status = priorStatus
     }

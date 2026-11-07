@@ -164,7 +164,7 @@ public nonisolated enum SessionClassifier {
             durationSec = marker.durationSec
             if !marker.folderSlug.isEmpty { folder = marker.folderSlug.lowercased() }
         } else if let markerText = try? String(contentsOf: directory.appendingPathComponent(recordingMarkerName), encoding: .utf8),
-                  let d = ISO8601DateFormatter().date(from: markerText.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                  let d = SessionWriter.markerStart(markerText) {
             startedAt = d
         }
         // A recording still waiting for its transcript reads as the

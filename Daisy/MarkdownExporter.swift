@@ -56,7 +56,7 @@ enum MarkdownExporter {
         // live in any project. Read back by SessionStore.parseSession to
         // route the session into the Library (recording) or Notes (note)
         // tab. See RecordingSession.sessionKind / SessionKind.
-        lines.append("daisy_kind: \(session.sessionKind.rawValue)")
+        lines.append(contentsOf: kindLines(kind: session.sessionKind, isVoiceNote: session.isVoiceNote))
         // Free-form tag — empty when untagged. History sidebar
         // selector groups by this value. Renamed from `daisy_client`
         // in 1.0.5.2; parser still reads the legacy key for older
@@ -170,6 +170,19 @@ enum MarkdownExporter {
         }
         lines.append("tags: [meeting, transcript, daisy]")
         lines.append("---")
+        return lines
+    }
+
+    /// `daisy_kind:`, and right after it a voice note's key (Egor 07.11,
+    /// session-format.md §3.4): Flow takes a voice note into its inbox as
+    /// a note, a task when an action was named. Both renders — at Stop and
+    /// at the final pass — go through here, so the key is there whichever
+    /// wrote the file last. Never beside a kind other than `note`.
+    nonisolated static func kindLines(kind: SessionKind, isVoiceNote: Bool) -> [String] {
+        var lines = ["daisy_kind: \(kind.rawValue)"]
+        if isVoiceNote, kind == .note {
+            lines.append("\(VoiceNoteProfile.frontmatterKey): true")
+        }
         return lines
     }
 

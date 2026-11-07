@@ -1303,6 +1303,10 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 .settingsRow(.sideNotesLeaveMeeting)
+                // A tap of the Daisy key records a voice note; its summary
+                // (Egor 07.11) goes to a cloud provider only with this on.
+                VoiceNoteSummaryRow(settings: settings, summarizer: summarizer)
+                    .settingsRow(.voiceNoteSummaries)
                 // The yeses its commands were given to send to a cloud
                 // provider (S2, 24.10.2026: from the AI tab).
                 CloudPermissionRows(kind: .daisyKey)
@@ -4713,6 +4717,42 @@ private struct CloudPermissionRows: View {
             Text("Revoked, Daisy asks again the next time.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+        }
+    }
+}
+
+/// A voice note's summary (Egor 07.11, `VoiceNoteProfile.Gate`).
+/// With a cloud provider, the switch that lets a finished voice note go
+/// there — off by default, and only notes recorded while it is on; with a
+/// provider that keeps notes on this Mac,
+/// a line saying they are summarized here, since there is nothing to ask.
+/// When either happens is the meetings' «Summarize».
+private struct VoiceNoteSummaryRow: View {
+    @Bindable var settings: AppSettings
+    @Bindable var summarizer: Summarizer
+
+    var body: some View {
+        if summarizer.providerIsEffectivelyLocal {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Summarize voice notes")
+                Text("Voice notes are summarized on this Mac, at the same time as meetings")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            let provider = summarizer.providerKind.shortName
+            // For this provider: a yes given to another reads as off here,
+            // and turning it on records a new moment (07.11).
+            let destination = summarizer.voiceNoteDestination
+            Toggle(isOn: Binding(get: { settings.summarizesVoiceNotesInCloud(for: destination) },
+                                 set: { settings.setSummarizeVoiceNotesInCloud($0, destination: destination) })) {
+                Text("Summarize voice notes with \(provider)")
+                Text("Voice notes you record while this is on go to \(provider) for a summary, when summaries run. Earlier ones go only if you ask for their summary")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

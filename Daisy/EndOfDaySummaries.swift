@@ -167,7 +167,9 @@ final class EndOfDaySummaries {
             // Against the store as already loaded, not a fresh scan —
             // and at launch that store is empty, which correctly means
             // "we don't know of anything pending yet, don't cry wolf".
-            if !Self.pendingSessions().isEmpty,
+            // Meetings only: voice notes are left quietly when the provider
+            // can't run (07.11).
+            if Self.pendingSessions().contains(where: { $0.kind == .recording }),
                UserDefaults.standard.string(forKey: Self.warnedDayKey) != today {
                 UserDefaults.standard.set(today, forKey: Self.warnedDayKey)
                 ToastCenter.shared.show(
@@ -224,7 +226,15 @@ final class EndOfDaySummaries {
 
     // MARK: - Selection
 
-    /// Recordings with a transcript and no summary, NEWEST first.
+    /// Recordings with a transcript and no summary, NEWEST first — and
+    /// voice notes recorded with their key that their gate lets through
+    /// (`VoiceNoteProfile.Gate`, Egor 07.11): on this Mac, or with a cloud
+    /// provider only those recorded since the switch was turned on — the
+    /// window below must not carry a week of notes out the evening it is.
+    /// The evening pass is the meetings' «Summarize» setting, and voice
+    /// notes follow it. A voice note from before the key is never picked
+    /// up here. Each is checked again right before it is sent
+    /// (`mayStillSummarize`).
     ///
     /// "No summary" is the whole state machine: a session leaves this
     /// list by getting one, so an interrupted pass, a night the provider
@@ -235,9 +245,23 @@ final class EndOfDaySummaries {
     /// today-only rule would silently abandon the 21:00 meeting, since
     /// tomorrow's pass would no longer consider it.
     static func pendingSessions() -> [StoredSession] {
-        let cutoff = Date().addingTimeInterval(-Double(maxLookbackDays) * 86_400)
-        return SessionStore.shared.sessions
-            .filter { $0.kind == .recording && !$0.isDemo }
+        let declines = VoiceNoteProfile.Declines()
+        let provider = Summarizer.shared.providerKind.rawValue
+        return pending(in: SessionStore.shared.sessions, now: Date(), gate: .current,
+                       isProcessing: { SessionStore.shared.isProcessing($0) },
+                       declined: { declines.declined($0, by: provider) })
+    }
+
+    /// `pendingSessions` over a given list — the selection, apart from the
+    /// store, for the tests. `declined`: a voice note this provider already
+    /// couldn't do (`VoiceNoteProfile.Declines`) — not tried every evening
+    /// until the provider is another one or the person asks.
+    static func pending(in sessions: [StoredSession], now: Date, gate: VoiceNoteProfile.Gate,
+                        isProcessing: (String) -> Bool, declined: (String) -> Bool) -> [StoredSession] {
+        let cutoff = now.addingTimeInterval(-Double(maxLookbackDays) * 86_400)
+        return sessions
+            .filter { mayStillSummarize($0, gate: gate) && !$0.isDemo }
+            .filter { !$0.isVoiceNote || !declined($0.id) }
             .filter { $0.summary == nil }
             .filter { !$0.transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .filter { $0.startedAt >= cutoff }
@@ -246,7 +270,7 @@ final class EndOfDaySummaries {
             .filter { TranscriptSpeech.hasSpeech($0.transcriptText) }
             // Its final pass or a queue job is still on it: the transcript
             // is a draft, and the summary waits for the real one.
-            .filter { !SessionStore.shared.isProcessing($0.id) }
+            .filter { !isProcessing($0.id) }
             // Newest first, because anything that stops the pass early
             // — the failure breaker, a recording starting, the user
             // switching the setting off — should cost the OLDEST work,
@@ -262,15 +286,21 @@ final class EndOfDaySummaries {
     private func run(_ batch: [StoredSession]) async {
         log.info("End-of-day summaries: \(batch.count, privacy: .public) session(s)")
         state = .running(current: 1, total: batch.count)
-        ToastCenter.shared.show(
-            batch.count == 1
-                ? String(localized: "Summarizing 1 meeting…")
-                : String(localized: "Summarizing \(batch.count) meetings…"),
-            style: .info
-        )
+        let notes = batch.filter(\.isVoiceNote).count
+        // A batch of voice notes alone starts quietly (07.11): each may yet
+        // be left without a summary — its gate closed, a provider that
+        // can't do it — and a «Summarizing…» with nothing after it would
+        // be a promise the pass didn't keep. What came out is said below.
+        var startToast: UUID?
+        if let text = Self.startText(meetings: batch.count - notes, voiceNotes: notes) {
+            ToastCenter.shared.show(text, style: .info)
+            startToast = ToastCenter.shared.current?.id
+        }
 
         var succeeded = 0
         var attempted = 0
+        /// Meetings among them — the failure toast names what failed.
+        var attemptedMeetings = 0
         var consecutiveFailures = 0
         /// The user stopped us (started recording, or changed the
         /// setting). Any failures so far were real, but blaming the
@@ -293,12 +323,27 @@ final class EndOfDaySummaries {
                 stoppedByUser = true
                 break
             }
+            // A voice note's gate, read again right before it is sent: the
+            // batch was chosen before the provider calls that came first,
+            // and the switch or the provider may have changed since (07.11).
+            // Left without a summary — nothing failed.
+            guard Self.mayStillSummarize(session, gate: .current) else {
+                log.info("End-of-day summaries: a voice note's gate closed — left without a summary")
+                continue
+            }
             state = .running(current: index + 1, total: batch.count)
             attempted += 1
-            if await summarize(session) {
+            if session.kind == .recording { attemptedMeetings += 1 }
+            switch await summarize(session) {
+            case .summarized:
                 succeeded += 1
                 consecutiveFailures = 0
-            } else {
+            case .leftQuietly:
+                // The provider can't do this voice note (too long, a
+                // language it doesn't write): not a broken provider.
+                attempted -= 1
+                if session.kind == .recording { attemptedMeetings -= 1 }
+            case .failed:
                 consecutiveFailures += 1
                 // Three in a row is a broken provider, not three unlucky
                 // transcripts. Keep going and we spend twenty more
@@ -311,18 +356,16 @@ final class EndOfDaySummaries {
         }
 
         state = .idle
+        // Nothing to say after all (every voice note left quietly, or the
+        // person stopped it): the start toast doesn't stay behind.
+        if let startToast { ToastCenter.shared.dismiss(id: startToast) }
         if succeeded > 0 {
-            ToastCenter.shared.show(
-                succeeded == 1
-                    ? String(localized: "1 meeting summarized.")
-                    : String(localized: "\(succeeded) meetings summarized."),
-                style: .success
-            )
+            ToastCenter.shared.show(Self.doneText(succeeded: succeeded, withVoiceNotes: notes > 0), style: .success)
         } else if attempted > 0, !stoppedByUser {
             // Silence here would read as "nothing needed doing", which
             // is the opposite of what happened.
             ToastCenter.shared.showAction(
-                String(localized: "Couldn't summarize tonight's meetings — check \(SettingsRow.summaryProvider.path)."),
+                Self.failureText(meetingsFailed: attemptedMeetings > 0),
                 actionLabel: String(localized: "Summary settings"),
                 style: .error,
                 duration: .seconds(8)
@@ -332,10 +375,54 @@ final class EndOfDaySummaries {
         }
     }
 
-    /// One session. Returns false on any failure — the session simply
-    /// keeps its missing summary and is picked up by tomorrow's pass,
-    /// which is a better retry than anything scheduled here.
-    private func summarize(_ session: StoredSession) async -> Bool {
+    /// What the pass says when it starts. Meetings alone: as it always
+    /// said. With voice notes (07.11) it names them, with the count after
+    /// a colon so neither language has to decline it. Voice notes alone:
+    /// nothing — see `run`.
+    static func startText(meetings: Int, voiceNotes: Int) -> String? {
+        guard meetings > 0 else { return nil }
+        if voiceNotes == 0 {
+            return meetings == 1
+                ? String(localized: "Summarizing 1 meeting…")
+                : String(localized: "Summarizing \(meetings) meetings…")
+        }
+        return String(localized: "Summarizing meetings and voice notes: \(meetings + voiceNotes)…")
+    }
+
+    /// What the pass says when nothing came out: tonight's meetings, as it
+    /// always said, or tonight's voice notes when no meeting was among
+    /// what failed (07.11).
+    static func failureText(meetingsFailed: Bool) -> String {
+        meetingsFailed
+            ? String(localized: "Couldn't summarize tonight's meetings — check \(SettingsRow.summaryProvider.path).")
+            : String(localized: "Couldn't summarize tonight's voice notes — check \(SettingsRow.summaryProvider.path).")
+    }
+
+    /// What the pass says when something was summarized.
+    static func doneText(succeeded: Int, withVoiceNotes: Bool) -> String {
+        if withVoiceNotes { return String(localized: "Summaries done: \(succeeded).") }
+        return succeeded == 1
+            ? String(localized: "1 meeting summarized.")
+            : String(localized: "\(succeeded) meetings summarized.")
+    }
+
+    /// Whether a session from the store is the evening pass's to summarize:
+    /// a recording, or a voice note its gate lets through (07.11). Asked
+    /// when the batch is chosen and again right before each send.
+    static func mayStillSummarize(_ session: StoredSession, gate: VoiceNoteProfile.Gate) -> Bool {
+        session.kind == .recording
+            || VoiceNoteProfile.summarizesOnItsOwn(session.voiceNote, recordedAt: session.startedAt, gate: gate)
+    }
+
+    enum Outcome { case summarized, failed, leftQuietly }
+
+    /// One session. `.failed` on any failure — the session simply keeps
+    /// its missing summary and is picked up by tomorrow's pass, which is a
+    /// better retry than anything scheduled here. `.leftQuietly`: a voice
+    /// note the provider can't do (too long for the on-device model, a
+    /// language it doesn't write) — no failure, and no toast pointing at
+    /// the provider settings for a summary nobody asked for.
+    private func summarize(_ session: StoredSession) async -> Outcome {
         SessionStore.shared.beginGenerating(session.id)
         defer { Task { await SessionStore.shared.finishGenerating(session.id) } }
 
@@ -350,14 +437,22 @@ final class EndOfDaySummaries {
         guard let summary = await Summarizer.shared.summarize(
             transcript: session.transcriptText,
             title: session.title,
-            localeHint: localeHint
+            localeHint: localeHint,
+            // A voice note in its author's voice (07.11).
+            task: .summary(oneVoice: session.isVoiceNote)
         ) else {
+            if Summarizer.shared.leavesVoiceNoteQuietly(isVoiceNote: session.isVoiceNote) {
+                log.info("End-of-day summary: the provider can't summarize voice note \(session.id, privacy: .public) — left without one")
+                VoiceNoteProfile.Declines().record(session.id, provider: Summarizer.shared.providerKind.rawValue)
+                return .leftQuietly
+            }
             log.error("End-of-day summary failed for \(session.id, privacy: .public)")
-            return false
+            return .failed
         }
-        // Templates (backlog 35), without the voice pass this path leaves out.
+        // Templates (backlog 35), without the voice pass this path leaves out
+        // (a voice note gets one only picked by hand — `laidOut`).
         let templated = await StoredSessionTemplates.applyWithoutVoice(summary, previous: session.summary, session: session)
         await SessionStore.shared.updateSummary(templated, for: session)
-        return true
+        return .summarized
     }
 }

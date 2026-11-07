@@ -74,6 +74,12 @@ enum SettingsWiring {
             ObservedValue({ settings.autoStartFromCalendar }) {
                 ServiceWiring.applyCalendar(settings: settings, session: session)
             },
+            // Another summary provider took away the yes to send voice
+            // notes to the old one (`Summarizer.providerKind`, 07.11): the
+            // switch Settings shows reads it again.
+            ObservedValue({ Summarizer.shared.voiceNoteDestination }) {
+                settings.reloadVoiceNoteCloudGrant()
+            },
             ObservedValue({ settings.summaryTiming }) {
                 ServiceWiring.applyEndOfDaySummaries(settings: settings, session: session)
             },

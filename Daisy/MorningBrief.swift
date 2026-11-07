@@ -111,7 +111,10 @@ final class MorningBriefStore {
         if case .generating = ledeState { return }
 
         let events = scope.events
-        let openItems = ActionItemStore.shared.openItems
+        // The brief's lede goes to the summary provider: a voice note's
+        // steps only as the note itself could go there (07.11). The card
+        // still shows every open step — it reads the store, not this.
+        let openItems = Self.itemsForProvider(ActionItemStore.shared.openItems, gate: .current)
         // Nothing to brief about — the card renders its own empty state;
         // don't spend an LLM call narrating an empty day.
         guard !events.isEmpty || !openItems.isEmpty else {
@@ -152,6 +155,13 @@ final class MorningBriefStore {
             ledeState = .unavailable
             log.error("Morning brief lede failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// The open steps the lede's request may carry to the provider the
+    /// gate describes: every meeting's; a voice note's only when the
+    /// voice-note gate would let the note go there (`VoiceNoteProfile.mayFeed`).
+    static func itemsForProvider(_ items: [TrackedActionItem], gate: VoiceNoteProfile.Gate) -> [TrackedActionItem] {
+        items.filter { VoiceNoteProfile.mayFeed(isVoiceNote: $0.fromVoiceNote, kindKnown: $0.kindKnown, recordedAt: $0.sessionDate, gate: gate) }
     }
 
     /// Explicit tap — consent for a cloud provider / manual refresh.

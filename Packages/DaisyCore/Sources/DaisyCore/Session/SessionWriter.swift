@@ -83,6 +83,14 @@ public nonisolated enum SessionWriter {
     /// §6.1 — the in-progress marker. Same name as `SessionStore
     /// .recordingMarkerName` on the Mac.
     public static let recordingMarkerName = ".recording"
+
+    /// The start instant a `.recording` marker holds: its first line. A
+    /// Mac voice note's marker has a second, `mode: voiceNote` (§6.1,
+    /// 2026-11-07); every marker before had the instant alone.
+    public static func markerStart(_ text: String) -> Date? {
+        guard let first = text.split(whereSeparator: \.isNewline).first else { return nil }
+        return ISO8601DateFormatter().date(from: first.trimmingCharacters(in: .whitespaces))
+    }
     /// §8 — staging directory family, hidden.
     public static let stagingPrefix = ".daisy-recording-"
 

@@ -1876,7 +1876,12 @@ final class DaisyKeyController {
             transcript: session.transcriptText, transcriptLocale: session.locale,
             summaryLanguageOverride: AppSettings.currentSummaryLanguage)
         if !quiet { tell(String(localized: "Note saved to \(folderName) — writing its summary…")) }
-        guard let summary = try? await summarizer.runProbe(transcript: session.transcriptText, title: session.title, localeHint: hint) else {
+        // One voice: the note is the person's own words, held and said to
+        // Daisy (Egor 07.11) — summarized as theirs, not as a meeting's.
+        // It is still not a voice note in the files (no key): a held note
+        // has its own shape.
+        guard let summary = try? await summarizer.runProbe(transcript: session.transcriptText, title: session.title,
+                                                           localeHint: hint, task: .summary(oneVoice: true)) else {
             tell(String(localized: "Note saved to \(folderName), but its summary didn’t work out"), action: open)
             return
         }

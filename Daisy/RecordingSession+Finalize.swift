@@ -11,6 +11,7 @@
 //  RecordingSession.swift — `stop()` itself stays in the main file.
 //
 
+import DaisyCore
 import Foundation
 import os
 
@@ -82,6 +83,7 @@ extension RecordingSession {
         title: String,
         localeHint: String?,
         willSummarize: Bool,
+        voiceNote: FinalizeVoiceNote,
         generation: UInt,
         micArchiveURLs: [URL],
         systemArchiveURLs: [URL]
@@ -347,6 +349,7 @@ extension RecordingSession {
             localeHint: localeHint,
             signposter: signposter,
             willSummarize: willSummarize,
+            voiceNote: voiceNote,
             finalPassSeconds: finalPassSeconds
         )
 
@@ -372,7 +375,8 @@ extension RecordingSession {
             title: title,
             localeHint: localeHint,
             signposter: signposter,
-            willSummarize: willSummarize
+            willSummarize: willSummarize,
+            voiceNote: voiceNote
         )
 
         if Task.isCancelled || sessionDirectory?.lastPathComponent != sessionID {
@@ -466,7 +470,18 @@ extension RecordingSession {
         // text (31.10); one whose final pass heard nobody either ends as
         // it always did — no summary, no failure said about it.
         let finalHasSpeech = TranscriptSpeech.hasSpeech(fullTranscriptText)
-        if willSummarize, finalHasSpeech {
+        // The voice-note gate read again right before the send (07.11):
+        // Stop decided minutes ago, and the switch or the provider may have
+        // changed since. A note it no longer lets through is left without a
+        // summary — nothing failed, nothing to tell anyone.
+        let summarizing = voiceNote.summaryStillAllowed(willSummarize: willSummarize)
+        /// No summary, and nothing to say about it: the gate closed, or the
+        /// provider can't do this voice note (`leavesVoiceNoteQuietly`).
+        var leftQuietly = willSummarize && !summarizing
+        if leftQuietly {
+            log.info("post-stop: voice note left without a summary — its gate closed since Stop")
+        }
+        if summarizing, finalHasSpeech {
             // Fold the OCR'd screen content into what the summarizer sees
             // so slides/dashboards influence the notes (Circleback-style
             // "captured whether said or shown"). Clearly fenced so the
@@ -492,14 +507,23 @@ extension RecordingSession {
             let summarizeState = signposter.beginInterval("summarize", id: signposter.makeSignpostID())
             let t_summarize = Date()
             SessionStore.shared.setFinalizeStage(.summarizing, for: sessionID)
+            // A voice note in its author's voice (Egor 07.11) — as recorded,
+            // read at Stop (`FinalizeVoiceNote`).
             summary = await summarizer.summarize(
                 transcript: transcriptText,
                 title: title,
                 localeHint: localeHint,
+                task: .summary(oneVoice: voiceNote.isVoiceNote),
                 projectContext: ProjectMemoryBridge.block(forSessionAt: directory)
             )
             signposter.endInterval("summarize", summarizeState)
             log.info("post-stop summarize: \(ms(t_summarize), privacy: .public)ms, transcript=\(transcriptText.count, privacy: .public) bytes, summary=\(summary != nil ? "ok" : "nil", privacy: .public)")
+            if summary == nil, summarizer.leavesVoiceNoteQuietly(isVoiceNote: voiceNote.isVoiceNote) {
+                leftQuietly = true
+                // Not tried again every evening while this provider stays.
+                VoiceNoteProfile.Declines().record(sessionID, provider: summarizer.providerKind.rawValue)
+                log.info("post-stop: the provider can't summarize this voice note — left without a summary, nothing announced")
+            }
 
             if Task.isCancelled {
                 summaryGenerationState = .failed("cancelled")
@@ -570,8 +594,11 @@ extension RecordingSession {
             // the meeting out under its sections, from the transcript.md
             // just written, timecodes and all. After the standard summary
             // is on disk, for the same reason as the voice pass; the
-            // standard summary stays as it is either way.
-            if summaryPersisted, let current = summary,
+            // standard summary stays as it is either way. Not a voice note's:
+            // templates are meeting layouts, and a note follows its thought
+            // (`StoredSessionTemplates.laidOut` — only a template picked by
+            // hand lays one out).
+            if summaryPersisted, !voiceNote.isVoiceNote, let current = summary,
                let choice = MeetingTemplateStore.shared.choose(.summary, folderSlug: folder.slug, title: templateTitle),
                let markdown = try? String(contentsOf: directory.appendingPathComponent("transcript.md"), encoding: .utf8),
                let templated = await MeetingTemplatePass.run(
@@ -612,7 +639,7 @@ extension RecordingSession {
         if willSummarize {
             if summaryPersisted {
                 SummaryFailureNote.clear(in: directory)
-            } else if summary == nil, !Task.isCancelled, finalHasSpeech {
+            } else if !leftQuietly, summary == nil, !Task.isCancelled, finalHasSpeech {
                 // A summary that came but couldn't be saved has its own
                 // toast; this one is for the provider's answer.
                 let reason = summarizer.lastError ?? String(localized: "The provider returned no summary.")
@@ -644,6 +671,7 @@ extension RecordingSession {
                 localeHint: localeHint,
                 signposter: signposter,
                 willSummarize: willSummarize,
+                voiceNote: voiceNote,
                 finalPassSeconds: finalPassSeconds
             )
             await runSpeakerNameSuggestions(
@@ -651,7 +679,8 @@ extension RecordingSession {
                 title: title,
                 localeHint: localeHint,
                 signposter: signposter,
-                willSummarize: willSummarize
+                willSummarize: willSummarize,
+                voiceNote: voiceNote
             )
             if Task.isCancelled || sessionDirectory?.lastPathComponent != sessionID {
                 // The next meeting took over during the polish. This one
@@ -662,7 +691,7 @@ extension RecordingSession {
                 if generation == summaryTaskGeneration {
                     // A summary that failed reads as failed, not as still
                     // cooking; Re-summarize is the way back.
-                    if willSummarize, summary == nil { summaryGenerationState = .failed("cancelled") }
+                    if willSummarize, !leftQuietly, summary == nil { summaryGenerationState = .failed("cancelled") }
                     summaryTask = nil
                 }
                 if willSummarize { await SessionStore.shared.finishGenerating(sessionID) }
@@ -705,8 +734,9 @@ extension RecordingSession {
         //
         // Gating: for the summary path we wait for summary success
         // (so the user can re-summarize from SessionDetailView if it
-        // failed). For the no-summary path (voice notes, autoSummarize
-        // disabled, provider unavailable) we purge once the transcript
+        // failed). For the no-summary path (a voice note its gate keeps
+        // on this Mac, autoSummarize disabled, provider unavailable) we
+        // purge once the transcript
         // is on disk — there's no second-chance LLM pass to keep audio
         // around for.
         //
@@ -721,7 +751,8 @@ extension RecordingSession {
             let transcriptLanded = await Task.detached {
                 Self.transcriptHasContent(in: directory)
             }.value
-            let canPurge = willSummarize ? (summary != nil && transcriptLanded) : transcriptLanded
+            // A voice note left quietly gets no summary to wait for.
+            let canPurge = willSummarize && !leftQuietly ? (summary != nil && transcriptLanded) : transcriptLanded
             if canPurge {
                 AudioRetentionSweep.purgeOneSession(at: directory)
             } else if !transcriptLanded {
@@ -733,8 +764,10 @@ extension RecordingSession {
         // beginGenerating, so finishGenerating would no-op — skip it
         // entirely to keep the trace clean.
         if willSummarize {
-            // Nobody spoke: nothing failed (Stage 4 above).
-            summaryGenerationState = (summary != nil) ? .ready : finalHasSpeech ? .failed("no summary") : .idle
+            // Nobody spoke, or a voice note was left quietly: nothing failed
+            // (Stage 4 above).
+            summaryGenerationState = (summary != nil) ? .ready
+                : (finalHasSpeech && !leftQuietly) ? .failed("no summary") : .idle
             await SessionStore.shared.finishGenerating(sessionID)
         }
         // Same generation guard as bailRotated — see `summaryTaskGeneration`
@@ -952,6 +985,7 @@ extension RecordingSession {
         localeHint: String?,
         signposter: OSSignposter,
         willSummarize: Bool,
+        voiceNote: FinalizeVoiceNote,
         finalPassSeconds: Double
     ) async {
         guard settings.transcriptSecondPass else { return }
@@ -959,7 +993,9 @@ extension RecordingSession {
             log.info("Transcript polish skipped — the local model can't do it within its deadline")
             return
         }
-        guard summarizer.providerIsEffectivelyLocal || willSummarize else {
+        // Read again here, right before the transcript would go out: a
+        // voice note's gate may have closed since Stop (07.11).
+        guard summarizer.providerIsEffectivelyLocal || voiceNote.summaryStillAllowed(willSummarize: willSummarize) else {
             log.info("Transcript polish skipped — cloud provider and no summary for this session, so the transcript stays on this Mac")
             return
         }
@@ -1084,12 +1120,14 @@ extension RecordingSession {
         title: String,
         localeHint: String?,
         signposter: OSSignposter,
-        willSummarize: Bool
+        willSummarize: Bool,
+        voiceNote: FinalizeVoiceNote
     ) async {
         guard settings.transcriptSecondPass else { return }
         guard settings.speakerMatchMode != .off else { return }
         guard summarizer.runsQuickPasses else { return }
-        guard summarizer.providerIsEffectivelyLocal || willSummarize else { return }
+        // Read again, as the polish does (07.11).
+        guard summarizer.providerIsEffectivelyLocal || voiceNote.summaryStillAllowed(willSummarize: willSummarize) else { return }
 
         // The roster is the allow-list, so it must contain only people a
         // REMOTE speaker could be. Both calendar paths already exclude
@@ -1644,6 +1682,7 @@ extension RecordingSession {
             summary: summarizer.lastSummary,
             folderSlug: sessionFolderSlug,
             kind: sessionKind,
+            voiceNote: isVoiceNote ? .marked : .none,
             tag: tag,
             meetingPreparation: meetingPreparationSnapshot,
             systemAudioStatus: systemAudioStatusValue,
@@ -1763,6 +1802,7 @@ extension RecordingSession {
             summary: summarizer.lastSummary,
             folderSlug: folder.slug,
             kind: sessionKind,
+            voiceNote: isVoiceNote ? .marked : .none,
             tag: tag,
             meetingPreparation: meetingPreparationSnapshot,
             systemAudioStatus: systemAudioStatusValue,
@@ -2098,6 +2138,7 @@ extension RecordingSession {
         summary: MeetingSummary?,
         folderSlug: String,
         kind: SessionKind = .recording,
+        voiceNote: VoiceNoteProfile.Recognition = .none,
         tag: String = "",
         meetingPreparation: MeetingPreparationSnapshot? = nil,
         systemAudioStatus: String? = nil,
@@ -2166,7 +2207,13 @@ extension RecordingSession {
             speakerCentroidIDs: centroidIDs,
             systemAudioStatus: systemAudioStatus,
             micOnlyCause: micOnlyCause,
-            micAudioStatus: micAudioStatus
+            micAudioStatus: micAudioStatus,
+            voiceNote: voiceNote,
+            // Built from the live session, which knows what it is — the
+            // caller passes its kind and whether it is a voice note. Only
+            // the auto-send to MCP destinations and the Send-to snapshot
+            // use it; neither goes to the summary provider.
+            kindKnown: true
         )
     }
 

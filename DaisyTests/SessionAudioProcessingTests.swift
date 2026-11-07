@@ -81,7 +81,8 @@ struct SessionAudioProcessingTests {
             planAnalysisError: nil,
             speakerMap: [:],
             speakerCentroidIDs: [],
-            systemAudioStatus: "ok"
+            systemAudioStatus: "ok",
+            kindKnown: true
         )
         let segment = TranscriptSegment(
             id: UUID(),

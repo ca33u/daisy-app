@@ -144,6 +144,7 @@ Written in this order:
 | `duration_sec` | integer, **truncated** not rounded | always |
 | `daisy_folder` | lowercase slug, default `inbox` | always |
 | `daisy_kind` | `recording`, `note` or `rehearsal` (§3.7) | always |
+| `daisy_voice_note` | `true` | Mac voice notes, beside `daisy_kind: note` (§3.4) |
 | `daisy_tag` | quoted string; absent means untagged | when non-empty |
 | `daisy_event_*` | calendar binding: external id, local id, title, start, platform, attendees, emails | when calendar-bound |
 | `daisy_speaker_map` | inline dict. §3.2 | **always, `{}` when empty** |
@@ -440,6 +441,65 @@ rewrite every note at once and send all of them through sync for
 nothing. A Mac voice note whose audio retention removed does not match:
 it has a length and a captured status.
 
+#### Voice notes (Mac, 2026-11-07)
+
+What a tap of the Daisy key records on the Mac outside a meeting: the
+microphone only, so one voice — the owner's (§2.1). It is a full session
+in the meeting's shape: §3.1's frontmatter with
+`daisy_system_audio_status: off`, `microphone.caf` (+ `.partN`, §2) unless
+audio retention has removed it, and the `## Transcript` heading with
+`**[m:ss · Name]**` lines. It is marked by
+
+```yaml
+daisy_kind: note
+daisy_voice_note: true
+```
+
+written right after `daisy_kind`. The key is only ever `true`, and only
+beside `daisy_kind: note`: a reader that finds it beside another kind goes
+by the kind.
+
+Who writes it: the Mac's recorder, at Stop and again at its final pass —
+each renders the whole file, and both write the key (a session the person
+moved to the Library while it finished is a recording, without the key).
+A re-transcription of a voice note — the copy made by «Re-transcribe», or
+the in-place finish of a voice note whose final pass another recording
+interrupted — keeps `daisy_kind: note` and so the key: since 2026-11-07 it
+writes `daisy_kind` only where there is none (§3.1); before, it wrote
+`recording` on everything. Every later edit — title, project, tag,
+speaker names — and sync change single lines and keep it. Crash recovery
+(§3.5) writes a recovered voice note as one, with the key, when its
+`.recording` marker says it was a voice note (§6.1).
+
+Not voice notes, and never marked: a Daisy-key note (words held on the
+key; `daisy_kind: note` with a length and its audio, but its words are the
+body, with no `## Transcript` heading) and a side note
+(`daisy_source_meeting`). Nor is a room recording filed as a note — any
+`daisy_origin` other than `mac` (§3.6): the key is the Mac's alone.
+
+Voice notes recorded before the key are not given it: no writer sweeps the
+library. Recognise them as `daisy_kind: note` (or, older still, no
+`daisy_kind` in `notes`, §3.1) with `duration_sec > 0`,
+`daisy_system_audio_status: off` (a meeting filed as a note captured the
+other side, or tried to), a `## Transcript` heading, no other note marker (`daisy_screenshot_note`,
+`daisy_document_note`, `daisy_text_note`), no `daisy_source_meeting` and
+no `daisy_origin` other than `mac`.
+A Daisy-key note that was re-transcribed gets the heading too, but it
+never had a `daisy_system_audio_status`, so it still doesn't read as one.
+DaisyCore's `VoiceNoteRecognition` is this rule, read by both apps.
+
+The phone leaves a Mac voice note — with the key or recognised by shape —
+out of its automatic project memory (a project's earlier summaries put in
+front of a new summary): the Mac's consent for the note isn't known there.
+Ask, which runs only when the person asks, reads the library as before.
+The Mac, likewise, sends an earlier session's words in another request
+(project memory, the morning brief, a pre-meeting dossier) only when it
+can tell that session isn't a voice note held back — one whose transcript
+is evicted to iCloud, unreadable or missing goes only to a provider on
+the Mac.
+
+Its summary is §4's, in the author's voice.
+
 ### 3.5 The other minimal profile: recovered recordings
 
 Crash recovery writes an even smaller file than a screenshot note. It
@@ -453,7 +513,12 @@ daisy_recovered: true
 
 It writes exactly `title`, `started`, `daisy_recovered`, `daisy_kind:
 recording`, `duration_sec`, and — **only when the user has configured a
-default meeting project** — `daisy_folder`. Everything else §3.1 calls
+default meeting project** — `daisy_folder`. A recording its `.recording`
+marker says was a voice note (§6.1, since 2026-11-07) comes back as one:
+`daisy_kind: note` and `daisy_voice_note: true` in place of `daisy_kind:
+recording`, the title «Recovered voice note — …», and `daisy_folder` only
+when the default notes project isn't `inbox`. A marker without the line
+— every one written before — is a meeting's, as it always was. Everything else §3.1 calls
 "always" is absent, and legitimately so. A reader must not treat a
 missing `daisy_folder` here as data loss: absent means `inbox`, which is
 what it would have meant anyway.
@@ -658,6 +723,22 @@ All four original keys are always written, including empty arrays and
 strings. Unknown keys are ignored on read — older files carry `decisions`
 and `followUps`, which no longer mean anything.
 
+The summary of a Mac voice note (§3.4) — and of a Daisy-key note, made when
+the person asks for it — is in the author's voice: their thought in their
+own words, never "the speaker says"; `actionItems` only what they said
+must be done ("call Boris"), not wishes; `clientFollowUp` always `""`. It
+may be absent: the Mac summarizes a voice note on its own only when the
+summary provider keeps it on the Mac, or when the person allowed that
+cloud provider (off by default; a yes to one provider is not a yes to
+another) — and then only a note recorded while that was on, checked again
+right before it is sent. One recorded before 2026-11-07 is
+summarized only when asked, and so is one a provider can't do (too long
+for an on-device model, a language it doesn't write) — left without a
+summary, not marked as failed, and not tried again by that provider (for
+30 days). It may also come later: voice notes follow
+the meetings' timing (after each, at the end of the day, or only when
+asked).
+
 `actions` (the phone, 2026-09-28, backlog 22) is the same list as
 `actionItems`, one object per string in the same order, typed so an action
 can be made from it; `status` records what it became (a calendar event, a
@@ -779,8 +860,12 @@ recovered session with no speech in it doesn't get recovered forever.
 
 ### 6.1 The `.recording` marker
 
-Written at start, containing the ISO-8601 start instant. Removed when the
-final transcript is safely on disk — **never earlier**. Remove it too
+Written at start, containing the ISO-8601 start instant. A Mac voice note
+(§3.4) adds a second line, `mode: voiceNote`, so crash recovery can write
+it back as a voice note (2026-11-07); a meeting's marker is the instant
+alone, as before. Read the first line as the instant, and treat a marker
+without the second line as a meeting's. The marker never syncs. Removed
+when the final transcript is safely on disk — **never earlier**. Remove it too
 soon and a crash becomes silent data loss; leave it and the session looks
 interrupted forever.
 

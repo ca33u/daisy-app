@@ -329,7 +329,26 @@ final class Summarizer {
     private(set) var lastError: String?
     /// Why `lastError` is there when the answer is not "try again" —
     /// set and cleared with it (19.10.2026).
-    private(set) var lastFailureCause: SummaryFailureCause?
+    private(set) var lastFailureCause: SummaryFailureCause? {
+        didSet { if lastFailureCause == nil { lastFailureIsProviderLimit = false } }
+    }
+    /// The last failure was the provider unable to do this text at all —
+    /// Apple's on-device model out of room, or a language it can't write —
+    /// rather than a fault worth retrying. Set with `lastFailureCause`.
+    private(set) var lastFailureIsProviderLimit = false
+
+    /// An automatic voice-note summary that failed that way is left alone
+    /// (Egor 07.11): no failure note, no toast — both name a cloud
+    /// provider as the fix, and nobody asked for this summary. Asked by
+    /// hand, the reason still shows.
+    func leavesVoiceNoteQuietly(isVoiceNote: Bool) -> Bool {
+        isVoiceNote && lastFailureIsProviderLimit
+    }
+
+    /// Too long for Apple's on-device model, or a language it can't write.
+    nonisolated static func isProviderLimit(_ error: any Error) -> Bool {
+        error is AppleIntelligenceContextExceeded || SummaryFailureCause.of(error) != nil
+    }
 
     /// Which provider is currently selected. Persisted to UserDefaults.
     /// Changing it triggers an availability re-check.
@@ -340,6 +359,10 @@ final class Summarizer {
             // Choosing the local model keeps the provider it replaces for
             // the interactive route.
             if providerKind == .daisyLocal, oldValue != .daisyLocal { interactiveFallback = oldValue }
+            // A yes to send voice notes to the old provider goes with it
+            // (07.11): coming back to it starts with the switch off.
+            // `SettingsWiring` reloads the switch Settings shows.
+            VoiceNoteCloudSwitch().providerChanged(from: voiceNoteDestination(kind: oldValue), to: voiceNoteDestination)
             Task { await refreshAvailability() }
         }
     }
@@ -473,10 +496,17 @@ final class Summarizer {
     /// Ollama daemon endpoint (default 127.0.0.1:11434, overridable
     /// for users running Ollama on a non-default port).
     var ollamaModel: String {
-        didSet { UserDefaults.standard.set(ollamaModel, forKey: Self.kOllamaModel) }
+        didSet {
+            UserDefaults.standard.set(ollamaModel, forKey: Self.kOllamaModel)
+            // A `:cloud` model sends text to ollama.com (07.11).
+            VoiceNoteCloudSwitch().providerChanged(from: voiceNoteDestination(ollamaModel: oldValue), to: voiceNoteDestination)
+        }
     }
     var ollamaBaseURL: String {
-        didSet { UserDefaults.standard.set(ollamaBaseURL, forKey: Self.kOllamaBaseURL) }
+        didSet {
+            UserDefaults.standard.set(ollamaBaseURL, forKey: Self.kOllamaBaseURL)
+            VoiceNoteCloudSwitch().providerChanged(from: voiceNoteDestination(ollamaBaseURL: oldValue), to: voiceNoteDestination)
+        }
     }
     /// LM Studio model + base URL (build 40). Model id must match
     /// what's loaded in the LM Studio UI; base URL is the local-server
@@ -485,7 +515,64 @@ final class Summarizer {
         didSet { UserDefaults.standard.set(lmStudioModel, forKey: Self.kLMStudioModel) }
     }
     var lmStudioBaseURL: String {
-        didSet { UserDefaults.standard.set(lmStudioBaseURL, forKey: Self.kLMStudioBaseURL) }
+        didSet {
+            UserDefaults.standard.set(lmStudioBaseURL, forKey: Self.kLMStudioBaseURL)
+            VoiceNoteCloudSwitch().providerChanged(from: voiceNoteDestination(lmStudioBaseURL: oldValue), to: voiceNoteDestination)
+        }
+    }
+
+    // MARK: - Where text goes, for the voice-note yes (07.11)
+
+    /// The chosen provider and, for one whose endpoint the person sets,
+    /// where it sends text: the voice-note switch is a yes to this, not to
+    /// a provider's name (`VoiceNoteCloudSwitch`). Changing either clears
+    /// the yes.
+    var voiceNoteDestination: String { voiceNoteDestination() }
+
+    /// The same with one setting as it was — the "before" of a change.
+    func voiceNoteDestination(kind: SummaryProviderKind? = nil, ollamaBaseURL: String? = nil,
+                              ollamaModel: String? = nil, lmStudioBaseURL: String? = nil,
+                              mcpURL: String? = nil) -> String {
+        Self.destination(kind: kind ?? providerKind, ollamaBaseURL: ollamaBaseURL ?? self.ollamaBaseURL,
+                         ollamaModel: ollamaModel ?? self.ollamaModel,
+                         lmStudioBaseURL: lmStudioBaseURL ?? self.lmStudioBaseURL,
+                         mcpURL: mcpURL ?? (UserDefaults.standard.string(forKey: "daisy.mcpSummarizer.url")
+                                            ?? MCPSummarizer.defaultBaseURLString))
+    }
+
+    /// The MCP server's address changed (`AppSettings.mcpSummarizerURL`).
+    func voiceNoteDestinationChanged(mcpURLWas old: String) {
+        VoiceNoteCloudSwitch().providerChanged(from: voiceNoteDestination(mcpURL: old), to: voiceNoteDestination)
+    }
+
+    /// `kind`'s raw value, and for Ollama, LM Studio and an MCP server the
+    /// endpoint it posts to (scheme, host, port) — for Ollama also whether
+    /// the model is a cloud one, which goes to ollama.com whatever the host.
+    /// Every other provider has one fixed destination.
+    static func destination(kind: SummaryProviderKind, ollamaBaseURL: String, ollamaModel: String,
+                            lmStudioBaseURL: String, mcpURL: String) -> String {
+        switch kind {
+        case .ollama:
+            let cloud = OllamaAPISummarizer.isCloudModel(ollamaModel) ? "|cloud-model" : ""
+            return "\(kind.rawValue)|\(endpoint(ollamaBaseURL))\(cloud)"
+        case .lmStudio:
+            return "\(kind.rawValue)|\(endpoint(lmStudioBaseURL))"
+        case .mcp:
+            return "\(kind.rawValue)|\(endpoint(mcpURL))"
+        default:
+            return kind.rawValue
+        }
+    }
+
+    /// Scheme, host and port of a configured URL, lowercased; the text as
+    /// typed when it doesn't parse.
+    nonisolated static func endpoint(_ raw: String) -> String {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard let url = URL(string: text), let host = url.host, !host.isEmpty else { return text }
+        // `host` drops an IPv6 literal's brackets; put them back, or
+        // `[::1:1143]` and `[::1]:1143` would read as one destination.
+        let shownHost = host.contains(":") ? "[\(host)]" : host
+        return "\(url.scheme ?? "")://\(shownHost)\(url.port.map { ":\($0)" } ?? "")"
     }
     /// Which agent CLI drives the `.agentCLI` provider, and an optional
     /// absolute path for installs auto-detection can't find (a version
@@ -769,6 +856,7 @@ final class Summarizer {
             }
             lastError = error.localizedDescription
             lastFailureCause = SummaryFailureCause.of(error)
+            lastFailureIsProviderLimit = Self.isProviderLimit(error)
             isSummarizing = false
             return nil
         }
@@ -828,6 +916,24 @@ final class Summarizer {
     /// every task routed through `SummaryProvider`. Detection runs off the
     /// MainActor; only aggregate counts are logged, never values or spans.
     private func summarizeWithPrivacy(
+        provider: any SummaryProvider,
+        providerIsLocal: Bool,
+        transcript: String,
+        title: String,
+        localeHint: String?,
+        task: SummaryTask
+    ) async throws -> MeetingSummary {
+        var summary = try await summarizeProtected(
+            provider: provider, providerIsLocal: providerIsLocal,
+            transcript: transcript, title: title, localeHint: localeHint, task: task)
+        // A voice note's summary has no letter (Egor 07.11): nobody else
+        // was there to receive one. The prompt says so; this holds it
+        // for a model that writes one anyway, on every path.
+        if task.isOneVoice { summary.clientFollowUp = "" }
+        return summary
+    }
+
+    private func summarizeProtected(
         provider: any SummaryProvider,
         providerIsLocal: Bool,
         transcript: String,

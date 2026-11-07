@@ -1068,6 +1068,10 @@ enum StoredSessionTemplates {
             return kept
         }
         let previousPick = previous?.templated?.pickedByHand == true ? previous?.templated?.templateID : nil
+        // A voice note follows its own thought, not a meeting's layout
+        // (Egor 07.11): no folder, title or default rule lays one out —
+        // only a template picked by hand for this note.
+        if forced == nil, previousPick == nil, session.isVoiceNote { return summary }
         let language = forcedLanguage.map { $0.isEmpty ? nil : $0 } ?? previous?.templated?.language
         let hint = language.map {
             RecordingSession.resolveSummaryLocaleHint(transcript: session.transcriptText, transcriptLocale: session.locale,

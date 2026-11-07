@@ -30,14 +30,7 @@ enum ProjectMemoryBridge {
             if let started = SessionFrontmatter.parse(text)?.started { startedAt = started }
         }
         let project = FolderRegistryBridge.shared.project(for: folderSlug)
-        let earlier = SessionStore.shared.sessions.compactMap { session -> ProjectMemory.Earlier? in
-            guard let summary = session.summary, summary != .noSpeechCaptured, !session.isDemo else { return nil }
-            return ProjectMemory.Earlier(
-                id: session.id, title: session.title, startedAt: session.startedAt,
-                folderSlug: session.folderSlug, tag: session.tag,
-                summary: summary.summary, steps: summary.actionItems
-            )
-        }
+        let earlier = Self.earlier(from: SessionStore.shared.sessions, gate: .current)
         let related = ProjectMemory.related(
             toID: id, startedAt: startedAt, folderSlug: folderSlug, tag: tag,
             useProject: project?.usesMemory ?? true, among: earlier
@@ -48,5 +41,25 @@ enum ProjectMemoryBridge {
             notes: project?.notes, tag: tag.isEmpty ? nil : tag,
             project: related.project, tagged: related.tagged
         )
+    }
+
+    /// The earlier sessions the block may draw on. This block goes in
+    /// front of a summary request to the chosen provider, so a voice
+    /// note's summary and steps are in it only when the voice-note gate
+    /// would let the note itself go there (Egor 07.11,
+    /// `VoiceNoteProfile.mayFeed`): a note summarized on this Mac is never
+    /// carried to a cloud provider by a later meeting of its project or tag.
+    static func earlier(from sessions: [StoredSession], gate: VoiceNoteProfile.Gate) -> [ProjectMemory.Earlier] {
+        sessions.compactMap { session -> ProjectMemory.Earlier? in
+            guard let summary = session.summary, summary != .noSpeechCaptured, !session.isDemo,
+                  VoiceNoteProfile.mayFeed(isVoiceNote: session.isVoiceNote, kindKnown: session.kindKnown,
+                                           recordedAt: session.startedAt, gate: gate)
+            else { return nil }
+            return ProjectMemory.Earlier(
+                id: session.id, title: session.title, startedAt: session.startedAt,
+                folderSlug: session.folderSlug, tag: session.tag,
+                summary: summary.summary, steps: summary.actionItems
+            )
+        }
     }
 }

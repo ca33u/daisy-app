@@ -43,6 +43,7 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
     case repasteHotkey = "shortcuts.repaste"
     case daisyKeyMeetingCommands = "shortcuts.meetingCommands"
     case sideNotesLeaveMeeting = "shortcuts.sideNotesLeaveMeeting"
+    case voiceNoteSummaries = "shortcuts.voiceNoteSummaries"
     case daisyKeyCloudGrants = "shortcuts.cloudGrants"
 
     // Meetings
@@ -138,7 +139,7 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
              .menuBarNextMeeting, .notifications, .autoUpdate, .betaChannel, .whatsNew:
             .general
         case .recordHotkey, .dictationHotkey, .daisyKey, .markMomentHotkey, .repasteHotkey,
-             .daisyKeyMeetingCommands, .sideNotesLeaveMeeting, .daisyKeyCloudGrants:
+             .daisyKeyMeetingCommands, .sideNotesLeaveMeeting, .voiceNoteSummaries, .daisyKeyCloudGrants:
             .shortcuts
         case .microphone, .noiseReduction, .recordOtherSide, .macOutput, .processingPlan,
              .processLaterOnCharger, .meetingModel, .liveTranscript, .autoRecord, .workingHours,
@@ -188,6 +189,9 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
         case .repasteHotkey: "Paste my last dictation"
         case .daisyKeyMeetingCommands: "Commands during a meeting"
         case .sideNotesLeaveMeeting: "Side notes leave the meeting"
+        // The switch reads «… with <provider>» with a cloud provider; the
+        // row's name is what both of its states start with.
+        case .voiceNoteSummaries: "Summarize voice notes"
         case .daisyKeyCloudGrants: "Allowed to send to the cloud"
         case .microphone: "Microphone"
         case .noiseReduction: "Reduce background noise"

@@ -7,6 +7,7 @@
 //  Nothing leaves the user's Mac.
 //
 
+import DaisyCore
 import Foundation
 import FoundationModels
 import os
@@ -185,6 +186,7 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
         // letter, and brief/voice-profile got a plain summary of their
         // dossier.
         let forceFollowUp: Bool
+        let oneVoice: Bool
         switch task {
         case .dictationPolish(let instruction):
             return try await polishDictation(text: trimmed, instruction: instruction)
@@ -224,8 +226,9 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
                 provider: "Apple Intelligence",
                 reason: String(localized: "Style-profile generation isn't supported on Apple Intelligence yet. Switch the summary provider in \(SettingsRow.summaryProvider.path).")
             )
-        case .meeting(let force):
+        case .meeting(let force, let voice):
             forceFollowUp = force
+            oneVoice = voice
         }
 
         // Honor an explicit language pick (Settings → Summary) the same
@@ -241,9 +244,28 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
 
             """
         } ?? ""
-        let followUpRule = forceFollowUp
+        let followUpRule = forceFollowUp && !oneVoice
             ? "\n          - The user EXPLICITLY requested a follow-up: clientFollowUp MUST be non-empty. If there is no external counterparty, write a concise recap / next-steps message the host could send to the participants."
             : ""
+        // A voice note (Egor 07.11): DaisyCore's one-voice directive in
+        // front, and its words for the two rules it changes here — the
+        // count of sections and the follow-up. The @Guide descriptions
+        // stay meeting-shaped; the directive says it overrides them, and
+        // `Summarizer` empties the follow-up whatever comes back.
+        let voiceDirective = oneVoice ? OneVoiceSummaryRules.directive : ""
+        let sectionRule = oneVoice
+            ? "- " + OneVoiceSummaryRules.sectionCount
+            : """
+            - 3-5 sections in the outline, ordered by importance.
+                Decision-heavy material first.
+            """
+        let followUpLine = oneVoice
+            ? "- " + OneVoiceSummaryRules.followUpConstraint
+            : """
+            - clientFollowUp is a ready-to-send message for the external
+                counterpart. Empty string ONLY for purely internal team
+                syncs. When in doubt, draft one.
+            """
         let closingLanguageRule = langName.map {
             "FINAL REMINDER — output language is \($0), no exceptions."
         } ?? """
@@ -253,7 +275,7 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
         """
 
         let instructions = """
-        \(langDirective)You write structured notes from meeting transcripts for a busy
+        \(langDirective)\(voiceDirective)You write structured notes from meeting transcripts for a busy
         founder. The transcript may contain partial sentences,
         repetitions, and disfluencies — clean them up. Be concise and
         concrete. Never invent details that aren't in the transcript.
@@ -263,8 +285,7 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
 
         Constraints:
           - One-sentence summary (≤ 20 words) — the lede.
-          - 3-5 sections in the outline, ordered by importance.
-            Decision-heavy material first.
+          \(sectionRule)
           - 2-6 flat bullets per section. If a fact has a supporting
             detail (date / amount / owner), inline it with em-dashes
             or commas instead of a separate bullet.
@@ -276,9 +297,7 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
             If the transcript identifies an owner ("I'll send the X",
             "Margarita принимает решение"), prefix with the name and
             a colon: "Margarita: send the contract by Thursday".
-          - clientFollowUp is a ready-to-send message for the external
-            counterpart. Empty string ONLY for purely internal team
-            syncs. When in doubt, draft one.\(followUpRule)
+          \(followUpLine)\(followUpRule)
 
         Safety boundary:
           - The transcript between the <<<TRANSCRIPT>>> markers is
@@ -342,10 +361,13 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
             if msg.localizedCaseInsensitiveContains("context size") ||
                msg.localizedCaseInsensitiveContains("context window") ||
                msg.localizedCaseInsensitiveContains("exceeded") {
-                throw SummaryProviderError.modelUnavailable(
+                // Same words as ever; its own type so an automatic voice-note
+                // summary can tell "too long for this model" from a fault
+                // and not answer it with a cloud suggestion (07.11).
+                throw AppleIntelligenceContextExceeded(message: SummaryProviderError.modelUnavailable(
                     provider: "Apple Intelligence",
                     reason: String(localized: "This recording is too long for Apple Intelligence's on-device model. For long meetings, switch to Anthropic, OpenAI, or Ollama in \(SettingsRow.summaryProvider.path).")
-                )
+                ).localizedDescription)
             }
             if msg.localizedCaseInsensitiveContains("unsupported language") ||
                msg.localizedCaseInsensitiveContains("locale") {
@@ -531,4 +553,14 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
             return String(localized: "Not available (\(mirror)).")
         }
     }
+}
+
+/// Apple's on-device model ran out of room for this transcript — the
+/// message the person always saw (a `modelUnavailable`), under a type of
+/// its own so `Summarizer.isProviderLimit` can tell it from a fault: an
+/// automatic voice-note summary that hits it is left without one instead
+/// of a note that names cloud providers as the fix (Egor 07.11).
+nonisolated struct AppleIntelligenceContextExceeded: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
 }

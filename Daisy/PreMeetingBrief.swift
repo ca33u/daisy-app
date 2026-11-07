@@ -159,9 +159,11 @@ final class PreMeetingBriefStore {
         // remote-pointed MCP/Ollama must not auto-run. See Summarizer.
         let providerLocal = Summarizer.shared.providerIsEffectivelyLocal
         let now = Date()
+        // The dossier goes to the provider: a voice note is in it only as
+        // the note itself could go there (07.11, `sessionsForProvider`).
         let matches = Self.matchingSessions(
             for: meeting,
-            in: SessionStore.shared.sessions,
+            in: Self.sessionsForProvider(SessionStore.shared.sessions, gate: .current),
             now: now,
             limit: 3,
             requireStrong: !providerLocal
@@ -293,6 +295,15 @@ final class PreMeetingBriefStore {
             }
         }
 
+        // The voice-note gate once more, right before the send (07.11): the
+        // research above can take a minute, and the switch or the provider
+        // may have changed since the matches were chosen.
+        let matches = Self.sessionsForProvider(matches, gate: .current)
+        guard !matches.isEmpty else {
+            publish(.noHistory)
+            allowRetry()
+            return
+        }
         let localeHint = Self.briefLocaleHint(from: matches)
         let dossier = Self.buildDossier(matches: matches, webContext: webBlock)
         let info = SummaryPrompt.BriefPromptInfo(
@@ -350,6 +361,10 @@ final class PreMeetingBriefStore {
                 default:
                     publish(.failed(msg))
                 }
+            } else if error is AppleIntelligenceContextExceeded {
+                // Too long for the on-device model — what a
+                // `modelUnavailable` said before it got its own type (07.11).
+                publish(.unavailable(msg))
             } else {
                 publish(.failed(msg))
             }
@@ -395,6 +410,13 @@ final class PreMeetingBriefStore {
     }
 
     // MARK: - Matching (pure, nonisolated)
+
+    /// The library a brief's dossier may draw on for the provider the gate
+    /// describes: every session but a voice note the voice-note gate would
+    /// keep on this Mac (`VoiceNoteProfile.mayFeed`, Egor 07.11).
+    static func sessionsForProvider(_ sessions: [StoredSession], gate: VoiceNoteProfile.Gate) -> [StoredSession] {
+        sessions.filter { VoiceNoteProfile.mayFeed(isVoiceNote: $0.isVoiceNote, kindKnown: $0.kindKnown, recordedAt: $0.startedAt, gate: gate) }
+    }
 
     /// Past sessions that plausibly involve the same people as `meeting`,
     /// scored and returned newest-first, capped at `limit`. Only sessions

@@ -395,3 +395,48 @@ struct SessionOriginTests {
         #expect(phone.render().contains("daisy_origin: iphone"))
     }
 }
+
+@Suite("The .recording marker (§6.1)")
+struct RecordingMarkerStartTests {
+    @Test func theFirstLineIsTheStart() {
+        let start = Date(timeIntervalSince1970: 1_794_045_600)
+        let iso = ISO8601DateFormatter().string(from: start)
+        #expect(SessionWriter.markerStart(iso) == start)
+        #expect(SessionWriter.markerStart(iso + "\n") == start)
+        // A Mac voice note's marker (2026-11-07): a second line.
+        #expect(SessionWriter.markerStart(iso + "\nmode: voiceNote\n") == start)
+        #expect(SessionWriter.markerStart("") == nil)
+        #expect(SessionWriter.markerStart("garbage") == nil)
+    }
+}
+
+@Suite("Mac voice notes (§3.4)")
+struct VoiceNoteRecognitionTests {
+    private func file(_ frontmatter: [String], body: String = "## Transcript\n\n**[0:01 · Me]** An idea.") -> String {
+        (["---", "title: \"Voice note 2026-11-07 10:00\"", "duration_sec: 42"] + frontmatter + ["---", "", "# Voice note", "", body])
+            .joined(separator: "\n")
+    }
+
+    @Test func theKeyOrTheShape() {
+        #expect(VoiceNoteRecognition.recognise(transcriptMarkdown: file(["daisy_kind: note", "daisy_voice_note: true", "daisy_system_audio_status: off"])) == .marked)
+        #expect(VoiceNoteRecognition.recognise(transcriptMarkdown: file(["daisy_kind: note", "daisy_system_audio_status: off"])) == .byShape)
+        // From before `daisy_kind`: a session in Notes is a note.
+        #expect(VoiceNoteRecognition.recognise(transcriptMarkdown: file(["daisy_folder: notes", "daisy_system_audio_status: off"])) == .byShape)
+    }
+
+    @Test func notAVoiceNote() {
+        // The kind decides.
+        #expect(VoiceNoteRecognition.recognise(transcriptMarkdown: file(["daisy_kind: recording", "daisy_voice_note: true"])) == .none)
+        // A meeting filed as a note captured, or tried to capture, the other side.
+        #expect(VoiceNoteRecognition.recognise(transcriptMarkdown: file(["daisy_kind: note", "daisy_system_audio_status: captured (10 B)"])) == .none)
+        #expect(VoiceNoteRecognition.recognise(transcriptMarkdown: file(["daisy_kind: note"])) == .none)
+        // A room recording, another note's marker, a side note, no heading.
+        #expect(VoiceNoteRecognition.recognise(transcriptMarkdown: file(["daisy_kind: note", "daisy_origin: iphone", "daisy_system_audio_status: off"])) == .none)
+        #expect(VoiceNoteRecognition.recognise(transcriptMarkdown: file(["daisy_kind: note", "daisy_text_note: true", "daisy_system_audio_status: off"])) == .none)
+        #expect(VoiceNoteRecognition.recognise(transcriptMarkdown: file(["daisy_kind: note", "daisy_source_meeting: x", "daisy_system_audio_status: off"])) == .none)
+        #expect(VoiceNoteRecognition.recognise(transcriptMarkdown: file(["daisy_kind: note", "daisy_system_audio_status: off"], body: "Call Boris.")) == .none)
+        #expect(VoiceNoteRecognition.recognise(transcriptMarkdown: file(["daisy_kind: note", "daisy_voice_note: false"])) == .none)
+        // `mac` is the Mac.
+        #expect(VoiceNoteRecognition.recognise(transcriptMarkdown: file(["daisy_kind: note", "daisy_origin: mac", "daisy_system_audio_status: off"])) == .byShape)
+    }
+}

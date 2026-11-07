@@ -199,8 +199,9 @@ extension RecordingSession {
     }
 
     /// Voice-notes — TOGGLE on tap. Single press starts a
-    /// `.voiceNote` session (mic only, no system audio, no LLM
-    /// summary, kind = note); next press of the same hotkey
+    /// `.voiceNote` session (mic only, no system audio, kind = note,
+    /// a summary in the author's voice behind `VoiceNoteProfile.Gate`
+    /// since 07.11); next press of the same hotkey
     /// stops it. Different from dictation (hold-to-talk) because
     /// voice notes can be longer than the user wants to keep a
     /// finger on the key — meeting yourself, dictating ideas

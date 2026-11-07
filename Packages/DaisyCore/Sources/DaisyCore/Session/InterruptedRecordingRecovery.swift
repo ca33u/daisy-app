@@ -148,7 +148,7 @@ public final class InterruptedRecordingRecovery {
     public nonisolated static func startDate(for folder: URL) -> Date {
         let marker = folder.appendingPathComponent(SessionWriter.recordingMarkerName)
         if let s = try? String(contentsOf: marker, encoding: .utf8),
-           let d = ISO8601DateFormatter().date(from: s.trimmingCharacters(in: .whitespacesAndNewlines)) {
+           let d = SessionWriter.markerStart(s) {
             return d
         }
         if let d = SessionID.parse(folder.lastPathComponent) { return d }

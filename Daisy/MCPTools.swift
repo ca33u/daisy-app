@@ -621,10 +621,12 @@ enum MCPTools {
                 : AppSettings.currentSummaryLanguage
         )
 
+        // A voice note in its author's voice (Egor 07.11), as the card does.
         let result = await Summarizer.shared.summarize(
             transcript: session.transcriptText,
             title: session.title,
-            localeHint: localeHint
+            localeHint: localeHint,
+            task: .summary(oneVoice: session.isVoiceNote)
         )
         guard let summary = result else {
             let err = Summarizer.shared.lastError ?? "the provider returned no summary"

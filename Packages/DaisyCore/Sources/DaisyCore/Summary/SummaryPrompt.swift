@@ -113,13 +113,13 @@ public nonisolated enum SummaryPrompt {
         // here rather than lean on "override". Many voices: byte for byte
         // as before.
         let followUpGate = singleVoice
-            ? "Always an empty string: one voice, nobody to send it to."
+            ? OneVoiceSummaryRules.followUpGate
             : "Only return an empty string if the meeting was a purely internal team sync with NO external party — a customer call, vendor pitch, partner alignment, contractor onboarding, or any conversation where one side represents a different organization counts as external and you MUST draft the follow-up."
         let followUpConstraint = singleVoice
-            ? "clientFollowUp is always empty."
+            ? OneVoiceSummaryRules.followUpConstraint
             : "Empty clientFollowUp only for purely internal team meetings — when in doubt, draft one."
         let sectionCount = singleVoice
-            ? "0-4 sections, as many as the thought has, in the order of\n    the thought."
+            ? OneVoiceSummaryRules.sectionCount
             : "3-5 sections total, ordered by importance (most decision-\n    heavy first)."
 
         return topDirective + voiceDirective + """
@@ -269,4 +269,21 @@ public nonisolated enum SummaryPrompt {
         <<<END TRANSCRIPT>>>
         """
     }
+}
+
+/// What one voice changes in the meeting prompt, under a name the Mac app
+/// can reach (Egor 07.11: a Mac voice note is summarized in its author's
+/// voice with the same words, not a copy of them). There `SummaryPrompt`
+/// is the app's own, which hides this module's, and `DaisyCore.` names
+/// the module's marker enum rather than the module.
+public nonisolated enum OneVoiceSummaryRules {
+    /// `SummaryPrompt.singleVoiceDirective`, put before the meeting rules.
+    public static var directive: String { SummaryPrompt.singleVoiceDirective }
+    /// Ends `clientFollowUp`'s description in place of the meeting's gate.
+    public static let followUpGate = "Always an empty string: one voice, nobody to send it to."
+    /// The last constraint, in place of "when in doubt, draft one".
+    public static let followUpConstraint = "clientFollowUp is always empty."
+    /// The first constraint, in place of the meeting's 3-5 sections; the
+    /// line break keeps the prompt's indentation.
+    public static let sectionCount = "0-4 sections, as many as the thought has, in the order of\n    the thought."
 }

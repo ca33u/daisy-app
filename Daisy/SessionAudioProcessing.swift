@@ -103,6 +103,23 @@ nonisolated struct SessionFinishingPasses: Sendable {
     /// The bound calendar event's attendees: the polish's names and the
     /// name pass's allow-list.
     var attendees: [String]
+    /// A voice note's, and when it was recorded: its gate is read again
+    /// right before the passes send anything (`mayStillSend`, 07.11).
+    var voiceNote: VoiceNoteProfile.Recognition = .none
+    var recordedAt: Date? = nil
+}
+
+extension SessionFinishingPasses {
+    /// The passes were allowed when the finish was planned — a local
+    /// provider, or a summary on its way to this one. For a voice note the
+    /// gate may have closed since (the switch off, another provider), and
+    /// the transcript must not go out then. A meeting's answer stands.
+    func mayStillSend(gate: VoiceNoteProfile.Gate) -> Bool {
+        voiceNote == .none || gate.allows(recordedAt: recordedAt)
+    }
+
+    @MainActor
+    var mayStillSend: Bool { mayStillSend(gate: .current) }
 }
 
 @Observable
@@ -571,6 +588,10 @@ final class SessionAudioProcessing {
         let bodyLength = segments.reduce(0) { $0 + $1.text.count }
         guard segments.count >= 2, bodyLength >= 200,
               !Summarizer.isEffectivelySilent(segments.map(\.text).joined(separator: "\n")) else { return segments }
+        guard finishing.mayStillSend else {
+            log.info("Queued finish: transcript polish skipped — the voice note's gate closed")
+            return segments
+        }
         statusText = String(localized: "Correcting names and terms")
         progress = nil
         reportStage(.polishing)
@@ -623,7 +644,7 @@ final class SessionAudioProcessing {
         guard !labels.isEmpty else { return }
         let turns = SpeakerNameSuggester.turns(segments)
         let transcript = SpeakerNameSuggester.sampleTranscript(turns: turns)
-        guard !transcript.isEmpty else { return }
+        guard !transcript.isEmpty, finishing.mayStillSend else { return }
 
         statusText = String(localized: "Looking for speaker names")
         reportStage(.polishing)
@@ -967,7 +988,19 @@ final class SessionAudioProcessing {
             value: String(max(session.durationSec, detectedDuration))
         )
         markdown = SessionStore.upsertFrontmatter(in: markdown, key: "daisy_folder", value: session.folderSlug)
-        markdown = SessionStore.upsertFrontmatter(in: markdown, key: "daisy_kind", value: SessionKind.recording.rawValue)
+        // The kind is written only where there is none (Egor 07.11, as
+        // `moveMany` does; session-format.md §3.1). This used to stamp
+        // `recording` on everything — right for the meetings and imports it
+        // was written for, wrong for the rest: a re-transcribed voice note
+        // (or one whose interrupted final pass the queue finished in place)
+        // moved to the Library and said `recording` beside its
+        // `daisy_voice_note: true`, and a phone's `rehearsal` take became a
+        // plain recording for good. A kind on disk now stays, the
+        // voice-note key with it; a file without one — a first import, a
+        // note from before `daisy_kind` — gets the kind it reads as.
+        if Self.frontmatterValue("daisy_kind", in: markdown) == nil {
+            markdown = SessionStore.upsertFrontmatter(in: markdown, key: "daisy_kind", value: session.kind.rawValue)
+        }
         if !isFirstTranscript {
             markdown = SessionStore.upsertFrontmatter(
                 in: markdown,

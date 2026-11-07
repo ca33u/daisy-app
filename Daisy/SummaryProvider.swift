@@ -280,7 +280,12 @@ nonisolated enum SummaryTask: Sendable {
     /// Standard meeting summary. `forceFollowUp` = the user explicitly
     /// clicked "Draft follow-up", so `clientFollowUp` must be
     /// non-empty even for an internal-looking meeting.
-    case meeting(forceFollowUp: Bool)
+    /// `oneVoice` = a Mac voice note (Egor 07.11): the author's own
+    /// thought in their own voice, under DaisyCore's one-voice rules
+    /// (`OneVoiceSummaryRules`) — `actionItems` only what was said must
+    /// be done, `clientFollowUp` always empty. The same JSON, so every
+    /// provider and decode path is unchanged.
+    case meeting(forceFollowUp: Bool, oneVoice: Bool = false)
     /// Pre-meeting brief — the "transcript" is a dossier assembled
     /// from PAST sessions (+ optional web context).
     case preMeetingBrief(SummaryPrompt.BriefPromptInfo)
@@ -328,6 +333,19 @@ nonisolated enum SummaryTask: Sendable {
 
     /// Plain meeting summary — the overwhelmingly common case.
     static var standard: SummaryTask { .meeting(forceFollowUp: false) }
+
+    /// The summary of a session: a voice note's in its author's voice,
+    /// anything else as a meeting's (`VoiceNoteProfile`).
+    static func summary(oneVoice: Bool) -> SummaryTask {
+        .meeting(forceFollowUp: false, oneVoice: oneVoice)
+    }
+
+    /// One voice: the summary never carries a follow-up — there is nobody
+    /// to send it to. `Summarizer` empties whatever a model wrote there.
+    var isOneVoice: Bool {
+        if case .meeting(_, let oneVoice) = self { return oneVoice }
+        return false
+    }
 
     /// Whether the prompt asks for the envelope's `title`: only the meeting
     /// summary's does (`SummaryPrompt.meetingSystemInstructions`).
@@ -544,12 +562,17 @@ enum SummaryPrompt {
             return templatedSummaryRules(context, localeHint: localeHint) + textEnvelope
         case .templateStructure(let target):
             return templateStructureRules(target) + textEnvelope
-        case .meeting(let forceFollowUp):
-            return meetingSystemInstructions(localeHint: localeHint, forceFollowUp: forceFollowUp)
+        case .meeting(let forceFollowUp, let oneVoice):
+            return meetingSystemInstructions(localeHint: localeHint, forceFollowUp: forceFollowUp, oneVoice: oneVoice)
         }
     }
 
-    private static func meetingSystemInstructions(localeHint: String?, forceFollowUp: Bool) -> String {
+    /// `oneVoice` (a voice note): DaisyCore's one-voice directive goes in
+    /// front of the meeting rules, and the three rules it changes — the
+    /// follow-up gate, its constraint, the count of sections — take
+    /// DaisyCore's words, as the phone's prompt does. Without it the
+    /// prompt is the meeting's, byte for byte (`VoiceNoteSummaryTests`).
+    private static func meetingSystemInstructions(localeHint: String?, forceFollowUp: Bool, oneVoice: Bool = false) -> String {
         // `lang` is the language NAME used inside the prompt body.
         // `langExplicit` is true only when the user picked a specific
         // language in Settings → Summary, in which case we prepend a
@@ -599,15 +622,24 @@ enum SummaryPrompt {
         // "Draft follow-up" (forceFollowUp), override that — always draft.
         let followUpGate: String
         let followUpConstraint: String
-        if forceFollowUp {
+        if oneVoice {
+            // Nobody to write to, whatever was asked: one voice wins over
+            // `forceFollowUp`.
+            followUpGate = OneVoiceSummaryRules.followUpGate
+            followUpConstraint = OneVoiceSummaryRules.followUpConstraint
+        } else if forceFollowUp {
             followUpGate = "The user has EXPLICITLY requested a follow-up for THIS meeting — you MUST write a non-empty clientFollowUp and MUST NOT return an empty string, even if the conversation looks like a purely internal team sync. If there is no external counterparty, write it as a concise recap / next-steps message the host could send to the other participants or their own team."
             followUpConstraint = "ALWAYS draft a clientFollowUp — it must be non-empty (the user explicitly requested a follow-up for this meeting)."
         } else {
             followUpGate = "Only return an empty string if the meeting was a purely internal team sync with NO external party — a customer call, vendor pitch, partner alignment, contractor onboarding, or any conversation where one side represents a different organization counts as external and you MUST draft the follow-up."
             followUpConstraint = "Empty clientFollowUp only for purely internal team meetings — when in doubt, draft one."
         }
+        let voiceDirective = oneVoice ? OneVoiceSummaryRules.directive : ""
+        let sectionCount = oneVoice
+            ? OneVoiceSummaryRules.sectionCount
+            : "3-5 sections total, ordered by importance (most decision-\n    heavy first)."
 
-        return topDirective + """
+        return topDirective + voiceDirective + """
         You write structured notes from meeting transcripts for a busy
         founder. The transcript may contain partial sentences,
         repetitions, and disfluencies — clean them up. Be concise and
@@ -643,8 +675,7 @@ enum SummaryPrompt {
         }
 
         Constraints:
-          - 3-5 sections total, ordered by importance (most decision-
-            heavy first).
+          - \(sectionCount)
           - 2-6 top-level bullets per section. Prefer rich bullets to
             many shallow ones.
           - 0-3 sub-bullets per top bullet. Most bullets are leaves.

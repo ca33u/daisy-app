@@ -364,14 +364,18 @@ final class ImportTranscriptionQueue {
         // since the day the queue took them (Egor's 13:36 recording kept
         // its live text, no summary, and a stale .recording marker).
         let finishing = job.finishesLiveTranscript == true
-        // Read before the final pass: its render writes the kind as
-        // `recording` whatever it was.
+        // Read before the final pass, which rewrites the transcript (it
+        // keeps the kind — a voice note stays a note since 07.11 — but
+        // this is the session as it was queued).
         let isMeeting = session.kind == .recording
+        // finalize summarizes a meeting, and a voice note its gate lets
+        // through (Egor 07.11); a queued finish does the same.
+        let summarizes = Self.summarizesOnFinish(isMeeting: isMeeting, session: session, gate: .current)
         // The card's step list (31.10), for as long as this job works on
         // the session. The provider passes run inside the final pass's
         // job, before the commit — names and terms come before the screen
         // text and the summary here, whatever the meeting's length.
-        let passes = finishing ? Self.finishingPasses(for: session, isMeeting: isMeeting) : nil
+        let passes = finishing ? Self.finishingPasses(for: session, summarizes: summarizes) : nil
         let summaryOnDisk = FileManager.default.fileExists(
             atPath: session.directoryURL.appendingPathComponent("summary.json").path)
         // Only the rest of a finish (the final pass already ran): no
@@ -381,7 +385,7 @@ final class ImportTranscriptionQueue {
             voices: job.diarize && !restOnly,
             namesAndTerms: passes != nil && !restOnly,
             screenText: finishing && ProcessingPlan.hasScreenshots(in: session.directoryURL),
-            summary: finishing && isMeeting && (RecordingSession.current?.settings.autoSummarize ?? false) && !summaryOnDisk,
+            summary: finishing && summarizes && (RecordingSession.current?.settings.autoSummarize ?? false) && !summaryOnDisk,
             transcription: !restOnly
         ))
         defer { SessionStore.shared.endProcessing(job.sessionID) }
@@ -491,16 +495,20 @@ final class ImportTranscriptionQueue {
     /// False when cancelled before auto-send: the caller runs it again.
     private func completeFinish(sessionID: String, isMeeting: Bool) async -> Bool {
         let settings = RecordingSession.current?.settings
-        // finalize summarizes meetings only; a voice note never goes to
-        // the provider from here either.
-        let summarize = isMeeting && (settings?.autoSummarize ?? false)
-        if let directory = SessionStore.shared.sessions.first(where: { $0.id == sessionID })?.directoryURL {
+        let finished = SessionStore.shared.sessions.first(where: { $0.id == sessionID })
+        // As finalize decides: a meeting, or a voice note its gate lets
+        // through (07.11) — any other note never goes to the provider
+        // from here.
+        let summarize = Self.summarizesOnFinish(isMeeting: isMeeting, session: finished, gate: .current)
+            && (settings?.autoSummarize ?? false)
+        var outcome = FinishedSummary.notAsked
+        if let directory = finished?.directoryURL {
             SessionStore.shared.setFinalizeStage(.readingScreens, for: sessionID)
             let screenText = await readScreens(in: directory)
             if summarize {
                 SessionStore.shared.setFinalizeStage(.summarizing, for: sessionID)
-                await summarizeFinished(sessionID: sessionID, screenText: screenText,
-                                        includeScreenText: settings?.screenTextInSummary ?? true)
+                outcome = await summarizeFinished(sessionID: sessionID, isMeeting: isMeeting, screenText: screenText,
+                                                  includeScreenText: settings?.screenTextInSummary ?? true)
             }
         }
         guard !Task.isCancelled else { return false }
@@ -514,8 +522,9 @@ final class ImportTranscriptionQueue {
         let summaryLanded = FileManager.default.fileExists(atPath: directory.appendingPathComponent("summary.json").path)
         // A summary that should have come and didn't keeps the audio, so
         // Re-summarize still has something to work from; no transcript
-        // keeps it always — it may be the only copy left.
-        if transcriptLanded, !summarize || summaryLanded {
+        // keeps it always — it may be the only copy left. A voice note left
+        // quietly has no summary coming, as in finalize Stage 6.
+        if transcriptLanded, !summarize || summaryLanded || outcome == .leftQuietly {
             AudioRetentionSweep.purgeOneSession(at: directory)
         }
         return true
@@ -527,11 +536,11 @@ final class ImportTranscriptionQueue {
     /// summarizes a finished meeting exactly when finalize would). Names
     /// also need cross-meeting recognition on and an invite to check
     /// against.
-    private static func finishingPasses(for session: StoredSession, isMeeting: Bool) -> SessionFinishingPasses? {
+    private static func finishingPasses(for session: StoredSession, summarizes: Bool) -> SessionFinishingPasses? {
         guard let settings = RecordingSession.current?.settings, settings.transcriptSecondPass else { return nil }
         // Their deadlines are seconds; the local model would only time out.
         guard Summarizer.shared.runsQuickPasses else { return nil }
-        let willSummarize = isMeeting && settings.autoSummarize && Summarizer.shared.availability == .available
+        let willSummarize = summarizes && settings.autoSummarize && Summarizer.shared.availability == .available
         guard Summarizer.shared.providerIsEffectivelyLocal || willSummarize else { return nil }
         return SessionFinishingPasses(
             title: session.title,
@@ -542,7 +551,9 @@ final class ImportTranscriptionQueue {
             ),
             polish: true,
             suggestNames: settings.speakerMatchMode != .off,
-            attendees: session.meetingAttendees
+            attendees: session.meetingAttendees,
+            voiceNote: session.voiceNote,
+            recordedAt: session.startedAt
         )
     }
 
@@ -642,9 +653,35 @@ final class ImportTranscriptionQueue {
         return SHA256.hash(data: Data(body.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Whether a queued finish summarizes the session, as finalize would:
+    /// a meeting, or a voice note recorded with its key that its gate lets
+    /// through — with a cloud provider, only one recorded while the switch
+    /// was on (`VoiceNoteProfile.Gate`, Egor 07.11). A finish can wait for
+    /// a charger for hours: the gate is the one at the time it runs, and
+    /// `summarizeFinished` reads it again right before the send.
+    static func summarizesOnFinish(isMeeting: Bool, session: StoredSession?,
+                                   gate: VoiceNoteProfile.Gate) -> Bool {
+        if isMeeting { return true }
+        guard let session else { return false }
+        return VoiceNoteProfile.summarizesOnItsOwn(session.voiceNote, recordedAt: session.startedAt, gate: gate)
+    }
+
     /// The interrupted recording never got its summary; give it one now,
     /// the way Re-summarize does, unless one is already there.
-    private func summarizeFinished(sessionID: String, screenText: String, includeScreenText: Bool) async {
+    /// How `summarizeFinished` ended, for the purge.
+    enum FinishedSummary: Equatable {
+        case notAsked, written, failed
+        /// A voice note left without a summary and nothing said: its gate
+        /// closed, its provider can't run or can't do it (07.11).
+        case leftQuietly
+    }
+
+    /// `isMeeting`: the job's own word, as queued. Anything else that gets
+    /// here is a voice note `summarizesOnFinish` let through — a meeting the
+    /// person filed as a note meanwhile is still summarized as a meeting.
+    @discardableResult
+    private func summarizeFinished(sessionID: String, isMeeting: Bool, screenText: String,
+                                   includeScreenText: Bool) async -> FinishedSummary {
         await SessionStore.shared.refresh()
         guard let session = SessionStore.shared.sessions.first(where: { $0.id == sessionID }),
               !session.transcriptText.isEmpty,
@@ -653,7 +690,16 @@ final class ImportTranscriptionQueue {
               // and the refusal would read as a failed summary.
               TranscriptSpeech.hasSpeech(session.transcriptText),
               !FileManager.default.fileExists(atPath: session.directoryURL.appendingPathComponent("summary.json").path)
-        else { return }
+        else { return .notAsked }
+        let voiceNote = !isMeeting
+        // A voice note's gate first, read again now (07.11): the finish may
+        // have waited hours for a charger. A note it no longer lets through
+        // is left without a summary — before anything else is said about
+        // the provider.
+        if voiceNote, !Self.summarizesOnFinish(isMeeting: false, session: session, gate: .current) {
+            log.info("Finished recording \(sessionID, privacy: .public): voice note left without a summary — its gate closed")
+            return .leftQuietly
+        }
         // A provider that can't run is a reason the meeting has no
         // summary, not a reason to say nothing — finalize keeps and says
         // it at stop, this path used to return here in silence (backlog
@@ -663,12 +709,15 @@ final class ImportTranscriptionQueue {
             await Summarizer.shared.refreshAvailability()
         }
         if case .unavailable(let reason) = Summarizer.shared.availability {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return .notAsked }
             log.warning("Finished recording \(sessionID, privacy: .public): summary skipped — provider unavailable: \(reason, privacy: .public)")
+            // A voice note: quiet, as at Stop — the reason names other
+            // providers, for a summary nobody asked for (07.11).
+            if voiceNote { return .leftQuietly }
             SummaryFailureNote.announce(
                 SummaryFailureNote.write(message: reason, provider: Summarizer.shared.providerKind.shortName, in: session.directoryURL)
             )
-            return
+            return .failed
         }
         let localeHint = RecordingSession.resolveSummaryLocaleHint(
             transcript: session.transcriptText,
@@ -681,12 +730,27 @@ final class ImportTranscriptionQueue {
             includeScreenText: includeScreenText,
             markers: MomentMarkerStore.load(from: session.directoryURL)
         )
+        // Once more right before the send: the provider was asked and its
+        // availability refreshed since the check above.
+        if voiceNote, !Self.summarizesOnFinish(isMeeting: false, session: session, gate: .current) {
+            log.info("Finished recording \(sessionID, privacy: .public): voice note left without a summary — its gate closed")
+            return .leftQuietly
+        }
         guard let summary = await Summarizer.shared.summarize(
             transcript: transcript, title: session.title, localeHint: localeHint,
+            task: .summary(oneVoice: voiceNote),
             projectContext: ProjectMemoryBridge.block(forSessionAt: session.directoryURL)
         ) else {
             // Pre-empted, not failed: nothing to tell anyone.
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return .notAsked }
+            // A voice note the provider can't do: no note pointing at
+            // another provider for a summary nobody asked for, and not
+            // tried again until the provider is another (07.11).
+            if Summarizer.shared.leavesVoiceNoteQuietly(isVoiceNote: voiceNote) {
+                log.info("Finished recording \(sessionID, privacy: .public): the provider can't summarize this voice note — left without one")
+                VoiceNoteProfile.Declines().record(sessionID, provider: Summarizer.shared.providerKind.rawValue)
+                return .leftQuietly
+            }
             log.warning("Finished recording \(sessionID, privacy: .public): summary failed — \(Summarizer.shared.lastError ?? "no summary", privacy: .public)")
             let reason = Summarizer.shared.lastError ?? String(localized: "The provider returned no summary.")
             SummaryFailureNote.announce(
@@ -697,11 +761,12 @@ final class ImportTranscriptionQueue {
                     in: session.directoryURL
                 )
             )
-            return
+            return .failed
         }
         let templated = await StoredSessionTemplates.applyWithoutVoice(summary, previous: session.summary, session: session)
         await SessionStore.shared.updateSummary(templated, for: session)
         log.notice("Finished recording \(sessionID, privacy: .public): summary written")
+        return .written
     }
 
     private enum Resolution {

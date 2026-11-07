@@ -382,11 +382,12 @@ final class AppSettings {
         }
     }
 
-    /// Voice-notes hotkey (mode = .voiceNote). Starts a quick
-    /// personal recording with no LLM summary and routes the
-    /// session into the Notes folder. Toggle on/off; same UX as
-    /// `recordHotkey` but for the lighter "I want to capture this
-    /// thought before I forget" flow. `.none` disables.
+    /// The Daisy key (23.10; was the voice-notes hotkey — the slot and
+    /// the stored key kept the name). A tap starts or stops a voice note
+    /// (mode = .voiceNote, `daisy_kind: note` in the default notes
+    /// project), summarized in its author's voice behind
+    /// `VoiceNoteProfile.Gate` (07.11); a hold is a command or a held
+    /// note. `.none` disables.
     var voiceNoteHotkey: HotkeyChoice {
         didSet {
             if let data = try? JSONEncoder().encode(voiceNoteHotkey) {
@@ -428,6 +429,39 @@ final class AppSettings {
     /// summary prompt.
     var followUpsInMyVoice: Bool {
         didSet { defaults.set(followUpsInMyVoice, forKey: Self.k_followUpsInMyVoice) }
+    }
+
+    /// «Summarize voice notes with <provider>» (Egor 07.11): with a cloud
+    /// provider a finished voice note goes to it for its summary only
+    /// while this is on FOR THAT PROVIDER, and only one recorded since it
+    /// was turned on — switching it on never sends the notes recorded
+    /// while it was off, and a yes given to one provider is not a yes to
+    /// another (the switch reads off for it; turning it on there starts a
+    /// new moment). OFF by default: a voice note is the most personal thing
+    /// Daisy records, and an update must not start sending notes anywhere.
+    /// With a provider that keeps it on this Mac the note is summarized
+    /// either way (`VoiceNoteProfile.Gate`).
+    private(set) var voiceNoteCloudGrant: VoiceNoteCloudGrant?
+
+    /// The switch as it reads for `destination` — the chosen provider and,
+    /// for one whose endpoint is configurable, where it sends text
+    /// (`Summarizer.voiceNoteDestination`).
+    func summarizesVoiceNotesInCloud(for destination: String) -> Bool {
+        voiceNoteCloudGrant?.provider == destination
+    }
+
+    /// The switch turned on or off for `destination`.
+    func setSummarizeVoiceNotesInCloud(_ on: Bool, destination: String) {
+        guard on != summarizesVoiceNotesInCloud(for: destination) else { return }
+        VoiceNoteCloudSwitch(defaults: defaults).set(on, provider: destination)
+        reloadVoiceNoteCloudGrant()
+    }
+
+    /// Read the switch again — after `Summarizer` cleared it on a change of
+    /// provider or of where it sends text (`SettingsWiring`).
+    func reloadVoiceNoteCloudGrant() {
+        let grant = VoiceNoteCloudSwitch(defaults: defaults).grant
+        if grant != voiceNoteCloudGrant { voiceNoteCloudGrant = grant }
     }
 
     /// Global hotkey for "fix the keyboard layout" — «ghbdtn» becomes
@@ -1126,7 +1160,15 @@ final class AppSettings {
     /// Base URL of the MCP server that wraps the local LLM.
     /// Empty string means unconfigured.
     var mcpSummarizerURL: String {
-        didSet { defaults.set(mcpSummarizerURL, forKey: Self.k_mcpSummarizerURL) }
+        didSet {
+            defaults.set(mcpSummarizerURL, forKey: Self.k_mcpSummarizerURL)
+            // Another server: a yes to send voice notes to the old one goes
+            // (07.11) — while MCP is the chosen provider.
+            if mcpSummarizerURL != oldValue {
+                Summarizer.shared.voiceNoteDestinationChanged(mcpURLWas: oldValue)
+                reloadVoiceNoteCloudGrant()
+            }
+        }
     }
 
     /// Tool name to call on that server.
@@ -1511,6 +1553,7 @@ final class AppSettings {
             self.rewriteSelectionHotkey = .none
         }
         self.followUpsInMyVoice = defaults.bool(forKey: Self.k_followUpsInMyVoice)
+        self.voiceNoteCloudGrant = Self.voiceNoteCloudGrant(in: defaults)
         // Layout fixer — same opt-in default as the other hotkeys, and
         // the automatic mode is opt-in on top of that.
         if let data = defaults.data(forKey: Self.k_layoutFixHotkey),
@@ -1875,6 +1918,23 @@ final class AppSettings {
         UserDefaults.standard.bool(forKey: k_followUpsInMyVoice)
     }
 
+    /// The voice-note switch, read where no `AppSettings` is in reach
+    /// (`VoiceNoteCloudSwitch`).
+    nonisolated static func voiceNoteCloudGrant(in defaults: UserDefaults = .standard) -> VoiceNoteCloudGrant? {
+        VoiceNoteCloudSwitch(defaults: defaults).grant
+    }
+
+    nonisolated static func summarizeVoiceNotesInCloudSince(for provider: String,
+                                                           in defaults: UserDefaults = .standard) -> Date? {
+        VoiceNoteCloudSwitch(defaults: defaults).since(for: provider)
+    }
+
+    nonisolated static func recordSummarizeVoiceNotesInCloud(_ on: Bool, provider: String,
+                                                            in defaults: UserDefaults = .standard,
+                                                            now: Date = Date()) {
+        VoiceNoteCloudSwitch(defaults: defaults).set(on, provider: provider, now: now)
+    }
+
     /// Summarizer has no live AppSettings reference; read the persisted
     /// privacy switch at the provider boundary, where every request passes.
     nonisolated static var protectSensitiveDataBeforeCloudAIEnabled: Bool {
@@ -1926,6 +1986,9 @@ final class AppSettings {
     private static let k_dictationHotkey = "daisy.dictationHotkey"
     private static let k_rewriteSelectionHotkey = "daisy.rewriteSelectionHotkey"
     nonisolated private static let k_followUpsInMyVoice = "daisy.followUpsInMyVoice"
+    nonisolated static let k_summarizeVoiceNotesInCloud = "daisy.summarizeVoiceNotesInCloud"
+    nonisolated static let k_summarizeVoiceNotesInCloudSince = "daisy.summarizeVoiceNotesInCloudSince"
+    nonisolated static let k_summarizeVoiceNotesInCloudProvider = "daisy.summarizeVoiceNotesInCloudProvider"
     private static let k_layoutFixHotkey = "daisy.layoutFixHotkey"
     private static let k_markMomentHotkey = "daisy.markMomentHotkey"
     private static let k_repasteLastHotkey = "daisy.repasteLastHotkey"
@@ -1988,6 +2051,68 @@ final class AppSettings {
     private static let k_mcpSummarizerURL = "daisy.mcpSummarizer.url"
     private static let k_mcpSummarizerToolName = "daisy.mcpSummarizer.toolName"
     private static let k_mcpSummarizerArgsTemplate = "daisy.mcpSummarizer.argsTemplate"
+}
+
+// MARK: - Voice notes and a cloud provider
+
+/// «Summarize voice notes with <provider>» turned on: for which provider
+/// (`SummaryProviderKind.rawValue`) and when (07.11).
+nonisolated struct VoiceNoteCloudGrant: Equatable, Sendable {
+    let provider: String
+    let since: Date
+}
+
+/// «Summarize voice notes with <provider>» in the preferences: the switch,
+/// the provider it was turned on for and the moment (07.11). Apart from
+/// `AppSettings` so the tests drive it on `ScratchDefaults`.
+nonisolated struct VoiceNoteCloudSwitch {
+    let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+
+    /// nil while it is off — and when any part is missing (set by hand, a
+    /// value from a build without the provider): fails closed.
+    var grant: VoiceNoteCloudGrant? {
+        guard defaults.bool(forKey: AppSettings.k_summarizeVoiceNotesInCloud),
+              let provider = defaults.string(forKey: AppSettings.k_summarizeVoiceNotesInCloudProvider), !provider.isEmpty,
+              let since = defaults.object(forKey: AppSettings.k_summarizeVoiceNotesInCloudSince) as? Date else { return nil }
+        return VoiceNoteCloudGrant(provider: provider, since: since)
+    }
+
+    /// The switch as it reads for `provider` (its raw value).
+    func isOn(for provider: String) -> Bool { grant?.provider == provider }
+
+    /// When it was turned on for `provider` — a cloud provider gets only
+    /// the notes recorded from then on. nil while off, or on for another.
+    func since(for provider: String) -> Date? {
+        guard let grant, grant.provider == provider else { return nil }
+        return grant.since
+    }
+
+    /// On keeps the provider and the moment, rounded down to the second —
+    /// a note's `started:` is written in whole seconds, so a note begun in
+    /// the same second still counts; off forgets both, so turning it on
+    /// again starts from then.
+    func set(_ on: Bool, provider: String, now: Date = Date()) {
+        defaults.set(on, forKey: AppSettings.k_summarizeVoiceNotesInCloud)
+        if on {
+            defaults.set(provider, forKey: AppSettings.k_summarizeVoiceNotesInCloudProvider)
+            defaults.set(Date(timeIntervalSince1970: now.timeIntervalSince1970.rounded(.down)),
+                         forKey: AppSettings.k_summarizeVoiceNotesInCloudSince)
+        } else {
+            defaults.removeObject(forKey: AppSettings.k_summarizeVoiceNotesInCloudProvider)
+            defaults.removeObject(forKey: AppSettings.k_summarizeVoiceNotesInCloudSince)
+        }
+    }
+
+    /// The chosen summary provider changed, or where it sends text (a base
+    /// URL, an Ollama cloud model): a yes given before is gone, whichever
+    /// destination it was for — coming back to it starts with the switch
+    /// off (07.11). Same before and after — a no-op set — keeps it.
+    func providerChanged(from old: String, to new: String) {
+        guard old != new, defaults.bool(forKey: AppSettings.k_summarizeVoiceNotesInCloud) else { return }
+        set(false, provider: old)
+    }
 }
 
 // MARK: - SummaryTiming

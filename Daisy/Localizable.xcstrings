@@ -1,6 +1,76 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Couldn't summarize tonight's voice notes — check %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось подготовить саммари голосовых заметок — проверь «%@»."
+          }
+        }
+      }
+    },
+    "Summarize voice notes" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Саммари голосовых заметок"
+          }
+        }
+      }
+    },
+    "Summarize voice notes with %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Саммари голосовых заметок через %@"
+          }
+        }
+      }
+    },
+    "Voice notes you record while this is on go to %@ for a summary, when summaries run. Earlier ones go only if you ask for their summary" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Голосовые заметки, записанные, пока это включено, уходят в %@ за саммари, когда саммари делаются. Более ранние — только если ты попросишь их саммари"
+          }
+        }
+      }
+    },
+    "Voice notes are summarized on this Mac, at the same time as meetings" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Саммари голосовых заметок делается на этом Mac — тогда же, когда и для встреч"
+          }
+        }
+      }
+    },
+    "Summarizing meetings and voice notes: %lld…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Готовлю саммари встреч и голосовых заметок: %lld…"
+          }
+        }
+      }
+    },
+    "Summaries done: %lld." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сделано саммари: %lld."
+          }
+        }
+      }
+    },
     "Already in that language" : {
       "localizations" : {
         "ru" : {

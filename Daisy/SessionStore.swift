@@ -1273,8 +1273,11 @@ final class SessionStore {
         var micOnlyCause: String?
         var micAudioStatus: String?
         var isDemo = false
+        var voiceNote = VoiceNoteProfile.Recognition.none
+        var kindKnown = false
         if !transcriptEvicted,
            let text = try? String(contentsOf: transcriptURL, encoding: .utf8) {
+            kindKnown = true
             let parsedFm = parseFrontmatter(in: text)
             folderSlug = parsedFm.folder ?? "inbox"
             // Explicit `daisy_kind:` wins; otherwise INFER for legacy
@@ -1300,6 +1303,15 @@ final class SessionStore {
             micOnlyCause = parsedFm.micOnlyCause
             micAudioStatus = parsedFm.micAudioStatus
             isDemo = parsedFm.isDemo
+            voiceNote = VoiceNoteProfile.recognise(
+                kind: kind,
+                marker: parsedFm.voiceNoteMarker,
+                otherNoteProfile: parsedFm.otherNoteProfile,
+                origin: parsedFm.origin,
+                systemAudioStatus: parsedFm.systemAudioStatus,
+                durationSec: parsedFm.durationSec ?? 0,
+                body: parsedFm.body
+            )
         } else if let marker = ImportMarker.load(from: directory) {
             // Project chosen at import time — carried into the
             // frontmatter by the first "Transcribe audio" run.
@@ -1353,6 +1365,8 @@ final class SessionStore {
             micOnlyCause: micOnlyCause,
             micAudioStatus: micAudioStatus,
             isDemo: isDemo,
+            voiceNote: voiceNote,
+            kindKnown: kindKnown,
             // "Evicted" only when the PRIMARY content is unreachable: a
             // local transcript with cloud-evicted audio still reads fine —
             // the audio player is the only thing that would trigger a
@@ -1556,6 +1570,18 @@ struct StoredSession: Identifiable, Sendable {
     /// by everything that acts on new sessions — counts, auto-send, the
     /// Home stats, open items, briefs, sync.
     var isDemo: Bool = false
+    /// A Mac voice note (`VoiceNoteProfile`): `.marked` by its key,
+    /// `.byShape` from before the key. Its summary is in the author's
+    /// voice; only a marked one is summarized without being asked.
+    var voiceNote: VoiceNoteProfile.Recognition = .none
+    var isVoiceNote: Bool { voiceNote.isVoiceNote }
+    /// The transcript was read, so `kind` and `voiceNote` say what it is.
+    /// False when transcript.md is evicted to iCloud or unreadable: the
+    /// kind is then only the default, and the session may be a voice note —
+    /// its summary (which may still be on disk) goes into a request to a
+    /// cloud provider only once it can be told (`VoiceNoteProfile.mayFeed`).
+    /// No default: every builder says whether it knows (fails closed).
+    var kindKnown: Bool
     /// True when transcript.md or a retained .caf is present on disk but
     /// its bytes were evicted to iCloud — reading would require a
     /// download. Sessions built in-memory after a live recording are
@@ -1684,6 +1710,13 @@ nonisolated private struct ParsedFrontmatter {
     var micAudioStatus: String?
     /// `daisy_demo: true` — the tour's demo meeting.
     var isDemo = false
+    /// `daisy_voice_note:` as written, nil without the key.
+    var voiceNoteMarker: String?
+    /// `daisy_origin:` — who recorded it (§3.6); nil for the Mac.
+    var origin: String?
+    /// Another note profile's marker is `true`, or a side note's
+    /// `daisy_source_meeting` is set — not a voice note (`VoiceNoteProfile`).
+    var otherNoteProfile = false
     /// Markdown body after the closing `---`. Empty if no frontmatter.
     var body: String
 }
@@ -1751,6 +1784,14 @@ nonisolated private func parseFrontmatter(in markdown: String) -> ParsedFrontmat
             parsed.micAudioStatus = valueRaw
         case DemoSession.frontmatterKey:
             parsed.isDemo = DemoSession.isDemo(frontmatterValue: valueRaw)
+        case VoiceNoteProfile.frontmatterKey:
+            parsed.voiceNoteMarker = valueRaw
+        case "daisy_origin":
+            parsed.origin = valueRaw
+        case VoiceNoteProfile.sourceMeetingKey:
+            if !valueRaw.isEmpty { parsed.otherNoteProfile = true }
+        case _ where VoiceNoteProfile.otherNoteMarkers.contains(key):
+            if VoiceNoteProfile.isTrue(valueRaw) { parsed.otherNoteProfile = true }
         default:              break
         }
     }

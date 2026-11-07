@@ -184,13 +184,20 @@ final class QuitFinalizeRecovery {
         let hasSummary = FileManager.default.fileExists(
             atPath: folder.appendingPathComponent("summary.json").path
         )
+        // A note gets one only as finalize would have given it: a voice
+        // note recorded with its key that its gate lets through now, in
+        // its author's voice (Egor 07.11) — before, a voice note got a
+        // meeting's summary here, from any provider. Other notes, none.
+        // Read right before the send: the pass above took minutes.
         if autoSummarize, !hasSummary,
            let session = SessionStore.shared.sessions.first(where: {
                $0.directoryURL.lastPathComponent == folder.lastPathComponent
-           }) {
+           }),
+           Self.summarizesRecovered(session, gate: .current) {
             let text = [mic?.text, system?.text].compactMap { $0 }.joined(separator: "\n\n")
             if let summary = try? await Summarizer.shared.runProbe(
-                transcript: text, title: session.title, localeHint: nil
+                transcript: text, title: session.title, localeHint: nil,
+                task: .summary(oneVoice: session.isVoiceNote)
             ) {
                 await SessionStore.shared.updateSummary(summary, for: session)
             }
@@ -199,6 +206,14 @@ final class QuitFinalizeRecovery {
             String(localized: "Recording re-processed — transcript is now complete."),
             style: .success
         )
+    }
+
+    /// Whether a session this recovery finished gets its summary: a
+    /// recording, or a voice note its gate lets through (07.11) — with a
+    /// cloud provider only one recorded while the switch was on.
+    static func summarizesRecovered(_ session: StoredSession, gate: VoiceNoteProfile.Gate) -> Bool {
+        session.kind == .recording
+            || VoiceNoteProfile.summarizesOnItsOwn(session.voiceNote, recordedAt: session.startedAt, gate: gate)
     }
 
     // MARK: - Per-channel decode + transcribe (heavy work off the main actor)

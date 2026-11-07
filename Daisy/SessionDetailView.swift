@@ -1434,6 +1434,10 @@ struct SessionDetailView: View {
     /// Hidden for a no-content summary (e.g. the "no speech captured"
     /// sentinel) where there's nothing to follow up on.
     private func showFollowUpBlock(_ summary: MeetingSummary) -> Bool {
+        // A voice note has nobody to write to (07.11): no letter, and no
+        // plaque saying the model judged it internal — a letter one
+        // already has (an older summary) still shows.
+        if session.isVoiceNote, summary.clientFollowUp.isEmpty, !isDraftingFollowUp { return false }
         let hasContent = !summary.sections.isEmpty || !summary.actionItems.isEmpty
         return !summary.clientFollowUp.isEmpty || isDraftingFollowUp || hasContent
     }
@@ -2895,10 +2899,13 @@ struct SessionDetailView: View {
             summaryLanguageOverride: AppSettings.currentSummaryLanguage
         )
 
+        // A voice note — with its key or from before it — in its author's
+        // voice (Egor 07.11).
         let result = await Summarizer.shared.summarize(
             transcript: target.transcriptText,
             title: target.title,
             localeHint: localeHint,
+            task: .summary(oneVoice: target.isVoiceNote),
             projectContext: ProjectMemoryBridge.block(forSessionAt: target.directoryURL)
         )
 

@@ -89,11 +89,18 @@ final class InterruptedRecordingRecovery {
             return
         }
 
-        let startDate = Self.startDate(for: folder)
+        let marker = Self.marker(in: folder)
+        let startDate = marker.startedAt ?? Self.folderDate(folder)
         let durationSec = max(mic?.durationSec ?? 0, system?.durationSec ?? 0)
         let markdown = Self.renderMarkdown(
             startDate: startDate,
             durationSec: durationSec,
+            isVoiceNote: marker.isVoiceNote,
+            // As the live path files a voice note: the default notes
+            // project, when it still exists (`RecordingSession.start`).
+            noteFolderSlug: marker.isVoiceNote
+                ? FolderStore.shared.existingFolder(slug: FolderStore.shared.defaultNoteFolderSlug)?.slug
+                : nil,
             mic: mic?.text,
             system: system?.text,
             markers: MomentMarkerStore.markdownSection(
@@ -165,23 +172,34 @@ final class InterruptedRecordingRecovery {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
-    /// Start date from the `.recording` marker (the ISO string we wrote),
-    /// falling back to the folder's creation/modification date.
-    nonisolated private static func startDate(for folder: URL) -> Date {
-        let marker = folder.appendingPathComponent(SessionStore.recordingMarkerName)
-        if let s = try? String(contentsOf: marker, encoding: .utf8),
-           let d = ISO8601DateFormatter().date(from: s.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            return d
+    /// What the `.recording` marker says (`RecordingMarker`): the start,
+    /// and whether it was a voice note. Unreadable reads as a meeting with
+    /// no start.
+    nonisolated private static func marker(in folder: URL) -> RecordingMarker.Contents {
+        let url = folder.appendingPathComponent(SessionStore.recordingMarkerName)
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return RecordingMarker.Contents(startedAt: nil, isVoiceNote: false)
         }
+        return RecordingMarker.parse(text)
+    }
+
+    /// The folder's creation/modification date, when the marker has no start.
+    nonisolated private static func folderDate(_ folder: URL) -> Date {
         let vals = try? folder.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
         return vals?.creationDate ?? vals?.contentModificationDate ?? Date()
     }
 
     /// Obsidian-shaped transcript.md with the minimum frontmatter
     /// (`title` + `started`) that makes SessionStore classify it `.valid`.
-    nonisolated private static func renderMarkdown(
+    /// A voice note (its marker said so, 07.11) comes back as one — a note
+    /// with its key, in the default notes project — so its summary waits
+    /// behind the voice-note gate like any voice note's, rather than going
+    /// out as a meeting's to whatever provider is chosen.
+    nonisolated static func renderMarkdown(
         startDate: Date,
         durationSec: Double,
+        isVoiceNote: Bool = false,
+        noteFolderSlug: String? = nil,
         mic: String?,
         system: String?,
         markers: String = ""
@@ -192,22 +210,31 @@ final class InterruptedRecordingRecovery {
         df.dateFormat = "yyyy-MM-dd HH:mm"
         let titleDate = df.string(from: startDate)
 
+        let heading = isVoiceNote ? "Recovered voice note — \(titleDate)" : "Recovered recording — \(titleDate)"
         var lines: [String] = []
         lines.append("---")
-        lines.append("title: \"Recovered recording — \(titleDate)\"")
+        lines.append("title: \"\(heading)\"")
         lines.append("started: \(iso.string(from: startDate))")
         lines.append("daisy_recovered: true")
-        // A recovered interrupted session is a full recording, never a
-        // note — stamp it so it lands in the Library tab (matches the
-        // legacy inference: recoveries have never used the Notes folder).
-        lines.append("daisy_kind: \(SessionKind.recording.rawValue)")
+        // A recovered meeting is a full recording — stamped so it lands in
+        // the Library tab (matches the legacy inference: recoveries never
+        // used the Notes folder). A recovered voice note is a note with
+        // its key (session-format.md §3.4, §3.5).
+        if isVoiceNote {
+            lines.append(contentsOf: MarkdownExporter.kindLines(kind: .note, isVoiceNote: true))
+        } else {
+            lines.append("daisy_kind: \(SessionKind.recording.rawValue)")
+        }
         lines.append("duration_sec: \(Int(durationSec.rounded()))")
-        if let slug = UserDefaults.standard.string(forKey: "daisy.defaultMeetingFolderSlug"), !slug.isEmpty {
-            lines.append("daisy_folder: \(slug)")
+        let folderSlug = isVoiceNote
+            ? noteFolderSlug ?? ""
+            : UserDefaults.standard.string(forKey: "daisy.defaultMeetingFolderSlug") ?? ""
+        if !folderSlug.isEmpty, !(isVoiceNote && folderSlug == SessionFolder.inbox.slug) {
+            lines.append("daisy_folder: \(folderSlug)")
         }
         lines.append("---")
         lines.append("")
-        lines.append("# Recovered recording — \(titleDate)")
+        lines.append("# \(heading)")
         lines.append("")
         lines.append("> " + String(localized: "Recovered after an interrupted session (crash or power loss). Basic transcript — no speaker labels or summary. The audio is in this folder if you want to re-process it."))
         lines.append("")
@@ -249,5 +276,30 @@ nonisolated enum WhisperLocale {
         if l.isEmpty || l == "auto" { return nil }
         let two = l.prefix(2)
         return two.isEmpty ? nil : String(two)
+    }
+}
+
+/// The `.recording` marker's contents (session-format.md §6.1). Line one
+/// is the ISO-8601 start instant, as it always was; a voice note adds
+/// `mode: voiceNote` on a line of its own (07.11), so crash recovery can
+/// write it back as a voice note. A meeting's marker is unchanged, byte
+/// for byte, and a marker written before is read as a meeting.
+nonisolated enum RecordingMarker {
+    struct Contents: Equatable, Sendable {
+        var startedAt: Date?
+        var isVoiceNote: Bool
+    }
+
+    static let voiceNoteLine = "mode: voiceNote"
+
+    static func contents(startedAt: Date, isVoiceNote: Bool) -> String {
+        let start = ISO8601DateFormatter().string(from: startedAt)
+        return isVoiceNote ? start + "\n" + voiceNoteLine + "\n" : start
+    }
+
+    static func parse(_ text: String) -> Contents {
+        let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+        let start = lines.first.flatMap { ISO8601DateFormatter().date(from: $0) }
+        return Contents(startedAt: start, isVoiceNote: lines.dropFirst().contains(voiceNoteLine))
     }
 }

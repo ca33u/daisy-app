@@ -29,6 +29,13 @@ struct TrackedActionItem: Identifiable, Sendable, Equatable {
     /// behavior — a bare Bool couldn't tell today's dones from old ones.
     var doneAt: Date?
     var isDone: Bool { doneAt != nil }
+    /// From a voice note (07.11): shown like any step, but carried into a
+    /// request to a provider only as the note itself could go
+    /// (`VoiceNoteProfile.mayFeed`) — the morning brief.
+    var fromVoiceNote = false
+    /// Its session's transcript was readable (`StoredSession.kindKnown`).
+    /// No default, as there.
+    var kindKnown: Bool
 }
 
 @MainActor
@@ -113,7 +120,9 @@ final class ActionItemStore {
                     sessionID: session.id,
                     sessionTitle: session.title,
                     sessionDate: session.startedAt,
-                    doneAt: doneDates[id]
+                    doneAt: doneDates[id],
+                    fromVoiceNote: session.isVoiceNote,
+                    kindKnown: session.kindKnown
                 ))
             }
         }
