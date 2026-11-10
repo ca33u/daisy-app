@@ -1124,6 +1124,12 @@ final class DaisyKeyController {
                 tell(String(localized: "Stop the note first"))
             }
         case .capturing:
+            // A tap fixes the layout the moment the key comes up. The
+            // capture its key-down began is thrown away behind it; until
+            // 10.11.2026 the fix waited for that — the microphone opening
+            // and closing — before a letter changed (Konstantin, 09.11:
+            // «Дейзи что-то заморачивается»).
+            if isTap { fixLayoutOnTap(settings: session.settings) }
             if refusedStarts.remove(press.token) != nil {
                 if isTap {
                     tapCaptureFinished(token: press.token, on: session)
@@ -1233,14 +1239,19 @@ final class DaisyKeyController {
         DaisyKeyIndicator.shared.settle()
     }
 
-    /// The tap's half-second is gone. A tap outside a recording fixes the keyboard layout — of the
+    /// The tap's half-second is gone: nothing of the press is kept. The
+    /// layout was fixed when the key came up (`fixLayoutOnTap`); a press
+    /// another shortcut took over (`cancel`) fixed nothing.
+    func tapCaptureFinished(token: UUID, on session: RecordingSession) {
+        holds.removeValue(forKey: token)?.context.cancel()
+        cancelled.removeValue(forKey: token)
+    }
+
+    /// A tap outside a recording fixes the keyboard layout — of the
     /// selection, or the word just typed — as the layout-fix shortcut
     /// does (Egor 23.10: notes are a hold now, the tap no longer starts
     /// one).
-    func tapCaptureFinished(token: UUID, on session: RecordingSession) {
-        holds.removeValue(forKey: token)?.context.cancel()
-        if cancelled.removeValue(forKey: token) != nil { return }
-        let settings = session.settings
+    private func fixLayoutOnTap(settings: AppSettings) {
         guard settings.layoutFixEnabled else {
             tell(String(localized: "A tap fixes the keyboard layout — turn it on in \(SettingsRow.layoutFixer.path)"),
                  action: (String(localized: "Open Settings"), { AppNavigation.shared.openInSettings(.dictation, row: .layoutFixer) }),

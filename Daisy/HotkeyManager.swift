@@ -832,6 +832,13 @@ final class HotkeyManager {
     /// as the command it is — see `LayoutAutoFix.handle`.
     nonisolated static let carbonKeys = OSAllocatedUnfairLock<Set<UInt32>>(initialState: [])
 
+    /// The ones among them whose press fixes the keyboard layout: the fix
+    /// shortcut and the Daisy key (its tap). The tap keeps the word just
+    /// typed for these and for no other command — see
+    /// `LayoutAutoFix.forgetWord`.
+    nonisolated static let layoutFixKeys = OSAllocatedUnfairLock<Set<UInt32>>(initialState: [])
+    nonisolated static let layoutFixSlots: Set<HotkeySlot> = [.fixLayout, .voiceNote]
+
     nonisolated static func carbonKey(keyCode: UInt32, mods: UInt32) -> UInt32 {
         (keyCode << 16) | (mods & 0xFFFF)
     }
@@ -1337,6 +1344,9 @@ final class HotkeyManager {
     private func publishCarbonKeys() {
         let keys = Set(carbonCombos.values.map { Self.carbonKey(keyCode: $0.keyCode, mods: $0.mods) })
         Self.carbonKeys.withLock { $0 = keys }
+        let fixKeys = Set(carbonCombos.filter { Self.layoutFixSlots.contains($0.key) }
+            .values.map { Self.carbonKey(keyCode: $0.keyCode, mods: $0.mods) })
+        Self.layoutFixKeys.withLock { $0 = fixKeys }
     }
 
     /// Unregister every slot. Used at app shutdown / `applyAll` rewiring.

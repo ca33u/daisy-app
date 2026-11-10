@@ -191,6 +191,16 @@
         }
       }
     },
+    "Nothing here to switch" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Здесь нечего переключать"
+          }
+        }
+      }
+    },
     "A tap of Fn also does what macOS has it do — change the input source, show emoji or start its dictation." : {
       "localizations" : {
         "ru" : {
@@ -23386,16 +23396,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Проверка…"
-          }
-        }
-      }
-    },
-    "That already looks like the layout you meant." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Похоже, текст уже набран в нужной раскладке."
           }
         }
       }

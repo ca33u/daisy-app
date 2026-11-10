@@ -450,26 +450,47 @@ struct LayoutFixRepeatUndoTests {
     }
 
     /// When the tap saw the word typed, the field must show it right
-    /// before the caret — with what ended it — or the screen isn't used
-    /// (editors that report per block or a keystroke late).
+    /// before the caret — with the spaces after it — or the screen isn't
+    /// used (editors that report per block or a keystroke late).
     @Test func theFieldMustAgreeWithTheTypedWord() {
         let pick = LayoutFixLastWord.Pick(word: "lf;t", trailing: "")
-        // «t» in flight after «;» ended «lf» for the tap.
-        #expect(LayoutFixLastWord.agrees(pick, withTyped: "t", boundary: nil))
-        #expect(!LayoutFixLastWord.agrees(pick, withTyped: "te", boundary: nil))
+        #expect(LayoutFixLastWord.agrees(pick, withTyped: "lf;t", trailing: ""))
+        // Typing that began in the middle of the field's word.
+        #expect(LayoutFixLastWord.agrees(pick, withTyped: "t", trailing: ""))
+        #expect(!LayoutFixLastWord.agrees(pick, withTyped: "te", trailing: ""))
         let spaced = LayoutFixLastWord.Pick(word: "ghbdtn", trailing: " ")
-        #expect(LayoutFixLastWord.agrees(spaced, withTyped: "ghbdtn", boundary: " "))
-        #expect(!LayoutFixLastWord.agrees(spaced, withTyped: "ghbdtn", boundary: nil))
+        #expect(LayoutFixLastWord.agrees(spaced, withTyped: "ghbdtn", trailing: " "))
+        #expect(!LayoutFixLastWord.agrees(spaced, withTyped: "ghbdtn", trailing: ""))
         // The field lags a keystroke: it shows «ghbdt», the tap saw «ghbdtn».
-        #expect(!LayoutFixLastWord.agrees(.init(word: "ghbdt", trailing: ""), withTyped: "ghbdtn", boundary: nil))
+        #expect(!LayoutFixLastWord.agrees(.init(word: "ghbdt", trailing: ""), withTyped: "ghbdtn", trailing: ""))
         // Smart quotes aside.
-        #expect(LayoutFixLastWord.agrees(.init(word: "\u{2018}nj", trailing: ""), withTyped: "'nj", boundary: nil))
+        #expect(LayoutFixLastWord.agrees(.init(word: "\u{2018}nj", trailing: ""), withTyped: "'nj", trailing: ""))
         // A web editor's no-break space after the word, and a native one
         // capitalising the first word of a sentence: the same word.
-        #expect(LayoutFixLastWord.agrees(.init(word: "ghbdtn", trailing: "\u{00A0}"), withTyped: "ghbdtn", boundary: " "))
-        #expect(LayoutFixLastWord.agrees(.init(word: "Ghbdtn", trailing: " "), withTyped: "ghbdtn", boundary: " "))
-        // Two spaces where the tap saw one: refused, the safe way.
-        #expect(!LayoutFixLastWord.agrees(.init(word: "ghbdtn", trailing: "  "), withTyped: "ghbdtn", boundary: " "))
+        #expect(LayoutFixLastWord.agrees(.init(word: "ghbdtn", trailing: "\u{00A0}"), withTyped: "ghbdtn", trailing: " "))
+        #expect(LayoutFixLastWord.agrees(.init(word: "Ghbdtn", trailing: " "), withTyped: "ghbdtn", trailing: " "))
+        // Two spaces after the word, both seen typed (Konstantin 09.11:
+        // the last word changes with a space already after it).
+        #expect(LayoutFixLastWord.agrees(.init(word: "ghbdtn", trailing: "  "), withTyped: "ghbdtn", trailing: "  "))
+        #expect(LayoutFixLastWord.agrees(.init(word: "ghbdtn", trailing: "\u{00A0} "), withTyped: "ghbdtn", trailing: "  "))
+        // A space the tap didn't see typed: refused, the safe way.
+        #expect(!LayoutFixLastWord.agrees(.init(word: "ghbdtn", trailing: "  "), withTyped: "ghbdtn", trailing: " "))
+    }
+
+    /// What the second press may delete and type back after a converted
+    /// selection: a few words on one line.
+    @Test func aShortSelectionOnOneLineGoesBackByRetyping() {
+        #expect(LayoutFixLastWord.retypes("cfqn"))
+        #expect(LayoutFixLastWord.retypes("ghbdtn, rfr ltkf?"))
+        #expect(LayoutFixLastWord.retypes("NHC "))
+        #expect(!LayoutFixLastWord.retypes(""))
+        #expect(!LayoutFixLastWord.retypes("ghbdtn\nrfr"))
+        #expect(!LayoutFixLastWord.retypes("ghbdtn\trfr"))
+        // A combining mark, an attachment: not one backspace each.
+        #expect(!LayoutFixLastWord.retypes("ftq" + "и\u{0306}"))
+        #expect(!LayoutFixLastWord.retypes("ab\u{FFFC}cd"))
+        #expect(LayoutFixLastWord.retypes(String(repeating: "f", count: LayoutFixLastWord.maxPresses)))
+        #expect(!LayoutFixLastWord.retypes(String(repeating: "f", count: LayoutFixLastWord.maxPresses + 1)))
     }
 
     @Test func smartQuotesAreStraightenedOneForOne() {
@@ -503,11 +524,11 @@ struct LayoutFixMissTests {
         LayoutFixMiss(onScreen: onScreen, typed: typed, fixingAsYouTypeOn: on, watcherRunning: running)
     }
 
-    @Test func fixedOrAlreadyRightSaysNothingHere() {
+    @Test func fixedOrNothingToSwitchSaysNothingHere() {
         #expect(miss(.fixed) == nil)
-        #expect(miss(.alreadyRight) == nil)
+        #expect(miss(.nothingToSwitch) == nil)
         #expect(miss(.unknown, typed: .fixed, on: true, running: true) == nil)
-        #expect(miss(.unknown, typed: .alreadyRight, on: true, running: true) == nil)
+        #expect(miss(.unknown, typed: .nothingToSwitch, on: true, running: true) == nil)
     }
 
     @Test func theFieldsOwnAnswers() {

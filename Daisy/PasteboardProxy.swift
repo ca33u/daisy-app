@@ -94,6 +94,8 @@ final class PasteboardProxy {
     /// copies something else in the meantime — their copy wins over our
     /// courtesy.
     func pasteAndReturn(_ text: String, _ borrow: Borrow) {
+        // Not typing, as far as the layout watcher's tap can tell.
+        LayoutAutoFix.forgetAfterOwnInsert()
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         pendingChangeCount = NSPasteboard.general.changeCount

@@ -48,6 +48,38 @@ nonisolated struct KeyboardLayout: Identifiable, Sendable {
     let charByPress: [KeyPress: Character]
     let pressByChar: [Character: KeyPress]
 
+    /// The press a character maps back to, for every character the
+    /// layout types. When several presses type the same one: a key of
+    /// the main block before one of the numeric keypad, then unshifted
+    /// before shifted — the simpler press — then the lower key code.
+    ///
+    /// The keypad comes last because nobody types prose on it, and it
+    /// repeats characters the main block has under ⇧. Until 10.11.2026
+    /// every unshifted key came first, the keypad's included: the Russian
+    /// «,» (⇧6) mapped back to the keypad's decimal key, which is «.» on
+    /// the US layout — so «привет, как дела?» came out as «ghbdtn. rfr
+    /// ltkf?» and went back as «приветю как дела?». A second press of the
+    /// fix key has to be the way back.
+    static func reverseMap(of charByPress: [KeyPress: Character]) -> [Character: KeyPress] {
+        func rank(_ press: KeyPress) -> (Int, Int, UInt16) {
+            (keypadKeyCodes.contains(press.keyCode) ? 1 : 0, press.shift ? 1 : 0, press.keyCode)
+        }
+        var out: [Character: KeyPress] = [:]
+        for (press, character) in charByPress {
+            if let chosen = out[character], rank(chosen) <= rank(press) { continue }
+            out[character] = press
+        }
+        return out
+    }
+
+    static let keypadKeyCodes: Set<UInt16> = Set([
+        kVK_ANSI_KeypadDecimal, kVK_ANSI_KeypadMultiply, kVK_ANSI_KeypadPlus, kVK_ANSI_KeypadClear,
+        kVK_ANSI_KeypadDivide, kVK_ANSI_KeypadEnter, kVK_ANSI_KeypadMinus, kVK_ANSI_KeypadEquals,
+        kVK_ANSI_Keypad0, kVK_ANSI_Keypad1, kVK_ANSI_Keypad2, kVK_ANSI_Keypad3, kVK_ANSI_Keypad4,
+        kVK_ANSI_Keypad5, kVK_ANSI_Keypad6, kVK_ANSI_Keypad7, kVK_ANSI_Keypad8, kVK_ANSI_Keypad9,
+        kVK_JIS_KeypadComma,
+    ].map(UInt16.init))
+
     /// Every letter of `text` sits on this layout's keys — the text could
     /// have been typed on it. Punctuation doesn't count: on US the keys
     /// of «, . ; '» are «б ю ж э» on Russian, so Cyrillic with a comma
@@ -190,15 +222,10 @@ final class KeyboardLayouts {
               let data = layoutData(source) else { return nil }
 
         var charByPress: [KeyPress: Character] = [:]
-        var pressByChar: [Character: KeyPress] = [:]
-        // Unshifted first, so a character that can be typed both ways
-        // maps back to the simpler press.
         for shift in [false, true] {
             for keyCode in UInt16(0)...UInt16(127) {
                 guard let character = character(keyCode: keyCode, shift: shift, layoutData: data) else { continue }
-                let press = KeyPress(keyCode: keyCode, shift: shift)
-                charByPress[press] = character
-                if pressByChar[character] == nil { pressByChar[character] = press }
+                charByPress[KeyPress(keyCode: keyCode, shift: shift)] = character
             }
         }
         guard charByPress.count > 20 else { return nil }   // not a real text layout
@@ -208,7 +235,7 @@ final class KeyboardLayouts {
             name: string(source, kTISPropertyLocalizedName) ?? id,
             language: languages(source).first,
             charByPress: charByPress,
-            pressByChar: pressByChar
+            pressByChar: KeyboardLayout.reverseMap(of: charByPress)
         )
     }
 

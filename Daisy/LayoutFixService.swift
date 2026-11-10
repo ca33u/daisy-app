@@ -17,8 +17,15 @@
 //      off; then, for an app that won't show its text, the word the
 //      watcher's tap saw typed.
 //
+//  The key converts whatever it is given, both ways, every time it is
+//  pressed — a real word too («сайт» → «cfqn»): the person asked, and
+//  judging the word is the automatic watcher's job, not the key's.
+//
 //  Pressing again right away puts back what was there — the undo below,
-//  for the automatic fixes and for the key's own last word alike.
+//  for the automatic fixes, the key's own last word and a short
+//  selection alike. A third press converts again: the last word before
+//  the caret, as any press with nothing selected does (a selection is
+//  gone once it has been pasted over).
 //
 //  With no answer from either, the honest answer is to say so — which
 //  the toast does.
@@ -100,9 +107,9 @@ final class LayoutFixService {
         defer { isRunning = false }
 
         // 0. Undo — checked before the selection/fix-key logic below.
-        // Fires for a fix the automatic watcher made, and for the last
-        // word this key fixed a moment ago (never for a selection — see
-        // LayoutFixUndo).
+        // Fires for a fix the automatic watcher made, and for what this
+        // key converted a moment ago: the last word, or a selection
+        // short enough to retype (see LayoutFixUndo).
         //
         // The asymmetry with `confirmBeforeCaret` elsewhere in this
         // feature is deliberate, and inverted on purpose: the fix
@@ -140,9 +147,24 @@ final class LayoutFixService {
         //    an answer that won't come — on every tap of a lone ⌥ too.
         //    Only where that answer is trustworthy: web editors report a
         //    caret per block and lag behind (review 31.10).
-        let noSelectionReported = AXFocus.kind() == .editable && AXFocus.hasNoSelection() == true
-        if !noSelectionReported || AXFocus.caretMayBeUnreliable() {
-            if await fixSelection(settings: settings, quiet: quiet, lineCopyIsNoSelection: noSelectionReported) { return }
+        //    Nor when the watcher saw a word typed and nothing since but
+        //    this key: whatever could have made a selection — a click, an
+        //    arrow, ⌘A — makes it forget that word. In a browser or a
+        //    chat that is a quarter of a second of waiting for a copy
+        //    that never comes, before every last-word fix (Konstantin,
+        //    09.11: «Дейзи что-то заморачивается»).
+        let typedJustNow = LayoutAutoFix.shared.isRunning
+            && LayoutAutoFix.buffer.wordInFlightOrJustFinished(within: LayoutAutoFix.recentWordWindow) != nil
+        // The field isn't asked either, then: three round trips saved.
+        if !typedJustNow {
+            let noSelectionReported = AXFocus.kind() == .editable && AXFocus.hasNoSelection() == true
+            if Self.asksForSelection(
+                noSelectionReported: noSelectionReported,
+                caretMayBeUnreliable: AXFocus.caretMayBeUnreliable(),
+                typedJustNow: false
+            ) {
+                if await fixSelection(settings: settings, quiet: quiet, lineCopyIsNoSelection: noSelectionReported) { return }
+            }
         }
 
         // 2. No selection — the last word before the caret. Both paths
@@ -150,19 +172,14 @@ final class LayoutFixService {
         //    fix and leave the undo, so there is nothing to finish here.
         //    The field's own answer first: it is what the backspaces will
         //    delete. The tap's word only when the field won't say — a
-        //    definite answer (no word there, or one that already reads
-        //    right) is not overruled by memory.
+        //    definite answer (no word there, or one no layout changes)
+        //    is not overruled by memory.
         let onScreen = LayoutAutoFix.shared.fixLastWordOnScreen(settings: settings)
         // The tap's word only when the field won't say.
         let typed = onScreen == .unknown ? LayoutAutoFix.shared.fixWordInFlight(settings: settings) : nil
         if onScreen == .fixed || typed == .fixed { return }
-        if onScreen == .alreadyRight || typed == .alreadyRight {
-            if !quiet {
-                ToastCenter.shared.show(
-                    String(localized: "That already looks like the layout you meant."),
-                    style: .info
-                )
-            }
+        if onScreen == .nothingToSwitch || typed == .nothingToSwitch {
+            if !quiet { ToastCenter.shared.show(Self.nothingToSwitchMessage, style: .info) }
             return
         }
         // A lone ⌥ brushed by accident says nothing.
@@ -179,8 +196,25 @@ final class LayoutFixService {
         ToastCenter.shared.show(miss.message, style: .warning)
     }
 
-    /// The selection, through ⌘C. True when there was one — fixed, or
-    /// already in the right layout (and said so) — so the caller stops.
+    /// Whether to ask the front app for its selection with ⌘C before
+    /// going for the last word. Not when the field itself says nothing is
+    /// selected and can be believed, and not when the watcher saw a word
+    /// typed with nothing after it but this key — see `trigger`.
+    nonisolated static func asksForSelection(
+        noSelectionReported: Bool,
+        caretMayBeUnreliable: Bool,
+        typedJustNow: Bool
+    ) -> Bool {
+        if typedJustNow { return false }
+        return !noSelectionReported || caretMayBeUnreliable
+    }
+
+    /// Digits, or two layouts that share every key the text uses: there
+    /// is nothing a layout would change.
+    static var nothingToSwitchMessage: String { String(localized: "Nothing here to switch") }
+
+    /// The selection, through ⌘C. True when there was one — converted, or
+    /// nothing in it a layout changes (and said so) — so the caller stops.
     ///
     /// `lineCopyIsNoSelection`: the field said nothing is selected, and is
     /// asked anyway because it can't be trusted. Editors that copy the
@@ -196,38 +230,43 @@ final class LayoutFixService {
         }
         guard let fix = LayoutFix.deliberate(selection) else {
             PasteboardProxy.shared.giveBack(borrow)
-            if !quiet {
-                ToastCenter.shared.show(
-                    String(localized: "That already looks like the layout you meant."),
-                    style: .info
-                )
-            }
+            if !quiet { ToastCenter.shared.show(Self.nothingToSwitchMessage, style: .info) }
             return true
         }
         PasteboardProxy.shared.pasteAndReturn(fix.text, borrow)
-        finish(with: fix, settings: settings)
+        // The paste leaves the caret after the conversion with nothing
+        // selected, so a second press can't simply convert it again.
+        // What is short enough to delete and retype — a word or a few,
+        // on one line — goes back that way, like the last word; anything
+        // longer has to be selected again. `pasted`: an editor may trim
+        // or reshape what is pasted, so this undo needs the field to show
+        // the conversion (`LayoutFixUndo.confirms`) — and for the same
+        // reason the paste is not left in the tap's buffer as something
+        // typed: only keys typed one by one are counted on.
+        var undo: (originalWord: String, trailing: String, replacementWord: String, byKey: Bool)?
+        if LayoutFixLastWord.retypes(selection), LayoutFixLastWord.retypes(fix.text) {
+            undo = (originalWord: selection, trailing: "", replacementWord: fix.text, byKey: true)
+        }
+        // Switching the source is the difference between fixing one word
+        // and fixing the sentence — without it the next word goes wrong
+        // the same way.
+        LayoutAutoFix.shared.settle(
+            targetLayoutID: fix.target.id,
+            via: "fix key, selection",
+            switchesSource: settings.layoutFixSwitchesSource,
+            undo: undo,
+            pasted: true
+        )
         return true
     }
 
-    /// Shared tail: switch the input source if asked, count the fix, and
-    /// say what happened. Switching is the difference between fixing one
-    /// word and fixing the sentence — without it the next word goes
-    /// wrong the same way.
-    private func finish(with fix: LayoutFix.Fix, settings: AppSettings) {
-        ImprovementStats.record(.layoutFixed)
-        if settings.layoutFixSwitchesSource {
-            KeyboardLayouts.shared.select(fix.target)
-        }
-        UsageStats.shared.recordFixes(polished: 1)
-        log.info("Layout fix → \(fix.target.id, privacy: .public)")
-    }
-
-    /// Delete the fix's output and retype what the person actually
-    /// typed — one keypress to reverse a correction they didn't want.
-    /// For an automatic one, also a lesson `LayoutFixExceptions`
-    /// remembers so it doesn't happen again on the same word; the key's
-    /// own fix just goes back, quietly, as Punto's second press does.
+    /// Delete the fix's output and retype what was there — one keypress
+    /// to reverse a correction the person didn't want. For an automatic
+    /// one, also a lesson `LayoutFixExceptions` remembers so it doesn't
+    /// happen again on the same word; the key's own conversion just goes
+    /// back, quietly, as Punto's second press does.
     private func performUndo(_ record: LayoutFixUndo.Record) {
+        let since = LayoutAutoFix.buffer.generation
         guard LayoutAutoFix.shared.replace(
             presses: record.replacementText.count,
             with: record.originalText
@@ -243,7 +282,10 @@ final class LayoutFixService {
            let layout = KeyboardLayouts.shared.installed.first(where: { $0.id == restoreLayoutID }) {
             KeyboardLayouts.shared.select(layout)
         }
-        LayoutAutoFix.buffer.discard()
+        // What came back is the last thing typed now: a third press
+        // converts it again, a fourth undoes that, for as long as they
+        // come.
+        LayoutAutoFix.shared.forgetTyping(leaving: (record.originalText, since))
         // Second press in a row is ordinary key work, not an undo of
         // the undo.
         LayoutFixUndo.shared.clear()
@@ -281,8 +323,8 @@ nonisolated enum LayoutFixMiss: Equatable, Sendable {
 
     /// The reason after the last-word pass: what the field said
     /// (`onScreen`) and, when it said nothing, what the tap's word came
-    /// to (`typed`). Nil when there is nothing to say: fixed, or already
-    /// right (said apart).
+    /// to (`typed`). Nil when there is nothing to say: fixed, or nothing a
+    /// layout changes (said apart).
     @MainActor
     init?(
         onScreen: LayoutAutoFix.LastWordOutcome,
@@ -292,13 +334,13 @@ nonisolated enum LayoutFixMiss: Equatable, Sendable {
     ) {
         let cantRead: LayoutFixMiss = watcherRunning || fixingAsYouTypeOn ? .selectWord : .selectOrTurnOnAuto
         switch onScreen {
-        case .fixed, .alreadyRight: return nil
+        case .fixed, .nothingToSwitch: return nil
         case .noWord: self = .noWord
         case .mismatch: self = .selectWord
         case .unreliable: self = watcherRunning ? .retypeWord : cantRead
         case .unknown:
             switch typed {
-            case .fixed?, .alreadyRight?: return nil
+            case .fixed?, .nothingToSwitch?: return nil
             case .noWord?: self = .retypeWord
             case .mismatch?: self = .selectWord
             case .unknown?, .unreliable?, nil: self = cantRead
@@ -369,18 +411,30 @@ nonisolated enum LayoutFixLastWord {
         return Pick(word: String(word), trailing: trailing)
     }
 
-    /// Whether the field shows, right before the caret, the word the tap
-    /// saw typed and what ended it — smart quotes aside.
+    /// Whether the field shows, right before the caret, the run the tap
+    /// saw typed and the spaces after it — smart quotes aside.
     ///
     /// Only which word it is, not how it looks: a web editor keeps the
     /// space after it as a no-break space, and a native one capitalised
     /// the first word of the sentence on that space (review 31.10). The
-    /// conversion itself still uses what the field shows.
-    static func agrees(_ pick: Pick, withTyped word: String, boundary: Character?) -> Bool {
+    /// conversion itself still uses what the field shows. The end of the
+    /// field's word is enough: typing may have begun in the middle of one.
+    static func agrees(_ pick: Pick, withTyped word: String, trailing: String) -> Bool {
         func normalized(_ text: String) -> String {
             straighteningQuotes(text).replacingOccurrences(of: "\u{00A0}", with: " ").lowercased()
         }
-        return normalized(pick.word + pick.trailing).hasSuffix(normalized(word + (boundary.map(String.init) ?? "")))
+        return normalized(pick.word + pick.trailing).hasSuffix(normalized(word + trailing))
+    }
+
+    /// Whether `text` can be deleted with backspaces and typed back — what
+    /// the second press does to a converted selection. One line (a line
+    /// break deleted and retyped is the editor's own indenting and lists
+    /// run twice), every character one backspace removes whole, and no
+    /// longer than the fix key retypes at once.
+    static func retypes(_ text: String) -> Bool {
+        !text.isEmpty
+            && text.count <= maxPresses
+            && text.allSatisfy { $0 == " " || $0 == "\u{00A0}" || (!$0.isWhitespace && isWholeKeystroke($0)) }
     }
 
     /// Typographic quotes back to the ASCII ones the keys typed —

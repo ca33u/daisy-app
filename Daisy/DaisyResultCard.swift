@@ -135,6 +135,7 @@ final class DaisyResultCard {
             return
         }
         close()
+        LayoutAutoFix.forgetAfterOwnInsert()
         PasteboardProxy.shared.postCommandKeystroke(CGKeyCode(kVK_ANSI_Z))
         ImprovementStats.record(.daisyKeyUndone)
     }

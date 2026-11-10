@@ -276,6 +276,12 @@ final class DictationPaste {
 
     private func deliverNow(_ transcript: String, context: DeliveryContext) async {
         deliveryGeneration &+= 1
+        // The text goes in by a road the layout watcher's tap doesn't see
+        // as typing: the word it remembers is no longer before the caret
+        // — now, and still when the delivery ends (keys pressed while it
+        // ran are on an unknown side of the text).
+        LayoutAutoFix.forgetAfterOwnInsert()
+        defer { LayoutAutoFix.forgetAfterOwnInsert() }
         // The whole delivery, the wait for a slow app included — the
         // release→paste line stops where the delivery begins.
         let deliveryStart = Date()

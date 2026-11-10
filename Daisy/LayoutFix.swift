@@ -11,10 +11,12 @@
 //  Two modes with deliberately different standards of proof:
 //
 //   - `deliberate` — the user pressed the fix key. They have asserted
-//     the text is wrong, so we convert and get out of the way. Refusing
-//     because no dictionary recognises either side would be maddening
-//     precisely when it matters (passwords typed into a visible field,
-//     product names, slang).
+//     the text is wrong, so we convert and get out of the way — always,
+//     both ways, as many times as the key is pressed. A word that is
+//     real where it stands is converted like any other: «сайт» is a
+//     word, and the person wanted «cfqn» (an abbreviation, a password,
+//     a product name). The dictionary only helps choose between two
+//     possible conversions; it never refuses one.
 //
 //   - `judge` — the automatic path, and nobody asked for it. The bar
 //     has to be high enough that being wrong is rare, because being
@@ -52,54 +54,21 @@ enum LayoutFix {
 
     // MARK: - Deliberate (the user asked)
 
-    /// Convert text the user has selected (or just typed) into whichever
-    /// installed layout makes it real words. Falls back to converting
-    /// out of the ACTIVE layout when no dictionary can judge — that is
-    /// the single most likely intent, and the user can press again.
+    /// Convert text the user has selected (or just typed) into another
+    /// installed layout. Always: the person pressed the key, and whether
+    /// the text already reads as words is not ours to judge (Konstantin,
+    /// 09.11.2026: «сайт» wouldn't become «cfqn»). From 07.10 to 09.11
+    /// the key left real words alone, after a stray press turned
+    /// «daisy-provider-api-key» into Cyrillic; a stray press now costs a
+    /// second one, which puts the text back. Nil only when no installed
+    /// layout would change a character.
     static func deliberate(_ text: String) -> Fix? {
-        let layouts = KeyboardLayouts.shared.installed
-        guard layouts.count > 1 else { return nil }
-
-        var fallback: Fix?
-        var best: (fix: Fix, score: Double)?
-        /// How real the text already is, judged ONLY in the language of a
-        /// layout it converts out of — i.e. one it was typed on. Judged in
-        /// any language it would be wrong: the English checker passes
-        /// every Cyrillic word as correct, so «руддщ» would never become
-        /// «hello» again.
-        var original = 0.0
-        // Source order matters: the active layout first, because it is
-        // what produced the text — unless the user already switched
-        // layouts before pressing the key, which is why the others are
-        // tried at all.
-        for source in orderedSources(layouts) {
-            for target in layouts where target.id != source.id {
-                guard let converted = source.converting(text, to: target) else { continue }
-                // Only a layout the LETTERS were typed on: the English
-                // checker passes Cyrillic, and punctuation alone makes
-                // Russian text "convert" out of US (review find).
-                if source.typesAllLetters(of: text) {
-                    original = max(original, realWordRatio(in: text, language: source.language))
-                }
-                let candidate = Fix(text: converted, target: target)
-                // Score, don't first-hit: with three layouts installed a
-                // single incidental real word ("a") in the wrong
-                // conversion would otherwise win.
-                let score = realWordRatio(in: converted, language: target.language)
-                if score > (best?.score ?? 0) { best = (candidate, score) }
-                if fallback == nil { fallback = candidate }
-            }
-        }
-        // Already right: the text reads as real words in the layout it is
-        // in, and no conversion reads better. A user's
-        // «daisy-provider-api-key» became «фдштф-зкфыщдщмф-фзш-лун» on a
-        // stray press (07.10.2026); now the key says so and leaves it.
-        if original > 0.5, original >= (best?.score ?? 0) { return nil }
-        if let best, best.score > 0.5 { return best.fix }
-        // Nothing the dictionaries recognise. The user still asked, so
-        // convert out of the ACTIVE layout — the most likely intent — and
-        // let them press again if it was the other way round.
-        return fallback
+        LayoutFixManual.conversion(
+            of: text,
+            layouts: KeyboardLayouts.shared.installed,
+            currentID: KeyboardLayouts.shared.current?.id,
+            realWordShare: { realWordRatio(in: $0, language: $1.language) }
+        )
     }
 
     // MARK: - Automatic (nobody asked)
@@ -218,11 +187,6 @@ enum LayoutFix {
 
     // MARK: - Judging
 
-    private static func orderedSources(_ layouts: [KeyboardLayout]) -> [KeyboardLayout] {
-        guard let current = KeyboardLayouts.shared.current else { return layouts }
-        return [current] + layouts.filter { $0.id != current.id }
-    }
-
     /// Share of the words in `text` the dictionary recognises — 0 when
     /// there is no dictionary for the language, so "can't judge" and
     /// "judged badly" read the same to callers.
@@ -292,4 +256,58 @@ enum LayoutFix {
         }
         return out
     }()
+}
+
+// MARK: - Which conversion the fix key makes
+
+/// The fix key's choice of conversion. Pure — the layouts, the active
+/// one and the dictionary are handed in — so it is checked without a
+/// keyboard or a spell checker.
+nonisolated enum LayoutFixManual {
+    /// `text` as another layout would have typed it, or nil when no
+    /// layout changes a character of it (digits, one layout, two that
+    /// share every key the text uses).
+    ///
+    /// Never a refusal over what the text means. The rules only choose
+    /// WHICH conversion:
+    ///
+    ///  - out of a layout that types every letter of the text — the
+    ///    active one first, then the others. With Russian and English
+    ///    installed that alone decides it: Cyrillic goes to Latin, Latin
+    ///    to Cyrillic, whichever layout is active, so pressing again on
+    ///    the result is the way back;
+    ///  - when no single layout types it all (a selection with both
+    ///    scripts), out of any layout, the active one first;
+    ///  - among several possible conversions, the one the dictionary of
+    ///    its language reads as words (more than half of them); with no
+    ///    such answer, the first in the order above.
+    ///
+    /// `realWordShare` is the share of the words of a converted text its
+    /// target layout's dictionary knows, 0 when it has none.
+    static func conversion(
+        of text: String,
+        layouts: [KeyboardLayout],
+        currentID: String?,
+        realWordShare: (_ converted: String, _ target: KeyboardLayout) -> Double
+    ) -> LayoutFix.Fix? {
+        guard layouts.count > 1 else { return nil }
+        let ordered = layouts.filter { $0.id == currentID } + layouts.filter { $0.id != currentID }
+        let typists = ordered.filter { $0.typesAllLetters(of: text) }
+        var first: LayoutFix.Fix?
+        var best: (fix: LayoutFix.Fix, share: Double)?
+        for source in typists.isEmpty ? ordered : typists {
+            for target in ordered where target.id != source.id {
+                guard let converted = source.converting(text, to: target) else { continue }
+                let fix = LayoutFix.Fix(text: converted, target: target)
+                if first == nil { first = fix }
+                // Scored, not first-hit: with three layouts installed one
+                // incidental real word in the wrong conversion would
+                // otherwise win.
+                let share = realWordShare(converted, target)
+                if share > (best?.share ?? 0) { best = (fix, share) }
+            }
+        }
+        if let best, best.share > 0.5 { return best.fix }
+        return first
+    }
 }

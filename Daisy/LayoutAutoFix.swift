@@ -29,10 +29,11 @@
 //  the tap dies with the process and typing is unaffected.
 //
 //  WHAT IT NEVER DOES. No typed text is logged, stored, or sent: the
-//  buffer is one word, in memory, dropped at every boundary, click,
-//  chord, app switch, and while macOS reports secure input anywhere on
-//  the system. Terminals, IDEs, remote desktops and password managers
-//  are excluded outright — see `excludedBundleIDs`.
+//  buffer is one word and the spaces after it, in memory, replaced by
+//  the next word and dropped at every click, command key, app switch,
+//  and while macOS reports secure input anywhere on the system.
+//  Terminals, IDEs, remote desktops and password managers are excluded
+//  outright — see `excludedBundleIDs`.
 //
 //  What IS logged is why a fix did NOT happen: the name of the gate that
 //  closed, plus Accessibility role names — never content, never the word
@@ -173,10 +174,12 @@ final class LayoutAutoFix {
     /// realistic chance to be ready before the word boundary.
     private static let verdictDelay: Duration = .milliseconds(12)
 
-    /// How stale a just-finished word may be and still be fixable by the
-    /// fix key. The key's own key-down clears the buffer on its way past
-    /// the tap, so without this the key would always find nothing.
-    private static let recentWordWindow: TimeInterval = 3
+    /// How stale a word a command key ended may be and still be fixable
+    /// by the fix key. The key's own key-down ends it on its way past the
+    /// tap, so without this the key would always find nothing. A word
+    /// still being typed, or followed only by its spaces, has no age —
+    /// see `WordBuffer.wordInFlightOrJustFinished`.
+    static let recentWordWindow: TimeInterval = 3
 
     private init() {}
 
@@ -454,23 +457,28 @@ final class LayoutAutoFix {
         }
 
         let flags = event.flags
-        if flags.contains(.maskCommand) || flags.contains(.maskControl) || flags.contains(.maskAlternate) {
-            buffer.clear()   // a chord is a command, not a word
-            return .pass
-        }
         // `truncatingIfNeeded`, not `UInt16(_:)`: any process can post an
         // event with an out-of-range keycode field, and a trap here would
         // crash the app from inside the tap — mid-swallow, worst possible
         // moment.
         let keyCode = UInt16(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode))
+        let shortcut = HotkeyManager.carbonKey(keyCode: UInt32(keyCode), mods: carbonModifiers(of: flags))
+        if flags.contains(.maskCommand) || flags.contains(.maskControl) || flags.contains(.maskAlternate) {
+            // A chord is a command, not a word.
+            forgetWord(keepingCandidate: HotkeyManager.layoutFixKeys.withLock {
+                commandKeepsCandidate(keyCode: keyCode, flags: flags, fixKeys: $0)
+            })
+            return .pass
+        }
         // One of Daisy's own shortcuts on a key that types (a bare letter,
         // `, ⇧-something — allowed since 31.10): a command, like a chord,
         // never a character of the word. Buffered as typing it put a
         // letter Carbon then ate into the word, or swallowed the key as a
         // boundary and typed it (review 31.10).
-        let shortcutMods = flags.contains(.maskShift) ? UInt32(shiftKey) : 0
-        if HotkeyManager.carbonKeys.withLock({ $0.contains(HotkeyManager.carbonKey(keyCode: UInt32(keyCode), mods: shortcutMods)) }) {
-            buffer.clear()
+        if HotkeyManager.carbonKeys.withLock({ $0.contains(shortcut) }) {
+            forgetWord(keepingCandidate: HotkeyManager.layoutFixKeys.withLock {
+                commandKeepsCandidate(keyCode: keyCode, flags: flags, fixKeys: $0)
+            })
             return .pass
         }
         if caretMovingKeyCodes.contains(keyCode) {
@@ -562,6 +570,60 @@ final class LayoutAutoFix {
         return .pass
     }
 
+    /// A command key went past: the word in flight is over. What the fix
+    /// key may still act on depends on whose command it was.
+    ///
+    /// The fix key's own press (the shortcut, or the Daisy key on a key
+    /// with modifiers) reaches the tap before its handler runs, so the
+    /// word stays as its candidate — that press is the only reason the
+    /// candidate exists. Any other command may have moved the caret or
+    /// changed the text (⌥←, ⌘A, ⌘V, ⌘Z, ⌥-letters that type a symbol,
+    /// Daisy's own «paste the last dictation»): the candidate and a
+    /// pending undo describe a place the caret may no longer be, and in
+    /// an app that won't show its text nothing else would catch that
+    /// before the backspaces went out. Until 10.11.2026 every chord kept
+    /// the candidate.
+    nonisolated private static func forgetWord(keepingCandidate: Bool) {
+        if keepingCandidate {
+            buffer.clear()
+        } else {
+            buffer.discard()
+            Task { @MainActor in LayoutFixUndo.shared.clear() }
+        }
+    }
+
+    /// Daisy has just put text into the front app itself, or taken some
+    /// back — a dictation, a command's result, a rewrite, ⌘Z from the
+    /// result card. Whatever the tap remembers as the last word is no
+    /// longer what sits in front of the caret, and a pending undo no
+    /// longer describes it. Those insertions don't pass the tap as typing
+    /// (an Accessibility write makes no events; Daisy's own keystrokes
+    /// are skipped), so nothing else would say so — and in an app that
+    /// doesn't show its text the fix key would then delete the end of
+    /// what was just inserted (review 10.11.2026).
+    static func forgetAfterOwnInsert() {
+        buffer.discard()
+        LayoutFixUndo.shared.clear()
+    }
+
+    /// Whether a command key is the fix key's own press — the fix
+    /// shortcut or the Daisy key, exactly as registered, modifiers and
+    /// all (⌥⇧⌘R is not ⇧⌘R).
+    nonisolated static func commandKeepsCandidate(keyCode: UInt16, flags: CGEventFlags, fixKeys: Set<UInt32>) -> Bool {
+        fixKeys.contains(HotkeyManager.carbonKey(keyCode: UInt32(keyCode), mods: carbonModifiers(of: flags)))
+    }
+
+    /// The event's ⌘ ⇧ ⌥ ⌃ as Carbon spells them — how Daisy's shortcuts
+    /// are keyed (`HotkeyManager.carbonKey`).
+    nonisolated static func carbonModifiers(of flags: CGEventFlags) -> UInt32 {
+        var mods: UInt32 = 0
+        if flags.contains(.maskCommand) { mods |= UInt32(cmdKey) }
+        if flags.contains(.maskShift) { mods |= UInt32(shiftKey) }
+        if flags.contains(.maskAlternate) { mods |= UInt32(optionKey) }
+        if flags.contains(.maskControl) { mods |= UInt32(controlKey) }
+        return mods
+    }
+
     /// Post the correction and the swallowed boundary, in order, from the
     /// tap's own thread. Every event is built BEFORE any is posted: half
     /// of this operation — backspaces with no replacement, or a swallowed
@@ -574,8 +636,7 @@ final class LayoutAutoFix {
     ) -> Bool {
         guard verdict.presses > 0, verdict.presses <= WordBuffer.maxPresses else { return false }
         guard let source = eventSource else { return false }
-        let units = Array(verdict.replacement.utf16)
-        guard !units.isEmpty else { return false }
+        guard !verdict.replacement.isEmpty else { return false }
 
         var events: [CGEvent] = []
         for _ in 0..<verdict.presses {
@@ -585,16 +646,8 @@ final class LayoutAutoFix {
             events.append(down)
             events.append(up)
         }
-        // Text goes on a key event rather than through key codes: the
-        // correction is in the OTHER layout, so the codes that would
-        // produce it are exactly what the active layout cannot type.
-        guard let textDown = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
-              let textUp = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
-        else { return false }
-        textDown.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
-        textUp.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
-        events.append(textDown)
-        events.append(textUp)
+        guard let typing = typingEvents(for: verdict.replacement, source: source) else { return false }
+        events.append(contentsOf: typing)
 
         // The boundary goes back as a copy of what the user pressed —
         // same key code, same flags, so a Return really is a Return in the
@@ -750,8 +803,10 @@ final class LayoutAutoFix {
     /// What the fix key did about the last word.
     enum LastWordOutcome: Equatable {
         case fixed
-        /// The word reads right in the layout it is in.
-        case alreadyRight
+        /// No installed layout changes a character of it (two layouts
+        /// that share those keys). Never «it already reads right»: the
+        /// key converts whatever it is given.
+        case nothingToSwitch
         /// The field answered, and there is no word in front of the caret
         /// (start of a line, a word too long to be one).
         case noWord
@@ -788,11 +843,13 @@ final class LayoutAutoFix {
         // typed, no fix from the screen alone — not even «no word there».
         let typed = isRunning ? LayoutAutoFix.buffer.wordInFlightOrJustFinished(within: Self.recentWordWindow) : nil
         guard let pick = LayoutFixLastWord.pick(before: before.text, reachesFieldStart: before.reachesStart) else {
-            if typed != nil { return .mismatch }
+            // What was typed last has no letter in it either («2026 »):
+            // the two agree that there is no word.
+            if let typed { return typed.word.contains(where: \.isLetter) ? .mismatch : .noWord }
             return AXFocus.caretMayBeUnreliable() ? .unreliable : .noWord
         }
         if let typed {
-            guard LayoutFixLastWord.agrees(pick, withTyped: typed.word, boundary: typed.boundary) else { return .mismatch }
+            guard LayoutFixLastWord.agrees(pick, withTyped: typed.word, trailing: typed.trailing) else { return .mismatch }
         } else if AXFocus.caretMayBeUnreliable() {
             return .unreliable
         }
@@ -800,13 +857,15 @@ final class LayoutAutoFix {
         // into «“»/«”»), which no layout types; one character for one,
         // so the backspaces still count right. The original goes into
         // the undo as it stood on screen.
-        guard let fix = LayoutFix.deliberate(LayoutFixLastWord.straighteningQuotes(pick.word)) else { return .alreadyRight }
+        guard let fix = LayoutFix.deliberate(LayoutFixLastWord.straighteningQuotes(pick.word)) else { return .nothingToSwitch }
+        let since = LayoutAutoFix.buffer.generation
         guard replace(presses: pick.presses, with: fix.text + pick.trailing) else { return .unknown }
         settle(
             targetLayoutID: fix.target.id,
             via: "fix key, last word",
             switchesSource: settings.layoutFixSwitchesSource,
-            undo: (pick.word, pick.trailing, fix.text, byKey: true)
+            undo: (pick.word, pick.trailing, fix.text, byKey: true),
+            typed: (fix.text + pick.trailing, since)
         )
         return .fixed
     }
@@ -817,7 +876,8 @@ final class LayoutAutoFix {
     private static let lastWordReadLimit = LayoutFixLastWord.maxPresses + 16
 
     /// The fix key's second source, for an app that won't show its text:
-    /// the word just typed, as the tap saw it. The user asked, so this
+    /// the run just typed, as the tap saw it — everything since the last
+    /// space, as the screen's last word is read. The user asked, so this
     /// uses `deliberate` (no dictionary needed). `.noWord`: the tap saw
     /// none lately; `.unknown`: the watcher is off, a gate closed, or the
     /// focus isn't text.
@@ -825,25 +885,26 @@ final class LayoutAutoFix {
         guard isRunning, contextAllows() else { return .unknown }
         guard let candidate = LayoutAutoFix.buffer.wordInFlightOrJustFinished(
             within: Self.recentWordWindow
-        ) else { return .noWord }
-        guard let fix = LayoutFix.deliberate(candidate.word) else { return .alreadyRight }
+        ), candidate.word.contains(where: \.isLetter) else { return .noWord }
+        guard let fix = LayoutFix.deliberate(candidate.word) else { return .nothingToSwitch }
         guard focusIsEditableText() else { return .unknown }
-        // A word already finished has its boundary in front of the caret,
-        // so that has to be deleted and put back too. And because the
-        // count comes from memory rather than from the screen, a WRONG
-        // answer from Accessibility vetoes it — deleting one character
-        // too many here eats whatever preceded the word.
-        let trailing = candidate.boundary.map(String.init) ?? ""
-        guard confirmBeforeCaret(candidate.word + trailing) else { return .mismatch }
+        // A run the caret has left has its spaces in front of the caret,
+        // so those are deleted and put back too. And because the count
+        // comes from memory rather than from the screen, a WRONG answer
+        // from Accessibility vetoes it — deleting one character too many
+        // here eats whatever preceded the word.
+        guard confirmBeforeCaret(candidate.word + candidate.trailing) else { return .mismatch }
+        let since = LayoutAutoFix.buffer.generation
         guard replace(
-            presses: candidate.presses + (candidate.boundary == nil ? 0 : 1),
-            with: fix.text + trailing
+            presses: candidate.presses + candidate.trailing.count,
+            with: fix.text + candidate.trailing
         ) else { return .unknown }
         settle(
             targetLayoutID: fix.target.id,
             via: "fix key",
             switchesSource: settings.layoutFixSwitchesSource,
-            undo: (candidate.word, trailing, fix.text, byKey: true)
+            undo: (candidate.word, candidate.trailing, fix.text, byKey: true),
+            typed: (fix.text + candidate.trailing, since)
         )
         return .fixed
     }
@@ -952,22 +1013,31 @@ final class LayoutAutoFix {
 
     /// `undo`, when non-nil, is what one keypress needs to reverse THIS
     /// fix — supplied by the two automatic paths (before-the-boundary,
-    /// after-the-fact) and by the fix key's last word (`byKey`). A fixed
-    /// selection doesn't come through here.
+    /// after-the-fact) and by the fix key (`byKey`): its last word, and
+    /// a selection short enough to retype (`LayoutFixService`).
     ///
     /// `switchesSource` comes from the caller: the watcher's `settings`
     /// is only set once it has started, and the fix key works without it.
-    fileprivate func settle(
+    ///
+    /// `typed`, from the fix key only: what it has just put in front of
+    /// the caret, and the buffer's generation read before it did — the
+    /// buffer takes it for the last thing typed, so the next press has
+    /// something to go by (`WordBuffer.discard(leavingTyped:…)`). Not from
+    /// the automatic paths: the one before the boundary settles a hop
+    /// after its typing, when the next word may already be on its way.
+    func settle(
         targetLayoutID: String,
         via path: String,
         switchesSource: Bool,
-        undo: (originalWord: String, trailing: String, replacementWord: String, byKey: Bool)? = nil
+        undo: (originalWord: String, trailing: String, replacementWord: String, byKey: Bool)? = nil,
+        typed: (text: String, since: UInt64)? = nil,
+        pasted: Bool = false
     ) {
         ImprovementStats.record(.layoutFixed)
         // Our own typing is marked and skipped by the tap, so the buffer
         // would otherwise still hold the pre-fix word — and the fix key
         // must not be able to "fix" it a second time.
-        LayoutAutoFix.buffer.discard()
+        forgetTyping(leaving: typed)
         // Captured BEFORE the switch: this is the layout undo restores,
         // and it only means anything if a switch is about to happen —
         // nil otherwise, matching "nothing to put back".
@@ -993,8 +1063,21 @@ final class LayoutAutoFix {
                 // otherwise nothing advances it.
                 generation: isRunning ? LayoutAutoFix.buffer.generation : nil,
                 byKey: undo.byKey,
+                pasted: pasted,
                 at: Date()
             ))
+        }
+    }
+
+    /// Empty the buffer after Daisy typed something itself; with `typed`,
+    /// leave that as the last thing typed (see `settle`). Only while the
+    /// tap runs: with it off nobody keeps the buffer true afterwards, and
+    /// what was left would still be there when it starts.
+    func forgetTyping(leaving typed: (text: String, since: UInt64)?) {
+        if let typed, isRunning {
+            LayoutAutoFix.buffer.discard(leavingTyped: typed.text, ifUntouchedSince: typed.since)
+        } else {
+            LayoutAutoFix.buffer.discard()
         }
     }
 
@@ -1007,8 +1090,7 @@ final class LayoutAutoFix {
     func replace(presses: Int, with text: String) -> Bool {
         guard presses > 0, presses <= WordBuffer.maxPresses + 1 else { return false }
         guard let source = Self.eventSource else { return false }
-        let units = Array(text.utf16)
-        guard !units.isEmpty else { return false }
+        guard !text.isEmpty else { return false }
 
         var events: [CGEvent] = []
         for _ in 0..<presses {
@@ -1018,13 +1100,8 @@ final class LayoutAutoFix {
             events.append(down)
             events.append(up)
         }
-        guard let textDown = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
-              let textUp = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
-        else { return false }
-        textDown.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
-        textUp.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
-        events.append(textDown)
-        events.append(textUp)
+        guard let typing = Self.typingEvents(for: text, source: source) else { return false }
+        events.append(contentsOf: typing)
 
         for event in events {
             event.flags = []
@@ -1032,6 +1109,46 @@ final class LayoutAutoFix {
             event.post(tap: .cgSessionEventTap)
         }
         return true
+    }
+
+    /// Key events that type `text`, whatever layout is active. The text
+    /// rides on the events rather than going through key codes: the
+    /// correction is in the OTHER layout, so the codes that would produce
+    /// it are exactly what the active layout cannot type. Nil when an
+    /// event can't be built — nothing is posted then.
+    nonisolated static func typingEvents(for text: String, source: CGEventSource) -> [CGEvent]? {
+        var events: [CGEvent] = []
+        for units in typingChunks(of: text) {
+            guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
+                  let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
+            else { return nil }
+            down.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
+            up.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
+            events.append(down)
+            events.append(up)
+        }
+        return events
+    }
+
+    /// `text` in pieces one key event can carry: 20 UTF-16 units is the
+    /// ceiling of `keyboardSetUnicodeString` (what `DictationPaste` types
+    /// by too), and past it the rest of the string never arrives. One
+    /// event took the whole text until 10.11.2026 — a run of more than 20
+    /// characters came back cut. A character is never split between two
+    /// events.
+    nonisolated static func typingChunks(of text: String, limit: Int = 20) -> [[UniChar]] {
+        var chunks: [[UniChar]] = []
+        var current: [UniChar] = []
+        for character in text {
+            let units = Array(character.utf16)
+            if !current.isEmpty, current.count + units.count > limit {
+                chunks.append(current)
+                current = []
+            }
+            current.append(contentsOf: units)
+        }
+        if !current.isEmpty { chunks.append(current) }
+        return chunks
     }
 
     // MARK: - Exclusions
@@ -1169,20 +1286,50 @@ nonisolated final class WordBuffer: @unchecked Sendable {
         let at: UInt64
     }
 
+    /// Everything typed since the last space — what the fix key takes for
+    /// «the last word» when it has to go by memory.
+    ///
+    /// Not the same thing as `word`. The automatic watcher's word is a
+    /// run of letters, ended by anything else. The fix key's is the whole
+    /// run since the last whitespace, punctuation and digits included,
+    /// because on the wrong layout «ж», «б», «ю», «х», «э» are typed with
+    /// «;», «,», «.», «[», «'»: «lf;t» is «даже», not «lf» and «t»
+    /// (`LayoutFixLastWord.pick` reads the screen the same way).
+    private struct Run {
+        var text = ""
+        /// Key presses — what the backspaces are counted in.
+        var presses = 0
+        /// Longer than the fix key will retype: no candidate until the
+        /// next space starts a new run.
+        var overflowed = false
+    }
+
+    /// A run the caret has left behind, and how.
+    private struct Finished {
+        var text: String
+        var presses: Int
+        /// The spaces typed after it, as typed. The caret is past them,
+        /// so they are deleted and put back with the run.
+        var trailing: String
+        /// When a key that isn't typing ended it (`clear`), in
+        /// `DispatchTime` nanoseconds — good for `recentWordWindow`
+        /// only, since nobody can say what that key did. Nil when spaces
+        /// ended it: every key since is accounted for, exactly as for a
+        /// run still in flight, and anything that could move the caret
+        /// discards the lot.
+        var endedByCommandAt: UInt64?
+    }
+
     private struct State {
         var word = ""
         var presses = 0
         var generation: UInt64 = 0
         var verdict: Verdict?
-        /// Last non-empty word and when it was dropped, in `DispatchTime`
-        /// nanoseconds. The fix key needs this: its own key-down reaches
-        /// the tap first and clears the buffer, so by the time the handler
-        /// runs the word is already gone.
-        /// The last word that was dropped, what followed it, and when.
-        /// The boundary matters: after "privet." the caret is past the
-        /// dot, so fixing that word means deleting one more press and
-        /// typing the dot back.
-        var recent: (word: String, presses: Int, boundary: Character?, at: UInt64)?
+        var run = Run()
+        /// The last run that ended, for the fix key: its own key-down
+        /// reaches the tap first and ends the run, so by the time the
+        /// handler runs there is nothing in flight.
+        var finished: Finished?
     }
 
     static let maxPresses = 64
@@ -1204,6 +1351,7 @@ nonisolated final class WordBuffer: @unchecked Sendable {
                 state.word.append(character)
                 state.presses += 1
             }
+            Self.extend(&state.run, with: character)
             return Word(word: state.word, presses: state.presses, generation: state.generation)
         }
     }
@@ -1217,6 +1365,12 @@ nonisolated final class WordBuffer: @unchecked Sendable {
             guard state.presses > 0, !state.word.isEmpty else { return false }
             state.word.removeLast()
             state.presses -= 1
+            // The word is the end of the run, so the same press leaves it
+            // — unless the run stopped counting, which stays that way.
+            if !state.run.overflowed, !state.run.text.isEmpty {
+                state.run.text.removeLast()
+                state.run.presses -= 1
+            }
             return true
         }
     }
@@ -1229,9 +1383,9 @@ nonisolated final class WordBuffer: @unchecked Sendable {
         lock.withLock { state in
             state.generation &+= 1
             state.verdict = nil
-            stash(&state, boundary: nil)
             state.word = ""
             state.presses = 0
+            Self.finishRun(&state, trailing: "", endedByCommand: true)
         }
     }
 
@@ -1244,20 +1398,80 @@ nonisolated final class WordBuffer: @unchecked Sendable {
             state.verdict = nil
             state.word = ""
             state.presses = 0
-            state.recent = nil
+            state.run = Run()
+            state.finished = nil
         }
     }
 
-    /// Read and clear — the word is finished. `boundary` is what ended it,
-    /// remembered so the fix key can put it back.
+    /// Forget everything, then take `text` — what Daisy itself has just
+    /// typed in front of the caret, the fix key's conversion or its undo
+    /// — as the last thing typed. The tap skips Daisy's own keystrokes,
+    /// so without this a second or third press had nothing to go by
+    /// wherever the screen can't be read or believed (a browser, a chat):
+    /// the key converted once and then asked for the word to be retyped.
+    ///
+    /// Only when no key went past the tap since `generation` was read,
+    /// before the typing: one pressed meanwhile is in the field too, and
+    /// nobody can say on which side of the text. The last word of `text`
+    /// and the spaces after it, by the rule the screen is read by
+    /// (`LayoutFixLastWord.pick`); nothing when it ends on a line break.
+    func discard(leavingTyped text: String, ifUntouchedSince generation: UInt64) {
+        let pick = LayoutFixLastWord.pick(before: text, reachesFieldStart: true)
+        lock.withLock { state in
+            let untouched = state.generation == generation
+            state.generation &+= 1
+            state.verdict = nil
+            state.word = ""
+            state.presses = 0
+            state.run = Run()
+            state.finished = nil
+            guard untouched, let pick else { return }
+            if pick.trailing.isEmpty {
+                state.run = Run(text: pick.word, presses: pick.word.count)
+            } else {
+                state.finished = Finished(
+                    text: pick.word,
+                    presses: pick.word.count,
+                    trailing: pick.trailing,
+                    endedByCommandAt: nil
+                )
+            }
+        }
+    }
+
+    /// Read and clear — the word is finished. `boundary` is what ended
+    /// it, and what the fix key's run makes of it: a space ends the run
+    /// too and is kept after it (more spaces add to that); anything else
+    /// that types — punctuation, a digit — is one more character of the
+    /// run. A line break ends everything; its caller discards.
     func take(boundary: Character? = nil) -> Word? {
         lock.withLock { state in
             state.generation &+= 1
             state.verdict = nil
-            stash(&state, boundary: boundary)
             let finished = Word(word: state.word, presses: state.presses, generation: state.generation)
             state.word = ""
             state.presses = 0
+            switch boundary {
+            case " "?:
+                if state.run.text.isEmpty, !state.run.overflowed {
+                    // Another space after a run that already ended. One
+                    // a command ended is not continued: what that command
+                    // did is unknown.
+                    if var last = state.finished, last.endedByCommandAt == nil,
+                       last.presses + last.trailing.count < Self.maxPresses {
+                        last.trailing.append(" ")
+                        state.finished = last
+                    } else {
+                        state.finished = nil
+                    }
+                } else {
+                    Self.finishRun(&state, trailing: " ", endedByCommand: false)
+                }
+            case let character?:
+                Self.extend(&state.run, with: character)
+            case nil:
+                break
+            }
             return finished.word.isEmpty ? nil : finished
         }
     }
@@ -1283,29 +1497,65 @@ nonisolated final class WordBuffer: @unchecked Sendable {
         }
     }
 
-    /// What the fix key should act on: the word being typed, or the one
-    /// that was dropped moments ago (by the fix key's own keystroke).
-    /// What the fix key should act on: the word being typed, or the one
-    /// dropped moments ago — by the fix key's own keystroke, which reaches
-    /// the tap before the hotkey handler runs. `boundary` is nil for a word
-    /// still in flight and set for a finished one, and the caller must
-    /// account for it: the caret is past it.
+    /// What the fix key should act on: the run being typed, or the one
+    /// the caret has just left — by spaces typed after it, or by the fix
+    /// key's own keystroke, which reaches the tap before the hotkey
+    /// handler runs. `trailing` is what sits between the run and the
+    /// caret (spaces, or nothing for a run in flight); the caller deletes
+    /// it with the run and puts it back.
+    ///
+    /// `window` bounds only a run a command key ended. A run in flight,
+    /// or one followed by nothing but its spaces, has no age: every key
+    /// since was counted, and whatever could move the caret discarded it.
     func wordInFlightOrJustFinished(
         within window: TimeInterval
-    ) -> (word: String, presses: Int, boundary: Character?)? {
+    ) -> (word: String, presses: Int, trailing: String)? {
         lock.withLock { state in
-            if !state.word.isEmpty {
-                return (state.word, state.presses, nil)
+            if state.run.overflowed { return nil }
+            if !state.run.text.isEmpty {
+                return (state.run.text, state.run.presses, "")
             }
-            guard let recent = state.recent else { return nil }
-            let elapsed = Double(DispatchTime.now().uptimeNanoseconds &- recent.at) / 1_000_000_000
-            guard elapsed <= window else { return nil }
-            return (recent.word, recent.presses, recent.boundary)
+            guard let last = state.finished else { return nil }
+            if let endedAt = last.endedByCommandAt {
+                let elapsed = Double(DispatchTime.now().uptimeNanoseconds &- endedAt) / 1_000_000_000
+                guard elapsed <= window else { return nil }
+            }
+            return (last.text, last.presses, last.trailing)
         }
     }
 
-    private func stash(_ state: inout State, boundary: Character?) {
-        guard !state.word.isEmpty else { return }
-        state.recent = (state.word, state.presses, boundary, DispatchTime.now().uptimeNanoseconds)
+    private static func extend(_ run: inout Run, with character: Character) {
+        guard !run.overflowed else { return }
+        guard run.presses < maxPresses else {
+            run = Run(overflowed: true)
+            return
+        }
+        run.text.append(character)
+        run.presses += 1
+    }
+
+    /// The run in flight becomes the one just finished. With nothing in
+    /// flight the one already finished stays — but a command key after
+    /// «word, space» starts its clock: `clear` is also keypad Enter,
+    /// F-keys and dead keys, and what those did to the field nobody can
+    /// say. The fix key's own press is acted on at once, well inside it.
+    private static func finishRun(_ state: inout State, trailing: String, endedByCommand: Bool) {
+        defer { state.run = Run() }
+        guard !state.run.overflowed else {
+            state.finished = nil
+            return
+        }
+        guard !state.run.text.isEmpty else {
+            if endedByCommand, state.finished?.endedByCommandAt == nil {
+                state.finished?.endedByCommandAt = DispatchTime.now().uptimeNanoseconds
+            }
+            return
+        }
+        state.finished = Finished(
+            text: state.run.text,
+            presses: state.run.presses,
+            trailing: trailing,
+            endedByCommandAt: endedByCommand ? DispatchTime.now().uptimeNanoseconds : nil
+        )
     }
 }

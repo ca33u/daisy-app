@@ -10,16 +10,23 @@
 //
 //  What records something here: the two AUTOMATIC paths (LayoutAutoFix's
 //  "before the boundary" and "after the fact"), and — since 31.10.2026 —
-//  the fix key (any key, a lone ⌥ included) when it fixed the LAST WORD with nothing
-//  selected. That word is gone from the buffer the moment it is fixed,
-//  and the converted text can't be re-converted blindly (the key would
-//  pick the dictionary's favourite, not necessarily what was there), so
-//  pressing again right away puts back exactly what was typed — Punto's
-//  second press. Only an automatic fix's undo teaches
-//  `LayoutFixExceptions`: undoing your own press says nothing about the
-//  word. A fixed SELECTION records nothing: the selection is gone after
-//  the paste, and undoing it would fight PasteboardProxy over the
-//  clipboard.
+//  the fix key (any key, a lone ⌥ included) when it converted the LAST
+//  WORD with nothing selected. Pressing again right away puts back
+//  exactly what was there — the characters as they stood and the layout
+//  that was active — which is Punto's second press; a third converts
+//  again (the key converts whatever it is given, so the presses go back
+//  and forth for as long as they come). Only an automatic fix's undo
+//  teaches `LayoutFixExceptions`: undoing your own press says nothing
+//  about the word.
+//
+//  Since 10.11.2026 a converted SELECTION records one too, when it is
+//  short enough to delete and retype (`LayoutFixLastWord.retypes`): the
+//  paste leaves nothing selected, so without it a second press had
+//  nothing to convert back. It goes back by backspaces and typing, like
+//  a word — never through the clipboard, which PasteboardProxy is still
+//  handing back. A longer or multi-line selection records nothing, and
+//  one that was recorded is undone only where the field shows the
+//  conversion (`Record.pasted`): a paste may not land as it was sent.
 //
 
 import Foundation
@@ -67,6 +74,11 @@ final class LayoutFixUndo {
         /// The fix key (or the Daisy key's tap) made this fix, not the automatic
         /// watcher: its undo is a second press, not a lesson.
         var byKey = false
+        /// The conversion went in by ⌘V over a selection, not key by key.
+        /// An editor may trim or reshape a paste, so the text can't be
+        /// taken for what was sent: this undo needs the field itself to
+        /// show it, never the tap's count alone.
+        var pasted = false
         let at: Date
 
         /// What's on screen right now: fix output + boundary. What
@@ -147,7 +159,7 @@ final class LayoutFixUndo {
         case .some:
             return false
         case nil:
-            guard tapRunning, let recorded = record.generation else { return false }
+            guard !record.pasted, tapRunning, let recorded = record.generation else { return false }
             return generationAllowsUndo(recorded: recorded, current: currentGeneration, triggerKeystrokes: triggerKeystrokes)
         }
     }
@@ -159,8 +171,9 @@ final class LayoutFixUndo {
     ///
     /// The tolerance is the trigger's own keystrokes and nothing more:
     /// a fix key with a letter (⇧⌘R) reaches the tap as a chord — a
-    /// keyDown with ⌃/⌥/⌘ set — and `LayoutAutoFix.handle` routes any
-    /// chord through `buffer.clear()`, which bumps the generation once.
+    /// keyDown with ⌃/⌥/⌘ set — and `LayoutAutoFix.handle` routes it
+    /// through `buffer.clear()`, which bumps the generation once. (Any
+    /// other chord discards the buffer and clears the pending undo.)
     /// A modifier on its own (a tap of ⌥, the Daisy key's ⌃⌥) or Fn
     /// arrives as `.flagsChanged`, which the tap's mask (keyDown + the
     /// three mouse-down types) never sees: no bump, so none forgiven —
