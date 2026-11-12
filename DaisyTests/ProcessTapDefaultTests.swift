@@ -108,10 +108,17 @@ struct ProcessTapDefaultTests {
         #expect(ProcessTapPermission.outcome(peak: try throughSixteenKilohertz(18_000)) == .denied)
         // And at 48 kHz the inaudible 18 kHz is kept.
         #expect(ProcessTapPermission.toneFrequency(forOutputRate: 48_000) == 18_000)
+        // At 44.1 kHz — where another app can leave the speakers — it is
+        // 16.5 kHz, with the same margin under Nyquist.
+        #expect(ProcessTapPermission.toneFrequency(forOutputRate: 44_100) == 16_537.5)
     }
 
-    /// The probe plays on the built-in output: it exists on this Mac and
-    /// runs fast enough for 18 kHz.
+    /// The probe plays on the built-in output: it exists on this Mac, its
+    /// rate can be read, and the tone chosen for that rate is one the
+    /// output can carry. Which rate that is belongs to the Mac, not to
+    /// Daisy: whatever app last set it leaves it there (12.11: the
+    /// speakers stood at 44.1 kHz and the old "== 18 kHz" stopped a
+    /// release), so the numbers are pinned in the pure test above.
     @Test func theProbePlaysOnTheBuiltInOutput() throws {
         let builtIn = try #require(ProcessTapAudioCapture.builtInOutputDevice(), "This Mac has built-in output")
         var rate: Float64 = 0
@@ -120,7 +127,11 @@ struct ProcessTapDefaultTests {
                                                  mScope: kAudioObjectPropertyScopeGlobal,
                                                  mElement: kAudioObjectPropertyElementMain)
         #expect(AudioObjectGetPropertyData(builtIn.id, &address, 0, nil, &size, &rate) == noErr)
-        #expect(ProcessTapPermission.toneFrequency(forOutputRate: rate) == 18_000)
+        try #require(rate > 0, "The built-in output reports its rate")
+        let tone = ProcessTapPermission.toneFrequency(forOutputRate: rate)
+        #expect(tone > 0)
+        #expect(tone <= ProcessTapPermission.toneHz)
+        #expect(tone < rate / 2, "The tone stays under Nyquist at \(rate) Hz")
     }
 
     @Test func aTapThatHeardNothingSendsAWeekToScreenCaptureKit() async {
