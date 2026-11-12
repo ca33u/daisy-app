@@ -98,9 +98,30 @@ final class ParakeetEngine {
         #endif
     }
 
+    /// The hold on this model was lifted (`ModelLoadGuard.liftHolds`): the
+    /// held text goes and so does the failure backoff it armed — the next
+    /// dictation loads Parakeet instead of going to Whisper for five
+    /// minutes more.
+    func clearHeldFailure(_ message: String) {
+        guard state == .failed(message) else { return }
+        state = .notLoaded
+        lastFailureAt = nil
+    }
+
     #if canImport(FluidAudio)
     private func performLoad() async {
         if case .ready = state, manager != nil { return }
+        // The last two runs crashed while this load was in flight (`ModelLoadGuard`,
+        // Sentry DAISY-MAC-4, 12.11): not again by itself — the launch, a
+        // key press, Settings appearing. A dictation falls back to Whisper
+        // the way it does after any failed load (`DictationModelGate`).
+        if let held = ModelLoadGuard.shared.heldMessage(for: .parakeet) {
+            if state != .failed(held) {
+                log.error("Parakeet is not loaded: held after Daisy closed twice in a row during its load")
+                state = .failed(held)
+            }
+            return
+        }
         // Don't flash `.downloading` (which surfaces as "Checking speech
         // models…") when the model is already on disk — only a real first
         // download should show download UI. A cached load shows `.loading`.
@@ -116,27 +137,34 @@ final class ParakeetEngine {
             // progress handler is @Sendable + called off-main, so hop back
             // to MainActor to update observable state (drives the Settings
             // download bar). fractionCompleted spans download→compile 0…1.
+            // Every attempt is marked on disk while it runs
+            // (`ModelLoadGuard`): a launch that finds the mark knows the
+            // run before it ended here. FluidAudio downloads and loads in
+            // this one call, so inside a download window the mark covers
+            // the download too.
             let load: @MainActor () async throws -> AsrModels = {
-                try await AsrModels.downloadAndLoad(
-                    version: .v3,
-                    progressHandler: { progress in
-                        // Strong capture on purpose: the engine is a
-                        // process-lifetime singleton (`.shared`), so a
-                        // weak dance buys nothing — and any [weak self]
-                        // here just trips Xcode 26's mismatch warning
-                        // against the enclosing `load` closure, which
-                        // would implicitly capture self strongly anyway.
-                        // FluidAudio releases the handler when
-                        // downloadAndLoad returns.
-                        let fraction = progress.fractionCompleted
-                        Task { @MainActor in
-                            if case .ready = self.state { return }
-                            // Cached → stay on `.loading` (compile progress
-                            // isn't a download); only a real fetch shows %.
-                            self.state = alreadyCached || fetchedByUs.value ? .loading : .downloading(progress: fraction)
+                try await ModelLoadGuard.shared.run(.parakeet) {
+                    try await AsrModels.downloadAndLoad(
+                        version: .v3,
+                        progressHandler: { progress in
+                            // Strong capture on purpose: the engine is a
+                            // process-lifetime singleton (`.shared`), so a
+                            // weak dance buys nothing — and any [weak self]
+                            // here just trips Xcode 26's mismatch warning
+                            // against the enclosing `load` closure, which
+                            // would implicitly capture self strongly anyway.
+                            // FluidAudio releases the handler when
+                            // downloadAndLoad returns.
+                            let fraction = progress.fractionCompleted
+                            Task { @MainActor in
+                                if case .ready = self.state { return }
+                                // Cached → stay on `.loading` (compile progress
+                                // isn't a download); only a real fetch shows %.
+                                self.state = alreadyCached || fetchedByUs.value ? .loading : .downloading(progress: fraction)
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
             // Offline-first: cached models load with FluidAudio's network
             // hard-blocked; a missing cache throws DownloadError and we

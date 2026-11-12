@@ -57,7 +57,7 @@ final class ModelPreparation {
     static func completeInBackground(settings: AppSettings, includeSpeakers: Bool) {
         Task { @MainActor in
             let preparation = ModelPreparation()
-            await preparation.prepare(settings: settings, includeSpeakers: includeSpeakers)
+            await preparation.prepare(settings: settings, includeSpeakers: includeSpeakers, userInitiated: false)
         }
     }
 
@@ -87,19 +87,30 @@ final class ModelPreparation {
     /// «download and check» after each launch — the «ready» state lives in
     /// memory only). Something to do: a preparation running or failed, a
     /// failed engine, or a model the chosen engines need that is not on disk.
+    /// Or an engine Daisy stopped loading by itself (`ModelLoadGuard`):
+    /// this card's button is what lifts that, whichever engine it is.
     func needsAttention(settings: AppSettings) -> Bool {
+        needsAttention(dictationEngine: settings.dictationEngine,
+                       usesNemotronLive: settings.dictationUseNemotronLive)
+    }
+
+    /// The two settings it reads, as values — so a test needs no
+    /// `AppSettings`, which lives on the real preferences.
+    func needsAttention(dictationEngine: DictationEngine, usesNemotronLive: Bool,
+                        loadGuard: ModelLoadGuard? = nil) -> Bool {
         if isRunning || error != nil { return true }
+        if !(loadGuard ?? .shared).held.isEmpty { return true }
         if WhisperEngine.runsOnThisMac {
             if case .failed = WhisperEngine.shared.state { return true }
             if WhisperEngine.cachedModelFolder(variant: WhisperEngine.shared.modelID) == nil { return true }
-        } else if settings.dictationEngine == .whisper {
+        } else if dictationEngine == .whisper {
             return true
         }
-        if settings.dictationEngine == .parakeet {
+        if dictationEngine == .parakeet {
             if case .failed = ParakeetEngine.shared.state { return true }
             if !ParakeetEngine.hasCompleteModel() { return true }
         }
-        if settings.dictationUseNemotronLive {
+        if usesNemotronLive {
             if case .failed = NemotronLiveEngine.shared.state { return true }
             if !NemotronLiveEngine.hasCachedModel() { return true }
         }
@@ -119,7 +130,14 @@ final class ModelPreparation {
         notice = String(localized: "A recording started — the rest downloads after it ends.")
     }
 
-    func prepare(settings: AppSettings, includeSpeakers: Bool, downloadAgain: Bool = false) async {
+    /// `userInitiated`: a button the person pressed. Only that lifts the
+    /// hold on an engine whose load was in flight when the last two runs crashed
+    /// (`ModelLoadGuard`, Sentry DAISY-MAC-4, 12.11); a preparation Daisy
+    /// starts by itself — the one finishing in the background after «Skip
+    /// for now», the one resumed when the card or the tour's models step
+    /// appears — leaves it and ends with the held engine's message.
+    func prepare(settings: AppSettings, includeSpeakers: Bool, downloadAgain: Bool = false,
+                 userInitiated: Bool = true) async {
         guard !isRunning else { return }
         guard Self.activePreparations == 0 else {
             // A background completion (after "Skip for now") is still
@@ -139,6 +157,7 @@ final class ModelPreparation {
         let requestedKey = key(settings: settings, includeSpeakers: includeSpeakers)
         defer { isRunning = false; stage = ""; Self.activePreparations -= 1 }
         if !settings.hasShownFirstRun { UserDefaults.standard.set(true, forKey: "daisy.preparation.started") }
+        if userInitiated { await ModelLoadGuard.shared.liftHoldsBeforeLoading() }
         let whisper = WhisperEngine.shared
         // An Intel Mac skips Whisper and its speech detector altogether
         // (`runsOnThisMac`): only the dictation engine is prepared, and it
@@ -168,7 +187,8 @@ final class ModelPreparation {
             speechDetectionReady = true
         }
         if !speechDetectionReady {
-            notice = String(localized: "Speech detection isn’t downloaded yet — Daisy works without it and will fetch it when the network is back.")
+            notice = ModelLoadGuard.shared.heldMessage(for: .speechDetection)
+                ?? String(localized: "Speech detection isn’t downloaded yet — Daisy works without it and will fetch it when the network is back.")
         }
         if steppedAside { noteSteppedAside(); return }
         if settings.dictationEngine == .parakeet {
@@ -205,7 +225,8 @@ final class ModelPreparation {
             stage = String(localized: "Preparing speaker separation…")
             await DiarizationEngine.shared.ensureLoaded()
             if !DiarizationEngine.shared.isAvailable {
-                let line = String(localized: "Speaker separation isn’t downloaded yet — meetings will record without speaker labels until it is.")
+                let line = ModelLoadGuard.shared.heldMessage(for: .diarizer)
+                    ?? String(localized: "Speaker separation isn’t downloaded yet — meetings will record without speaker labels until it is.")
                 // Both optional pieces can be missing at once; say so.
                 notice = notice.map { "\($0)\n\(line)" } ?? line
             }
@@ -225,6 +246,8 @@ struct ModelPreparationView: View {
     @Bindable var preparation: ModelPreparation
     var includeSpeakers: Bool
     @Bindable private var whisper = WhisperEngine.shared
+    private var parakeet: ParakeetEngine { .shared }
+    private var loadGuard: ModelLoadGuard { .shared }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -256,8 +279,14 @@ struct ModelPreparationView: View {
                 Text("Preparation failed. You can retry, choose another model, or download the speech model again.")
                     .foregroundStyle(Color.daisyWarningText)
                 Text(error).font(.caption).textSelection(.enabled)
-            } else if case .failed(let error) = whisper.state {
-                Text(error).font(.caption).foregroundStyle(Color.daisyWarningText).textSelection(.enabled)
+            }
+            // Why the card is up when no preparation failed: Whisper's own
+            // failure, the fast dictation model's (it brought the card up
+            // and said nothing), and every model Daisy stopped loading by
+            // itself (`ModelLoadGuard`) — each line once.
+            ForEach(failureLines, id: \.self) { line in
+                Text(line).font(.caption).foregroundStyle(Color.daisyWarningText).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
                 Button("Download and check") {
@@ -276,6 +305,8 @@ struct ModelPreparationView: View {
                     Text("Downloading again keeps the previous model files for diagnostics and needs additional free space.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+            }
+            if preparation.error != nil || whisperFailed || !loadGuard.held.isEmpty {
                 Button("Export Logs…") { LogReporter.exportLogs(settings: settings) }
             }
         }
@@ -288,10 +319,21 @@ struct ModelPreparationView: View {
             // button started.
             if !settings.hasShownFirstRun, UserDefaults.standard.bool(forKey: "daisy.preparation.started") {
                 Task { @MainActor in
-                    await preparation.prepare(settings: settings, includeSpeakers: includeSpeakers)
+                    await preparation.prepare(settings: settings, includeSpeakers: includeSpeakers, userInitiated: false)
                 }
             }
         }
+    }
+
+    /// The reasons under the card's text, without repeats and without the
+    /// one `preparation.error` already shows.
+    private var failureLines: [String] {
+        var lines: [String] = []
+        if preparation.error == nil, case .failed(let reason) = whisper.state { lines.append(reason) }
+        if settings.dictationEngine == .parakeet, case .failed(let reason) = parakeet.state { lines.append(reason) }
+        lines.append(contentsOf: loadGuard.heldMessages)
+        var seen: Set<String> = preparation.error.map { [$0] } ?? []
+        return lines.filter { seen.insert($0).inserted }
     }
 
     private var whisperFailed: Bool {

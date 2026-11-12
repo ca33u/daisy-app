@@ -4435,6 +4435,86 @@
         }
       }
     },
+    "modelLoad.name.diarizer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "speaker separation"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "разделение спикеров"
+          }
+        }
+      }
+    },
+    "modelLoad.name.nemotron" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "the live dictation model"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "модель живой диктовки"
+          }
+        }
+      }
+    },
+    "modelLoad.name.parakeet" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "the fast dictation model"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "модель быстрой диктовки"
+          }
+        }
+      }
+    },
+    "modelLoad.name.speechDetection" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "speech detection"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "определение речи"
+          }
+        }
+      }
+    },
+    "modelLoad.name.whisper" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "the speech model"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "модель речи"
+          }
+        }
+      }
+    },
     "more capable" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11951,6 +12031,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Daisy проверяет раз в день и транскрибирует новые записи в папку заметок, которую ты выберешь ниже, — отдельно от записей встреч. Без саммари — полностью на устройстве."
+          }
+        }
+      }
+    },
+    "Daisy closed twice in a row while loading %@. It won’t load it on its own any more. Press Download and check to try again" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy дважды подряд закрылась, пока загружала %@, и больше не делает этого сама. Нажми «Скачать и проверить», чтобы попробовать ещё раз"
+          }
+        }
+      }
+    },
+    "Daisy closed twice while loading %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy дважды закрылась, пока загружала %@"
           }
         }
       }

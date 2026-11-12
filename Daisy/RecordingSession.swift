@@ -1264,7 +1264,7 @@ final class RecordingSession {
         // have two sessions acting on one tap.
         guard !isDictationSidecar else { return }
 
-        // Preload Whisper (and Parakeet, when it is the dictation engine)
+        // Preload Parakeet (when it is the dictation engine) and Whisper
         // so the first Record click or dictation press is instant. An XCTest bundle is hosted inside Daisy.app, however,
         // and must reach the test runner before app-startup model I/O begins.
         // Otherwise a slow or unavailable model volume can block every unit
@@ -1272,12 +1272,47 @@ final class RecordingSession {
         let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
         if !isRunningTests {
             if settings.hasShownFirstRun {
-                Task { await WhisperEngine.shared.ensureLoaded() }
                 // The dictation model too, so the first press after a
                 // launch or an update doesn't wait for it
-                // (`DictationModelGate.preloadsParakeetAtLaunch`).
-                if DictationModelGate.preloadsParakeetAtLaunch(engine: settings.dictationEngine,
-                                                               hasCompleteModel: ParakeetEngine.hasCompleteModel()) {
+                // (`DictationModelGate.preloadsParakeetAtLaunch`) — and
+                // first: the two load one after the other, in one task,
+                // since 12.11 (Sentry DAISY-MAC-4; 1.0.8.49 started them
+                // as two tasks at once, see `launchPreload`). Nothing at
+                // all on the launch after a run that ended inside a model
+                // load (`ModelLoadGuard`). Only this order is new: loads
+                // asked for elsewhere don't queue behind it — a dictation
+                // press must not wait behind a cold Whisper compile — so
+                // they can still overlap a launch step (`runLaunchPreload`
+                // lists how).
+                let loadGuard = ModelLoadGuard.shared
+                let steps = DictationModelGate.launchPreload(
+                    engine: settings.dictationEngine,
+                    hasCompleteParakeet: ParakeetEngine.hasCompleteModel(),
+                    skip: loadGuard.skipsLaunchPreload,
+                    held: loadGuard.held)
+                Task {
+                    await DictationModelGate.runLaunchPreload(steps, isDownloading: { step in
+                        switch step {
+                        case .parakeet:
+                            if case .downloading = ParakeetEngine.shared.state { return true }
+                        case .whisper:
+                            if case .downloading = WhisperEngine.shared.state { return true }
+                        }
+                        return false
+                    }, load: { step in
+                        switch step {
+                        case .parakeet: await ParakeetEngine.shared.ensureLoaded()
+                        case .whisper: await WhisperEngine.shared.ensureLoaded()
+                        }
+                    })
+                }
+                // A held engine is asked once all the same: it loads
+                // nothing and comes back at once, and its row in Settings
+                // says «Failed» with the reason from the first minute.
+                if loadGuard.held.contains(.whisper) {
+                    Task { await WhisperEngine.shared.ensureLoaded() }
+                }
+                if loadGuard.held.contains(.parakeet), settings.dictationEngine == .parakeet {
                     Task { await ParakeetEngine.shared.ensureLoaded() }
                 }
             }
@@ -2014,6 +2049,14 @@ final class RecordingSession {
         String(localized: "Pick Faster or Apple for dictation")
     }
 
+    /// Why a dictation is refused on an Intel Mac. With Faster chosen and
+    /// held (`ModelLoadGuard`: Daisy crashed twice with its load in flight), «pick Faster»
+    /// is the one thing that can't help — the held reason is said instead.
+    static func dictationRefusalOnUnsupportedMac(engine: DictationEngine, heldParakeet: String?) -> String {
+        if engine == .parakeet, let heldParakeet { return heldParakeet }
+        return dictationNeedsFastEngineMessage
+    }
+
     /// A dictation refused on an Intel Mac: Whisper can't run there, and
     /// the dictation engine that can wasn't ready. Says which row fixes it,
     /// with a button; a screenshot note claimed at key-down gets its pill
@@ -2038,8 +2081,13 @@ final class RecordingSession {
         case .paste:
             break
         }
-        var content = WidgetBubbleContent(text: Self.dictationNeedsFastEngineMessage)
-        content.actionTitle = String(localized: "Choose")
+        let held = settings.dictationEngine == .parakeet && ModelLoadGuard.shared.held.contains(.parakeet)
+        // Held: the short line the launch notice uses, and the way to the
+        // card whose button lifts it (the same row).
+        var content = WidgetBubbleContent(text: held
+            ? ModelLoadGuard.launchNoticeText(for: [.parakeet])
+            : Self.dictationNeedsFastEngineMessage)
+        content.actionTitle = held ? String(localized: "Set up") : String(localized: "Choose")
         content.action = { AppNavigation.shared.openInSettings(.dictation, row: .dictationEngine) }
         WidgetBubbleCenter.shared.present(content, notificationTitle: String(localized: "Daisy"))
     }
@@ -2426,7 +2474,9 @@ final class RecordingSession {
         // a Mac where Whisper can't run: said plainly, not «repair it».
         if needsWhisper && !WhisperEngine.runsOnThisMac {
             if dictationPurpose == .paste {
-                await failFast(Self.dictationNeedsFastEngineMessage)
+                await failFast(Self.dictationRefusalOnUnsupportedMac(
+                    engine: settings.dictationEngine,
+                    heldParakeet: ModelLoadGuard.shared.heldMessage(for: .parakeet)))
             } else {
                 // A Daisy-key press, likely still held: no failure state —
                 // a tap still has its layout fix to do. Back to idle.

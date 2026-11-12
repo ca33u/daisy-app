@@ -59,6 +59,105 @@ struct DictationModelGateTests {
         #expect(checks == 1)
     }
 
+    // Sentry DAISY-MAC-4 (12.11): 1.0.8.49 started the two launch loads at
+    // once; Whisper's aborted reading a compiled package while another
+    // thread was in a FluidAudio model load. They go one after the other now.
+
+    @Test("Launch loads Parakeet first when it is chosen and on disk, then Whisper")
+    func launchOrder() {
+        #expect(Gate.launchPreload(engine: .parakeet, hasCompleteParakeet: true, skip: false, held: [])
+                == [.parakeet, .whisper])
+        #expect(Gate.launchPreload(engine: .parakeet, hasCompleteParakeet: false, skip: false, held: []) == [.whisper])
+        #expect(Gate.launchPreload(engine: .whisper, hasCompleteParakeet: true, skip: false, held: []) == [.whisper])
+        #expect(Gate.launchPreload(engine: .appleSpeech, hasCompleteParakeet: true, skip: false, held: []) == [.whisper])
+    }
+
+    @Test("Nothing is preloaded on the launch after a run that ended inside a model load")
+    func launchPreloadSkipped() {
+        #expect(Gate.launchPreload(engine: .parakeet, hasCompleteParakeet: true, skip: true, held: []).isEmpty)
+        #expect(Gate.launchPreload(engine: .whisper, hasCompleteParakeet: false, skip: true, held: []).isEmpty)
+    }
+
+    @Test("A held engine is not preloaded; the other one still is")
+    func launchPreloadLeavesHeldEnginesOut() {
+        #expect(Gate.launchPreload(engine: .parakeet, hasCompleteParakeet: true, skip: false, held: [.parakeet]) == [.whisper])
+        #expect(Gate.launchPreload(engine: .parakeet, hasCompleteParakeet: true, skip: false, held: [.whisper]) == [.parakeet])
+        #expect(Gate.launchPreload(engine: .parakeet, hasCompleteParakeet: true, skip: false, held: [.whisper, .parakeet]).isEmpty)
+        // Other engines' holds don't touch the launch.
+        #expect(Gate.launchPreload(engine: .parakeet, hasCompleteParakeet: true, skip: false,
+                                   held: [.whisperJob, .diarizer, .speechDetection, .nemotron]) == [.parakeet, .whisper])
+    }
+
+    @Test("The launch order pays the disk check only for a Parakeet it would load")
+    func launchOrderChecksDiskOnlyWhenNeeded() {
+        var checks = 0
+        func check() -> Bool { checks += 1; return true }
+        _ = Gate.launchPreload(engine: .whisper, hasCompleteParakeet: check(), skip: false, held: [])
+        _ = Gate.launchPreload(engine: .appleSpeech, hasCompleteParakeet: check(), skip: false, held: [])
+        _ = Gate.launchPreload(engine: .parakeet, hasCompleteParakeet: check(), skip: true, held: [])
+        _ = Gate.launchPreload(engine: .parakeet, hasCompleteParakeet: check(), skip: false, held: [.parakeet])
+        #expect(checks == 0)
+        _ = Gate.launchPreload(engine: .parakeet, hasCompleteParakeet: check(), skip: false, held: [])
+        #expect(checks == 1)
+    }
+
+    @Test("A launch step stops holding the next one when it becomes a download, or after 90 seconds")
+    func preloadMovesOn() {
+        #expect(Gate.preloadMovesOn(isDownloading: true, elapsed: 0))
+        #expect(!Gate.preloadMovesOn(isDownloading: false, elapsed: 0))
+        #expect(!Gate.preloadMovesOn(isDownloading: false, elapsed: 89))
+        #expect(Gate.preloadMovesOn(isDownloading: false, elapsed: 91))
+    }
+
+    @Test("The launch steps run one after the other, never together")
+    func launchStepsRunInTurn() async {
+        final class Log { var events: [String] = []; var running = 0; var mostAtOnce = 0 }
+        let log = Log()
+        await Gate.runLaunchPreload([.parakeet, .whisper], pollEvery: .milliseconds(5),
+                                    isDownloading: { _ in false }) { step in
+            log.running += 1
+            log.mostAtOnce = max(log.mostAtOnce, log.running)
+            log.events.append("start \(step)")
+            try? await Task.sleep(for: .milliseconds(40))
+            log.events.append("end \(step)")
+            log.running -= 1
+        }
+        #expect(log.events == ["start parakeet", "end parakeet", "start whisper", "end whisper"])
+        #expect(log.mostAtOnce == 1)
+    }
+
+    @Test("A step that turned into a download doesn't keep the next one out, and runs on")
+    func downloadingStepIsNotWaitedFor() async {
+        final class Log { var events: [String] = [] }
+        @MainActor final class Hold {
+            var continuation: CheckedContinuation<Void, Never>?
+            func wait() async { await withCheckedContinuation { continuation = $0 } }
+            func open() { continuation?.resume(); continuation = nil }
+        }
+        let log = Log()
+        let download = Hold()
+        // Ordering, not wall time: Parakeet's step ends only when the test
+        // lets it, which is after the whole launch order has come back.
+        await Gate.runLaunchPreload([.parakeet, .whisper], pollEvery: .milliseconds(5),
+                                    isDownloading: { $0 == .parakeet }) { step in
+            log.events.append("start \(step)")
+            if step == .parakeet { await download.wait() }
+            log.events.append("end \(step)")
+        }
+        #expect(log.events == ["start parakeet", "start whisper", "end whisper"])
+        download.open()
+        for _ in 0..<200 where log.events.count < 4 { try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(log.events.last == "end parakeet")
+    }
+
+    @Test("No steps: nothing runs")
+    func noLaunchSteps() async {
+        final class Flag { var ran = false }
+        let flag = Flag()
+        await Gate.runLaunchPreload([], isDownloading: { _ in false }) { _ in flag.ran = true }
+        #expect(!flag.ran)
+    }
+
     @Test("The wait caption says what's happening, how far, and how to cancel")
     func waitCaption() {
         #expect(Gate.waitCaption(whisper: .downloading(progress: 0.42), loadProgress: 0)

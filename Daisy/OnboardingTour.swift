@@ -659,7 +659,11 @@ final class OnboardingTourController {
 
     /// The standard model for meetings and dictation, nothing else: speaker
     /// separation and the faster engine come later, when asked for.
-    private func startPreparation() {
+    /// `userInitiated`: the person pressed the step's button. Entering the
+    /// step starts the preparation without anyone asking, and that must not
+    /// lift a hold on a model whose load was in flight when the last two runs crashed
+    /// (`ModelLoadGuard`).
+    private func startPreparation(userInitiated: Bool = false) {
         guard !TestHost.isActive, let settings else { return }
         if !settings.hasShownFirstRun {
             // One standard model on everything (Egor 24.10): dictation on
@@ -676,13 +680,13 @@ final class OnboardingTourController {
         }
         Task { [weak self] in
             guard let self else { return }
-            await self.preparation.prepare(settings: settings, includeSpeakers: false)
+            await self.preparation.prepare(settings: settings, includeSpeakers: false, userInitiated: userInitiated)
             self.checkModelsReady()
         }
     }
 
     /// The models step's «Скачать и проверить» after a failure.
-    func retryPreparation() { startPreparation() }
+    func retryPreparation() { startPreparation(userInitiated: true) }
 
     var modelsReady: Bool {
         guard let settings else { return false }

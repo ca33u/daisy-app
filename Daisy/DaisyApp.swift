@@ -89,6 +89,16 @@ struct DaisyApp: App {
         FluidAudioNetworkGuard.engage()
         #endif
 
+        // Did the last run end inside a Core ML model load (Sentry
+        // DAISY-MAC-4, 12.11)? Checked here: after `CrashReports.start()`
+        // above, whose record of the last run tells a crash from a Force
+        // Quit, and before the session — its init starts the launch
+        // preload, which this can call off, and the compiled-model cache is
+        // moved aside before anything loads from it (`ModelLoadGuard`).
+        // Inert in the test host, and in a Debug build unless
+        // DAISY_MODEL_LOAD_GUARD_DIR is set.
+        ModelLoadGuard.shared.checkAtLaunch()
+
         let s = AppSettings()
         let sess = RecordingSession(settings: s)
         // Weak handle for the Quit-during-recording save path

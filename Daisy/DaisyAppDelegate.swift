@@ -87,6 +87,15 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
             await SessionStore.shared.refresh()
         }
 
+        // A model that Daisy stopped loading by itself as of this launch
+        // (the last two runs crashed while its load was in flight — `ModelLoadGuard`,
+        // Sentry DAISY-MAC-4): said once, with the way to Settings. After
+        // the same pause, so the window and the widget are there to say it.
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            ModelLoadGuard.shared.presentLaunchNotice()
+        }
+
         // Pause/save the active recording around sleep and shutdown so the
         // archive stays consistent. (A *hard* power cut sends no warning —
         // that's what the crash-recovery scan above is for.)
@@ -278,6 +287,15 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
+    }
+
+    /// A quit in the middle of a model load is not a run that died in
+    /// it: this process's load markers go, so the next launch doesn't
+    /// take it for one (`ModelLoadGuard`, Sentry DAISY-MAC-4, 12.11).
+    /// AppKit calls this on the way out of `terminate`; a crash, a force
+    /// quit or a power cut never gets here, which is the point.
+    func applicationWillTerminate(_ notification: Notification) {
+        ModelLoadGuard.shared.clearOwnMarkersAtTermination()
     }
 
     /// Quitting while Daisy copies an import or transcribes stored audio

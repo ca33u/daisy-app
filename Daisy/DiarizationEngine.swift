@@ -131,6 +131,11 @@ final class DiarizationEngine {
         #endif
     }
 
+    /// The hold on the diarizer was lifted (`ModelLoadGuard.liftHolds`).
+    func clearHeldFailure(_ message: String) {
+        if lastLoadError == message { lastLoadError = nil }
+    }
+
     #if canImport(FluidAudio)
     /// In-flight load, so concurrent `ensureLoaded()` callers wait on
     /// one download instead of starting several.
@@ -139,6 +144,17 @@ final class DiarizationEngine {
 
     private func performLoad() async {
         guard manager == nil else { return }
+        // The last two runs crashed while this load was in flight (`ModelLoadGuard`,
+        // Sentry DAISY-MAC-4, 12.11): not again by itself. Meetings go on
+        // without speaker labels, as when the models aren't there.
+        if let held = ModelLoadGuard.shared.heldMessage(for: .diarizer) {
+            if lastLoadError != held {
+                log.error("The diarizer is not loaded: held after Daisy closed twice in a row during its load")
+            }
+            isAvailable = false
+            lastLoadError = held
+            return
+        }
         lastLoadError = nil
         do {
             // One-time download of the CoreML diarization bundle from
@@ -149,20 +165,29 @@ final class DiarizationEngine {
             // throws DownloadError and we retry inside an explicit,
             // logged download window. A cache that's there but broken is
             // fetched again file by file (FluidAudio #1067).
+            // Every attempt is marked on disk while it runs
+            // (`ModelLoadGuard`); FluidAudio downloads and loads in this
+            // one call, so inside a download window the mark covers the
+            // download too.
+            let load: @MainActor () async throws -> DiarizerModels = {
+                try await ModelLoadGuard.shared.run(.diarizer) {
+                    try await DiarizerModels.downloadIfNeeded()
+                }
+            }
             let models: DiarizerModels
             do {
                 models = try await FluidAudioNetworkGuard.loadRepairingCache(.diarizer) {
-                    try await DiarizerModels.downloadIfNeeded()
+                    try await load()
                 }
             } catch let error where FluidAudioNetworkGuard.isOfflineRejection(error) {
                 // Our mirror first, pinned and verified (backlog 31); then
                 // FluidAudio's own Hugging Face download.
                 if try await MacModelHosting.prefetchBeforeLibraryDownload(.diarizer),
-                   let fetched = try? await DiarizerModels.downloadIfNeeded() {
+                   let fetched = try? await load() {
                     models = fetched
                 } else {
                     models = try await FluidAudioNetworkGuard.withDownloadsAllowed("diarizer models") {
-                        try await DiarizerModels.downloadIfNeeded()
+                        try await load()
                     }
                 }
             }
@@ -493,6 +518,10 @@ enum FluidAudioNetworkGuard {
     /// Open download windows, refcounted so overlapping loads (e.g.
     /// diarizer + VAD on first run) don't re-block each other early.
     private static var openWindows = 0
+
+    /// A download window is open: a FluidAudio loader started now may be
+    /// downloading, not loading (`ModelLoadGuard` marks the difference).
+    static var isDownloadWindowOpen: Bool { openWindows > 0 }
 
     /// Hard-block FluidAudio's network. Idempotent; called once at launch.
     /// No-op while a download window is open (engage() can't race a

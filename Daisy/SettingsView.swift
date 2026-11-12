@@ -2343,6 +2343,10 @@ struct SettingsView: View {
     }
 
     private func downloadAllModels() async {
+        // «Download models now» is the person asking for the models: it
+        // lifts the hold on one Daisy stopped loading by itself
+        // (`ModelLoadGuard`, Sentry DAISY-MAC-4, 12.11).
+        await ModelLoadGuard.shared.liftHoldsBeforeLoading()
         await whisper.ensureLoaded()
         var appleAssetMissing = false
         switch settings.dictationEngine {

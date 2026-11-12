@@ -63,6 +63,10 @@ final class WhisperEngine {
             UserDefaults.standard.set(modelID, forKey: Self.modelKey)
             if !RecordingSession.isCapturingOrTranscribing { state = .notLoaded }
             if UserDefaults.standard.bool(forKey: "daisy.hasShownFirstRun") {
+                // After onboarding only the picker in Settings changes the
+                // model: the person asking for a load, which lifts a hold
+                // (`ModelLoadGuard`). Onboarding's own assignment doesn't.
+                ModelLoadGuard.shared.liftHolds([.whisper, .whisperJob])
                 Task { await self.reload() }
             }
         }
@@ -197,6 +201,17 @@ final class WhisperEngine {
             }
             return
         }
+        // The last two runs crashed while this load was in flight (`ModelLoadGuard`,
+        // Sentry DAISY-MAC-4, 12.11): not again by itself, whoever asks —
+        // the launch, a Record press, the import queue. Shown the way the
+        // Intel refusal above is, until the person asks for the model.
+        if let held = ModelLoadGuard.shared.heldMessage(for: .whisper) {
+            if state != .failed(held) {
+                log.error("Whisper is not loaded: held after Daisy closed twice in a row during its load")
+                state = .failed(held)
+            }
+            return
+        }
         if let existing = loadTask {
             await existing.value
             return
@@ -207,6 +222,13 @@ final class WhisperEngine {
         loadTask = task
         await task.value
         loadTask = nil
+    }
+
+    /// The hold on this model was lifted (`ModelLoadGuard.liftHolds`): the
+    /// held text goes — from the row, the card and anything reading
+    /// `state` — and the next ask loads.
+    func clearHeldFailure(_ message: String) {
+        if state == .failed(message) { state = .notLoaded }
     }
 
     /// `force`: load again even when the current model is ready —
@@ -247,6 +269,8 @@ final class WhisperEngine {
             state = .failed(ModelPreparationPolicy.diskMessage(required: required, available: free))
             return
         }
+        // «Download speech model again» is the person asking for a load.
+        ModelLoadGuard.shared.liftHolds([.whisper, .whisperJob])
         do {
             if let root = Self.whisperCacheRoot() {
                 let folder = root.appendingPathComponent("openai_whisper-\(modelID)")
@@ -442,7 +466,11 @@ final class WhisperEngine {
         loadStartedAt = loadStart
         startLoadProgressClock(startedAt: loadStart, variant: variant)
         do {
-            self.kitBox = try await Self.loadKit(folder: folder, verify: true)
+            // Marked on disk while it runs: a launch that finds the mark
+            // knows the run before it ended here (`ModelLoadGuard`).
+            self.kitBox = try await ModelLoadGuard.shared.run(.whisper) {
+                try await Self.loadKit(folder: folder, verify: true)
+            }
             self.loadedModelID = variant
             // Disk work; off the main actor. Nothing waits on it.
             Task.detached(priority: .utility) { Self.pruneModelRecovery() }
@@ -572,6 +600,9 @@ final class WhisperEngine {
     /// visible "loading Whisper" phase the user already waits through.
     private func ensureVADLoadStarted() {
         if vadBox != nil || vadLoadTask != nil { return }
+        // Held (`ModelLoadGuard`): Whisper decodes without it, as it does
+        // when Silero fails to load.
+        guard ModelLoadGuard.shared.heldMessage(for: .speechDetection) == nil else { return }
         vadLoadIsDiskOnly = false
         vadLoadTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -582,6 +613,14 @@ final class WhisperEngine {
                 // to gain here. We can revisit if we see real speech
                 // being clipped.
                 let cfg = VadConfig(defaultThreshold: 0.85)
+                // Every attempt is marked on disk while it runs
+                // (`ModelLoadGuard`); inside a download window the mark
+                // covers FluidAudio's download too.
+                let load: @MainActor () async throws -> VadManager = {
+                    try await ModelLoadGuard.shared.run(.speechDetection) {
+                        try await VadManager(config: cfg)
+                    }
+                }
                 // Offline-first: cached Silero loads with FluidAudio's
                 // network hard-blocked; first run opens an explicit
                 // download window via the guard. A cache that's there but
@@ -589,17 +628,17 @@ final class WhisperEngine {
                 let vad: VadManager
                 do {
                     vad = try await FluidAudioNetworkGuard.loadRepairingCache(.sileroVAD) {
-                        try await VadManager(config: cfg)
+                        try await load()
                     }
                 } catch let error where FluidAudioNetworkGuard.isOfflineRejection(error) {
                     // Our mirror first (backlog 31), then FluidAudio's own
                     // Hugging Face download.
                     if try await MacModelHosting.prefetchBeforeLibraryDownload(.sileroVAD),
-                       let fetched = try? await VadManager(config: cfg) {
+                       let fetched = try? await load() {
                         vad = fetched
                     } else {
                         vad = try await FluidAudioNetworkGuard.withDownloadsAllowed("Silero VAD") {
-                            try await VadManager(config: cfg)
+                            try await load()
                         }
                     }
                 }
@@ -628,6 +667,9 @@ final class WhisperEngine {
     func warmSpeechDetectionFromCache() {
         #if canImport(FluidAudio)
         guard Self.runsOnThisMac, !dictationVADWarmTried, vadBox == nil, vadLoadTask == nil else { return }
+        // Held (`ModelLoadGuard`): the dictation goes untrimmed. Not
+        // counted as tried — a lifted hold lets the next press load it.
+        guard ModelLoadGuard.shared.heldMessage(for: .speechDetection) == nil else { return }
         dictationVADWarmTried = true
         guard Self.sileroIsOnDisk() else { return }
         vadLoadIsDiskOnly = true
@@ -636,7 +678,9 @@ final class WhisperEngine {
             // FluidAudio's network stays blocked (`FluidAudioNetworkGuard`):
             // a model that fails to load from disk is not fetched here.
             do {
-                let vad = try await VadManager(config: VadConfig(defaultThreshold: 0.85))
+                let vad = try await ModelLoadGuard.shared.run(.speechDetection) {
+                    try await VadManager(config: VadConfig(defaultThreshold: 0.85))
+                }
                 if self.vadBox == nil { self.vadBox = VadManagerBox(vad) }
                 self.log.info("Silero VAD loaded from disk (dictation trim)")
             } catch {
@@ -1221,7 +1265,13 @@ final class WhisperEngine {
         try Task.checkCancellation()
 
         await ensureLoaded()
-        guard let box = kitBox else { throw WhisperEngineError.notReady }
+        guard let box = kitBox else {
+            // A held model gives the job its reason, not a bare «not
+            // loaded» (`ModelLoadGuard`): an import, the recovery of an
+            // interrupted recording.
+            try ModelLoadGuard.shared.refuseIfHeld(.whisper)
+            throw WhisperEngineError.notReady
+        }
 
         return try await transcribeLocked(
             samples: samples,
@@ -1255,7 +1305,10 @@ final class WhisperEngine {
         let box: WhisperKitBox
         if requestedModelID == modelID {
             await ensureLoaded()
-            guard let current = kitBox else { throw WhisperEngineError.notReady }
+            guard let current = kitBox else {
+                try ModelLoadGuard.shared.refuseIfHeld(.whisper)
+                throw WhisperEngineError.notReady
+            }
             box = current
         } else {
             box = try await alternateModelBox(for: requestedModelID)
@@ -1330,6 +1383,9 @@ final class WhisperEngine {
         if alternateModelID == requestedModelID, let alternateKitBox {
             return alternateKitBox
         }
+        // The last two runs crashed while a job model's load was in flight
+        // (`ModelLoadGuard`): the job fails with the reason, not the app.
+        try ModelLoadGuard.shared.refuseIfHeld(.whisperJob)
 
         alternateKitBox = nil
         alternateModelID = nil
@@ -1350,7 +1406,9 @@ final class WhisperEngine {
             )
         }
         try Task.checkCancellation()
-        let box = try await Self.loadKit(folder: folder, verify: false)
+        let box = try await ModelLoadGuard.shared.run(.whisperJob) {
+            try await Self.loadKit(folder: folder, verify: false)
+        }
         alternateModelID = requestedModelID
         alternateKitBox = box
         return box

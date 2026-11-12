@@ -104,32 +104,54 @@ final class NemotronLiveEngine {
         #endif
     }
 
+    /// The hold on this model was lifted (`ModelLoadGuard.liftHolds`): the
+    /// held text goes and the next ask loads.
+    func clearHeldFailure(_ message: String) {
+        if state == .failed(message) { state = .notLoaded }
+    }
+
     #if canImport(FluidAudio)
     private func performLoad() async {
         if case .ready = state, manager != nil { return }
+        // The last two runs crashed while this load was in flight (`ModelLoadGuard`,
+        // Sentry DAISY-MAC-4, 12.11): not again by itself. The live line
+        // falls back to Whisper's, as after any failed load.
+        if let held = ModelLoadGuard.shared.heldMessage(for: .nemotron) {
+            if state != .failed(held) {
+                log.error("Nemotron live is not loaded: held after Daisy closed twice in a row during its load")
+                state = .failed(held)
+            }
+            return
+        }
         state = .downloading(progress: 0)
         log.info("Nemotron live: downloading/loading multilingual 560 ms variant…")
         do {
+            // Every attempt is marked on disk while it runs
+            // (`ModelLoadGuard`); FluidAudio downloads and loads in this
+            // one call, so on the first enable the mark covers the
+            // download too.
             let load: @MainActor () async throws -> SharedNemotronMultilingualModels = {
-                try await StreamingNemotronMultilingualAsrManager.downloadAndPreloadShared(
-                    languageCode: "auto",  // full-vocab multilingual — one cache for all locales
-                    chunkMs: 560,          // lowest-latency tier; dictation is latency-first
-                    progressHandler: { progress in
-                        // Strong capture on purpose: the engine is a
-                        // process-lifetime singleton (`.shared`), so a
-                        // weak dance buys nothing — and any [weak self]
-                        // here just trips Xcode 26's mismatch warning
-                        // against the enclosing `load` closure, which
-                        // would implicitly capture self strongly anyway.
-                        // FluidAudio releases the handler when
-                        // downloadAndPreloadShared returns.
-                        let fraction = progress.fractionCompleted
-                        Task { @MainActor in
-                            if case .ready = self.state { return }
-                            self.state = .downloading(progress: fraction)
+                try await ModelLoadGuard.shared.run(.nemotron) {
+                    try await StreamingNemotronMultilingualAsrManager.downloadAndPreloadShared(
+                        languageCode: "auto",  // full-vocab multilingual — one cache for all locales
+                        chunkMs: 560,          // lowest-latency tier; dictation is latency-first
+                        progressHandler: { progress in
+                            // Strong capture on purpose: the engine is a
+                            // process-lifetime singleton (`.shared`), so a
+                            // weak dance buys nothing — and any [weak self]
+                            // here just trips Xcode 26's mismatch warning
+                            // against the enclosing `load` closure, which
+                            // would implicitly capture self strongly anyway.
+                            // FluidAudio releases the handler when
+                            // downloadAndPreloadShared returns.
+                            let fraction = progress.fractionCompleted
+                            Task { @MainActor in
+                                if case .ready = self.state { return }
+                                self.state = .downloading(progress: fraction)
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
             // Offline-first: a cached variant loads with FluidAudio's
             // network hard-blocked; the first enable opens an explicit,

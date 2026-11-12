@@ -57,6 +57,50 @@ nonisolated enum CrashReports {
         // SentryCrash/Daisy) is shared with the real app.
         guard mode == .ask, !TestHost.isActive else { return }
         SentrySDK.start { options in configure(options) }
+        started.withLock { $0 = true }
+    }
+
+    private static let started = OSAllocatedUnfairLock(initialState: false)
+
+    /// Sentry's crash handler is in this process: `start()` ran and started
+    /// it. A marker `ModelLoadGuard` writes carries this, so the launch that
+    /// finds it knows whether anything could have recorded that run's crash.
+    static var handlerInstalled: Bool { started.withLock { $0 } }
+
+    /// How the run before this one ended, as far as Sentry's record goes
+    /// (Sentry DAISY-MAC-4, 12.11 — `ModelLoadGuard` reads it to tell a
+    /// crash from a Force Quit).
+    enum LastRun: Equatable, Sendable {
+        /// A crash the handler caught: a fatal signal (an `abort()` is
+        /// one), a Mach exception, an uncaught NSException.
+        case crashed
+        /// The handler was there and caught nothing: a normal quit, a
+        /// Force Quit, a kill, a power cut.
+        case didNotCrash
+        /// No answer: Sentry isn't started in this launch (crash reports
+        /// on «Never send», the test host, before `start()`), or it hasn't
+        /// loaded its record.
+        case unknown
+    }
+
+    /// Sentry installs its crash reporter inside `start` when that is
+    /// called on the main thread, as `DaisyApp.init` does, so the answer
+    /// is there as soon as `start()` returns. It is the SDK's record of the
+    /// last run in which the SDK ran — whether THAT is the run a marker
+    /// came from is the marker's to say (`InFlight.crashHandlerInstalled`).
+    static var lastRun: LastRun {
+        guard handlerInstalled else { return .unknown }
+        return lastRun(started: true, status: SentrySDK.lastRunStatus)
+    }
+
+    static func lastRun(started: Bool, status: SentryLastRunStatus) -> LastRun {
+        guard started else { return .unknown }
+        switch status {
+        case .didCrash: return .crashed
+        case .didNotCrash: return .didNotCrash
+        case .unknown: return .unknown
+        @unknown default: return .unknown
+        }
     }
 
     /// Every option, in one place so a test can start the SDK exactly as
