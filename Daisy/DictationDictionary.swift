@@ -274,7 +274,7 @@ final class DictationDictionary {
     ///    compile is skipped rather than aborting the whole pass, and the
     ///    original text is returned unchanged if nothing matches.
     ///
-    /// Called on the MainActor from `DictationPaste.handle(transcript:)`.
+    /// Called on the MainActor from `DictationPaste.handle(transcript:micSawDigitalSilence:)`.
     func apply(to text: String) -> String {
         applyCounting(to: text).text
     }

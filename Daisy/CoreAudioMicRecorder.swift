@@ -330,6 +330,16 @@ final class CoreAudioMicRecorder {
     private static let maxMidSessionRebuilds = 2
     @ObservationIgnored
     private var silenceMonitor: Timer?
+    /// The silence watchdog's memory between ticks: whether a silence
+    /// is being recorded through, and how much of the recording that
+    /// has been (14.11, see `MicSilenceWatch`). Fresh on each `start()`.
+    @ObservationIgnored
+    private var silenceWatch = MicSilenceWatch()
+
+    /// Silence this recording went on through, in seconds, the episode
+    /// still open included. Kept after `stop()` until the next `start()`,
+    /// so the session can read it while it finishes the recording.
+    var keptSilenceSec: TimeInterval { silenceWatch.keptSilenceSec(now: Date()) }
 
     // MARK: - Archive parts
 
@@ -384,8 +394,9 @@ final class CoreAudioMicRecorder {
         // built: a throw from makeAndConfigureUnit used to leave the
         // PREVIOUS session's counters in the box, so a later
         // `sawDigitalSilence` read could report stale state
-        // (2026-07-26).
-        micLiveness.reset(to: Date())
+        // (2026-07-26). The one place that also forgets whether the
+        // microphone was ever heard: that fact is per recording (14.11).
+        micLiveness.beginRecording(at: Date())
 
         activePreferredDeviceUID = preferredDeviceUID ?? ""
         activeNoiseSuppressionEnabled = noiseSuppressionEnabled
@@ -434,6 +445,7 @@ final class CoreAudioMicRecorder {
         archiveClock.beginRecording(takesLead: alignsToArchiveOrigin)
         bufferTimestamp.reset()
         midSessionRebuilds = 0
+        silenceWatch = MicSilenceWatch()
         micLiveness.reset(to: Date())
         archiveGate.set(true)
         levelSpectrum.reset()
@@ -507,6 +519,7 @@ final class CoreAudioMicRecorder {
         guard state == .recording, let unit = audioUnit else { return }
         cancelRecoveryWatchdog()
         stopSilenceMonitor()
+        silenceWatch.close(at: Date())
         let status = AudioOutputUnitStop(unit)
         if status != noErr {
             log.error("AudioOutputUnitStop (pause) failed: status \(status, privacy: .public)")
@@ -587,6 +600,7 @@ final class CoreAudioMicRecorder {
         removeDeviceFormatListener()
         cancelRecoveryWatchdog()
         stopSilenceMonitor()
+        silenceWatch.close(at: Date())
 
         if let unit = audioUnit {
             AudioOutputUnitStop(unit)
@@ -999,7 +1013,10 @@ final class CoreAudioMicRecorder {
         // (the call / a video) drags the default INPUT onto its SCO mic,
         // which delivers pure silence while the headset is playing audio
         // (A2DP↔SCO conflict) → the mic silence watchdog then pauses the
-        // recording and the user's speech is lost. This is the same trap
+        // recording and the user's speech is lost. (Since 14.11 a meeting
+        // that also captures the other side records through that
+        // silence instead of pausing; the speech is lost all the same,
+        // so the avoidance matters as much as before.) This is the same trap
         // the route-change guard avoids mid-session, now avoided at START
         // too. A pinned BT device is still honoured above (explicit choice).
         let defaultID = AudioInputDevices.systemDefaultInputID()
@@ -1021,7 +1038,10 @@ final class CoreAudioMicRecorder {
         // (the call / a video) drags the default INPUT onto its SCO mic,
         // which delivers pure silence while the headset is playing audio
         // (A2DP↔SCO conflict) → the mic silence watchdog then pauses the
-        // recording and the user's speech is lost. This is the same trap
+        // recording and the user's speech is lost. (Since 14.11 a meeting
+        // that also captures the other side records through that
+        // silence instead of pausing; the speech is lost all the same,
+        // so the avoidance matters as much as before.) This is the same trap
         // the route-change guard avoids mid-session, now avoided at START
         // too. A pinned BT device is still honoured above (explicit choice).
         if defaultID != 0, AudioInputDevices.isBluetooth(defaultID) {
@@ -1220,6 +1240,21 @@ final class CoreAudioMicRecorder {
     @ObservationIgnored
     var onFellToPaused: (@MainActor (MicPauseReason) -> Void)?
 
+    /// Asked by the silence watchdog when it would fire: pause, or keep
+    /// recording through the silence (14.11, support mail: a muted
+    /// listener's meeting stopped being recorded). The recorder knows
+    /// nothing about the other side of a call; whoever owns it does.
+    /// Nobody installed ⇒ `.pause`, the watchdog as it always was.
+    @ObservationIgnored
+    var micSilenceDecision: (@MainActor () -> MicSilenceDecision)?
+
+    /// The recorder is recording through a silence: the episode began,
+    /// goes on (every watchdog tick), or is over because signal is
+    /// back. What to tell the person, when and how often is the owner's
+    /// business; the recorder only reports what it measured.
+    @ObservationIgnored
+    var onSilenceKept: (@MainActor (MicSilenceEvent) -> Void)?
+
     /// Centralised "drop to paused" — preserves `accumulatedActiveSec`,
     /// clears the level/spectrum, stops the unit. Mirrors
     /// AudioRecorder.fallToPaused().
@@ -1230,6 +1265,7 @@ final class CoreAudioMicRecorder {
     private func fallToPaused(reason: MicPauseReason) {
         cancelRecoveryWatchdog()
         stopSilenceMonitor()
+        silenceWatch.close(at: Date())
         lastReconfigureAt = nil  // let a follow-up recover immediately
         if let unit = audioUnit {
             AudioOutputUnitStop(unit)
@@ -1469,18 +1505,83 @@ final class CoreAudioMicRecorder {
     /// liveness floor for `micSilenceWindowSec` (zero excursions above),
     /// the input is delivering silence — BT-SCO, hardware mute, dead
     /// device — so pause and tell the user. Identical to AudioRecorder.
+    ///
+    /// Since 14.11 the pause is the owner's call (`micSilenceDecision`):
+    /// a meeting that has the other side's capture as part of it records
+    /// through the silence instead. The unit keeps running and every
+    /// buffer keeps going to the archive and the transcriber as before,
+    /// so the microphone track stays on the system track's clock. A
+    /// silence the owner does not keep, and a unit that has stopped
+    /// delivering buffers, pause with the messages below, as they
+    /// always did.
     private func checkMicSilence() {
         guard state == .recording else { return }
         let snap = micLiveness.snapshot()
         guard let reference = snap.aboveFloorAt else { return }
-        let silentFor = Date().timeIntervalSince(reference)
-        guard silentFor >= Self.micSilenceWindowSec else { return }
+        let now = Date()
+        let silentFor = now.timeIntervalSince(reference)
         // Bit-exact digital silence vs a genuinely quiet input: if
         // (almost) every buffer was all zeros, no microphone on earth
         // produced this — macOS is handing us silence (2026-07-26).
         // Different cause ⇒ different message ⇒ different fix.
         let digitalSilence = snap.total > 0 && snap.allZero * 10 >= snap.total * 9
-        log.error("Mic silence watchdog fired — RMS below \(Self.micLivenessFloorDB, privacy: .public) dBFS for \(Int(silentFor), privacy: .public)s (last RMS \(snap.lastRMS, privacy: .public) dBFS, all-zero samples \(snap.allZero, privacy: .public)/\(snap.total, privacy: .public) ticks, digitalSilence=\(digitalSilence, privacy: .public), micPermission=\(SystemPermissions.micAuthorizationDescription(), privacy: .public)). Device: \(AudioInputDevices.describe(self.boundDeviceID ?? 0), privacy: .public). Falling to paused.")
+        let step = silenceWatch.tick(
+            now: now,
+            lastSignalAt: reference,
+            signalWasHeard: snap.heardSinceReset,
+            lastBufferAt: bufferTimestamp.snapshot(),
+            window: Self.micSilenceWindowSec,
+            stallAfter: Self.micStallSec,
+            decide: { micSilenceDecision?() ?? .pause }
+        )
+        let stalled: Bool
+        switch step {
+        case .none:
+            return
+        case .keptEpisodeBegan, .keptEpisodeContinues:
+            // Its own reading of the counters, not `digitalSilence`
+            // above (the pause path's, unchanged): what is said about a
+            // silence that is recorded through waits for enough samples.
+            let keptDigitalSilence = MicSilenceFacts.digitalSilence(
+                allZero: snap.allZero, total: snap.total, minimumTotal: Self.digitalSilenceMinSamples
+            )
+            // Too few since the unit was rebuilt to call it either way:
+            // nothing to report on this tick, the next one will know.
+            if keptDigitalSilence == nil, step == .keptEpisodeContinues { return }
+            let facts = MicSilenceFacts(
+                heardEarlier: snap.heardInRecording,
+                digitalSilence: keptDigitalSilence ?? false,
+                lidClosedOnBuiltInMic: AudioInputDevices.isLidClosed()
+                    && AudioInputDevices.isBuiltIn(boundDeviceID ?? 0),
+                // The episode's own clock: `silentFor` above restarts
+                // with a rebuilt unit's grace window.
+                silentFor: silenceWatch.openSilenceSec(now: now)
+            )
+            guard step == .keptEpisodeBegan else {
+                onSilenceKept?(.continues(facts))
+                return
+            }
+            log.notice("Mic silence watchdog — RMS below \(Self.micLivenessFloorDB, privacy: .public) dBFS for \(Int(silentFor), privacy: .public)s (last RMS \(snap.lastRMS, privacy: .public) dBFS, all-zero samples \(snap.allZero, privacy: .public)/\(snap.total, privacy: .public) ticks, digitalSilence=\(digitalSilence, privacy: .public), heardEarlierInThisRecording=\(facts.heardEarlier, privacy: .public), lidClosedOnBuiltIn=\(facts.lidClosedOnBuiltInMic, privacy: .public), micPermission=\(SystemPermissions.micAuthorizationDescription(), privacy: .public)). Device: \(AudioInputDevices.describe(self.boundDeviceID ?? 0), privacy: .public). System-audio capture is part of this recording — recording continues.")
+            onSilenceKept?(.began(facts))
+            return
+        case .keptEpisodeEnded:
+            // Only real signal ends an episode: a unit rebuilt in the
+            // middle of one restarts the liveness clock, and the watch
+            // carries the episode through that (`signalWasHeard`).
+            log.notice("Mic signal is back (last RMS \(snap.lastRMS, privacy: .public) dBFS) — \(Int(self.keptSilenceSec), privacy: .public)s of silence recorded through so far")
+            onSilenceKept?(.over)
+            return
+        case .pause:
+            stalled = false
+        case .pauseStalled:
+            stalled = true
+        }
+        // A stall is said as a stall: no buffer from the device, and
+        // the owner was not asked whether to go on (see `MicSilenceWatch`).
+        let stallNote = stalled
+            ? "The device has delivered no buffer for \(bufferTimestamp.snapshot().map { Int(now.timeIntervalSince($0)) } ?? -1)s — a stalled unit, not a silent microphone; the owner was not asked. "
+            : ""
+        log.error("Mic silence watchdog fired — RMS below \(Self.micLivenessFloorDB, privacy: .public) dBFS for \(Int(silentFor), privacy: .public)s (last RMS \(snap.lastRMS, privacy: .public) dBFS, all-zero samples \(snap.allZero, privacy: .public)/\(snap.total, privacy: .public) ticks, digitalSilence=\(digitalSilence, privacy: .public), micPermission=\(SystemPermissions.micAuthorizationDescription(), privacy: .public)). Device: \(AudioInputDevices.describe(self.boundDeviceID ?? 0), privacy: .public). \(stallNote, privacy: .public)Falling to paused.")
         fallToPaused(reason: .silenceAlreadyAnnounced)
         if digitalSilence {
             // Name the specific cause when we can prove it. Lid closed
@@ -1602,6 +1703,17 @@ final class CoreAudioMicRecorder {
     fileprivate static let micLivenessFloorDB: Float = -80
     private static let micSilenceWindowSec: TimeInterval = 10
     private static let silenceMonitorIntervalSec: TimeInterval = 2
+    /// No buffer for this long is a unit that stopped delivering, not a
+    /// silent microphone. The watchdog pauses it without asking, exactly
+    /// as it did before 14.11: keeping the other side recording through
+    /// a stalled microphone unit is a separate change (see
+    /// `MicSilenceWatch`). The recovery watchdog's own deadline.
+    private static let micStallSec: TimeInterval = 5
+    /// About one second of liveness samples before a kept silence may
+    /// be called digital: the counters restart with every rebuilt unit,
+    /// and its first few buffers of zeros prove nothing (14.11). A
+    /// sample is taken at most once per `spectrumPublishIntervalSec`.
+    private static let digitalSilenceMinSamples = Int((1.0 / spectrumPublishIntervalSec).rounded())
 
     nonisolated private static func formatsAreEqual(_ a: AVAudioFormat, _ b: AVAudioFormat) -> Bool {
         a.sampleRate == b.sampleRate
@@ -1764,7 +1876,9 @@ private final class RenderContext: @unchecked Sendable {
         guard renderStatus == noErr else {
             // Don't ship a partial/garbage buffer; just report. A flood
             // of these would show up as silence → the silence watchdog
-            // pauses the session.
+            // pauses the session (a meeting it would otherwise record
+            // through included: no buffer arrives, and that is a stall —
+            // see `MicSilenceWatch`).
             return renderStatus
         }
 
@@ -2083,9 +2197,21 @@ private final class TimestampBox: @unchecked Sendable {
 /// muted at the system level, or we're bound to a device that isn't
 /// really recording. Telling the user "check your Bluetooth mic" in that
 /// state — as this code used to — sends them down the wrong path.
+///
+/// Two more facts since 14.11, when a meeting began to record through a
+/// silent microphone. `aboveFloorAt` is a clock, and `reset(to:)`
+/// restarts it — a rebuilt unit gets a fresh grace window — so by
+/// itself it cannot say whether the microphone was ever heard:
+/// `heardSinceReset` is true only once a buffer has really been above
+/// the floor since the last restart, and `heardInRecording` once one
+/// has been at any point since `beginRecording` — across rebuilds,
+/// pauses and resumes. The second is what tells a muted microphone from
+/// one that never worked.
 private final class LivenessBox: @unchecked Sendable {
-    private let lock = OSAllocatedUnfairLock<(aboveFloorAt: Date?, lastRMS: Float, allZero: Int, total: Int)>(
-        initialState: (nil, -160, 0, 0)
+    private typealias State = (aboveFloorAt: Date?, lastRMS: Float, allZero: Int, total: Int,
+                               heardSinceReset: Bool, heardInRecording: Bool)
+    private let lock = OSAllocatedUnfairLock<State>(
+        initialState: (nil, -160, 0, 0, false, false)
     )
     func record(rms: Float, at: Date, floor: Float) {
         lock.withLock { state in
@@ -2094,11 +2220,20 @@ private final class LivenessBox: @unchecked Sendable {
             // rmsLevelDB returns exactly -160 only when meanSquare == 0,
             // i.e. every sample in the buffer was 0.0.
             if rms <= -160 { state.allZero += 1 }
-            if rms > floor { state.aboveFloorAt = at }
+            if rms > floor {
+                state.aboveFloorAt = at
+                state.heardSinceReset = true
+                state.heardInRecording = true
+            }
         }
     }
-    func snapshot() -> (aboveFloorAt: Date?, lastRMS: Float, allZero: Int, total: Int) { lock.withLock { $0 } }
-    func reset(to date: Date?) { lock.withLock { $0 = (date, -160, 0, 0) } }
+    func snapshot() -> (aboveFloorAt: Date?, lastRMS: Float, allZero: Int, total: Int,
+                        heardSinceReset: Bool, heardInRecording: Bool) { lock.withLock { $0 } }
+    /// Restart the liveness clock and the per-capture counts. What the
+    /// recording has heard so far stands.
+    func reset(to date: Date?) { lock.withLock { $0 = (date, -160, 0, 0, false, $0.heardInRecording) } }
+    /// A new recording: nothing has been heard in it yet.
+    func beginRecording(at date: Date?) { lock.withLock { $0 = (date, -160, 0, 0, false, false) } }
 }
 
 /// Render-thread write gate (transcript-only mode without teardown).

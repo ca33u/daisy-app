@@ -441,6 +441,29 @@ enum CaptureProblemNotification {
     /// healthy again, same contract as clearing the banner.
     static let bubbleTag = "capture-problem"
 
+    /// Which banner and which pill a post is, so that taking it down
+    /// takes down that one and no other.
+    struct Slot: Equatable {
+        let requestID: String
+        let bubbleTag: String
+    }
+
+    /// The one slot every capture problem shared until 14.11, and still
+    /// the default: a worse problem replaces a lesser one.
+    static let sharedSlot = Slot(requestID: requestID, bubbleTag: bubbleTag)
+
+    /// «Daisy can’t hear you» over a recording that goes on (14.11: a
+    /// meeting records through a silent microphone while its other side
+    /// is part of it). A slot of its own because this one is withdrawn
+    /// when the microphone is heard again, or the recording pauses or
+    /// stops — and in the shared slot that withdrawal would take down
+    /// whatever had replaced it since, «lost the other side [Restart
+    /// capture]» included.
+    static let micSilenceSlot = Slot(
+        requestID: "app.essazanov.Daisy.captureProblem.micSilentWhileRecording",
+        bubbleTag: "capture-problem-mic-silent-while-recording"
+    )
+
     /// Fire-and-forget. Deliberately NOT gated on the auto-start
     /// notification toggle in Settings: that switch is about routine
     /// lifecycle chatter, this is a failure the user must know about.
@@ -464,6 +487,7 @@ enum CaptureProblemNotification {
                      actionTitle: String? = nil,
                      actionSymbol: String? = nil,
                      autoDismiss: TimeInterval = 12,
+                     slot: Slot = sharedSlot,
                      action: (() -> Void)? = nil) {
         Task { @MainActor in
             let shown = WidgetBubbleCenter.shared.show(WidgetBubbleContent(
@@ -471,10 +495,10 @@ enum CaptureProblemNotification {
                 actionTitle: actionTitle,
                 actionSymbol: actionSymbol,
                 autoDismiss: autoDismiss,
-                tag: bubbleTag,
+                tag: slot.bubbleTag,
                 action: action ?? {}
             ))
-            if !shown || alwaysBanner { postBanner(title: title, body: body) }
+            if !shown || alwaysBanner { postBanner(title: title, body: body, requestID: slot.requestID) }
         }
     }
 
@@ -482,7 +506,7 @@ enum CaptureProblemNotification {
     /// asked — otherwise this banner would silently never appear for
     /// the users who need it most (Daisy doesn't request notification
     /// access at launch).
-    private static func postBanner(title: String, body: String) {
+    private static func postBanner(title: String, body: String, requestID: String) {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             switch settings.authorizationStatus {
             case .notDetermined:
@@ -490,10 +514,10 @@ enum CaptureProblemNotification {
                     options: [.alert, .sound]
                 ) { granted, _ in
                     guard granted else { return }
-                    Task { @MainActor in addRequest(title: title, body: body) }
+                    Task { @MainActor in addRequest(title: title, body: body, requestID: requestID) }
                 }
             case .authorized, .provisional:
-                Task { @MainActor in addRequest(title: title, body: body) }
+                Task { @MainActor in addRequest(title: title, body: body, requestID: requestID) }
             default:
                 break
             }
@@ -503,20 +527,20 @@ enum CaptureProblemNotification {
     /// Clear the banner (and pill) once capture is healthy again (lid
     /// opened, mic reconnected) — otherwise "Daisy can't hear you"
     /// lingers long after it stopped being true.
-    static func cancel() {
+    static func cancel(slot: Slot = sharedSlot) {
         Task { @MainActor in
-            WidgetBubbleCenter.shared.dismiss(tag: bubbleTag)
+            WidgetBubbleCenter.shared.dismiss(tag: slot.bubbleTag)
         }
         let center = UNUserNotificationCenter.current()
-        center.removePendingNotificationRequests(withIdentifiers: [requestID])
-        center.removeDeliveredNotifications(withIdentifiers: [requestID])
+        center.removePendingNotificationRequests(withIdentifiers: [slot.requestID])
+        center.removeDeliveredNotifications(withIdentifiers: [slot.requestID])
     }
 
     /// Build + submit on the MainActor — same pattern as every other
     /// notification enum in this file (UNMutableNotificationContent is
     /// not Sendable; building it inside the settings callback is what
     /// Swift 6 strict concurrency rejects).
-    private static func addRequest(title: String, body: String) {
+    private static func addRequest(title: String, body: String, requestID: String) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body

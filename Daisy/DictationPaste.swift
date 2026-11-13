@@ -172,13 +172,17 @@ final class DictationPaste {
         return transcript
     }
 
-    func handle(transcript: String) async {
+    /// `micSawDigitalSilence` — the recorder of the session that held
+    /// this dictation (`CoreAudioMicRecorder.sawDigitalSilence`). Passed
+    /// in since 14.11: a dictation held over a live recording runs on a
+    /// side session, and `RecordingSession.current` is the recording.
+    func handle(transcript: String, micSawDigitalSilence: Bool) async {
         guard !transcript.isEmpty else {
             // Say WHY when we know why (2026-07-26). "Nothing was
             // transcribed" after a full-volume dictation reads like the
             // app is broken; if the mic delivered digital silence the
             // user needs to go to System Settings, not retry.
-            if RecordingSession.current?.recorder.sawDigitalSilence == true {
+            if micSawDigitalSilence {
                 ToastCenter.shared.showAction(
                     String(localized: "Nothing was recorded — macOS sent Daisy an empty microphone signal. Check Privacy & Security → Microphone."),
                     actionLabel: String(localized: "Open Microphone settings"),

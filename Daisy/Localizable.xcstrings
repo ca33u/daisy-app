@@ -16723,6 +16723,16 @@
         }
       }
     },
+    "macOS is sending Daisy an empty microphone signal. The recording continues. Check Privacy & Security → Microphone, and that the input isn’t muted in Sound settings" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS передаёт Daisy пустой сигнал микрофона. Запись продолжается. Проверь «Конфиденциальность и безопасность» → «Микрофон» и что вход не выключен в настройках звука"
+          }
+        }
+      }
+    },
     "macOS moved this recording's files to iCloud to free up disk space. Download them to view the recording — this needs enough free disk space and may take a while." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -17094,6 +17104,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Микрофон отключён — запись на паузе. Подключи микрофон и нажми «Продолжить»."
+          }
+        }
+      }
+    },
+    "Mic is silent — the recording continues. Check your mic (Bluetooth mics often record silence)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Микрофон молчит — запись продолжается. Проверь микрофон (Bluetooth-микрофоны часто пишут тишину)"
+          }
+        }
+      }
+    },
+    "Mic is silent, still recording the other side" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Микрофон молчит, собеседников записываю"
           }
         }
       }
@@ -17952,6 +17982,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "С микрофона в Daisy не поступает звук. Запись не идёт."
+          }
+        }
+      }
+    },
+    "No sound is reaching Daisy from the microphone. The recording continues" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "С микрофона в Daisy не поступает звук. Запись продолжается"
           }
         }
       }
@@ -23781,6 +23821,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Крышка закрыта, микрофон Mac выключен"
+          }
+        }
+      }
+    },
+    "The lid is closed, the Mac’s mic is off. Still recording the other side" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Крышка закрыта, микрофон Mac выключен. Собеседников записываю"
           }
         }
       }

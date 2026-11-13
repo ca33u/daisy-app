@@ -228,6 +228,15 @@ final class RecordingSession {
     /// stream — so toggling Screen Recording on and starting a new
     /// recording produces the right `systemAudioStatus`.
     private var systemAudioDeniedThisSession: Bool = false
+    /// This recording started the system-audio capture: a meeting, the
+    /// setting on, Screen Recording not denied, and the start did not
+    /// throw (14.11). `systemAudio.state` cannot say this by itself — it
+    /// outlives a recording: `stop()` leaves `.stopped`, and a later
+    /// meeting that never starts the capture would read that leftover
+    /// as "gave up mid-recording". Read by the microphone-silence
+    /// decision.
+    @ObservationIgnored
+    private var systemAudioArmedThisSession: Bool = false
 
     /// Why THIS session is microphone-only, if it is. Set once (first
     /// cause wins) by `noteMicOnlyDegradation`, persisted into the
@@ -1258,6 +1267,22 @@ final class RecordingSession {
         self.recorder.onFellToPaused = { [weak self] reason in
             self?.handleMicFellToPaused(reason)
         }
+        // A silent microphone pauses only a recording that has nothing
+        // else in it (support mail 14.11: a muted listener's meeting
+        // stopped being recorded — the pause took the other participants
+        // with it). The recorder asks when its silence watchdog would
+        // fire; the rule is `MicSilenceDecision.decide`.
+        self.recorder.micSilenceDecision = { [weak self] in
+            guard let self else { return .pause }
+            return MicSilenceDecision.decide(
+                mode: self.currentMode,
+                captureIsPartOfSession: self.systemAudioArmedThisSession,
+                systemAudio: self.systemAudio.state
+            )
+        }
+        self.recorder.onSilenceKept = { [weak self] event in
+            self?.handleSilenceKept(event)
+        }
 
         // A side dictation borrows everything app-wide from the main
         // session; answering the auto-start/auto-stop prompts too would
@@ -1922,6 +1947,44 @@ final class RecordingSession {
     @ObservationIgnored
     var clamshellWarned = false
 
+    /// What this recording has said about a silent microphone it keeps
+    /// recording through, and whether that is still on screen (14.11).
+    /// One notice per recording, calm or loud; fresh in `start()` next
+    /// to `clamshellWarned`.
+    @ObservationIgnored
+    private var micSilenceNotice = MicSilenceNotice()
+
+    /// The toast that went with the notice, to take down with it — and
+    /// only it: `ToastCenter.dismiss(id:)` leaves a toast that has
+    /// replaced it alone.
+    @ObservationIgnored
+    private var micSilenceToastID: UUID?
+
+    /// Tag for the calm notice's pill. The loud one has its own in
+    /// `CaptureProblemNotification.micSilenceSlot`. Taking either down
+    /// goes by tag, so a pill that has replaced it stays.
+    private static let micSilentBubbleTag = "mic-silent-still-recording"
+
+    /// Both notices say the recording goes on, and the loud one says
+    /// Daisy can't hear the microphone: neither may sit over a recording
+    /// that has paused or stopped, or outlive the silence. Called from
+    /// `pause()`, `stop()`, `discard()` and when signal is back.
+    ///
+    /// Not from a dictation's side session: the notices are the
+    /// meeting's, and the side session has none of its own (a dictation
+    /// never records through a silence).
+    private func withdrawMicSilenceNotice() {
+        guard !isDictationSidecar else { return }
+        guard let text = micSilenceNotice.withdraw() else { return }
+        if text.isLoud {
+            CaptureProblemNotification.cancel(slot: CaptureProblemNotification.micSilenceSlot)
+        } else {
+            WidgetBubbleCenter.shared.dismiss(tag: Self.micSilentBubbleTag)
+        }
+        if let micSilenceToastID { ToastCenter.shared.dismiss(id: micSilenceToastID) }
+        micSilenceToastID = nil
+    }
+
     /// Set when `start()` already warned that this session records no
     /// audio because the disk is nearly full.
     ///
@@ -2290,6 +2353,8 @@ final class RecordingSession {
         // built-in mic is silent and deserves the same warning.
         clamshellWarned = false
         lowDiskWarned = false
+        micSilenceNotice = MicSilenceNotice()
+        micSilenceToastID = nil
         if AudioInputDevices.isLidClosed(),
            plannedInputIsBuiltIn(),
            AudioInputDevices.firstExternalWiredInputID() == nil {
@@ -2754,6 +2819,7 @@ final class RecordingSession {
         // an "Open Privacy Settings" deeplink) so the user finds out
         // BEFORE the meeting, not after.
         systemAudioDeniedThisSession = false
+        systemAudioArmedThisSession = false
         // Voice notes and dictation are personal-mic-only flows —
         // the user is the only voice that matters. Skip the
         // SCStream loopback entirely so we don't ask for Screen
@@ -2798,10 +2864,14 @@ final class RecordingSession {
                 }
                 let systemAudioStream = systemAudio.buffers
                 systemTranscriber.start(consuming: systemAudioStream, startedAt: nowStarted, tier: tier)
+                // Armed from before the start, not after it: the start
+                // can take seconds, and the capture is `.starting` then.
+                systemAudioArmedThisSession = true
                 do {
                     try await systemAudio.start(archiveURL: systemArchive)
                     systemArchiveURL = systemArchive
                 } catch {
+                    systemAudioArmedThisSession = false
                     log.error("System audio start failed: \(error.localizedDescription, privacy: .public)")
                     systemTranscriber.reset()
                     systemArchiveURL = nil
@@ -3002,6 +3072,111 @@ final class RecordingSession {
         }
     }
 
+    /// The recorder is recording through a silent microphone, because
+    /// this meeting has the other side's capture as part of it (support
+    /// mail 14.11: a muted listener's meeting stopped being recorded).
+    /// It reports when the silence begins, on every watchdog tick while
+    /// it lasts, and when signal is back. The person hears about it once
+    /// per recording, and how depends on what has been measured
+    /// (`MicSilenceNotice.text`):
+    ///
+    ///  • the microphone worked earlier and the other side is there — a
+    ///    muted listener, most likely on purpose. A calm line on the
+    ///    surfaces the virtual-input hint uses
+    ///    (`warnIfPlannedInputIsVirtual`): the pill and the in-window
+    ///    toast, with no system notification behind them;
+    ///  • anything else — a microphone that never worked (a stale
+    ///    permission, a Bluetooth route, a virtual input), or one that
+    ///    went silent with no other side to record. The person's voice
+    ///    is being lost and it is not a choice: «Daisy can’t hear you»
+    ///    as pill AND banner (the person is in another app), and the
+    ///    toast the paused case used, in words that don't say the
+    ///    recording stopped — it hasn't.
+    ///
+    /// Neither takes another pill's place; a notice that could not be
+    /// shown is not spent, and the next tick tries again.
+    private func handleSilenceKept(_ event: MicSilenceEvent) {
+        let facts: MicSilenceFacts
+        switch event {
+        case .over:
+            withdrawMicSilenceNotice()
+            return
+        case .began(let reported):
+            facts = reported
+            log.notice("Mic is silent (heardEarlier=\(facts.heardEarlier, privacy: .public) digital=\(facts.digitalSilence, privacy: .public) lidClosedOnBuiltIn=\(facts.lidClosedOnBuiltInMic, privacy: .public)) in a meeting with system-audio capture (\(String(describing: self.systemAudio.state), privacy: .public)) — the session keeps recording")
+        case .continues(let reported):
+            facts = reported
+        }
+        guard !micSilenceNotice.given else { return }
+        let otherSideIsCapturing: Bool
+        if case .capturing = systemAudioStatus { otherSideIsCapturing = true } else { otherSideIsCapturing = false }
+        let surroundings = MicSilenceNotice.Surroundings(
+            otherSideWasAudible: systemAudio.receivedAudibleAudio,
+            otherSideIsCapturing: otherSideIsCapturing,
+            lidAlreadyAnnounced: clamshellWarned,
+            pillIsFree: WidgetBubbleCenter.shared.host?.isBubbleShown != true
+        )
+        guard let text = micSilenceNotice.text(for: facts, surroundings: surroundings) else { return }
+        log.notice("Mic silence notice: \(String(describing: text), privacy: .public) after \(Int(facts.silentFor), privacy: .public)s (otherSideWasAudible=\(surroundings.otherSideWasAudible, privacy: .public) capturing=\(otherSideIsCapturing, privacy: .public))")
+        switch text {
+        case .micSilent:
+            showCalmMicSilenceNotice(String(localized: "Mic is silent, still recording the other side"))
+        case .lidClosedStillRecording:
+            showCalmMicSilenceNotice(String(localized: "The lid is closed, the Mac’s mic is off. Still recording the other side"))
+        case .lidClosed:
+            showCalmMicSilenceNotice(String(localized: "The lid is closed, the Mac’s mic is off"))
+        case .micNotHeardDigital:
+            postLoudMicSilenceNotice()
+            guard micSilenceToastMayShow else { return }
+            micSilenceToastID = ToastCenter.shared.showAction(
+                String(localized: "macOS is sending Daisy an empty microphone signal. The recording continues. Check Privacy & Security → Microphone, and that the input isn’t muted in Sound settings"),
+                actionLabel: String(localized: "Open Microphone settings"),
+                style: .warning,
+                duration: .seconds(30)
+            ) {
+                SystemPermissions.shared.openMicrophoneSettings()
+            }
+        case .micNotHeardQuiet:
+            postLoudMicSilenceNotice()
+            guard micSilenceToastMayShow else { return }
+            ToastCenter.shared.show(
+                String(localized: "Mic is silent — the recording continues. Check your mic (Bluetooth mics often record silence)"),
+                style: .warning,
+                duration: .seconds(30)
+            )
+            micSilenceToastID = ToastCenter.shared.current?.id
+        }
+    }
+
+    private func showCalmMicSilenceNotice(_ message: String) {
+        _ = WidgetBubbleCenter.shared.show(
+            WidgetBubbleContent(text: message, autoDismiss: 10, tag: Self.micSilentBubbleTag)
+        )
+        guard micSilenceToastMayShow else { return }
+        ToastCenter.shared.show(message, style: .info, duration: .seconds(10))
+        micSilenceToastID = ToastCenter.shared.current?.id
+    }
+
+    /// The notice's toast never replaces a toast with a button on it
+    /// (`MicSilenceNotice.mayShowToast`); its pill and banner go out
+    /// either way.
+    private var micSilenceToastMayShow: Bool {
+        MicSilenceNotice.mayShowToast(currentToastHasAction: ToastCenter.shared.current?.action != nil)
+    }
+
+    /// Pill and banner both (`alwaysBanner`): during a call the person
+    /// is looking at the call, not at the widget. In a slot of its own,
+    /// so that taking it down cannot take down another capture problem.
+    private func postLoudMicSilenceNotice() {
+        CaptureProblemNotification.post(
+            title: String(localized: "Daisy can’t hear you"),
+            body: String(localized: "No sound is reaching Daisy from the microphone. The recording continues"),
+            alwaysBanner: true,
+            autoDismiss: 30,
+            slot: CaptureProblemNotification.micSilenceSlot
+        )
+    }
+
     // Auto-stop (calendar-bound) — scheduleAutoStopIfNeeded,
     // bindCurrentMeetingIfPossible, cancelAutoStop and the silence-gated
     // evaluator live in RecordingSession+AutoStop.swift.
@@ -3090,6 +3265,7 @@ final class RecordingSession {
     /// live transcript view.
     func pause() async {
         guard status == .recording else { return }
+        withdrawMicSilenceNotice()
         // How long each track's pause held the main actor (24.10: a
         // dialog drew late right after a pause, and the log could not
         // say whether the pause itself was the wait).
@@ -3214,6 +3390,7 @@ final class RecordingSession {
     /// they never thought they started.
     func discard(announcing: Bool = true) async {
         guard status == .recording || status == .paused else { return }
+        withdrawMicSilenceNotice()
         skipFinalPassOnNextStop = false
         status = .stopping
         recorder.stop()
@@ -3306,6 +3483,7 @@ final class RecordingSession {
         // first, change their mind, then commit). Anything else is a
         // no-op so transient states aren't interrupted.
         guard status == .recording || status == .paused else { return }
+        withdrawMicSilenceNotice()
         // Consume the rotation flag IMMEDIATELY — stop() has several
         // early returns below (husk cleanup, dictation branch, missing
         // session dir), and a stale `true` surviving one of them would
@@ -3618,7 +3796,14 @@ final class RecordingSession {
         // sparsity too so a dead ARCHIVE with a good LIVE transcript
         // (archive-write died but capture was fine) isn't wrongly blocked.
         var anyChannelCaptured = false
-        if case .captured = micStatus { anyChannelCaptured = true }
+        // 14.11: a meeting now records through a silent microphone while
+        // the other side is being captured, so a microphone file can be
+        // an hour of nothing — full length, `.captured` by its size. It
+        // does not count as a channel that captured something here.
+        let micTrackIsEmpty = MicSilenceDecision.micTrackIsEmpty(
+            keptSilenceSec: recorder.keptSilenceSec, recordedSec: elapsed
+        )
+        if case .captured = micStatus, !micTrackIsEmpty { anyChannelCaptured = true }
         if case .captured = sysStatus { anyChannelCaptured = true }
         // RAW segments, not `fullTranscriptText`: this asks "did the
         // microphone hear anything at all", and echo dedup can halve the
@@ -3638,7 +3823,7 @@ final class RecordingSession {
             && !anyChannelCaptured
             && transcriptWPM < 20
         if captureLikelyFailed {
-            log.error("Capture likely FAILED — mic=\(String(describing: micStatus), privacy: .public) sys=\(String(describing: sysStatus), privacy: .public) wpm=\(Int(transcriptWPM), privacy: .public) archivingDisabled=\(self.audioArchivingDisabled, privacy: .public); suppressing auto-summary")
+            log.error("Capture likely FAILED — mic=\(String(describing: micStatus), privacy: .public) micSilentThroughout=\(micTrackIsEmpty, privacy: .public) sys=\(String(describing: sysStatus), privacy: .public) wpm=\(Int(transcriptWPM), privacy: .public) archivingDisabled=\(self.audioArchivingDisabled, privacy: .public); suppressing auto-summary")
             // SUPPRESSION is right in every branch below — an empty
             // transcript has nothing to summarise. What differs is the
             // reason, and the old single string asserted Bluetooth

@@ -357,11 +357,16 @@ extension RecordingSession {
             // mic would hear it, and not for an empty dictation.
             let playsDrop = settings.recordingSoundsEnabled && !dictatesOverLiveRecording
                 && !transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            // This dictation's own microphone, read here: over a live
+            // recording `RecordingSession.current` is that recording, and
+            // since 14.11 a meeting can go on for an hour on a muted
+            // microphone — its zeros are not this dictation's.
+            let micSawDigitalSilence = recorder.sawDigitalSilence
             // Not awaited: a delivery may wait for a slow app to show the
             // text, and the session must be idle meanwhile, or the next
             // press of the key would be dropped.
             Task {
-                await DictationPaste.shared.handle(transcript: transcriptText)
+                await DictationPaste.shared.handle(transcript: transcriptText, micSawDigitalSilence: micSawDigitalSilence)
                 if playsDrop { SoundEffects.playDictationDone() }
             }
         }
