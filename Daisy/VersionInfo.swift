@@ -90,7 +90,7 @@ enum VersionInfo {
     }
 
     private static let maxTrailEntries = 8
-    private static let k_versionTrail = "daisy.versionTrail"
+    private static let k_versionTrail = ICloudSwitch.versionTrailKey
     private static let log = Logger(subsystem: "app.essazanov.Daisy", category: "Version")
 
     /// Fixed format, fixed locale: this string is read by whoever is

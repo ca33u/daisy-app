@@ -99,6 +99,15 @@ struct DaisyApp: App {
         // DAISY_MODEL_LOAD_GUARD_DIR is set.
         ModelLoadGuard.shared.checkAtLaunch()
 
+        // Before the settings read the keychain and before this launch
+        // is recorded: whether Daisy ran here before (`ICloudSwitch`).
+        _ = ICloudSwitch.isExistingInstall
+        // …and the project registry decides with the same answer now,
+        // not when the delegate starts it: a first launch that died in
+        // between would look like an update on the next one, and take
+        // the project list out of iCloud with sync off.
+        _ = FolderRegistryBridge.shared
+
         let s = AppSettings()
         let sess = RecordingSession(settings: s)
         // Weak handle for the Quit-during-recording save path

@@ -51,8 +51,10 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         ContextTips.shared.start()
         // Ф3-B: audio on request — the phone finds this Mac on the local
         // network and hands over the recordings whose text already came.
-        AudioHandoffServer.shared.start()
-        // Ф3-C: the project list rides in iCloud's key-value store.
+        // The listener only with sync on (`ICloudSwitch`).
+        AudioHandoffServer.shared.launch()
+        // Ф3-C: the project list rides in iCloud's key-value store —
+        // with sync on; off, it stays in this Mac's defaults.
         FolderRegistryBridge.shared.start()
         VocabularyBridge.shared.start()
         // Backlog 41: `.linked-source.json` for readers such as Flow.

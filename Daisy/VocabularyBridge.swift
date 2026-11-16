@@ -18,7 +18,10 @@ import os
 final class VocabularyBridge {
     static let shared = VocabularyBridge()
 
-    private let store = VocabularyRegistryStore()
+    /// iCloud only with sync on (`ICloudSwitch`, 16.11). The store has
+    /// kept a copy in this Mac's defaults since 24.09, so nothing needs
+    /// taking over.
+    private let store = VocabularyRegistryStore(usesICloud: ICloudSwitch.isOn)
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "DictationDictionary")
     /// The ids this Mac's list held when it was last mirrored — what a
     /// rule missing from the list now was deleted from.
@@ -27,6 +30,12 @@ final class VocabularyBridge {
     private var started = false
 
     private init() {}
+
+    /// The sync switch. On: the store merges what iCloud has (applied
+    /// here through `onExternalChange`) and sends this Mac's up.
+    func setUsesICloud(_ on: Bool) {
+        store.setUsesICloud(on)
+    }
 
     func start() {
         guard !started else { return }

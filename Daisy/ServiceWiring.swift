@@ -292,6 +292,11 @@ enum ServiceWiring {
     /// moves a pre-October-2026 `npx mcp-remote` entry to the sh bridge
     /// without the user doing anything.
     static func refreshMCPClients(port: Int) async {
+        // The test host's keychain is in memory (`KeychainStore.vault`),
+        // so its access token is one made for that run: written into the
+        // person's real client configs, it would lock every client out
+        // until the app next launched.
+        guard !TestHost.isActive else { return }
         ClaudeDesktopConfig.refreshIfInstalled(port: port)
         CursorMCPConfig.refreshIfInstalled(port: port)
         await CodexMCPConfig.refreshIfInstalled(port: port)

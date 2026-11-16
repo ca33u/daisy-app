@@ -601,12 +601,15 @@ final class Summarizer {
     /// YandexGPT needs the folder beside the key: it goes to the shared
     /// keychain too, where the key already is (Egor 04.11). Not a secret
     /// — it is in every request's model URI — the keychain is just the
-    /// road both apps share. Only a well-formed ID; an invalid or empty
-    /// field removes it.
+    /// road both apps share. Only a well-formed ID; an emptied field
+    /// removes it. A field that is merely not valid yet — every
+    /// keystroke on the way to an ID — leaves what is there (16.11):
+    /// `remove` deletes the iCloud copy too, and with sync off the ID
+    /// typed next would not put it back.
     private static func shareYandexFolder(_ raw: String) {
         if let folder = YandexAPISummarizer.normalizedFolderID(raw) {
             try? KeychainStore.set(folder, account: SecretKey.yandexFolderID)
-        } else {
+        } else if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             _ = KeychainStore.remove(account: SecretKey.yandexFolderID)
         }
     }

@@ -28,7 +28,12 @@ import os
 final class FolderRegistryBridge {
     static let shared = FolderRegistryBridge()
 
-    private let store = FolderRegistryStore()
+    /// iCloud only with sync on (`ICloudSwitch`, 16.11); off, the
+    /// registry is this Mac's own. An install that updates with sync off
+    /// takes over what it kept in iCloud, once — its projects' notes and
+    /// trackers were nowhere else.
+    private let store = FolderRegistryStore(usesICloud: ICloudSwitch.isOn,
+                                            adoptsICloudCopy: ICloudSwitch.isExistingInstall)
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "Folders")
     /// What the registry looked like when we last mirrored the local list.
     private var mirrored: [String: FolderRegistry.Entry] = [:]
@@ -49,6 +54,12 @@ final class FolderRegistryBridge {
 
     func setProject(_ project: ProjectContext, for slug: String) {
         store.update { registry in registry.setProject(project, for: slug) }
+    }
+
+    /// The sync switch. On: the store merges what iCloud has (applied
+    /// here through `onExternalChange`) and sends this Mac's up.
+    func setUsesICloud(_ on: Bool) {
+        store.setUsesICloud(on)
     }
 
     func start() {

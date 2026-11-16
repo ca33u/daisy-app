@@ -71,6 +71,19 @@ final class AudioHandoffServer {
 
     // MARK: - Listening
 
+    /// At launch. The listener belongs to the sync switch: the phone
+    /// offers only the audio of sessions whose text came through
+    /// CloudKit, and until 16.11 this Mac announced itself on the local
+    /// network by name for it with sync never turned on. What was
+    /// received before the last quit is diarized either way.
+    func launch() {
+        if ICloudSwitch.isOn { start() }
+        if !pendingDiarization.isEmpty { scheduleDiarization() }
+    }
+
+    /// The pairing key is made here, on the first start, and kept in
+    /// iCloud Keychain for the phone to find — one more reason this
+    /// runs only with sync on.
     func start() {
         guard listener == nil else { return }
         guard let psk = AudioHandoff.ensureSecret(macName: macName) else {
@@ -81,9 +94,12 @@ final class AudioHandoffServer {
         do {
             let listener = try NWListener(using: AudioHandoff.parameters(psk: psk))
             listener.service = NWListener.Service(name: macName, type: AudioHandoff.serviceType)
-            listener.stateUpdateHandler = { [weak self] newState in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
+            listener.stateUpdateHandler = { [weak self, weak listener] newState in
+                Task { @MainActor [weak self, weak listener] in
+                    // A listener `stop()` let go of reports `.cancelled`
+                    // later, perhaps after the next one is up: only the
+                    // current one speaks for the state.
+                    guard let self, let listener, self.listener === listener else { return }
                     log.notice("Audio handoff listener: \(String(describing: newState), privacy: .public)")
                     switch newState {
                     case .setup, .waiting: state = .starting
@@ -107,7 +123,6 @@ final class AudioHandoffServer {
             state = .failed(error.localizedDescription)
             log.error("Audio handoff listener failed: \(error.localizedDescription, privacy: .public)")
         }
-        if !pendingDiarization.isEmpty { scheduleDiarization() }
     }
 
     func stop() {

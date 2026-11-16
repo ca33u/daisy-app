@@ -318,7 +318,7 @@ nonisolated enum ImprovementStats {
                       channel: UserDefaults.standard.bool(forKey: "daisy.updates.betaChannel") ? "beta" : "stable",
                       os: String(ProcessInfo.processInfo.operatingSystemVersion.majorVersion),
                       language: language,
-                      sync: UserDefaults.standard.bool(forKey: "daisy.sync.enabled"),
+                      sync: ICloudSwitch.isOn,
                       counts: counts)
     }
 

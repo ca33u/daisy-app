@@ -167,42 +167,64 @@ public nonisolated struct VocabularyRegistry: Codable, Sendable, Equatable {
     }
 }
 
-/// The vocabulary in iCloud's key-value store, read merged and written
-/// whole, with a copy in this device's defaults: the key-value store
-/// is a sync channel, and a device signed out of iCloud still keeps its
-/// words. One instance per app; the owner reacts to `onExternalChange`.
+/// The vocabulary: a copy in this device's defaults, and — when the owner
+/// says so — iCloud's key-value store, read merged and written whole.
+/// The key-value store is a sync channel, and a device signed out of
+/// iCloud still keeps its words. One instance per app; the owner reacts
+/// to `onExternalChange`.
+///
+/// `usesICloud` false (16.11): iCloud is neither read nor written. The
+/// Mac passes its sync switch here; the phone leaves the default.
 @MainActor
 public final class VocabularyRegistryStore {
     public private(set) var registry: VocabularyRegistry
     public var onExternalChange: ((VocabularyRegistry) -> Void)?
-    private let kvs = NSUbiquitousKeyValueStore.default
+    public private(set) var usesICloud: Bool
     private let defaults: UserDefaults
-    private var observer: (any NSObjectProtocol)?
+    private let cloud: any RegistryCloud
 
-    public init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults = .standard, usesICloud: Bool = true, cloud: (any RegistryCloud)? = nil) {
         self.defaults = defaults
+        self.usesICloud = usesICloud
+        self.cloud = cloud ?? ICloudKeyValueCloud()
         var start = VocabularyRegistry()
         if let data = defaults.data(forKey: VocabularyRegistry.kvsKey), let local = VocabularyRegistry.decode(data) {
             start = local
         }
-        if let data = kvs.data(forKey: VocabularyRegistry.kvsKey), let remote = VocabularyRegistry.decode(data) {
+        if usesICloud, let remote = self.cloud.data(forKey: VocabularyRegistry.kvsKey).flatMap(VocabularyRegistry.decode) {
             start = start.merged(with: remote)
         }
         registry = start
         // What iCloud had at launch is this device's too from now on —
         // signed out tomorrow, it still has the words.
         saveLocally()
-        observer = NotificationCenter.default.addObserver(
-            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: kvs, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pull() }
+        if usesICloud { observe() }
+    }
+
+    /// The owner's switch. On: what iCloud has is merged into ours, the
+    /// result goes up, and other devices' changes are followed from here
+    /// on. Off: iCloud is left as it is and not touched again.
+    public func setUsesICloud(_ on: Bool) {
+        guard on != usesICloud else { return }
+        usesICloud = on
+        guard on else {
+            cloud.stopObserving()
+            return
         }
-        kvs.synchronize()
+        let remote = remote()
+        let merged = remote.map { registry.merged(with: $0) } ?? registry
+        if merged != registry {
+            registry = merged
+            saveLocally()
+            onExternalChange?(merged)
+        }
+        if merged != remote { push() }
+        observe()
     }
 
     /// Merge what iCloud has into ours; tell the owner when anything moved.
     public func pull() {
-        guard let data = kvs.data(forKey: VocabularyRegistry.kvsKey), let remote = VocabularyRegistry.decode(data) else { return }
+        guard usesICloud, let remote = remote() else { return }
         let merged = registry.merged(with: remote)
         guard merged != registry else { return }
         registry = merged
@@ -216,13 +238,21 @@ public final class VocabularyRegistryStore {
         var next = registry
         mutate(&next)
         // Someone else may have written meanwhile: merge before writing.
-        if let data = kvs.data(forKey: VocabularyRegistry.kvsKey), let remote = VocabularyRegistry.decode(data) {
+        if usesICloud, let remote = remote() {
             next = next.merged(with: remote)
         }
         guard next != registry else { return }
         registry = next
         saveLocally()
-        push()
+        if usesICloud { push() }
+    }
+
+    private func remote() -> VocabularyRegistry? {
+        cloud.data(forKey: VocabularyRegistry.kvsKey).flatMap(VocabularyRegistry.decode)
+    }
+
+    private func observe() {
+        cloud.startObserving { [weak self] in self?.pull() }
     }
 
     private func saveLocally() {
@@ -232,7 +262,6 @@ public final class VocabularyRegistryStore {
 
     private func push() {
         guard let data = registry.encoded() else { return }
-        kvs.set(data, forKey: VocabularyRegistry.kvsKey)
-        kvs.synchronize()
+        cloud.set(data, forKey: VocabularyRegistry.kvsKey)
     }
 }

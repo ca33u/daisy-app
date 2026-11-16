@@ -47,9 +47,14 @@ final class SyncCoordinator {
     /// Daisy promises nothing leaves the Mac, and sync sends transcripts
     /// to the person's iCloud. Turning it on is an explicit choice made
     /// with the explanation in front of them (`SyncSettingsSection`).
-    var isEnabled: Bool = UserDefaults.standard.object(forKey: "daisy.sync.enabled") as? Bool ?? false {
+    ///
+    /// 16.11: the same switch now holds back everything else of the
+    /// person's that went to iCloud beside the sessions — `ICloudSwitch`.
+    var isEnabled: Bool = ICloudSwitch.isOn {
         didSet {
-            UserDefaults.standard.set(isEnabled, forKey: "daisy.sync.enabled")
+            UserDefaults.standard.set(isEnabled, forKey: ICloudSwitch.key)
+            guard isEnabled != oldValue else { return }
+            ICloudSwitch.changed(to: isEnabled)
             if isEnabled {
                 migrateKeysForTheOtherDevice()
                 schedule(after: 0)

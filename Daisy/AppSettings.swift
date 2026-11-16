@@ -1265,25 +1265,43 @@ final class AppSettings {
         }
     }
 
+    /// The secrets Settings shows, by keychain account.
+    private static let secretFields: [(String, ReferenceWritableKeyPath<AppSettings, String>)] = [
+        (SecretKey.notionToken, \.notionToken),
+        (SecretKey.notionParentID, \.notionParentID),
+        (SecretKey.anthropicAPIKey, \.anthropicAPIKey),
+        (SecretKey.openaiAPIKey, \.openaiAPIKey),
+        (SecretKey.cursorAPIKey, \.cursorAPIKey),
+        (SecretKey.kimiAPIKey, \.kimiAPIKey),
+        (SecretKey.geminiAPIKey, \.geminiAPIKey),
+        (SecretKey.yandexAPIKey, \.yandexAPIKey),
+        (SecretKey.gigachatAPIKey, \.gigachatAPIKey),
+        (SecretKey.deepseekAPIKey, \.deepseekAPIKey),
+        (SecretKey.grokAPIKey, \.grokAPIKey),
+    ]
+
+    /// Sync has just gone on (`ICloudSwitch`): the keychain may now hold
+    /// what another device saved — a key this Mac never had, or a newer
+    /// one than the copy it took. The fields follow, or Settings would
+    /// show one key while the providers, which read the keychain, use
+    /// another. The data protection keychain only: no dialog. What is
+    /// still empty afterwards gets the usual look in the old keychain.
+    func reloadSecretsAfterSyncWentOn() {
+        for (account, path) in Self.secretFields {
+            guard let value = KeychainStore.getWithoutPrompting(account: account), !value.isEmpty,
+                  value != self[keyPath: path].trimmingCharacters(in: .whitespacesAndNewlines) else { continue }
+            self[keyPath: path] = value
+        }
+        loadSecretsFromLegacyKeychain()
+    }
+
     /// The secrets `init` deliberately did not look for in the old
     /// keychain. Runs after launch, off the main thread; a value found
     /// there is migrated forward by `get` and shown in Settings. Only
     /// touches what is still empty, so it never overwrites a key the
     /// person has just typed.
     func loadSecretsFromLegacyKeychain() {
-        let wanted: [(String, ReferenceWritableKeyPath<AppSettings, String>)] = [
-            (SecretKey.notionToken, \.notionToken),
-            (SecretKey.notionParentID, \.notionParentID),
-            (SecretKey.anthropicAPIKey, \.anthropicAPIKey),
-            (SecretKey.openaiAPIKey, \.openaiAPIKey),
-            (SecretKey.cursorAPIKey, \.cursorAPIKey),
-            (SecretKey.kimiAPIKey, \.kimiAPIKey),
-            (SecretKey.geminiAPIKey, \.geminiAPIKey),
-            (SecretKey.yandexAPIKey, \.yandexAPIKey),
-            (SecretKey.gigachatAPIKey, \.gigachatAPIKey),
-            (SecretKey.deepseekAPIKey, \.deepseekAPIKey),
-            (SecretKey.grokAPIKey, \.grokAPIKey),
-        ].filter { self[keyPath: $0.1].isEmpty }
+        let wanted = Self.secretFields.filter { self[keyPath: $0.1].isEmpty }
         guard !wanted.isEmpty else { return }
         Task.detached(priority: .utility) { [weak self] in
             var found: [(ReferenceWritableKeyPath<AppSettings, String>, String)] = []
@@ -1309,8 +1327,9 @@ final class AppSettings {
         do {
             // A pasted key often brings a newline or a space with it, and
             // `Bearer <key>\n` is a 401. The field may keep what was typed;
-            // the Keychain, which every provider reads, gets the key.
-            try KeychainStore.set(value.trimmingCharacters(in: .whitespacesAndNewlines), account: account)
+            // the Keychain, which every provider reads, gets the key. A
+            // cleared field removes the key, from iCloud Keychain too.
+            try KeychainStore.save(value, account: account)
         } catch {
             Self.log.error("Keychain write failed for \(label, privacy: .public): \(error.localizedDescription, privacy: .public)")
             ToastCenter.shared.show(String(localized: "Couldn’t save \(label) — try again."), style: .error)
@@ -2023,7 +2042,7 @@ final class AppSettings {
     private static let k_menuBarShowsNextMeeting = "daisy.menuBarShowsNextMeeting"
     private static let k_compactMenuBarOnly = "daisy.compactMenuBarOnly"
     private static let k_suppressMeetingPermissionReminders = "daisy.suppressMeetingPermissionReminders"
-    private static let k_hasShownFirstRun = "daisy.hasShownFirstRun"
+    private static let k_hasShownFirstRun = ICloudSwitch.firstRunShownKey
     /// The first-run tour's place, read and written by `OnboardingTour`
     /// (not settings — scratch state for one tour, cleared when it ends):
     /// the step, the setup path, and whether the tour already fired the

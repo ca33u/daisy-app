@@ -21,13 +21,13 @@ struct SyncSettingsSection: View {
     /// BEFORE the switch flips. The toggle itself never turns sync on;
     /// only "Turn on" in the sheet does.
     static let explanation = String(localized: """
-        Sync sends the TEXT of your sessions to your own iCloud — the private CloudKit database of your Apple ID, end-to-end encrypted when Advanced Data Protection is on. Nobody else, not Daisy's makers, can read it.
+        Sync sends the TEXT of your sessions to your own iCloud — the private CloudKit database of your Apple ID, end-to-end encrypted when Advanced Data Protection is on. Nobody else, not Daisy's makers, can read it
 
-        What leaves the Mac: transcript.md, summary.json, session metadata (title, date, folder, speaker names) and the screenshots of a session.
+        What leaves the Mac: each session's transcript and its version before the second pass, summary, markers, speakers with their voice fingerprints and suggested names, meeting preparation, plan review and screenshots, with its title, date and project. Your project list with each project's notes and tracker settings, and your dictation vocabulary. The keys and tokens saved in Daisy go to iCloud Keychain, if it is on for this Mac, so Daisy for iPhone finds them
 
-        What never leaves this way: recordings. Audio moves only directly between your iPhone and this Mac on the local network, only when asked, never through the cloud.
+        What never leaves this way: recordings. Audio moves only directly between your iPhone and this Mac on the local network, only when asked, never through the cloud. With sync on, this Mac listens on the local network for it
 
-        Turning sync off later stops sending, but does not delete what is already in iCloud — use "Delete my data from iCloud" for that.
+        Turning sync off later stops sending, but does not delete what is already in iCloud. "Delete my data from iCloud" removes the synced sessions. A key leaves iCloud Keychain when you remove it in Daisy. The project list and vocabulary already in iCloud stay there
         """)
 
     var body: some View {
@@ -83,7 +83,7 @@ struct SyncSettingsSection: View {
                     .controlSize(.small)
                     .tint(Color.daisyTextPrimary)
                     .disabled(erasing || !SyncCoordinator.cloudKitAvailable)
-                    .confirmationDialog("Delete everything Daisy put in your iCloud?", isPresented: $confirmErase, titleVisibility: .visible) {
+                    .confirmationDialog("Delete every session Daisy synced to your iCloud?", isPresented: $confirmErase, titleVisibility: .visible) {
                         Button("Delete from iCloud", role: .destructive) {
                             erasing = true
                             Task {
@@ -111,7 +111,7 @@ struct SyncSettingsSection: View {
         } header: {
             Text("Sync")
         } footer: {
-            Text("Off by default: nothing leaves this Mac until you turn it on. With sync on, transcripts, summaries, speakers and photos travel through your private iCloud database. Recordings never go through the cloud: the iPhone hands them to this Mac directly when both are on the same network, the Mac diarizes them, and the speaker names ride back as text.")
+            Text("Off by default: Daisy puts nothing of yours in iCloud until you turn it on. With sync on, transcripts, summaries, speakers and photos travel through your private iCloud database; your project list, vocabulary and saved keys go to iCloud too. Recordings never go through the cloud: the iPhone hands them to this Mac directly when both are on the same network, the Mac diarizes them, and the speaker names ride back as text")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

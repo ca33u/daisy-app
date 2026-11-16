@@ -292,34 +292,75 @@ public nonisolated struct FolderRegistry: Codable, Sendable, Equatable {
     }
 }
 
-/// The iCloud key-value store, read merged and written whole. One
-/// instance per app; the owner reacts to `onExternalChange`.
+/// The project list: a copy in this device's defaults, and — when the
+/// owner says so — iCloud's key-value store, read merged and written
+/// whole. One instance per app; the owner reacts to `onExternalChange`.
+///
+/// The defaults copy is the device's own (16.11). Before it, the registry
+/// lived in the key-value store alone, so a device could not keep its
+/// projects' notes and trackers without sending them to iCloud.
+///
+/// `usesICloud` false: iCloud is neither read nor written. The Mac passes
+/// its sync switch here; the phone leaves the default.
 @MainActor
 public final class FolderRegistryStore {
     public private(set) var registry: FolderRegistry
     public var onExternalChange: ((FolderRegistry) -> Void)?
-    private let kvs = NSUbiquitousKeyValueStore.default
-    private var observer: (any NSObjectProtocol)?
+    public private(set) var usesICloud: Bool
+    private let defaults: UserDefaults
+    private let cloud: any RegistryCloud
 
-    public init() {
-        registry = FolderRegistry()
-        if let data = kvs.data(forKey: FolderRegistry.kvsKey), let stored = FolderRegistry.decode(data) {
-            registry = stored
+    /// `adoptsICloudCopy`: with iCloud off and no copy in the defaults yet,
+    /// read what the key-value store holds once and keep it. For an
+    /// install that used to keep the registry there and nowhere else —
+    /// without this its projects' notes and trackers would be gone the
+    /// day it updates. Nothing is written to iCloud by it.
+    public init(defaults: UserDefaults = .standard, usesICloud: Bool = true,
+                adoptsICloudCopy: Bool = false, cloud: (any RegistryCloud)? = nil) {
+        self.defaults = defaults
+        self.usesICloud = usesICloud
+        self.cloud = cloud ?? ICloudKeyValueCloud()
+        let local = defaults.data(forKey: FolderRegistry.kvsKey).flatMap(FolderRegistry.decode)
+        var start = local ?? FolderRegistry()
+        if usesICloud || (local == nil && adoptsICloudCopy),
+           let remote = self.cloud.data(forKey: FolderRegistry.kvsKey).flatMap(FolderRegistry.decode) {
+            start = start.merged(with: remote)
         }
-        observer = NotificationCenter.default.addObserver(
-            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: kvs, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pull() }
+        registry = start
+        // Written even when empty: the copy's presence is what says the
+        // adoption above has had its one turn.
+        saveLocally()
+        if usesICloud { observe() }
+    }
+
+    /// The owner's switch. On: what iCloud has is merged into ours, the
+    /// result goes up, and other devices' changes are followed from here
+    /// on. Off: iCloud is left as it is and not touched again.
+    public func setUsesICloud(_ on: Bool) {
+        guard on != usesICloud else { return }
+        usesICloud = on
+        guard on else {
+            cloud.stopObserving()
+            return
         }
-        kvs.synchronize()
+        let remote = remote()
+        let merged = remote.map { registry.merged(with: $0) } ?? registry
+        if merged != registry {
+            registry = merged
+            saveLocally()
+            onExternalChange?(merged)
+        }
+        if merged != remote { push() }
+        observe()
     }
 
     /// Merge what iCloud has into ours; tell the owner when anything moved.
     public func pull() {
-        guard let data = kvs.data(forKey: FolderRegistry.kvsKey), let remote = FolderRegistry.decode(data) else { return }
+        guard usesICloud, let remote = remote() else { return }
         let merged = registry.merged(with: remote)
         guard merged != registry else { return }
         registry = merged
+        saveLocally()
         onExternalChange?(merged)
         if merged != remote { push() }
     }
@@ -329,16 +370,29 @@ public final class FolderRegistryStore {
         var next = registry
         mutate(&next)
         // Someone else may have written meanwhile: merge before writing.
-        if let data = kvs.data(forKey: FolderRegistry.kvsKey), let remote = FolderRegistry.decode(data) {
+        if usesICloud, let remote = remote() {
             next = next.merged(with: remote)
         }
         registry = next
-        push()
+        saveLocally()
+        if usesICloud { push() }
+    }
+
+    private func remote() -> FolderRegistry? {
+        cloud.data(forKey: FolderRegistry.kvsKey).flatMap(FolderRegistry.decode)
+    }
+
+    private func observe() {
+        cloud.startObserving { [weak self] in self?.pull() }
+    }
+
+    private func saveLocally() {
+        guard let data = registry.encoded() else { return }
+        defaults.set(data, forKey: FolderRegistry.kvsKey)
     }
 
     private func push() {
         guard let data = registry.encoded() else { return }
-        kvs.set(data, forKey: FolderRegistry.kvsKey)
-        kvs.synchronize()
+        cloud.set(data, forKey: FolderRegistry.kvsKey)
     }
 }
