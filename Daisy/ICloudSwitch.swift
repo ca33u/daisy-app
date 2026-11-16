@@ -24,6 +24,7 @@
 //  thread, and at launch before `SyncCoordinator` exists.
 //
 
+import DaisyCore
 import Foundation
 
 nonisolated enum ICloudSwitch {
@@ -56,6 +57,37 @@ nonisolated enum ICloudSwitch {
         return defaults.bool(forKey: firstRunShownKey)
             || !(defaults.stringArray(forKey: versionTrailKey) ?? []).isEmpty
     }()
+
+    /// «Delete my data from iCloud», the part beside the sessions: the
+    /// keys in iCloud Keychain and the vocabulary. With sync off only —
+    /// on, they are in use there and would be sent again at once; the
+    /// dialog says to turn sync off first. This Mac keeps its own copy
+    /// of both.
+    ///
+    /// The project list is NOT deleted, and the dialog says so. Every
+    /// build before 16.11 — each Daisy for iPhone so far, Daisy for Mac
+    /// up to 1.0.8.52 — keeps the list in the key-value store and
+    /// nowhere else. Take the value away and such a device starts its
+    /// next launch with no projects: it rebuilds them from session slugs
+    /// (lowercase names, no parents, no notes or trackers) under fresh
+    /// stamps, and those then win the merge on this Mac the day sync
+    /// goes on — its own names and notes gone too. To be deleted here
+    /// once no supported build is without the device copy
+    /// (`FolderRegistryStore`).
+    ///
+    /// Returns whether there was anything of this kind to do. The keys
+    /// go first, and the vocabulary only after them: a failure there
+    /// leaves everything as it was, to be tried again.
+    @MainActor
+    @discardableResult
+    static func eraseWhatIsNotSessions() throws -> Bool {
+        guard !isOn else { return false }
+        guard KeychainStore.eraseICloudItems() else {
+            throw SyncError.cloud(String(localized: "Not every key could be removed from iCloud Keychain. Try again"))
+        }
+        VocabularyBridge.shared.eraseICloudCopy()
+        return true
+    }
 
     /// The person flipped the switch, and the defaults already say `on`.
     @MainActor

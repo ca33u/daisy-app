@@ -222,6 +222,16 @@ public final class VocabularyRegistryStore {
         observe()
     }
 
+    /// The person asked for their data to be deleted from iCloud: the
+    /// copy there goes, this device's stays. Only with iCloud off — on,
+    /// the next change would send it straight back, so there is nothing
+    /// honest to delete. Another device that still uses iCloud keeps its
+    /// own copy and sends it again with its next change.
+    public func eraseICloudCopy() {
+        guard !usesICloud else { return }
+        cloud.removeValue(forKey: VocabularyRegistry.kvsKey)
+    }
+
     /// Merge what iCloud has into ours; tell the owner when anything moved.
     public func pull() {
         guard usesICloud, let remote = remote() else { return }

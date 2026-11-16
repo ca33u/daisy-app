@@ -37,6 +37,12 @@ final class VocabularyBridge {
         store.setUsesICloud(on)
     }
 
+    /// «Delete my data from iCloud», with sync off: the copy in iCloud
+    /// goes, this Mac's stays.
+    func eraseICloudCopy() {
+        store.eraseICloudCopy()
+    }
+
     func start() {
         guard !started else { return }
         started = true

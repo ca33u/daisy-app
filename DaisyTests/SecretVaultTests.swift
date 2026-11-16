@@ -385,6 +385,119 @@ struct SecretVaultTests {
         #expect(keychain.value(key, in: .thisMac) == nil)
     }
 
+    // MARK: - «Delete my data from iCloud»
+
+    @Test func erasingTakesEveryKeyOutOfICloudAndKeepsThisMacs() throws {
+        let keychain = FakeKeychain()
+        keychain.put("sk-mine", account: key, in: .iCloud)
+        keychain.put("secret_notion", account: "notion.token", in: .iCloud)
+        let vault = vault(keychain, sync: Switch(false), defaults: scratch.make())
+        #expect(vault.getWithoutPrompting(account: key) == "sk-mine")       // the update's copy
+
+        #expect(vault.eraseICloudItems())
+        #expect(keychain.value(key, in: .iCloud) == nil)
+        #expect(keychain.value("notion.token", in: .iCloud) == nil)
+        #expect(vault.get(account: key) == "sk-mine")
+        #expect(vault.get(account: "notion.token") == "secret_notion")
+    }
+
+    /// What arrived from another device after the update was never this
+    /// Mac's: it leaves iCloud without being taken here on the way.
+    @Test func erasingDoesNotTakeWhatThisMacNeverHad() {
+        let keychain = FakeKeychain()
+        keychain.put("another-macs", account: key, in: .iCloud)
+        let vault = vault(keychain, sync: Switch(false), existingInstall: false, defaults: scratch.make())
+        #expect(vault.getWithoutPrompting(account: key) == nil)
+        #expect(vault.eraseICloudItems())
+        #expect(keychain.value(key, in: .iCloud) == nil)
+        #expect(keychain.value(key, in: .thisMac) == nil)
+    }
+
+    /// An update whose one-time copy never finished would lose keys it
+    /// has always had: the copy comes first, or nothing is deleted.
+    @Test func erasingFinishesTheUpdatesCopyFirstOrDeletesNothing() {
+        let keychain = FakeKeychain()
+        keychain.put("sk-mine", account: key, in: .iCloud)
+        keychain.failNextWrite(in: .thisMac, with: errSecInteractionNotAllowed)   // at launch
+        keychain.failNextWrite(in: .thisMac, with: errSecInteractionNotAllowed)   // at the button
+        let defaults = scratch.make()
+        let vault = vault(keychain, sync: Switch(false), defaults: defaults)
+        #expect(vault.getWithoutPrompting(account: key) == nil)
+
+        #expect(!vault.eraseICloudItems())
+        #expect(keychain.value(key, in: .iCloud) == "sk-mine")
+
+        #expect(vault.eraseICloudItems())
+        #expect(keychain.value(key, in: .iCloud) == nil)
+        #expect(keychain.value(key, in: .thisMac) == "sk-mine")
+        #expect(defaults.bool(forKey: SecretVault.adoptedKey))
+    }
+
+    /// Sync was on, so the keys moved to iCloud; turned off, one copy
+    /// back failed. This Mac must not be told it has everything: the
+    /// button would delete the only copy, on every device.
+    @Test func erasingAfterACopyBackThatFailedDeletesNothingUntilItIsWhole() throws {
+        let keychain = FakeKeychain()
+        keychain.put("sk-mine", account: key, in: .iCloud)
+        let sync = Switch(false)
+        let defaults = scratch.make()
+        let vault = vault(keychain, sync: sync, defaults: defaults)
+        #expect(vault.getWithoutPrompting(account: key) == "sk-mine")
+        #expect(defaults.bool(forKey: SecretVault.adoptedKey))
+
+        sync.isOn = true
+        vault.iCloudSwitchChanged(to: true)
+        #expect(!defaults.bool(forKey: SecretVault.adoptedKey))
+        #expect(keychain.value(key, in: .thisMac) == nil)
+
+        keychain.failNextWrite(in: .thisMac, with: errSecInteractionNotAllowed)
+        sync.isOn = false
+        vault.iCloudSwitchChanged(to: false)
+        #expect(!defaults.bool(forKey: SecretVault.adoptedKey))
+
+        keychain.failNextWrite(in: .thisMac, with: errSecInteractionNotAllowed)
+        #expect(!vault.eraseICloudItems())
+        #expect(keychain.value(key, in: .iCloud) == "sk-mine")
+
+        // The next launch finishes the copy; then the button may delete.
+        let relaunched = self.vault(keychain, sync: sync, defaults: defaults)
+        #expect(relaunched.getWithoutPrompting(account: key) == "sk-mine")
+        #expect(relaunched.eraseICloudItems())
+        #expect(keychain.value(key, in: .iCloud) == nil)
+        #expect(relaunched.get(account: key) == "sk-mine")
+    }
+
+    @Test func erasingAListingThatFailsDeletesNothing() {
+        let keychain = FakeKeychain()
+        keychain.put("another-macs", account: key, in: .iCloud)
+        let vault = vault(keychain, sync: Switch(false), existingInstall: false, defaults: scratch.make())
+        keychain.failNextList(in: .iCloud, with: errSecInteractionNotAllowed)
+        #expect(!vault.eraseICloudItems())
+        #expect(keychain.value(key, in: .iCloud) == "another-macs")
+    }
+
+    /// With sync on iCloud is the only place the keys are.
+    @Test func erasingDeletesNoKeyWhileSyncIsOn() throws {
+        let keychain = FakeKeychain()
+        let vault = vault(keychain, sync: Switch(true), defaults: scratch.make())
+        try vault.set("sk-1", account: key)
+        #expect(vault.eraseICloudItems())
+        #expect(keychain.value(key, in: .iCloud) == "sk-1")
+    }
+
+    @Test func afterErasingTurningSyncOnSendsThisMacsKeysUpAgain() {
+        let keychain = FakeKeychain()
+        keychain.put("sk-mine", account: key, in: .iCloud)
+        let sync = Switch(false)
+        let vault = vault(keychain, sync: sync, defaults: scratch.make())
+        #expect(vault.getWithoutPrompting(account: key) == "sk-mine")
+        #expect(vault.eraseICloudItems())
+        sync.isOn = true
+        vault.iCloudSwitchChanged(to: true)
+        #expect(keychain.value(key, in: .iCloud) == "sk-mine")
+        #expect(vault.get(account: key) == "sk-mine")
+    }
+
     // MARK: - Remove, and the two older paths
 
     @Test(arguments: [true, false])

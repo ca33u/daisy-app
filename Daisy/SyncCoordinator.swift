@@ -182,11 +182,29 @@ final class SyncCoordinator {
 
     /// J-0: "Delete my data from iCloud" — the server side of the sync,
     /// and this Mac's memory of it. Nothing local is touched.
+    ///
+    /// 16.11: with sync off it also takes out what earlier versions put
+    /// in iCloud beside the sessions — the keys and the vocabulary; not
+    /// the project list (`ICloudSwitch.eraseWhatIsNotSessions`). Those first:
+    /// they need no network, and the person signed out of iCloud still
+    /// has them waiting on this Mac to go up.
     func eraseCloudData() async throws {
         // Throw, not return: the Settings sheet reads «no error» as
         // «Deleted», and nothing was.
         guard Self.cloudKitAvailable else { throw SyncError.cloud(Self.unavailableMessage) }
-        guard let ticket = SessionsFolder.acquireBase() else { return }
+        let restErased = try ICloudSwitch.eraseWhatIsNotSessions()
+        do {
+            try await eraseSyncedSessions()
+        } catch {
+            guard restErased else { throw error }
+            throw SyncError.cloud(String(localized: "The keys and vocabulary were removed. The sessions were not: \(error.localizedDescription)"))
+        }
+    }
+
+    private func eraseSyncedSessions() async throws {
+        guard let ticket = SessionsFolder.acquireBase() else {
+            throw SyncError.cloud(String(localized: "The sessions folder isn't available."))
+        }
         defer { ticket.release() }
         pending?.cancel()
         try await engine(for: ticket.url).eraseCloudData()

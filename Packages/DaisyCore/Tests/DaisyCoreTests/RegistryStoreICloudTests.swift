@@ -23,6 +23,7 @@ private final class FakeCloud: RegistryCloud {
 
     func data(forKey key: String) -> Data? { reads += 1; return values[key] }
     func set(_ data: Data, forKey key: String) { writes += 1; values[key] = data }
+    func removeValue(forKey key: String) { writes += 1; values[key] = nil }
     func startObserving(_ changed: @escaping @MainActor () -> Void) { observing = true; self.changed = changed }
     func stopObserving() { observing = false; changed = nil }
 
@@ -180,6 +181,48 @@ struct RegistryStoreICloudTests {
         // Signed out of iCloud tomorrow: the list is still here.
         let offline = FolderRegistryStore(defaults: defaults, usesICloud: false, cloud: FakeCloud())
         #expect(offline.registry.entry("work") != nil)
+    }
+
+    // MARK: - «Delete my data from iCloud»
+
+    /// The vocabulary only. The project list is not erased: builds
+    /// before 16.11 keep it in the key-value store and nowhere else.
+    @Test func erasingTakesTheVocabularyOutOfICloudAndKeepsTheDevices() {
+        let cloud = FakeCloud()
+        let defaults = scratch()
+        let words = VocabularyRegistryStore(defaults: defaults, usesICloud: true, cloud: cloud)
+        words.update { $0.append(DictationReplacement(kind: .term, to: "Daisy")) }
+        words.setUsesICloud(false)
+
+        words.eraseICloudCopy()
+        #expect(cloud.values[VocabularyRegistry.kvsKey] == nil)
+        #expect(words.registry.rules.map(\.to) == ["Daisy"])
+        #expect(VocabularyRegistryStore(defaults: defaults, usesICloud: false, cloud: cloud).registry.rules.map(\.to) == ["Daisy"])
+    }
+
+    /// With iCloud on the next change would send it straight back.
+    @Test func erasingDoesNothingWhileICloudIsOn() {
+        let cloud = FakeCloud()
+        let words = VocabularyRegistryStore(defaults: scratch(), usesICloud: true, cloud: cloud)
+        words.update { $0.append(DictationReplacement(kind: .term, to: "Daisy")) }
+        words.eraseICloudCopy()
+        #expect(cloud.values[VocabularyRegistry.kvsKey] != nil)
+    }
+
+    /// The other device, still on iCloud, keeps its words when the value
+    /// disappears — the vocabulary store has had a device copy since
+    /// 24.09 — and sends them again with its next change.
+    @Test func aDeviceStillOnICloudKeepsItsWordsWhenTheValueIsErasedElsewhere() {
+        let cloud = FakeCloud()
+        let defaults = scratch()
+        let phone = VocabularyRegistryStore(defaults: defaults, usesICloud: true, cloud: cloud)
+        phone.update { $0.append(DictationReplacement(kind: .term, to: "Daisy")) }
+        cloud.removeValue(forKey: VocabularyRegistry.kvsKey)
+        phone.pull()
+        #expect(phone.registry.rules.map(\.to) == ["Daisy"])
+        #expect(VocabularyRegistryStore(defaults: defaults, usesICloud: true, cloud: cloud).registry.rules.map(\.to) == ["Daisy"])
+        phone.update { $0.append(DictationReplacement(kind: .term, to: "Later")) }
+        #expect(cloud.values[VocabularyRegistry.kvsKey].flatMap(VocabularyRegistry.decode)?.rules.map(\.to) == ["Daisy", "Later"])
     }
 
     // MARK: - Vocabulary

@@ -19,6 +19,8 @@ import Foundation
 public protocol RegistryCloud: AnyObject {
     func data(forKey key: String) -> Data?
     func set(_ data: Data, forKey key: String)
+    /// Take the value out of iCloud, on every device's copy of the store.
+    func removeValue(forKey key: String)
     /// Call `changed` whenever another device wrote. One observer at a
     /// time: a second call replaces the first.
     func startObserving(_ changed: @escaping @MainActor () -> Void)
@@ -41,6 +43,12 @@ public final class ICloudKeyValueCloud: RegistryCloud {
     public func set(_ data: Data, forKey key: String) {
         let kvs = NSUbiquitousKeyValueStore.default
         kvs.set(data, forKey: key)
+        kvs.synchronize()
+    }
+
+    public func removeValue(forKey key: String) {
+        let kvs = NSUbiquitousKeyValueStore.default
+        kvs.removeObject(forKey: key)
         kvs.synchronize()
     }
 

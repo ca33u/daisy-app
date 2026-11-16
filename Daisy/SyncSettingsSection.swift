@@ -27,7 +27,7 @@ struct SyncSettingsSection: View {
 
         What never leaves this way: recordings. Audio moves only directly between your iPhone and this Mac on the local network, only when asked, never through the cloud. With sync on, this Mac listens on the local network for it
 
-        Turning sync off later stops sending, but does not delete what is already in iCloud. "Delete my data from iCloud" removes the synced sessions. A key leaves iCloud Keychain when you remove it in Daisy. The project list and vocabulary already in iCloud stay there
+        Turning sync off later stops sending, but does not delete what is already in iCloud. With sync off, "Delete my data from iCloud" removes the sessions, the vocabulary and the keys. The project list stays: Daisy for iPhone keeps it nowhere else
         """)
 
     var body: some View {
@@ -83,7 +83,8 @@ struct SyncSettingsSection: View {
                     .controlSize(.small)
                     .tint(Color.daisyTextPrimary)
                     .disabled(erasing || !SyncCoordinator.cloudKitAvailable)
-                    .confirmationDialog("Delete every session Daisy synced to your iCloud?", isPresented: $confirmErase, titleVisibility: .visible) {
+                    .confirmationDialog(sync.isEnabled ? Text("Delete every session Daisy synced to your iCloud?") : Text("Delete your sessions, vocabulary and keys from iCloud?"),
+                                        isPresented: $confirmErase, titleVisibility: .visible) {
                         Button("Delete from iCloud", role: .destructive) {
                             erasing = true
                             Task {
@@ -94,7 +95,15 @@ struct SyncSettingsSection: View {
                         }
                         Button("Cancel", role: .cancel) {}
                     } message: {
-                        Text("Every session Daisy synced is removed from your iCloud. Sessions on this Mac and on the iPhone stay where they are; with sync on, they will be sent again.")
+                        // With sync on the keys and the vocabulary are in
+                        // use in iCloud and stay; off, they go with the
+                        // sessions (16.11). The project list stays either
+                        // way — `ICloudSwitch.eraseWhatIsNotSessions`.
+                        if sync.isEnabled {
+                            Text("Every session Daisy synced is removed from your iCloud. Sessions on this Mac and on the iPhone stay where they are; with sync on, they will be sent again. Your vocabulary and keys stay in iCloud while sync is on: turn sync off first to remove them too")
+                        } else {
+                            Text("Removed from your iCloud: every session Daisy synced, your vocabulary, and the keys and tokens Daisy keeps in iCloud Keychain. Everything on this Mac stays, and Daisy here keeps working. The project list stays in iCloud: Daisy for iPhone keeps it nowhere else. Daisy for iPhone loses the keys until you turn sync on again on a Mac that has them. Daisy on another Mac loses them too if it has sync on or is an older version: enter them there again. A device with sync still on sends its sessions and vocabulary again")
+                        }
                     }
                 if let eraseResult {
                     Text(eraseResult).font(.caption).foregroundStyle(.secondary)

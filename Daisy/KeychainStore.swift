@@ -448,11 +448,53 @@ nonisolated final class SecretVault: @unchecked Sendable {
         gate.withLock {
             prepared = true
             guard dataProtectionAvailable else { return }
+            // `adoptedKey` means «this Mac has a copy of everything it
+            // had in iCloud», and that stops being true the moment the
+            // items move up. Off again, it is true only if the copy
+            // back was whole; if not, the next launch finishes it, and
+            // «Delete my data from iCloud» will not delete before then.
             if on {
                 moveThisMacItemsToICloudLocked()
-            } else if copyICloudItemsToThisMacLocked() {
-                defaults?.set(true, forKey: Self.adoptedKey)
+                defaults?.set(false, forKey: Self.adoptedKey)
+            } else {
+                defaults?.set(copyICloudItemsToThisMacLocked(), forKey: Self.adoptedKey)
             }
+        }
+    }
+
+    /// «Delete my data from iCloud», with sync off: every item of
+    /// Daisy's leaves iCloud Keychain — on every device, that is what
+    /// deleting a synchronizable item does — and this Mac keeps what it
+    /// has. With sync on nothing is deleted: iCloud is then the only
+    /// place the keys are.
+    ///
+    /// Nothing is copied here first, with one exception. An item this
+    /// Mac never took (it arrived from another device after the update)
+    /// is the other device's to keep. But an update whose one-time copy
+    /// has not finished would lose keys it has always had, so that copy
+    /// is completed before anything is deleted — or nothing is.
+    ///
+    /// False when an item could not be deleted, or the copy not made.
+    func eraseICloudItems() -> Bool {
+        gate.withLock {
+            prepareLocked()
+            guard dataProtectionAvailable, !iCloudOn() else { return true }
+            if let defaults, !defaults.bool(forKey: Self.adoptedKey) {
+                guard copyICloudItemsToThisMacLocked() else { return false }
+                defaults.set(true, forKey: Self.adoptedKey)
+            }
+            let (accounts, status) = backend.accounts(in: .iCloud)
+            guard status == errSecSuccess else {
+                noteEntitlementFailure(status, op: "erase-scan")
+                return status == errSecItemNotFound
+            }
+            var complete = true
+            for account in accounts {
+                let deleted = backend.delete(account: account, in: .iCloud)
+                if deleted != errSecSuccess, deleted != errSecItemNotFound { complete = false }
+            }
+            log.notice("Keychain: \(accounts.count, privacy: .public) item(s) asked out of iCloud Keychain.")
+            return complete
         }
     }
 
@@ -606,6 +648,11 @@ nonisolated enum KeychainStore {
     /// See `SecretVault.iCloudSwitchChanged`.
     static func iCloudSwitchChanged(to on: Bool) {
         vault.iCloudSwitchChanged(to: on)
+    }
+
+    /// See `SecretVault.eraseICloudItems`.
+    static func eraseICloudItems() -> Bool {
+        vault.eraseICloudItems()
     }
 }
 
