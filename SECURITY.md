@@ -18,9 +18,10 @@ You can expect a first response within **5 working days**. If the issue is confi
 ## What's in scope
 
 - **Local MCP HTTP listener** on `127.0.0.1`. Even though it binds loopback-only, the browser sandbox can reach it via `fetch`. Concrete attacks against the Origin / Host / CORS guards, request smuggling, or authentication bypass are all in scope.
+- **Local-network listener for Daisy for iPhone.** With sync on, the Mac advertises `_daisy-audio._tcp` over Bonjour and takes recordings over TLS with a pre-shared key (`AudioHandoffServer.swift`). Connecting without the key, or making the Mac write anything but the audio of a session it asked for, is in scope.
 - **Google OAuth flow.** The `client_secret` is intentionally public (PKCE loopback flow, see code comments), but issues around redirect URI handling, token storage in Keychain, or scope escalation are in scope.
 - **Sparkle update channel.** The appcast endpoint, EdDSA signature verification, and the local update install path. Tampering paths that could deliver an unsigned or wrong-signed build to a user are in scope.
-- **Sandbox bypass attempts.** Daisy is sandboxed with audio-input, calendar, network client/server, and user-selected files. Bypasses of those entitlements, or escalation to broader access, are in scope.
+- **Code signing and the access Daisy holds.** Daisy does not use App Sandbox: it pastes dictation into whatever app is in front with a synthetic ⌘V, runs command-line tools installed on the Mac (Codex, Cursor Agent) and writes MCP client config files, and those don't fit it. It is signed with Developer ID, notarized, and runs under the Hardened Runtime. In scope: making Daisy load or run code it wasn't signed with, and another process using Daisy to reach what macOS granted to Daisy and not to it — the microphone, screen and system-audio recording, Accessibility (Daisy pastes, reads the focused text field and watches key presses with it), calendars, the local network — or what Daisy's entitlements give it (the keychain group, iCloud container and iCloud key-value store it shares with Daisy for iPhone).
 - **Local file / Keychain access.** Issues where another local process or another app on the same Mac could read Daisy's stored API keys, session transcripts, or audio files.
 - **Audio capture path.** Cases where audio gets uploaded somewhere it shouldn't, including via system audio capture, screenshots, or telemetry.
 
@@ -38,7 +39,7 @@ Things that already exist in the codebase, so you can check them off your list:
 - MCP server's CORS / Host / Origin guards (`MCPServer.swift`)
 - Sparkle EdDSA public key pinned in `Info.plist` as `SUPublicEDKey`
 - `os_log` privacy-level audit completed — secrets and transcripts log at `.private`
-- App sandbox entitlements in `Daisy.entitlements`
+- Hardened Runtime on, App Sandbox off (`ENABLE_APP_SANDBOX = NO`); every entitlement, with the reason for it, is in `Daisy/Daisy.entitlements`
 - API keys stored in Keychain via `KeychainStore`, not `UserDefaults`
 
 ## PGP
