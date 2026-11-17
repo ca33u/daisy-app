@@ -439,6 +439,8 @@ final class OnboardingTourController {
         switch step {
         case .widget:
             isFlying = false
+            // A flight still in the air would land on a step that is over.
+            TourFlight.cancel()
             FloatingPanelController.shared?.setAttentionRing(false)
             FloatingPanelController.shared?.widgetWindow?.alphaValue = 1
         case .dictation, .style:
