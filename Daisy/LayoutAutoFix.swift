@@ -234,8 +234,7 @@ final class LayoutAutoFix {
         // Input Monitoring grant is what a listen-only tap needs; this one
         // supersedes it.)
         guard AXIsProcessTrusted() else {
-            let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-            _ = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
+            AccessibilityPrompt.show()
             ToastCenter.shared.show(
                 String(localized: "Automatic layout fixing needs Accessibility access — grant it in System Settings, then turn it on again."),
                 style: .warning

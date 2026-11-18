@@ -81,8 +81,7 @@ final class LayoutFixService {
                 guard !askedForAccessibilityOnTap else { return }
                 askedForAccessibilityOnTap = true
             }
-            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(options)
+            AccessibilityPrompt.show()
             ToastCenter.shared.show(
                 String(localized: "Fixing the layout needs Accessibility access — grant it in System Settings and try again."),
                 style: .warning

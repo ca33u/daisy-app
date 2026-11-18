@@ -61,8 +61,7 @@ final class SelectionRewrite {
         }
         // Precondition 2: Accessibility (we synthesize ⌘C/⌘V).
         if !AXIsProcessTrusted() {
-            let opts = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(opts)
+            AccessibilityPrompt.show()
             ToastCenter.shared.show(
                 String(localized: "Give Daisy Accessibility access"),
                 style: .warning

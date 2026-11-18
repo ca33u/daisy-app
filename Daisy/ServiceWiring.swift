@@ -48,6 +48,10 @@ enum ServiceWiring {
     ///     the transcript on the clipboard. Requires Input
     ///     Monitoring permission regardless of which key is bound.
     static func applyAllHotkeys(settings: AppSettings, session: RecordingSession) {
+        // The test host takes no keys. It runs on the real settings, so it
+        // would ask macOS for the same shortcuts as the Daisy in
+        // /Applications, which is running beside it.
+        guard !TestHost.isActive else { return }
         // The dictation and Daisy keys go live after first run — or from
         // the tour's dictation step, which teaches them by use.
         let keysLive = settings.hasShownFirstRun || OnboardingTourController.shared.keysLive
@@ -167,6 +171,11 @@ enum ServiceWiring {
     /// Idempotent, and safe to call when nothing changed — the watcher
     /// itself no-ops on a redundant start.
     static func applyLayoutAutoFix(settings: AppSettings) {
+        // Not in the test host. It is never trusted for Accessibility, so
+        // the watcher could not start there; with the watcher on in the
+        // real settings, all `apply` did was ask for the grant and show its
+        // toast at every launch of the host (`AccessibilityPrompt`).
+        guard !TestHost.isActive else { return }
         LayoutAutoFix.shared.apply(settings: settings)
     }
 

@@ -172,14 +172,11 @@ final class SystemPermissions {
         refresh()
     }
 
-    /// Show the system Accessibility prompt. `AXIsProcessTrustedWithOptions`
-    /// with `kAXTrustedCheckOptionPrompt=true` is the canonical API
-    /// — there's no async/completion variant. The user is sent to
-    /// System Settings; we'll see the state update on next focus.
+    /// Show the system Accessibility prompt (`AccessibilityPrompt`). The
+    /// user is sent to System Settings; we'll see the state update on
+    /// next focus.
     func requestAccessibility() {
-        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-        let options = [promptKey: true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
+        AccessibilityPrompt.show()
         // No refresh here — the dialog is async and the state won't
         // flip until the user has clicked through System Settings.
     }

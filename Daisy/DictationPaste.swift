@@ -814,9 +814,7 @@ final class DictationPaste {
             // dialog if user already saw it), but report the miss
             // because the dialog is non-modal and we'd be racing
             // against the user's click.
-            let promptOption = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-            let options: NSDictionary = [promptOption: true]
-            _ = AXIsProcessTrustedWithOptions(options)
+            AccessibilityPrompt.show()
             log.warning("Accessibility permission missing — prompted user, falling back to manual ⌘V for this dictation")
             return .needsAccessibility
         }
