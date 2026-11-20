@@ -181,6 +181,89 @@ enum AudioInputDevices {
         return false
     }
 
+    // MARK: - A headset microphone another app is recording from
+
+    /// Bluetooth microphones another process is recording from: a process
+    /// running input whose input-scope device list holds that headset as
+    /// its ONLY device with input streams (`HeadsetCallMic`).
+    ///
+    /// Why «only»: a voice-processing capture lists its output device
+    /// beside its microphone (seen 21.11 on this Mac: the built-in mic and
+    /// the built-in speakers). A call on the built-in mic with sound in the
+    /// AirPods therefore lists the AirPods too — and AirPods have input
+    /// streams even when only playing. Two input-capable devices in one
+    /// process's list can't say which one it records from, so they don't
+    /// count.
+    ///
+    /// Daisy's own process and devices are left out. Only devices that are
+    /// Bluetooth themselves and in the system's device list count: a
+    /// private aggregate of another app would be missed (the
+    /// voice-processing capture listed real devices). Empty when no
+    /// Bluetooth microphone is connected, and when CoreAudio has no
+    /// process objects to give.
+    static func bluetoothInputsInUseElsewhere() -> [AudioDeviceID] {
+        let headsets = allDeviceIDs().filter { hasInputStreams($0) && isBluetoothTransport($0) }
+        guard !headsets.isEmpty else { return [] }
+        let ownPID = getpid()
+        var inputLists: [[AudioDeviceID]] = []
+        let processes = objectIDs(of: AudioObjectID(kAudioObjectSystemObject),
+                                  selector: kAudioHardwarePropertyProcessObjectList,
+                                  scope: kAudioObjectPropertyScopeGlobal)
+        for process in processes {
+            guard let pid = readUInt32(process, selector: kAudioProcessPropertyPID),
+                  pid_t(bitPattern: pid) != ownPID,
+                  readUInt32(process, selector: kAudioProcessPropertyIsRunningInput) == 1 else { continue }
+            inputLists.append(
+                objectIDs(of: process, selector: kAudioProcessPropertyDevices, scope: kAudioObjectPropertyScopeInput)
+                    .filter { hasInputStreams($0) && !isOwnDevice($0) }
+            )
+        }
+        return HeadsetCallMic.recordedHeadsets(inputLists: inputLists, headsets: headsets)
+    }
+
+    /// A Bluetooth headset in call mode (`HeadsetCallMic.isCallModeRate`),
+    /// read from its nominal rate.
+    static func isInCallMode(_ id: AudioDeviceID) -> Bool {
+        var addr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyNominalSampleRate,
+                                              mScope: kAudioObjectPropertyScopeGlobal,
+                                              mElement: kAudioObjectPropertyElementMain)
+        var rate: Float64 = 0
+        var size = UInt32(MemoryLayout<Float64>.size)
+        guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &rate) == noErr else { return false }
+        return isBluetoothTransport(id) && HeadsetCallMic.isCallModeRate(rate)
+    }
+
+    /// The device's own transport is Bluetooth — unlike `isBluetooth`, an
+    /// aggregate with a Bluetooth device inside does not count.
+    private static func isBluetoothTransport(_ id: AudioDeviceID) -> Bool {
+        let transport = transportType(id)
+        return transport == kAudioDeviceTransportTypeBluetooth
+            || transport == kAudioDeviceTransportTypeBluetoothLE
+    }
+
+    /// An object-ID list property, empty when CoreAudio won't give it.
+    private static func objectIDs(of object: AudioObjectID, selector: AudioObjectPropertySelector,
+                                  scope: AudioObjectPropertyScope) -> [AudioObjectID] {
+        var addr = AudioObjectPropertyAddress(mSelector: selector, mScope: scope,
+                                              mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(object, &addr, 0, nil, &size) == noErr, size > 0 else { return [] }
+        var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(object, &addr, 0, nil, &size, &ids) == noErr else { return [] }
+        return Array(ids.prefix(Int(size) / MemoryLayout<AudioObjectID>.size))
+    }
+
+    /// A 32-bit global property (a pid_t reads into it bit for bit); nil
+    /// when CoreAudio won't give it.
+    private static func readUInt32(_ object: AudioObjectID, selector: AudioObjectPropertySelector) -> UInt32? {
+        var addr = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
+                                              mElement: kAudioObjectPropertyElementMain)
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(object, &addr, 0, nil, &size, &value) == noErr else { return nil }
+        return value
+    }
+
     // MARK: - Transport & virtual drivers
 
     /// Raw CoreAudio transport type, or nil when the device won't say.

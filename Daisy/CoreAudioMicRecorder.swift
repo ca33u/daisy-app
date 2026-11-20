@@ -294,7 +294,8 @@ final class CoreAudioMicRecorder {
     @ObservationIgnored
     private var lastBoundInputUID: String?
     /// The microphone the recording is actually on — not always the
-    /// default: a Bluetooth default input is skipped for a wired one.
+    /// default: a Bluetooth default input is skipped for a wired one, and
+    /// a headset a call app has in call mode is taken over the default.
     var boundDeviceName: String? { boundDeviceID.flatMap(AudioInputDevices.name(for:)) }
 
     /// CoreAudio default-input-device listener block + install flag.
@@ -315,6 +316,20 @@ final class CoreAudioMicRecorder {
     /// in rapid succession as the graph settles. Mirrors AudioRecorder.
     @ObservationIgnored
     private var lastReconfigureAt: Date?
+    /// Whether a call on a Bluetooth headset is moving the recording
+    /// (`checkHeadsetCall`). Counting starts over on start, resume, a
+    /// route change and every move of its own.
+    @ObservationIgnored private var headsetWatch = HeadsetCallWatch()
+    /// Set by a headset move, or a resume onto a call headset, until the
+    /// new device has delivered buffers: the device to go back to
+    /// (`checkRecoveryProgress`).
+    @ObservationIgnored private var headsetMoveFallbackUID: String?
+    /// UIDs of devices the headset rule chose that gave no buffers (or
+    /// failed to build) in this recording: left out of the headset choice and of
+    /// the moves back until the next `start()` — a headset that gives
+    /// nothing once is not worth a loop. A route change, a resume or the
+    /// usual fallbacks can still land on one.
+    @ObservationIgnored private var devicesGivingNoAudio: Set<String> = []
 
     // MARK: - Recovery watchdog
 
@@ -399,6 +414,9 @@ final class CoreAudioMicRecorder {
         micLiveness.beginRecording(at: Date())
 
         activePreferredDeviceUID = preferredDeviceUID ?? ""
+        // Before the device is resolved: what gave no audio last time may
+        // work in this recording.
+        devicesGivingNoAudio = []
         activeNoiseSuppressionEnabled = noiseSuppressionEnabled
 
         // Resolve the device BEFORE creating the unit so we read the
@@ -446,6 +464,8 @@ final class CoreAudioMicRecorder {
         bufferTimestamp.reset()
         midSessionRebuilds = 0
         silenceWatch = MicSilenceWatch()
+        headsetWatch = HeadsetCallWatch()
+        headsetMoveFallbackUID = nil
         micLiveness.reset(to: Date())
         archiveGate.set(true)
         levelSpectrum.reset()
@@ -573,10 +593,19 @@ final class CoreAudioMicRecorder {
         // negotiated for the old device). If it's the same device, a
         // re-configure of format on the existing unit is enough, but
         // rebuilding is simplest and always-correct — do that.
+        headsetWatch.reset()
+        headsetMoveFallbackUID = nil
+        let uidBeforePause = lastBoundInputUID
         do {
             try rebuildUnit(on: deviceID, reason: "resume")
         } catch {
             throw DaisyError.audioEngineFailed("Mic device couldn't reinitialize on resume: \(error.localizedDescription)")
+        }
+        // Resumed onto a call headset the recording wasn't on before the
+        // pause: the device before the pause is the way back if it gives
+        // nothing (`checkRecoveryProgress`), as for a move while recording.
+        if let uidBeforePause, lastBoundInputUID != uidBeforePause, headsetInCall(bound: nil) == deviceID {
+            headsetMoveFallbackUID = uidBeforePause
         }
 
         startedAt = Date()
@@ -1008,18 +1037,18 @@ final class CoreAudioMicRecorder {
                 ToastCenter.shared.show(message, style: .warning, duration: .seconds(10))
             }
         }
-        // Unpinned: take the system default — UNLESS it's a Bluetooth mic,
-        // in which case prefer a non-BT input. A BT headset used for OUTPUT
-        // (the call / a video) drags the default INPUT onto its SCO mic,
-        // which delivers pure silence while the headset is playing audio
-        // (A2DP↔SCO conflict) → the mic silence watchdog then pauses the
-        // recording and the user's speech is lost. (Since 14.11 a meeting
-        // that also captures the other side records through that
-        // silence instead of pausing; the speech is lost all the same,
-        // so the avoidance matters as much as before.) This is the same trap
-        // the route-change guard avoids mid-session, now avoided at START
-        // too. A pinned BT device is still honoured above (explicit choice).
         let defaultID = AudioInputDevices.systemDefaultInputID()
+        // Unpinned (or the pinned mic is gone), and a call app records from
+        // a Bluetooth headset in call mode: that is the microphone the
+        // person speaks into, so it comes before every fallback below — the
+        // built-in mic hears them faintly, and the Bluetooth avoidance
+        // further down is about a headset that is only playing
+        // (`HeadsetCallMic`). A running recording follows a call that
+        // starts later (`checkHeadsetCall`).
+        if let headset = headsetInCall(bound: nil) {
+            log.info("Bluetooth mic \(AudioInputDevices.describe(headset), privacy: .public) is recording in another app (a call) — capturing from it")
+            return headset
+        }
         // Clamshell (lid closed, external display + keyboard): the Mac's
         // built-in mic is HARDWARE-disconnected with the lid, yet stays
         // in the device list and streams bit-exact zeros forever
@@ -1174,16 +1203,22 @@ final class CoreAudioMicRecorder {
         // Bluetooth keeps the device we were on (AirPods-for-output drags
         // the default input onto their SCO mic, which often delivers
         // silence). A pinned mic always follows its UID; a wired/USB
-        // change is intended, so follow it.
+        // change is intended, so follow it — unless a headset call is on
+        // (below).
         let newDefaultID = AudioInputDevices.systemDefaultInputID()
         let newDefaultIsBluetooth = newDefaultID != 0 && AudioInputDevices.isBluetooth(newDefaultID)
+        // While a call app records from a headset, the device stays too:
+        // the recording is on that headset already, or `checkHeadsetCall`
+        // moves it there with its wait and its way back — not this rebuild,
+        // which has neither.
+        let callHeadset = headsetInCall(bound: boundDeviceID)
 
         let targetID: AudioDeviceID
         if activePreferredDeviceUID.isEmpty,
-           newDefaultIsBluetooth,
+           newDefaultIsBluetooth || callHeadset != nil,
            let keepUID = lastBoundInputUID,
            let keepID = AudioInputDevices.deviceID(forUID: keepUID) {
-            log.info("Route change, no pinned mic — new default is Bluetooth; keeping current device (UID \(keepUID, privacy: .public), id \(keepID, privacy: .public)) to avoid a BT-output hijack.")
+            log.info("Route change, no pinned mic — \(callHeadset != nil ? "a headset call is on" : "new default is Bluetooth", privacy: .public); keeping current device (UID \(keepUID, privacy: .public), id \(keepID, privacy: .public)).")
             targetID = keepID
         } else {
             targetID = resolveInputDeviceID(uid: activePreferredDeviceUID)
@@ -1205,6 +1240,8 @@ final class CoreAudioMicRecorder {
             return
         }
 
+        headsetWatch.reset()
+        headsetMoveFallbackUID = nil
         do {
             try rebuildUnit(on: targetID, reason: "route-change")
             log.info("Route-change recovery succeeded — recording continues on device \(targetID, privacy: .public)")
@@ -1417,7 +1454,39 @@ final class CoreAudioMicRecorder {
         }
         recoveryWatchdog = nil
         guard state == .recording else { return }
-        if let c = bufferTimestamp.snapshot(), c > armedAt { return }  // healthy
+        if let c = bufferTimestamp.snapshot(), c > armedAt {  // healthy
+            headsetMoveFallbackUID = nil
+            return
+        }
+        // The unit just built delivers no buffers, and the headset rule
+        // is why it is on this device: a move `checkHeadsetCall` made
+        // (either way), a resume onto a call headset, or any (re)build on
+        // a call headset — a start, a route change, kept or picked. Off
+        // it — back to the device a move left, which was working, or to
+        // the usual choice — rather than through the rebuild budget below,
+        // which would rebuild the same device. The rule leaves this device
+        // out for the rest of the recording, a one-off stall included.
+        // Never for the pinned mic the recording is on, and only when there
+        // is somewhere else to go (`usualReturnTarget`). With nowhere — the
+        // lid closed and no other mic — the code below runs as before this
+        // rule: mid-session it rebuilds the same device once; at start it
+        // re-resolves, and with the headset now out of the rule that is
+        // what the start chose before the rule existed. The device stays
+        // out of the headset rule all the same, so a later move off it can
+        // come mid-call.
+        if let bound = boundDeviceID, lastBoundInputUID != activePreferredDeviceUID,
+           headsetMoveFallbackUID != nil || headsetInCall(bound: nil) == bound,
+           let boundUID = AudioInputDevices.uid(for: bound) {
+            devicesGivingNoAudio.insert(boundUID)
+            let fallbackID = headsetMoveFallbackUID.flatMap { AudioInputDevices.deviceID(forUID: $0) }
+            if fallbackID != nil || usualReturnTarget(leaving: bound) != nil {
+                log.error("No buffers from \(AudioInputDevices.describe(bound), privacy: .public) after a headset-rule choice — leaving it")
+                lastReconfigureAt = Date()
+                returnFromHeadsetMove(to: headsetMoveFallbackUID, reason: "headset-no-audio")
+                return
+            }
+            headsetMoveFallbackUID = nil
+        }
 
         // A stalled unit gets ONE rebuild before we give up — at start
         // (`escalateToReconfigure`) and, since 2026-08-10, mid-session
@@ -1492,7 +1561,124 @@ final class CoreAudioMicRecorder {
         silenceMonitor = Timer.scheduledTimer(
             withTimeInterval: Self.silenceMonitorIntervalSec, repeats: true
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.checkMicSilence() }
+            Task { @MainActor [weak self] in
+                self?.checkMicSilence()
+                self?.checkHeadsetCall()
+            }
+        }
+    }
+
+    /// The headset to record from (`HeadsetCallMic`), leaving out the
+    /// devices that gave no audio in this recording.
+    private func headsetInCall(bound: AudioDeviceID?) -> AudioDeviceID? {
+        let inUse = AudioInputDevices.bluetoothInputsInUseElsewhere().filter {
+            AudioInputDevices.uid(for: $0).map { !devicesGivingNoAudio.contains($0) } ?? true
+        }
+        return HeadsetCallMic.pick(
+            inUse: inUse, systemDefault: AudioInputDevices.systemDefaultInputID(),
+            bound: bound, inCallMode: { AudioInputDevices.isInCallMode($0) }
+        )
+    }
+
+    /// The running recording's half of the headset rule
+    /// (`resolveInputDeviceID`, `HeadsetCallMic`): a call that puts a
+    /// Bluetooth headset into call mode after the recording started moves
+    /// the recording onto it, and once no other process records from it
+    /// the usual choice is asked again — Daisy alone must not keep the
+    /// headset in call mode (one exception: the lid closed, see below).
+    /// That also moves a recording that started on a Bluetooth mic for
+    /// want of another (the lid closed) once the usual choice has a better
+    /// one. Not while the recording is on its pinned mic: that is the
+    /// person's choice. A pinned mic that comes back while the recording
+    /// is on a headset is where the move back goes. Skipped within two
+    /// seconds of a route change or a move of its own.
+    private func checkHeadsetCall() {
+        guard state == .recording, let bound = boundDeviceID else { return }
+        if !activePreferredDeviceUID.isEmpty, lastBoundInputUID == activePreferredDeviceUID { return }
+        if let last = lastReconfigureAt, Date().timeIntervalSince(last) < 2.0 { return }
+        let headset = headsetInCall(bound: bound)
+        switch headsetWatch.observe(bound: bound, boundIsBluetooth: AudioInputDevices.isBluetooth(bound), headset: headset) {
+        case .stay:
+            return
+        case .follow(let target):
+            log.notice("Bluetooth mic \(AudioInputDevices.describe(target), privacy: .public) is in call mode in another app — moving the recording onto it")
+            moveForHeadset(from: bound, to: target, reason: "headset-call")
+        case .reconsider:
+            let target = resolveInputDeviceID(uid: activePreferredDeviceUID)
+            guard target != 0, target != bound else { return }
+            // The built-in mic with the lid shut records zeros. Staying on
+            // the headset keeps it in call mode for the rest of the
+            // recording — the one case Daisy alone does — but it records.
+            if AudioInputDevices.isLidClosed(), AudioInputDevices.isBuiltIn(target) { return }
+            // A device that already gave nothing in this recording.
+            if let uid = AudioInputDevices.uid(for: target), devicesGivingNoAudio.contains(uid) { return }
+            log.notice("No other app runs input on \(AudioInputDevices.describe(bound), privacy: .public) — moving the recording to \(AudioInputDevices.describe(target), privacy: .public)")
+            moveForHeadset(from: bound, to: target, reason: "headset-call-ended")
+        }
+    }
+
+    /// A move `checkHeadsetCall` makes on its own. Unlike a route change
+    /// the device it leaves still works, so a failure goes back to it
+    /// before anything pauses, and the recovery watchdog does the same if
+    /// the new device delivers no buffers (`headsetMoveFallbackUID`) —
+    /// unless the new device is the pinned mic come back.
+    private func moveForHeadset(from previous: AudioDeviceID, to target: AudioDeviceID, reason: String) {
+        lastReconfigureAt = Date()
+        headsetWatch.reset()
+        let previousUID = AudioInputDevices.uid(for: previous)
+        do {
+            try rebuildUnit(on: target, reason: reason)
+            headsetMoveFallbackUID = previousUID
+            log.info("Mic moved (\(reason, privacy: .public)) — recording continues on device \(target, privacy: .public)")
+            armRecoveryWatchdog()
+            return
+        } catch {
+            log.error("Mic move (\(reason, privacy: .public)) failed: \(error.localizedDescription, privacy: .public) — back to device \(previous, privacy: .public)")
+        }
+        if let uid = AudioInputDevices.uid(for: target) { devicesGivingNoAudio.insert(uid) }
+        returnFromHeadsetMove(to: previousUID, reason: "\(reason)-failed")
+    }
+
+    /// The usual device choice as a place to leave `bound` for: not the
+    /// same device, not one that gave no buffers in this recording, and
+    /// not the built-in mic with the lid shut (it records zeros — the same
+    /// exception `checkHeadsetCall` makes).
+    private func usualReturnTarget(leaving bound: AudioDeviceID?) -> AudioDeviceID? {
+        let usual = resolveInputDeviceID(uid: activePreferredDeviceUID)
+        guard usual != 0, usual != bound else { return nil }
+        if let uid = AudioInputDevices.uid(for: usual), devicesGivingNoAudio.contains(uid) { return nil }
+        if AudioInputDevices.isLidClosed(), AudioInputDevices.isBuiltIn(usual) { return nil }
+        return usual
+    }
+
+    /// Off a device the headset rule chose: back onto `uid` (the device a
+    /// move left) when it is there, else onto the usual choice, which no
+    /// longer picks what is in `devicesGivingNoAudio` by the headset rule.
+    /// Falls to paused only when neither builds — the same end a failed
+    /// route change has.
+    private func returnFromHeadsetMove(to uid: String?, reason: String) {
+        headsetMoveFallbackUID = nil
+        var tried: Set<AudioDeviceID> = []
+        var candidates: [AudioDeviceID] = []
+        if let uid, let deviceID = AudioInputDevices.deviceID(forUID: uid) { candidates.append(deviceID) }
+        if let usual = usualReturnTarget(leaving: boundDeviceID) { candidates.append(usual) }
+        for deviceID in candidates where tried.insert(deviceID).inserted {
+            do {
+                try rebuildUnit(on: deviceID, reason: reason)
+                log.info("Mic back on device \(deviceID, privacy: .public) (\(reason, privacy: .public))")
+                armRecoveryWatchdog()
+                return
+            } catch {
+                log.error("Mic return (\(reason, privacy: .public)) to device \(deviceID, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        log.error("No device to return to (\(reason, privacy: .public)). Falling to paused.")
+        fallToPaused(reason: .rebuildFailed)
+        if onFellToPaused == nil {
+            ToastCenter.shared.show(
+                String(localized: "Mic changed — recording paused. Hit Resume to continue."),
+                style: .warning
+            )
         }
     }
 
