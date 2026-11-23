@@ -455,6 +455,11 @@ enum PanelSize {
 struct PanelHeader: View {
     let title: String
 
+    nonisolated static let topPadding: CGFloat = 14
+    nonisolated static let closeButtonSize: CGFloat = 26
+    /// The line the title and the × are centred on, from the sheet's top.
+    nonisolated static let centerLine = topPadding + closeButtonSize / 2
+
     var body: some View {
         HStack {
             Text(title)
@@ -467,7 +472,7 @@ struct PanelHeader: View {
                 Image(systemName: "xmark")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: 26, height: 26)
+                    .frame(width: Self.closeButtonSize, height: Self.closeButtonSize)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -477,9 +482,8 @@ struct PanelHeader: View {
         }
         .padding(.leading, 24)
         .padding(.trailing, 14)
-        .padding(.top, 14)
+        .padding(.top, Self.topPadding)
         .padding(.bottom, 2)
-
     }
 }
 
@@ -510,6 +514,7 @@ struct SettingsPanel: View {
 
     nonisolated static let sidebarWidth: CGFloat = 210
     nonisolated static let preferredWidth: CGFloat = 900
+    nonisolated static let searchFieldHeight: CGFloat = 28
 
     private var isSearching: Bool {
         !searchQuery.trimmingCharacters(in: .whitespaces).isEmpty
@@ -564,7 +569,8 @@ struct SettingsPanel: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             searchField
                 .padding(.horizontal, 10)
-                .padding(.top, 4)
+                // On one line with the title and the × beside it.
+                .padding(.top, PanelHeader.centerLine - Self.searchFieldHeight / 2)
                 .padding(.bottom, 8)
                 .background(Color.daisyBgSidebar)
         }
@@ -628,7 +634,7 @@ struct SettingsPanel: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .frame(height: Self.searchFieldHeight)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.primary.opacity(0.06))
