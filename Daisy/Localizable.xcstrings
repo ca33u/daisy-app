@@ -1981,6 +1981,16 @@
         }
       }
     },
+    "Saving to Daisy’s own folder" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохраняю в собственную папку Daisy"
+          }
+        }
+      }
+    },
     "Saving…" : {
       "localizations" : {
         "ru" : {
@@ -12002,6 +12012,16 @@
           }
         }
       }
+    "Daisy can’t write to the recordings folder" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не может писать в папку записей"
+          }
+        }
+      }
+    },
     },
     "Daisy can’t read Cursor’s MCP configuration — see below." : {
       "extractionState" : "stale",
@@ -18047,6 +18067,16 @@
         }
       }
     },
+    "No space on the disk for a recording" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На диске нет места для записи"
+          }
+        }
+      }
+    },
     "No speech was captured in this recording — there's nothing to summarize." : {
       "localizations" : {
         "ru" : {
@@ -20822,6 +20852,16 @@
             "state" : "translated",
             "value" : "Записи с iPhone: ошибка — %@"
           }
+    "Recording didn’t start" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запись не началась"
+          }
+        }
+      }
+    },
         }
       }
     },
@@ -20883,6 +20923,16 @@
       }
     },
     "Records the other side of meetings — sound only, without the screen." : {
+    "Recordings folder unavailable, saving to Daisy’s own" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Папка записей недоступна, сохраняю в собственную папку Daisy"
+          }
+        }
+      }
+    },
       "localizations" : {
         "ru" : {
           "stringUnit" : {

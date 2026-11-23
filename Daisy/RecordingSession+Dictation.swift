@@ -347,6 +347,15 @@ extension RecordingSession {
                 DaisyKeyController.shared.holdAbandoned(token: token)
                 return
             }
+            if samples.isEmpty {
+                // Not a buffer came: the microphone was still opening, or
+                // sends nothing. A silent hold over a selection rewrites
+                // it, and silence has to be heard, not assumed.
+                log.info("Daisy key hold: no audio arrived — dropped, no note, no rewrite")
+                DaisyKeyController.shared.holdAbandoned(token: token)
+                DaisyKeyController.shared.tell(String(localized: "Didn’t hear anything"), style: .warning)
+                return
+            }
             await DaisyKeyController.shared.holdFinished(token: token, transcript: transcriptText, samples: samples, durationSec: durSec)
             return
         }

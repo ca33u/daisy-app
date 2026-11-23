@@ -464,6 +464,13 @@ enum CaptureProblemNotification {
         bubbleTag: "capture-problem-mic-silent-while-recording"
     )
 
+    /// «Saving to Daisy's own folder» (23.11): said at the start, beside
+    /// whatever else the start has to say.
+    static let folderSlot = Slot(
+        requestID: "app.essazanov.Daisy.captureProblem.folder",
+        bubbleTag: "capture-problem-folder"
+    )
+
     /// Fire-and-forget. Deliberately NOT gated on the auto-start
     /// notification toggle in Settings: that switch is about routine
     /// lifecycle chatter, this is a failure the user must know about.

@@ -2641,11 +2641,23 @@ final class RecordingSession {
             return
         }
 
-        // Session directory for archive + screenshots.
+        // Session directory for archive + screenshots. Without one nothing
+        // of the recording reaches the disk, so a meeting or a voice note
+        // doesn't start (see `SessionFolderPlacement`). A dictation does:
+        // what it's for is the text at the cursor, and its folder is
+        // deleted when it ends.
         let dir: URL?
-        do { dir = try makeSessionDirectory() }
-        catch {
-            log.error("Session dir failed: \(error.localizedDescription, privacy: .public)")
+        do {
+            let placed = try makeSessionDirectory(checksWrite: currentMode != .dictation)
+            dir = placed.directory
+            if currentMode != .dictation { noteFolderPlacement(missedPickedFolder: placed.missedPickedFolder) }
+        } catch {
+            guard currentMode == .dictation else {
+                await failFast(error.localizedDescription)
+                presentNowhereToRecord(error)
+                return
+            }
+            log.error("Session dir failed, dictating without one: \(error.localizedDescription, privacy: .public)")
             dir = nil
         }
         sessionDirectory = dir
@@ -3624,7 +3636,13 @@ final class RecordingSession {
             recorder.archivedFrameCount > 0 ||
             systemAudio.archivedFrameCount > 0
         let hasTranscript = !segments.isEmpty
-        if !capturedAnyAudio && !hasTranscript {
+        // Not a dictation's question: its audio is the samples held for its
+        // final pass, so with no archive («Don't record audio», low disk,
+        // no folder) and no live pass (tier `.off`) both read empty while
+        // the words are there, and a short dictation was dropped as «too
+        // short» (review 23.11). One that heard nothing is
+        // `finishDictation`'s to end.
+        if currentMode != .dictation, !capturedAnyAudio && !hasTranscript {
             // Nothing usable was captured — and NEITHER branch may delete
             // a recording silently. This path has erased real recordings
             // before, and a session the user deliberately started must
@@ -3840,7 +3858,9 @@ final class RecordingSession {
         // shown the unified capture-failed message above. Both are
         // unreachable when archiving is off by design: the audit reports
         // `.off`, not `.truncated`.
-        if !captureLikelyFailed, case .truncated(let bytes, let framesWritten, let writeErrors) = micStatus {
+        // A dictation's folder goes when it ends: there is nothing to keep
+        // and nobody to tell.
+        if !captureLikelyFailed, currentMode != .dictation, case .truncated(let bytes, let framesWritten, let writeErrors) = micStatus {
             log.error("Mic archive TRUNCATED: \(bytes, privacy: .public) bytes on disk, \(framesWritten, privacy: .public) frames written, \(writeErrors, privacy: .public) write errors")
             ToastCenter.shared.show(
                 String(localized: "Mic recording is incomplete — only part of your audio made it to disk. Keep this session's folder to recover what's there."),
@@ -3848,7 +3868,7 @@ final class RecordingSession {
                 duration: .seconds(12)
             )
         }
-        if !captureLikelyFailed, case .truncated(let bytes, let framesWritten, let writeErrors) = sysStatus {
+        if !captureLikelyFailed, currentMode != .dictation, case .truncated(let bytes, let framesWritten, let writeErrors) = sysStatus {
             log.error("System audio archive TRUNCATED: \(bytes, privacy: .public) bytes on disk, \(framesWritten, privacy: .public) frames written, \(writeErrors, privacy: .public) write errors")
             ToastCenter.shared.show(
                 String(localized: "Other-side audio is incomplete — capture started but the file didn't grow. Transcript may still be usable; raw audio is partial."),
@@ -4013,13 +4033,13 @@ final class RecordingSession {
             && !captureLikelyFailed
 
         guard let dir = sessionDirectory else {
-            // No session dir — shouldn't happen post-capture, but
-            // bail cleanly. transcript.md never landed, no summary
-            // can run, no auto-send needed.
+            // No session dir: `start()` refuses a meeting or a voice note
+            // without one, so this shouldn't be reached. If it is, nothing
+            // landed on the disk, and it isn't announced as a success.
+            log.error("Stop: no session directory, nothing was saved")
             releaseSessionsFolderTicket()
             liveDirName = nil
-            status = .finished
-            if settings.recordingSoundsEnabled { SoundEffects.playFinished() }
+            status = .failed(SessionFolderPlacement.NoPlace().localizedDescription)
             return
         }
         let sessionID = dir.lastPathComponent
@@ -4760,40 +4780,71 @@ final class RecordingSession {
 
     // MARK: - Internals
 
-    private func makeSessionDirectory() throws -> URL {
-        // Acquire and hold the security-scoped folder for the
-        // entire recording lifetime. ticket.url is either the user-
-        // picked folder (Obsidian vault, ~/Documents/Meetings, …)
-        // or the app's container default. Released in stop()/reset().
-        guard let ticket = SessionsFolder.acquireBase() else {
-            throw NSError(
-                domain: "app.essazanov.Daisy",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Couldn't resolve a writable sessions folder."]
-            )
-        }
-        self.sessionsFolderTicket = ticket
-
-        let fm = FileManager.default
+    /// Acquires the folder's security scope and holds it for the whole
+    /// recording: the ticket is the picked folder's (Obsidian vault,
+    /// ~/Documents/Meetings, …) or Daisy's own. Released when the recording
+    /// ends, however it ends (`releaseSessionsFolderTicket`).
+    private func makeSessionDirectory(checksWrite: Bool) throws -> SessionFolderPlacement.Placed {
         let stamp = ISO8601DateFormatter()
         stamp.formatOptions = [.withInternetDateTime]
         let safeStamp = stamp.string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
-        // Named by the second, so two sessions started within one — a
-        // dictation over a recording that began a moment ago, a rotation —
-        // must not share a folder: the dictation's teardown deletes its
-        // folder, which would take the recording with it (review 31.10).
-        // No await between the check and the create, so on the main actor
-        // nothing can claim the name in between.
-        let sessionsRoot = ticket.url.appendingPathComponent("Daisy/Sessions", isDirectory: true)
-        var dir = sessionsRoot.appendingPathComponent(safeStamp, isDirectory: true)
-        var suffix = 2
-        while fm.fileExists(atPath: dir.path) {
-            dir = sessionsRoot.appendingPathComponent("\(safeStamp)-\(suffix)", isDirectory: true)
-            suffix += 1
+        let placed = try SessionFolderPlacement.place(stamp: safeStamp, checksWrite: checksWrite)
+        sessionsFolderTicket = placed.ticket
+        return placed
+    }
+
+    /// The recording went to Daisy's own folder though another was picked.
+    /// Said on the toast every time; as a pill and a banner once a launch,
+    /// until a recording lands in the picked folder again: someone who left
+    /// the drive at home knows after the first meeting. The banner too,
+    /// because on a calendar start «Recording started» takes the one pill a
+    /// moment later, and a slot of its own, because low disk and a lost other side take
+    /// the shared one.
+    private func noteFolderPlacement(missedPickedFolder: Bool) {
+        guard missedPickedFolder else {
+            Self.pickedFolderMissAnnounced = false
+            return
         }
-        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+        log.warning("Recording into Daisy's own folder: the picked one didn't take it")
+        let message = String(localized: "Recordings folder unavailable, saving to Daisy’s own")
+        ToastCenter.shared.showAction(message, actionLabel: String(localized: "Choose"),
+                                      style: .warning, duration: .seconds(10)) {
+            AppNavigation.shared.openInSettings(.library, row: .recordingsFolder)
+        }
+        if !Self.pickedFolderMissAnnounced {
+            Self.pickedFolderMissAnnounced = true
+            CaptureProblemNotification.post(
+                title: String(localized: "Saving to Daisy’s own folder"),
+                body: message,
+                alwaysBanner: true,
+                actionTitle: String(localized: "Choose"),
+                slot: CaptureProblemNotification.folderSlot
+            ) {
+                AppNavigation.shared.openInSettings(.library, row: .recordingsFolder)
+            }
+        }
+    }
+
+    private static var pickedFolderMissAnnounced = false
+
+    /// Refused: neither the picked folder nor Daisy's own takes a file. A
+    /// banner as well as the pill — a calendar start has nobody watching.
+    private func presentNowhereToRecord(_ error: Error) {
+        let message = error.localizedDescription
+        ToastCenter.shared.showAction(message, actionLabel: String(localized: "Choose"),
+                                      style: .warning, duration: .seconds(15)) {
+            AppNavigation.shared.openInSettings(.library, row: .recordingsFolder)
+        }
+        CaptureProblemNotification.post(
+            title: String(localized: "Recording didn’t start"),
+            body: message,
+            alwaysBanner: true,
+            actionTitle: String(localized: "Choose"),
+            slot: CaptureProblemNotification.folderSlot
+        ) {
+            AppNavigation.shared.openInSettings(.library, row: .recordingsFolder)
+        }
     }
 
     /// Release the security-scoped folder ticket. Called from

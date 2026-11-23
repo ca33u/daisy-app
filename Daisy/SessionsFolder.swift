@@ -191,22 +191,25 @@ enum SessionsFolder {
     /// `release` on the returned ticket when done so we stop holding
     /// the security scope.
     static func acquireBase() -> AccessTicket? {
-        if let userURL = resolveUserFolder() {
-            if let ticket = acquireAccess(to: userURL, requireWrite: true) {
-                return ticket
-            }
-            log.warning("Failed to start accessing user folder — falling back to default")
+        acquireUserBase() ?? acquireDefaultBase()
+    }
+
+    /// The folder the person picked, when there is one and it opens.
+    /// «Opens» is not «takes a recording»: a security scope is handed out
+    /// for a read-only volume too, so a caller about to write has to see
+    /// the write succeed (`SessionFolderPlacement`).
+    static func acquireUserBase() -> AccessTicket? {
+        guard let userURL = resolveUserFolder() else { return nil }
+        if let ticket = acquireAccess(to: userURL, requireWrite: true) {
+            return ticket
         }
-        // Default: inside the app container's Application Support.
-        if let defaultURL = try? FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        ) {
-            return AccessTicket(url: defaultURL, securityScoped: false)
-        }
+        log.warning("Failed to start accessing user folder — falling back to default")
         return nil
+    }
+
+    /// Daisy's own folder, inside Application Support.
+    static func acquireDefaultBase() -> AccessTicket? {
+        defaultBase().map { AccessTicket(url: $0, securityScoped: false) }
     }
 
     /// Default base URL used by SessionStore even when no user
