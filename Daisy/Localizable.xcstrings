@@ -11,6 +11,26 @@
         }
       }
     },
+    "First up today: %@ at %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Первым делом сегодня: %1$@ в %2$@."
+          }
+        }
+      }
+    },
+    "First up tomorrow: %@ at %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Первым делом завтра: %1$@ в %2$@."
+          }
+        }
+      }
+    },
     "Summarize voice notes" : {
       "localizations" : {
         "ru" : {
@@ -27,6 +47,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Саммари голосовых заметок через %@"
+          }
+        }
+      }
+    },
+    "Today: %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сегодня: %@."
+          }
+        }
+      }
+    },
+    "Tomorrow: %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Завтра: %@."
           }
         }
       }

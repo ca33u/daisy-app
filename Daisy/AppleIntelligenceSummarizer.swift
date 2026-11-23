@@ -492,11 +492,13 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
     /// envelope; reuses the fenced `morningBriefUserPrompt`.
     private func morningBriefLede(dossier: String) async throws -> MeetingSummary {
         let session = LanguageModelSession(instructions: """
-        You prepare a busy founder's MORNING BRIEF INTRO. The user message
-        contains today's calendar and the OPEN action items harvested from
+        You prepare a busy founder's DAY BRIEF INTRO. The user message
+        contains a calendar and the OPEN action items harvested from
         their own recent meetings. The UI already shows the raw checkable
         list — your job is ONLY a short narrative intro to the day, NOT a
         restated list.
+
+        \(SummaryPrompt.morningBriefDayRule)
 
         Respond with ONLY the intro paragraph: 2-3 sentences (max 50
         words) — the shape of the day and what deserves attention first,

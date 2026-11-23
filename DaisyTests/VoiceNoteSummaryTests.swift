@@ -516,6 +516,61 @@ struct VoiceNoteSelectionTests {
         #expect(MorningBriefStore.itemsForProvider(items, gate: local).count == 3)
     }
 
+    /// Ledes that invented people over an ordinary calendar, plus the kinds
+    /// of real name that must still pass.
+    @MainActor
+    @Test(arguments: [
+        ("The morning holds the overdue update from Maria and the report for Tom’s onboarding.", false),
+        ("A review of the report from Claire and the promised update from Mark.", false),
+        ("Утро начнётся с отчёта от Марка.", false),
+        ("Марк ждёт отчёт к обеду.", false),
+        ("Клэр ждёт отчёт.", false),
+        ("Марку нужен отчёт.", false),
+        ("Илья ждёт отчёт.", false),
+        ("Отчёт ждёт Марк.", false),
+        ("Maria sent the overdue report.", false),
+        ("The update from Mark is due.", false),
+        ("Tomorrow brings lunch at 12:00, then QBR and Roadmap Review on Tuesday.", true),
+        ("Before lunch, send Boris the contract he asked for.", true),
+        ("Утром отправь договор Марии.", true),
+        ("Мария ждёт договор.", true),
+    ])
+    func aBriefLedeMayNameOnlyWhatsInItsInput(lede: String, grounded: Bool) {
+        let dossier = """
+        TOMORROW'S CALENDAR:
+        - 12:00 Team Lunch
+        - 18:30 QBR
+        - 19:00 Roadmap Review – Tuesday Zoom
+
+        OPEN ACTION ITEMS:
+        - [Nov 20, 2026 · Sync] Boris: send the contract and mark the invoice paid
+        - [Nov 20, 2026 · Звонок] Мария: договор на март
+        """
+        #expect(DayBriefLede.isGrounded(lede, in: dossier) == grounded)
+    }
+
+    private func briefEvent(_ title: String, hoursIntoDay: Double, hours: Double) -> DaisyMeeting {
+        let start = Calendar.current.startOfDay(for: since).addingTimeInterval(hoursIntoDay * 3600)
+        return DaisyMeeting(externalID: nil, localID: title, title: title, startDate: start,
+                            endDate: start.addingTimeInterval(hours * 3600), location: nil, notes: nil,
+                            meetingURL: nil, meetingPlatform: nil, calendarColorHex: nil,
+                            attendees: [], attendeeEmails: [])
+    }
+
+    @Test func aBriefWithoutAModelLeadsWithTheFirstTimedEvent() {
+        let events = [briefEvent("Holiday", hoursIntoDay: 0, hours: 24),
+                      briefEvent("Lunch", hoursIntoDay: 12, hours: 1)]
+        let line = DayBriefLede.calendarLine(events: events, isTomorrow: true) { _ in "12:00" }
+        // Through the catalog: the tests run in the Mac's language.
+        #expect(line == String(localized: "First up tomorrow: \("Lunch") at \("12:00")."))
+    }
+
+    @Test func aBriefOfOnlyAllDayEventsNamesOneWithoutATime() {
+        let line = DayBriefLede.calendarLine(
+            events: [briefEvent("Holiday", hoursIntoDay: 0, hours: 24)], isTomorrow: false)
+        #expect(line == String(localized: "Today: \("Holiday")."))
+    }
+
     @Test func aPreMeetingDossierLeavesOutAVoiceNoteKeptOnThisMac() {
         #expect(PreMeetingBriefStore.sessionsForProvider(summarized, gate: cloudOn).map(\.id) == ["meeting", "noteAfter"])
         #expect(PreMeetingBriefStore.sessionsForProvider(summarized, gate: cloudOff).map(\.id) == ["meeting"])

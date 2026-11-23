@@ -21,6 +21,7 @@
 
 import AppKit
 import Foundation
+import NaturalLanguage
 import Observation
 @preconcurrency import UserNotifications
 import os
@@ -42,6 +43,17 @@ final class MorningBriefStore {
     }
 
     private(set) var ledeState: LedeState = .idle
+
+    /// The card is showing the line built from the calendar, not a model's
+    /// lede. It is never the "already have today's lede" of `prepare`, so
+    /// open items that finish loading still get their real lede.
+    @ObservationIgnored
+    private var showingCalendarLine = false
+
+    /// Bumped whenever a newer answer replaces the one in flight, so a slow
+    /// model reply can't land over the calendar line it no longer describes.
+    @ObservationIgnored
+    private var ledeRequestID = 0
 
     @ObservationIgnored
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "MorningBrief")
@@ -99,28 +111,39 @@ final class MorningBriefStore {
         // Cache key carries WHICH day the lede is about, not just the
         // date: when the agenda rolls over to tomorrow in the evening,
         // the morning's lede must not be reused for it.
-        let today = UsageStats.dayKey(for: Date()) + (scope.isTomorrow ? "-tomorrow" : "-today")
-        // Already have this day's lede in memory — nothing to do.
-        if !force, generatedDayKey == today, case .ready = ledeState { return }
-        // Relaunched the same day: restore the persisted lede instead of
-        // re-running the LLM (local) or re-prompting for consent (cloud).
-        if !force, generatedDayKey == today, let cached = cachedSummary {
-            ledeState = .ready(cached)
-            return
-        }
-        if case .generating = ledeState { return }
-
+        // `-checked`: a lede cached by an earlier build went through no
+        // grounding check and may name people who don't exist.
+        let today = Self.ledeDayKey(isTomorrow: scope.isTomorrow)
         let events = scope.events
         // The brief's lede goes to the summary provider: a voice note's
         // steps only as the note itself could go there (07.11). The card
         // still shows every open step — it reads the store, not this.
         let openItems = Self.itemsForProvider(ActionItemStore.shared.openItems, gate: .current)
-        // Nothing to brief about — the card renders its own empty state;
-        // don't spend an LLM call narrating an empty day.
-        guard !events.isEmpty || !openItems.isEmpty else {
-            ledeState = .unavailable
+        /* With no open items the prompt's "weave in the open loops" has
+           nothing to work with, and the on-device model filled the gap with
+           invented people and reports (Maria, Tom, Claire, Mark). The
+           calendar line needs no model and no consent. The cached lede is
+           left alone: on a cold launch the items may simply not be loaded. */
+        guard !openItems.isEmpty else {
+            showCalendarLine(events: events, isTomorrow: scope.isTomorrow)
             return
         }
+        // Already have this day's lede in memory — nothing to do.
+        if !force, generatedDayKey == today, !showingCalendarLine, case .ready = ledeState { return }
+        // Relaunched the same day: restore the persisted lede instead of
+        // re-running the LLM (local) or re-prompting for consent (cloud).
+        if !force, generatedDayKey == today, let cached = cachedSummary {
+            // Empty: today's lede was rejected. Don't ask the model again,
+            // and write the line from the events still on the agenda.
+            if cached.summary.isEmpty {
+                showCalendarLine(events: events, isTomorrow: scope.isTomorrow)
+            } else {
+                showingCalendarLine = false
+                ledeState = .ready(cached)
+            }
+            return
+        }
+        if case .generating = ledeState { return }
 
         // Effective-local (configured endpoint, not provider kind) —
         // remote-pointed MCP/Ollama must not auto-run. See Summarizer.
@@ -134,27 +157,72 @@ final class MorningBriefStore {
             return
         }
 
+        ledeRequestID += 1
+        let requestID = ledeRequestID
         ledeState = .generating
         let dossier = Self.buildDossier(
             events: events, openItems: openItems, isTomorrow: scope.isTomorrow
         )
         do {
-            let summary = try await Summarizer.shared.runProbe(
-                transcript: dossier,
-                title: "Morning brief",
-                localeHint: nil,
-                task: .morningBrief
-            )
-            ledeState = .ready(summary)
-            generatedDayKey = today
-            cachedSummary = summary
+            /* A task of its own: the card's `.task(id:)` cancels this prepare
+               whenever the agenda changes, and a cancelled model call would
+               leave the card with no intro. The guards below drop a reply
+               that has gone stale. */
+            let summary = try await Task {
+                try await Summarizer.shared.runProbe(
+                    transcript: dossier,
+                    title: "Morning brief",
+                    localeHint: nil,
+                    task: .morningBrief
+                )
+            }.value
             // First successful cloud brief = standing consent for later days.
             if !providerLocal { cloudBriefConsented = true }
+            guard requestID == ledeRequestID else { return }
+            /* The card's re-keyed prepare returned early while this request
+               ran, so a roll-over to another day is picked up here. */
+            let current = Self.briefScope()
+            guard Self.ledeDayKey(isTomorrow: current.isTomorrow) == today else {
+                ledeState = .idle
+                await prepare(settings: settings)
+                return
+            }
+            generatedDayKey = today
+            guard !summary.summary.isEmpty, DayBriefLede.isGrounded(summary.summary, in: dossier) else {
+                log.warning("Morning brief lede named something outside its input; using the calendar line")
+                cachedSummary = Self.ledeSummary("")
+                showCalendarLine(events: current.events, isTomorrow: current.isTomorrow)
+                return
+            }
+            showingCalendarLine = false
+            ledeState = .ready(summary)
+            cachedSummary = summary
             log.info("Morning brief lede ready (\(events.count) meetings, \(openItems.count) open items)")
         } catch {
-            ledeState = .unavailable
+            guard requestID == ledeRequestID else { return }
             log.error("Morning brief lede failed: \(error.localizedDescription, privacy: .public)")
+            guard Self.ledeDayKey(isTomorrow: Self.briefScope().isTomorrow) == today else {
+                ledeState = .idle
+                await prepare(settings: settings)
+                return
+            }
+            ledeState = .unavailable
         }
+    }
+
+    private static func ledeDayKey(isTomorrow: Bool) -> String {
+        UsageStats.dayKey(for: Date()) + (isTomorrow ? "-tomorrow" : "-today") + "-checked"
+    }
+
+    private func showCalendarLine(events: [DaisyMeeting], isTomorrow: Bool) {
+        ledeRequestID += 1
+        showingCalendarLine = true
+        ledeState = DayBriefLede.calendarLine(events: events, isTomorrow: isTomorrow)
+            .map { .ready(Self.ledeSummary($0)) } ?? .unavailable
+    }
+
+    private static func ledeSummary(_ text: String) -> MeetingSummary {
+        MeetingSummary(summary: text, sections: [], actionItems: [], clientFollowUp: "")
     }
 
     /// The open steps the lede's request may carry to the provider the
@@ -328,4 +396,145 @@ final class MorningBriefStore {
             notificationBody: String(localized: "Today's meetings and your open items are waiting in Daisy.")
         )
     }
+}
+
+/// The parts of the card's intro that don't depend on a model answering
+/// well: a line written from the calendar, and the check on a model's lede.
+nonisolated enum DayBriefLede {
+    /// "First up tomorrow: Lunch at 12:00." The header already counts the
+    /// events. An all-day event has no time worth reading out, so the first
+    /// timed event leads; nil when there is nothing on the calendar.
+    static func calendarLine(
+        events: [DaisyMeeting],
+        isTomorrow: Bool,
+        calendar: Calendar = .current,
+        time: (Date) -> String = { $0.formatted(date: .omitted, time: .shortened) }
+    ) -> String? {
+        guard let first = events.first else { return nil }
+        guard let timed = events.first(where: { !isAllDay($0, calendar: calendar) }) else {
+            return isTomorrow
+                ? String(localized: "Tomorrow: \(first.title).")
+                : String(localized: "Today: \(first.title).")
+        }
+        let at = time(timed.startDate)
+        return isTomorrow
+            ? String(localized: "First up tomorrow: \(timed.title) at \(at).")
+            : String(localized: "First up today: \(timed.title) at \(at).")
+    }
+
+    private static func isAllDay(_ event: DaisyMeeting, calendar: Calendar) -> Bool {
+        event.startDate == calendar.startOfDay(for: event.startDate)
+            && event.endDate.timeIntervalSince(event.startDate) >= 23 * 3600
+    }
+
+    /* False when the lede names someone or something the dossier doesn't.
+       NLTagger alone isn't enough: it found Maria and Tom but not Mark, and
+       nothing in Russian. So any capitalized word past a sentence's start
+       has to come from the dossier too. A false alarm costs only the
+       model's prose: the card falls back to the calendar line. */
+    @MainActor
+    static func isGrounded(_ lede: String, in dossier: String) -> Bool {
+        // Only capitalized: the verb in "mark the invoice paid" is not Mark.
+        let known = Set(words(in: dossier).filter { $0.first?.isUppercase == true }.map(fold))
+        return namesToCheck(in: lede).allSatisfy { name in
+            let folded = fold(name)
+            return known.contains(folded)
+                || commonWords.contains(folded)
+                || known.contains { isInflection(folded, of: $0) }
+        }
+    }
+
+    @MainActor
+    private static func namesToCheck(in text: String) -> [String] {
+        var names: [String] = []
+        let tagger = NLTagger(tagSchemes: [.nameType])
+        tagger.string = text
+        tagger.enumerateTags(
+            in: text.startIndex..<text.endIndex, unit: .word, scheme: .nameType,
+            options: [.omitWhitespace, .omitPunctuation, .joinNames]
+        ) { tag, range in
+            if tag == .personalName { names += words(in: String(text[range])) }
+            return true
+        }
+        // German capitalizes every noun, so capitals say nothing there.
+        guard NLLanguageRecognizer.dominantLanguage(for: text) != .german else { return names }
+
+        let sentences = NLTokenizer(unit: .sentence)
+        sentences.string = text
+        sentences.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+            let sentence = words(in: String(text[range]))
+            names += sentence.dropFirst().filter {
+                $0.count > 1 && $0.first?.isUppercase == true
+            }
+            if let opener = sentence.first, mayBeRussianName(opener) { names.append(opener) }
+            return true
+        }
+        return names
+    }
+
+    /* NLTagger finds no Russian names, and a sentence's first word is
+       capitalized anyway. A word the Russian dictionary only knows
+       capitalized is a name; the list holds names that are also ordinary
+       lowercase words there. Without the dictionary, assume a name. */
+    @MainActor
+    private static func mayBeRussianName(_ word: String) -> Bool {
+        guard word.count > 1, word.first?.isUppercase == true, isCyrillic(word) else { return false }
+        if russianNamesThatAreAlsoWords.contains(russianStem(fold(word))) { return true }
+        let checker = NSSpellChecker.shared
+        guard checker.availableLanguages.contains("ru") else { return true }
+        return checker.checkSpelling(
+            of: word.lowercased(), startingAt: 0, language: "ru",
+            wrap: false, inSpellDocumentWithTag: 0, wordCount: nil
+        ).location != NSNotFound
+    }
+
+    /// Stems, so "Марку" and "Вере" count as well as "Марк" and "Вера".
+    private static let russianNamesThatAreAlsoWords: Set<String> = Set(
+        ["Марк", "Иван", "Том", "Катя", "Роман", "Вера", "Надежда", "Любовь", "Любви", "Лев", "Льва", "Роза", "Лиля", "Макс", "Глеб", "Слава", "Саша", "Паша", "Маша", "Даша", "Миша", "Коля", "Толя", "Юля", "Оля", "Женя", "Ваня",
+         "Илья", "Максим", "Костя", "Соня", "Рома", "Майя", "Лилия", "Люба", "Валя", "Дима", "Лена", "Таня", "Настя", "Нина", "Галя", "Зина", "Тома", "Гена", "Вова", "Витя", "Петя", "Федя", "Гриша", "Лёша", "Серёжа", "Алла", "Инна", "Яна", "Ира", "Света", "Лариса", "Кира", "Ника", "Дина", "Жанна", "Ян", "Артём", "Тимур", "Денис", "Кирилл", "Егор"]
+            .map { russianStem(fold($0)) }
+    )
+
+    /// A folded word without its case ending: Мария, Марии and Марией all
+    /// give "мари"; Марк gives "марк" and март gives "март".
+    private static func russianStem(_ folded: String) -> String {
+        for ending in ["ои", "еи", "ом", "ем", "ью", "а", "я", "у", "ю", "е", "и", "ы", "ь"]
+        where folded.hasSuffix(ending) && folded.count - ending.count >= 2 {
+            return String(folded.dropLast(ending.count))
+        }
+        return folded
+    }
+
+    private static func isCyrillic(_ word: String) -> Bool {
+        word.unicodeScalars.allSatisfy { (0x0400...0x04FF).contains($0.value) }
+    }
+
+    private static func words(in text: String) -> [String] {
+        var out: [String] = []
+        let tokenizer = NLTokenizer(unit: .word)
+        tokenizer.string = text
+        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+            // "Tom's" is Tom.
+            let word = text[range].split(whereSeparator: { $0 == "'" || $0 == "’" }).first.map(String.init) ?? ""
+            if word.contains(where: \.isLetter) { out.append(word) }
+            return true
+        }
+        return out
+    }
+
+    private static func fold(_ word: String) -> String {
+        word.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+
+    /// Russian declines names: the dossier's "Мария" is "Марии" in a lede.
+    private static func isInflection(_ word: String, of known: String) -> Bool {
+        isCyrillic(word) && isCyrillic(known) && russianStem(word) == russianStem(known)
+    }
+
+    /// Days and months are capitalized in English without being anyone.
+    private static let commonWords: Set<String> = {
+        var english = Calendar(identifier: .gregorian)
+        english.locale = Locale(identifier: "en_US")
+        return Set((english.weekdaySymbols + english.monthSymbols + ["Today", "Tomorrow"]).map(fold))
+    }()
 }
