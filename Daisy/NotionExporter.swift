@@ -2,9 +2,10 @@
 //  NotionExporter.swift
 //  Daisy
 //
-//  Pushes a finished meeting (summary + transcript) into Notion as a new
-//  child page under the user's configured parent page. Uses the official
-//  REST API directly — no third-party SDK.
+//  Pushes a finished meeting (summary + transcript) into Notion: a child
+//  page under the parent the person set, a row of a database, or a meeting
+//  note (`NotionMeetingNote`). Uses the official REST API directly — no
+//  third-party SDK.
 //
 
 import Foundation
@@ -27,17 +28,22 @@ actor NotionExporter {
         case invalidParentID
         case httpError(Int, String)
         case decodingFailed(String)
+        /// Part of the meeting is in Notion, and the page couldn't be
+        /// taken back.
+        case incompletePage
 
         var errorDescription: String? {
             switch self {
             case .missingCredentials:
-                return String(localized: "Notion token or parent page ID is missing. Set them in \(SettingsRow.notion.path).")
+                return String(localized: "Notion isn’t set up yet, finish it in \(SettingsRow.notion.path)")
             case .invalidParentID:
                 return "Notion parent ID looks malformed (expecting 32 hex chars)."
             case .httpError(let code, let body):
                 return "Notion API error \(code): \(body)"
             case .decodingFailed(let msg):
                 return "Could not decode Notion response: \(msg)"
+            case .incompletePage:
+                return String(localized: "Notion took only part of the meeting, an incomplete page is left there")
             }
         }
     }
@@ -49,6 +55,9 @@ actor NotionExporter {
     /// rendered meeting summary + transcript. Returns the canonical URL
     /// to the new page.
     func createMeetingPage(_ data: MeetingExportData) async throws -> URL {
+        if await readParentKind() == NotionMeetingNote.kind {
+            return try await createMeetingNote(data)
+        }
         guard let token = await readCredential(SecretKey.notionToken),
               let rawParent = await readCredential(SecretKey.notionParentID),
               !token.isEmpty, !rawParent.isEmpty else {
@@ -67,14 +76,49 @@ actor NotionExporter {
         // explicit so the async hop is visible at the call site.
         let parentKind = await readParentKind()
 
-        let body = buildPageJSON(parentID: parentID, data: data, parentKind: parentKind)
-        return try await post(body, token: token)
+        var body = buildPageJSON(parentID: parentID, data: data, parentKind: parentKind)
+        // A long meeting is more blocks than one request takes: the page
+        // with the first of them, the rest appended in order.
+        let batches = Self.batches(body["children"] as? [[String: Any]] ?? [])
+        body["children"] = batches.first ?? []
+        let page = try await post(body, token: token)
+        do {
+            for batch in batches.dropFirst() {
+                try await append(batch, toPage: page.id, token: token)
+            }
+        } catch {
+            // Half a meeting is not a page: it goes to Notion's trash, so
+            // sending again doesn't leave two. In a task of its own — a
+            // cancelled send takes its page back too.
+            let id = page.id
+            guard await Task(operation: { await self.trash(page: id, token: token) }).value else {
+                throw NotionError.incompletePage
+            }
+            throw error
+        }
+        ImprovementStats.record(.exportNotion)
+        return page.url
     }
 
     /// Backlog 24 М-14: one next step as its own page, in the same parent
     /// as the meetings. Marked as a step by its title, not a column — a
     /// «Type» property would fail on every database that has none.
+    ///
+    /// Beside meeting notes there is no parent: the step is a private page
+    /// of the token's owner (Notion allows that to a personal token).
     func createActionPage(title: String, lines: [String]) async throws -> URL {
+        if await readParentKind() == NotionMeetingNote.kind {
+            let body: [String: Any] = [
+                "parent": ["type": "workspace", "workspace": true],
+                "properties": [
+                    "title": ["title": [["type": "text", "text": ["content": title.notionTrimmed]]]]
+                ],
+                "children": lines.filter { !$0.isEmpty }.map(paragraph),
+            ]
+            let page = try await post(body, token: try await personalToken(), personal: true)
+            ImprovementStats.record(.exportNotion)
+            return page.url
+        }
         guard let token = await readCredential(SecretKey.notionToken),
               let rawParent = await readCredential(SecretKey.notionParentID),
               !token.isEmpty, !rawParent.isEmpty else {
@@ -93,10 +137,44 @@ actor NotionExporter {
             ],
             "children": lines.filter { !$0.isEmpty }.map(paragraph),
         ]
-        return try await post(body, token: token)
+        let page = try await post(body, token: token)
+        ImprovementStats.record(.exportNotion)
+        return page.url
     }
 
-    private func post(_ body: [String: Any], token: String) async throws -> URL {
+    private func personalToken() async throws -> String {
+        guard let token = await readCredential(SecretKey.notionToken), !token.isBlank else {
+            throw NotionError.missingCredentials
+        }
+        return token
+    }
+
+    private func createMeetingNote(_ data: MeetingExportData) async throws -> URL {
+        var request = URLRequest(url: NotionMeetingNote.endpoint)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(try await personalToken())", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(NotionMeetingNote.apiVersion, forHTTPHeaderField: "Notion-Version")
+        request.httpBody = try NotionMeetingNote.body(for: data)
+
+        let (responseData, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw NotionError.httpError(0, "No HTTP response.")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let payload = String(data: responseData, encoding: .utf8) ?? "<empty>"
+            log.error("Notion meeting note HTTP \(http.statusCode): \(payload, privacy: .private)")
+            if let failure = NotionMeetingNote.Failure(status: http.statusCode, body: responseData) { throw failure }
+            throw NotionError.httpError(http.statusCode, payload)
+        }
+        let url = NotionMeetingNote.pageURL(fromResponse: responseData)
+        log.info("Created a Notion meeting note at \(url.absoluteString, privacy: .private)")
+        ImprovementStats.record(.exportNotion)
+        return url
+    }
+
+    /// `personal` — the token was to be a personal one, and a refusal says so.
+    private func post(_ body: [String: Any], token: String, personal: Bool = false) async throws -> (url: URL, id: String) {
         var request = URLRequest(url: URL(string: "https://api.notion.com/v1/pages")!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -114,6 +192,7 @@ actor NotionExporter {
             // include the parent_id / database_id we sent, which is a
             // workspace-internal capability identifier.
             log.error("Notion HTTP \(http.statusCode): \(payload, privacy: .private)")
+            if personal, let failure = NotionMeetingNote.Failure(status: http.statusCode, body: responseData) { throw failure }
             throw NotionError.httpError(http.statusCode, payload)
         }
 
@@ -127,8 +206,79 @@ actor NotionExporter {
         // grants read/write access to that page. Status code is fine
         // in logs, the addressable identifier is not.
         log.info("Created Notion page at \(url.absoluteString, privacy: .private)")
-        ImprovementStats.record(.exportNotion)
-        return url
+        return (url, json["id"] as? String ?? "")
+    }
+
+    /// Notion takes a hundred children in a request.
+    nonisolated static func batches<T>(_ items: [T], of size: Int = 100) -> [[T]] {
+        stride(from: 0, to: items.count, by: size).map { Array(items[$0..<min($0 + size, items.count)]) }
+    }
+
+    private func append(_ children: [[String: Any]], toPage id: String, token: String) async throws {
+        guard UUID(uuidString: id) != nil,
+              let url = URL(string: "https://api.notion.com/v1/blocks/\(id)/children") else {
+            throw NotionError.decodingFailed("Missing 'id' field.")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("2022-06-28", forHTTPHeaderField: "Notion-Version")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["children": children])
+        // Only «too many requests» is asked again: that one is known not to
+        // have been taken, and anything else may put the same lines in twice.
+        var attempt = 1
+        while true {
+            let (responseData, response) = try await urlSession.data(for: request)
+            let http = response as? HTTPURLResponse
+            let status = http?.statusCode ?? 0
+            if (200..<300).contains(status) { return }
+            if status == 429, attempt < 3 {
+                attempt += 1
+                try await Task.sleep(for: .seconds(Self.retryDelay(http?.value(forHTTPHeaderField: "Retry-After"))))
+                continue
+            }
+            let payload = String(data: responseData, encoding: .utf8) ?? "<empty>"
+            log.error("Notion append HTTP \(status): \(payload, privacy: .private)")
+            throw NotionError.httpError(status, payload)
+        }
+    }
+
+    /// Seconds to wait, as Notion asks; a second when it doesn't say, and
+    /// not longer than a person would wait on a send.
+    nonisolated static func retryDelay(_ header: String?) -> Int {
+        min(max(header.flatMap { Int($0.trimmingCharacters(in: .whitespaces)) } ?? 1, 1), 30)
+    }
+
+    /// A page made by this send goes to Notion's trash. False when it's
+    /// still there.
+    private func trash(page id: String, token: String) async -> Bool {
+        guard UUID(uuidString: id) != nil, let url = URL(string: "https://api.notion.com/v1/pages/\(id)"),
+              let body = try? JSONSerialization.data(withJSONObject: ["archived": true]) else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("2022-06-28", forHTTPHeaderField: "Notion-Version")
+        request.httpBody = body
+        // Often right after a «too many requests»; asking twice for the
+        // trash does no harm, so whatever failed is asked again.
+        for attempt in 1...3 {
+            let response = try? await urlSession.data(for: request).1 as? HTTPURLResponse
+            let status = response?.statusCode ?? 0
+            if (200..<300).contains(status) { return true }
+            log.error("Notion trash HTTP \(status)")
+            if attempt < 3 {
+                try? await Task.sleep(for: .seconds(Self.retryDelay(response?.value(forHTTPHeaderField: "Retry-After"))))
+            }
+        }
+        return false
+    }
+
+    /// What a send on its own says when it fails.
+    nonisolated static func autoSendFailure(_ error: Error) -> String {
+        if case NotionError.incompletePage = error { return error.localizedDescription }
+        return String(localized: "Auto-send to Notion failed — retry from Library")
     }
 
     // MARK: - Helpers
@@ -138,13 +288,32 @@ actor NotionExporter {
         KeychainStore.get(account: key)
     }
 
-    /// Notion parent kind ("page" or "database") read off the
+    /// Notion parent kind ("page", "database" or "meeting_notes") read off the
     /// `AppSettings` singleton on the main actor. Defaults to
     /// "page" when the value's missing — matches the historical
     /// behaviour before this setting existed.
     @MainActor
     private func readParentKind() -> String {
         UserDefaults.standard.string(forKey: "daisy.notionParentKind") ?? "page"
+    }
+
+    /// Bullets and what's under them as lines, broken where a block would
+    /// pass Notion's 2000 characters.
+    nonisolated static func outlineParagraphs(_ bullets: [SummaryBullet], limit: Int = 1900) -> [String] {
+        func lines(_ bullets: [SummaryBullet], _ level: Int) -> [String] {
+            bullets.flatMap {
+                [String(repeating: "    ", count: level) + "• " + $0.text] + lines($0.children, level + 1)
+            }
+        }
+        var out: [String] = []
+        for line in lines(bullets, 0) {
+            if let last = out.last, last.count + line.count + 1 <= limit {
+                out[out.count - 1] = last + "\n" + line
+            } else {
+                out.append(line)
+            }
+        }
+        return out
     }
 
     private func formatPageID(_ raw: String) -> String {
@@ -183,12 +352,13 @@ actor NotionExporter {
             children.append(heading2(labels.meeting))
             children.append(paragraph(summary.summary))
 
-            // A summary template's sections (backlog 35), each point with
-            // its timecode — the page gets the view the card shows.
-            for section in summary.templated?.sections ?? [] {
+            // The view the card shows: a template's sections (backlog 35)
+            // when there is one, the outline otherwise. A section is as few
+            // blocks as it fits: Notion takes a hundred in a request.
+            for section in summary.templated?.sections ?? summary.sections {
                 children.append(heading2(section.title))
-                for bullet in section.bullets {
-                    children.append(paragraph("• \(bullet.text)"))
+                for part in Self.outlineParagraphs(section.bullets) {
+                    children.append(paragraph(part))
                 }
             }
 

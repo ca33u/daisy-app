@@ -1025,12 +1025,19 @@ final class AppSettings {
     /// Whether the Notion parent ID points at a page (the default,
     /// historical behaviour — Daisy creates the session as a child
     /// page under it) or at a database (Daisy creates the session
-    /// as a database row, with title property "Name"). Stored as a
+    /// as a database row, with title property "Name") — or there is
+    /// no parent and the session becomes a meeting note
+    /// (`NotionMeetingNote`). Stored as a
     /// string for forward compatibility with possible future kinds.
     var notionParentKind: String {
         didSet {
             defaults.set(notionParentKind, forKey: Self.k_notionParentKind)
-            if notionParentKind != oldValue { lastNotionTestPassedAt = nil }
+            guard notionParentKind != oldValue else { return }
+            lastNotionTestPassedAt = nil
+            // The kinds take different tokens and write to different
+            // places: what was agreed to for one isn't for the other, and
+            // each meeting would be a refusal until the test.
+            autoSendNotion = false
         }
     }
 
@@ -1889,7 +1896,7 @@ final class AppSettings {
     }
 
     var hasNotionCredentials: Bool {
-        !notionToken.isBlank && !notionParentID.isBlank
+        Self.notionIsSetUp(token: notionToken, parentID: notionParentID, kind: notionParentKind)
     }
 
     /// Static convenience for places (Toolbar actions in
@@ -1899,7 +1906,14 @@ final class AppSettings {
     nonisolated static var notionConfigured: Bool {
         let token = KeychainStore.get(account: SecretKey.notionToken) ?? ""
         let parent = KeychainStore.get(account: SecretKey.notionParentID) ?? ""
-        return !token.isEmpty && !parent.isEmpty
+        let kind = UserDefaults.standard.string(forKey: k_notionParentKind) ?? "page"
+        return notionIsSetUp(token: token, parentID: parent, kind: kind)
+    }
+
+    /// A meeting note needs no parent: it goes to the person's own meeting
+    /// notes.
+    nonisolated static func notionIsSetUp(token: String, parentID: String, kind: String) -> Bool {
+        !token.isBlank && (kind == NotionMeetingNote.kind || !parentID.isBlank)
     }
 
     /// Read-only static accessor for the summary-language preference,
@@ -2056,7 +2070,7 @@ final class AppSettings {
     private static let k_autoSendNotion = "daisy.autoSendNotion"
     private static let k_lastNotionTestPassedAt = "daisy.lastNotionTestPassedAt"
     private static let k_defaultDestinationID = "daisy.defaultDestinationID"
-    private static let k_notionParentKind = "daisy.notionParentKind"
+    nonisolated private static let k_notionParentKind = "daisy.notionParentKind"
     private static let k_autoSendNotionFolders = "daisy.autoSendNotionFolders"
     private static let k_autoStartFromCalendar = "daisy.autoStartFromCalendar"
     private static let k_calendarAccessGranted = "daisy.calendarAccessGranted"

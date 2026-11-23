@@ -31,6 +31,11 @@ enum ClaudeExporter {
             lines.append("## Meeting")
             lines.append(summary.summary)
             lines.append("")
+            for section in summary.templated?.sections ?? summary.sections {
+                lines.append("## \(section.title)")
+                lines += NotionExporter.outlineParagraphs(section.bullets, limit: .max)
+                lines.append("")
+            }
             if !summary.actionItems.isEmpty {
                 lines.append("## Next actions")
                 for item in summary.actionItems { lines.append("- [ ] \(item)") }

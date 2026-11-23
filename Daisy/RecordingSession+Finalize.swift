@@ -1654,7 +1654,7 @@ extension RecordingSession {
                 log.info("Auto-sent to Notion: \(url.absoluteString, privacy: .private)")
             } catch {
                 log.error("Auto-send to Notion failed: \(error.localizedDescription, privacy: .private)")
-                ToastCenter.shared.show(String(localized: "Auto-send to Notion failed — retry from Library"), style: .warning)
+                ToastCenter.shared.show(NotionExporter.autoSendFailure(error), style: .warning)
                 recordAutoSendFailure(
                     integration: "Notion",
                     kind: "notion",

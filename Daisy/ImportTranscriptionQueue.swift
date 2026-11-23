@@ -608,12 +608,13 @@ final class ImportTranscriptionQueue {
     private func autoSendFinished(_ session: StoredSession, settings: AppSettings) async {
         // The tour's demo meeting is never sent anywhere on its own.
         guard !session.transcriptText.isEmpty, !session.isDemo else { return }
-        if settings.autoSendNotion, settings.hasNotionCredentials,
+        let transcript = TranscriptSpeech.exportBody(session.transcriptText)
+        if settings.autoSendNotion, settings.hasNotionCredentials, !transcript.isEmpty,
            RecordingSession.folderAllowed(session.folderSlug, allowed: settings.autoSendNotionFolders) {
             let export = MeetingExportData(
                 title: session.title,
                 summary: session.summary,
-                transcriptChunks: SessionDetailView.chunkTranscript(session.transcriptText),
+                transcriptChunks: SessionDetailView.chunkTranscript(transcript),
                 durationSeconds: session.durationSec,
                 locale: session.locale,
                 startedAt: session.startedAt
@@ -623,7 +624,7 @@ final class ImportTranscriptionQueue {
                 ToastCenter.shared.show(String(localized: "Sent to Notion · \(session.title)"), style: .success)
             } catch {
                 log.error("Auto-send to Notion failed: \(error.localizedDescription, privacy: .private)")
-                ToastCenter.shared.show(String(localized: "Auto-send to Notion failed — retry from Library"), style: .warning)
+                ToastCenter.shared.show(NotionExporter.autoSendFailure(error), style: .warning)
                 RecordingSession.recordSendFailure(
                     in: session.directoryURL, integration: "Notion", kind: "notion",
                     destination: "user's Notion workspace", error: error.localizedDescription)

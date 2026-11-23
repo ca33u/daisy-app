@@ -263,7 +263,9 @@ struct ConnectionsView: View {
             Toggle("", isOn: $settings.autoSendNotion)
                 .labelsHidden()
                 .toggleStyle(.switch)
-                .disabled(!settings.hasNotionCredentials || settings.lastNotionTestPassedAt == nil)
+                // Turning it off is always possible.
+                .disabled(!settings.autoSendNotion
+                          && (!settings.hasNotionCredentials || settings.lastNotionTestPassedAt == nil))
                 .help(notionToggleHelp)
         }
         .sheet(isPresented: $showingNotionSettings) {
@@ -302,7 +304,7 @@ struct ConnectionsView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Notion")
                                 .font(.headline)
-                            Text("Send finished recordings into a Notion page or database.")
+                            Text("Send finished recordings to Notion")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -310,28 +312,7 @@ struct ConnectionsView: View {
                         notionStatusBadge
                     }
 
-                    LabeledContent {
-                        SecureField("", text: $settings.notionToken, prompt: Text("secret_…"))
-                            .textFieldStyle(.roundedBorder)
-                            .labelsHidden()
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity)
-                    } label: {
-                        labelWithCaption(String(localized: "Integration secret"),
-                                         caption: String(localized: "Paste your Notion integration secret."))
-                    }
-
-                    LabeledContent {
-                        TextField("", text: $settings.notionParentID, prompt: Text("a1b2c3d4…"))
-                            .textFieldStyle(.roundedBorder)
-                            .labelsHidden()
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity)
-                    } label: {
-                        labelWithCaption(String(localized: "Parent ID"),
-                                         caption: String(localized: "The 32-character ID at the end of the page or database URL — with or without dashes."))
-                    }
-
+                    // First: what the token must be depends on it.
                     LabeledContent {
                         // pickerStyle(.menu) instead of .segmented:
                         // macOS 26.2 ships an Apple-side UAF in the Swift
@@ -339,20 +320,54 @@ struct ConnectionsView: View {
                         // SwiftUI Picker(.segmented) on layout (it routes
                         // through SystemSegmentedControl, an NSSegmentedControl
                         // wrapper — same UAF family as the NavigationSplitView
-                        // sidebar toggle we removed in build 33). 2 options
+                        // sidebar toggle we removed in build 33). 3 options
                         // fit the menu naturally in this LabeledContent
                         // trailing slot. Restore .segmented post-26.x once
                         // Apple ships the fix.
                         Picker("", selection: $settings.notionParentKind) {
                             Text("Page").tag("page")
                             Text("Database").tag("database")
+                            Text("Meeting note").tag(NotionMeetingNote.kind)
                         }
                         .labelsHidden()
                         .pickerStyle(.menu)
                         .fixedSize()
+                        .disabled(notionTestResult == .testing)
+                        .onChange(of: settings.notionParentKind) { notionTestResult = .idle }
                     } label: {
-                        labelWithCaption(String(localized: "Parent type"),
-                                         caption: String(localized: "Page — Daisy adds the recording as a child page underneath. Database — adds a row (title column must be named \"Name\")."))
+                        labelWithCaption(String(localized: "Where to"),
+                                         caption: notionSendsMeetingNotes
+                                         ? String(localized: "Daisy adds the recording to your meeting notes in Notion: the summary and transcript go into the Notes tab, without a link to the calendar event")
+                                         : String(localized: "Page — Daisy adds the recording as a child page underneath. Database — adds a row (title column must be named \"Name\")."))
+                    }
+
+                    LabeledContent {
+                        SecureField("", text: $settings.notionToken, prompt: Text(verbatim: "ntn_…"))
+                            .textFieldStyle(.roundedBorder)
+                            .labelsHidden()
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity)
+                    } label: {
+                        if notionSendsMeetingNotes {
+                            labelWithCaption(String(localized: "Personal access token"),
+                                             caption: String(localized: "It acts as you in Notion: it reads and changes everything you can"))
+                        } else {
+                            labelWithCaption(String(localized: "Integration secret"),
+                                             caption: String(localized: "Paste your Notion integration secret."))
+                        }
+                    }
+
+                    if !notionSendsMeetingNotes {
+                        LabeledContent {
+                            TextField("", text: $settings.notionParentID, prompt: Text("a1b2c3d4…"))
+                                .textFieldStyle(.roundedBorder)
+                                .labelsHidden()
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity)
+                        } label: {
+                            labelWithCaption(String(localized: "Parent ID"),
+                                             caption: String(localized: "The 32-character ID at the end of the page or database URL — with or without dashes."))
+                        }
                     }
 
                     HStack {
@@ -365,7 +380,13 @@ struct ConnectionsView: View {
                         .disabled(notionTestResult == .testing || !settings.hasNotionCredentials)
                     }
 
-                    Text("Make an internal integration at notion.so/profile/integrations, then share the parent page or database with it. Test creates a probe page you can delete.")
+                    Group {
+                        if notionSendsMeetingNotes {
+                            Text("Make a personal access token at notion.so/developers/tokens, with the Notion API capability. It expires in a year at most. Test creates a probe note you can delete")
+                        } else {
+                            Text("Make an internal integration at notion.so/profile/integrations, then share the parent page or database with it. Test creates a probe page you can delete.")
+                        }
+                    }
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -384,6 +405,10 @@ struct ConnectionsView: View {
             .padding(16)
         }
         .background(Color.daisyBgPrimary)
+    }
+
+    private var notionSendsMeetingNotes: Bool {
+        settings.notionParentKind == NotionMeetingNote.kind
     }
 
     /// Right-of-title badge — same vocabulary as the old section
@@ -411,7 +436,7 @@ struct ConnectionsView: View {
         // (secret / parent / Test connection) lives in that sheet, not
         // inline, so the copy points at the gear rather than "below".
         if !settings.hasNotionCredentials {
-            return String(localized: "Send finished recordings to Notion as a child page or a database row. Set it up in the gear.")
+            return String(localized: "Send finished recordings to Notion as a page, a database row or a meeting note, set it up in the gear")
         }
         if settings.lastNotionTestPassedAt == nil {
             return String(localized: "Run Test connection in the gear first — auto-send only turns on once it passes.")
@@ -441,23 +466,33 @@ struct ConnectionsView: View {
 
     private func testNotion() async {
         notionTestResult = .testing
+        // What is being tested: a field changed meanwhile isn't.
+        let tested = (settings.notionParentKind, settings.notionToken, settings.notionParentID)
         let probe = MeetingExportData(
             title: "Daisy — Connection test",
             summary: nil,
-            transcriptChunks: ["This page was created by Daisy as a connection test. You can safely delete it."],
+            transcriptChunks: ["Daisy made this as a connection test. You can safely delete it."],
             durationSeconds: 0,
             locale: "en",
             startedAt: Date()
         )
         do {
             let url = try await NotionExporter.shared.createMeetingPage(probe)
-            notionTestResult = .success("Test page created in Notion.")
+            NSWorkspace.shared.open(url)
+            guard tested == (settings.notionParentKind, settings.notionToken, settings.notionParentID) else {
+                notionTestResult = .idle
+                return
+            }
+            notionTestResult = .success(String(localized: "Test sent to Notion"))
             // Mark proven-working — the auto-send toggle's enabled
             // gate flips only after this timestamp exists.
             settings.lastNotionTestPassedAt = Date()
-            NSWorkspace.shared.open(url)
         } catch {
-            notionTestResult = .failure("Couldn't reach Notion — \(error.localizedDescription)")
+            guard tested == (settings.notionParentKind, settings.notionToken, settings.notionParentID) else {
+                notionTestResult = .idle
+                return
+            }
+            notionTestResult = .failure(String(localized: "Notion: \(error.localizedDescription)"))
         }
     }
 

@@ -2481,6 +2481,16 @@
         }
       }
     },
+    "Meeting note" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заметка встречи"
+          }
+        }
+      }
+    },
     "Meeting notes" : {
       "localizations" : {
         "ru" : {
@@ -12002,16 +12012,6 @@
         }
       }
     },
-    "Daisy can’t read Claude Desktop’s configuration. Use the manual setup below instead." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daisy не может прочитать конфигурацию Claude Desktop. Воспользуйтесь ручной настройкой ниже."
-          }
-        }
-      }
     "Daisy can’t write to the recordings folder" : {
       "localizations" : {
         "ru" : {
@@ -12022,6 +12022,16 @@
         }
       }
     },
+    "Daisy can’t read Claude Desktop’s configuration. Use the manual setup below instead." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy не может прочитать конфигурацию Claude Desktop. Воспользуйтесь ручной настройкой ниже."
+          }
+        }
+      }
     },
     "Daisy can’t read Cursor’s MCP configuration — see below." : {
       "extractionState" : "stale",
@@ -15938,6 +15948,16 @@
         }
       }
     },
+    "It acts as you in Notion: it reads and changes everything you can" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Действует в Notion от твоего имени: читает и меняет всё, что можешь ты"
+          }
+        }
+      }
+    },
     "It's been quiet for a while." : {
       "localizations" : {
         "ru" : {
@@ -16811,6 +16831,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Отправить решения и шаги письмом участникам встречи."
+          }
+        }
+      }
+    },
+    "Make a personal access token at notion.so/developers/tokens, with the Notion API capability. It expires in a year at most. Test creates a probe note you can delete" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Создай личный токен доступа на notion.so/developers/tokens, с возможностью Notion API. Он действует не дольше года. Проверка создаёт тестовую заметку, которую можно удалить"
           }
         }
       }
@@ -18037,6 +18067,16 @@
         }
       }
     },
+    "No space on the disk for a recording" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На диске нет места для записи"
+          }
+        }
+      }
+    },
     "No speech detected in the archived audio." : {
       "localizations" : {
         "ru" : {
@@ -18063,16 +18103,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Речь не обнаружена."
-          }
-        }
-      }
-    },
-    "No space on the disk for a recording" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "На диске нет места для записи"
           }
         }
       }
@@ -18548,6 +18578,26 @@
         }
       }
     },
+    "Notion doesn’t accept this token" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notion не принимает этот токен"
+          }
+        }
+      }
+    },
+    "Notion meeting notes need a personal access token, not an integration secret" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для заметок встреч Notion нужен личный токен доступа, а не секрет интеграции"
+          }
+        }
+      }
+    },
     "Notion page created" : {
       "localizations" : {
         "ru" : {
@@ -18574,6 +18624,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Настройки Notion"
+          }
+        }
+      }
+    },
+    "Notion took only part of the meeting, an incomplete page is left there" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notion принял только часть встречи, там осталась неполная страница"
           }
         }
       }
@@ -19455,12 +19515,12 @@
         }
       }
     },
-    "Parent type" : {
+    "Test sent to Notion" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Тип родителя"
+            "value" : "Тест отправлен в Notion"
           }
         }
       }
@@ -19644,6 +19704,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Личное"
+          }
+        }
+      }
+    },
+    "Personal access token" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Личный токен доступа"
           }
         }
       }
@@ -20782,6 +20852,16 @@
         }
       }
     },
+    "Recording didn’t start" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запись не началась"
+          }
+        }
+      }
+    },
     "Recording without audio" : {
       "localizations" : {
         "ru" : {
@@ -20843,6 +20923,16 @@
         }
       }
     },
+    "Recordings folder unavailable, saving to Daisy’s own" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Папка записей недоступна, сохраняю в собственную папку Daisy"
+          }
+        }
+      }
+    },
     "Recordings from the iPhone: failed — %@" : {
       "comment" : "The \"failed\" case is not used.",
       "isCommentAutoGenerated" : true,
@@ -20852,16 +20942,6 @@
             "state" : "translated",
             "value" : "Записи с iPhone: ошибка — %@"
           }
-    "Recording didn’t start" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Запись не началась"
-          }
-        }
-      }
-    },
         }
       }
     },
@@ -20923,16 +21003,6 @@
       }
     },
     "Records the other side of meetings — sound only, without the screen." : {
-    "Recordings folder unavailable, saving to Daisy’s own" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Папка записей недоступна, сохраняю в собственную папку Daisy"
-          }
-        }
-      }
-    },
       "localizations" : {
         "ru" : {
           "stringUnit" : {
@@ -21874,16 +21944,6 @@
         }
       }
     },
-    "secret_…" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "secret_…"
-          }
-        }
-      }
-    },
     "Select a recording" : {
       "localizations" : {
         "ru" : {
@@ -21968,22 +22028,22 @@
         }
       }
     },
-    "Send finished recordings into a Notion page or database." : {
+    "Send finished recordings to Notion" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Отправляй готовые записи на страницу или в базу данных Notion."
+            "value" : "Отправляй готовые записи в Notion"
           }
         }
       }
     },
-    "Send finished recordings to Notion as a child page or a database row. Set it up in the gear." : {
+    "Send finished recordings to Notion as a page, a database row or a meeting note, set it up in the gear" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Отправляй готовые записи в Notion как дочернюю страницу или строку базы данных. Настрой через шестерёнку."
+            "value" : "Отправляй готовые записи в Notion страницей, строкой базы данных или заметкой встречи, настрой через шестерёнку"
           }
         }
       }
@@ -24072,6 +24132,16 @@
         }
       }
     },
+    "The transcript doesn’t fit into one Notion note, the rest is in Daisy" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Транскрипт не помещается в одну заметку Notion, остальное в Daisy"
+          }
+        }
+      }
+    },
     "The transcript evidence for %@ could not be verified." : {
       "localizations" : {
         "ru" : {
@@ -25324,6 +25394,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Во время записи отметь минуту, на которой ты находишься — она попадёт в транскрипт и возглавит саммари"
+          }
+        }
+      }
+    },
+    "Where to" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Куда"
           }
         }
       }
@@ -27229,6 +27309,16 @@
         }
       }
     },
+    "Daisy adds the recording to your meeting notes in Notion: the summary and transcript go into the Notes tab, without a link to the calendar event" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy добавляет запись в твои заметки встреч в Notion: саммари и транскрипт попадают на вкладку Notes, без привязки к событию календаря"
+          }
+        }
+      }
+    },
     "Daisy can't find the %@ command. Install it and sign in (run it once in Terminal), or set its full path in %@." : {
       "localizations" : {
         "ru" : {
@@ -27355,12 +27445,12 @@
         }
       }
     },
-    "Notion token or parent page ID is missing. Set them in %@." : {
+    "Notion isn’t set up yet, finish it in %@" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не указан токен Notion или ID родительской страницы. Укажи их в «%@»."
+            "value" : "Notion ещё не настроен, закончи в «%@»"
           }
         }
       }

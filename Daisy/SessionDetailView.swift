@@ -3158,7 +3158,7 @@ struct SessionDetailView: View {
     }
 
     private func sendToNotion() async {
-        if session.transcriptText.isEmpty {
+        if TranscriptSpeech.exportBody(session.transcriptText).isEmpty {
             ToastCenter.shared.show(String(localized: "No transcript to send"), style: .warning)
             return
         }
@@ -3187,7 +3187,7 @@ struct SessionDetailView: View {
     }
 
     private func sendToClaude() {
-        if session.transcriptText.isEmpty {
+        if TranscriptSpeech.exportBody(session.transcriptText).isEmpty {
             ToastCenter.shared.show(String(localized: "No transcript to send"), style: .warning)
             return
         }
@@ -3208,7 +3208,7 @@ struct SessionDetailView: View {
     /// Build a MeetingExportData snapshot from this stored session so we
     /// can reuse the existing Notion + Claude exporters.
     private func exportData() -> MeetingExportData {
-        let chunks = Self.chunkTranscript(session.transcriptText)
+        let chunks = Self.chunkTranscript(TranscriptSpeech.exportBody(session.transcriptText))
         return MeetingExportData(
             title: session.title,
             summary: session.summary,
