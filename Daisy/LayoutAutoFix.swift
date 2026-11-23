@@ -134,7 +134,7 @@ final class LayoutAutoFix {
     /// onboarding caption — `auto=true running=false` with no reason is
     /// the exact line a bug report once cost a day to.
     private(set) var conflictingSwitcherName: String?
-    private let host = TapHost()
+    private let host = TapHost(name: "app.essazanov.Daisy.layout-tap")
     /// Read for `layoutFixSwitchesSource` only. A missing reference means
     /// "don't switch", the quieter of the two behaviours.
     private weak var settings: AppSettings?
@@ -1204,7 +1204,7 @@ final class LayoutAutoFix {
 /// Owns the thread the event tap runs on. Its own run loop, because an
 /// active tap makes every keystroke on the Mac wait for our callback and
 /// the main actor is busy with recording, transcription and SwiftUI.
-nonisolated private final class TapHost: @unchecked Sendable {
+nonisolated final class TapHost: @unchecked Sendable {
     /// CF types carry no `Sendable` conformance and this one doesn't need
     /// it: the source is handed to exactly one thread and never read again.
     /// The box is what says so out loud — `OSAllocatedUnfairLock` would
@@ -1215,6 +1215,9 @@ nonisolated private final class TapHost: @unchecked Sendable {
     }
 
     private let started = OSAllocatedUnfairLock<Bool>(initialState: false)
+    private let name: String
+
+    init(name: String) { self.name = name }
 
     /// Started once per process, and deliberately without a `stop`: taking
     /// a run loop down while the window server may be inside our callback
@@ -1236,7 +1239,7 @@ nonisolated private final class TapHost: @unchecked Sendable {
             // events to the tap callback.
             CFRunLoopRun()
         }
-        thread.name = "app.essazanov.Daisy.layout-tap"
+        thread.name = name
         // The keyboard waits on this thread. Nothing on the machine has a
         // better claim to being scheduled.
         thread.qualityOfService = .userInteractive

@@ -17,11 +17,14 @@
 //   2. Write the transcript and simulate ⌘V so the text lands in whatever
 //      field the user has focused. When permission is missing, fall back
 //      to a toast prompting manual ⌘V.
-//   3. After a 10 s grace window, restore the previous clipboard
+//   3. After a grace window (4 s when Daisy pasted, 10 s when the person
+//      is asked to), restore the previous clipboard
 //      so the user's existing copy/paste state isn't permanently
 //      clobbered by a one-off dictation. Skipped if the user has
 //      already copied something else (detected via the pasteboard
-//      change counter) or dictated again (cancellable timer).
+//      change counter) or dictated again (cancellable timer). Sooner
+//      than that when the person presses ⌘V themselves
+//      (`ClipboardReturnWatch`).
 //
 
 import AppKit
@@ -52,6 +55,7 @@ final class DictationPaste {
 
     private var pendingSnapshot: ClipboardSnapshot?
     private var restoreTimer: Timer?
+    private var returnWatch: UUID?
 
     /// Total seconds the transcript stays on the clipboard before
     /// we (optionally) restore the previous contents. Long enough
@@ -454,6 +458,16 @@ final class DictationPaste {
                 self?.restoreClipboardIfUnchanged()
             }
         }
+        // The person's own ⌘V meanwhile gets their clipboard, not this
+        // text. Only when Daisy pasted: after «Press ⌘V» it is this text
+        // they were told to paste. And not with nothing to give back: an
+        // empty clipboard is no answer to a ⌘V.
+        if didAutoPaste, !snapshot.isEmpty {
+            returnWatch = ClipboardReturnWatch.shared.arm { [weak self] in
+                self?.restoreTimer?.invalidate()
+                self?.restoreClipboardIfUnchanged()
+            }
+        }
 
         presentLandedNowhereBubbleIfNeeded(transcript, context: context, axOutcome: axOutcome)
     }
@@ -844,6 +858,11 @@ final class DictationPaste {
         // ⌘V (paste) rather than a plain "v" character.
         vDown.flags = .maskCommand
         vUp.flags = .maskCommand
+        // Ours, so that neither the layout watcher nor the watch for the
+        // person's own paste takes it for theirs.
+        for event in [cmdDown, vDown, vUp, cmdUp] {
+            event.setIntegerValueField(.eventSourceUserData, value: SyntheticEvents.marker)
+        }
 
         // Brief settle delay BEFORE posting — when the user
         // releases the hotkey, focus may not have fully resolved
@@ -988,6 +1007,7 @@ final class DictationPaste {
     /// the pasteboard.
     private func restoreClipboardIfUnchanged() {
         defer {
+            disarmReturnWatch()
             pendingSnapshot = nil
             restoreTimer = nil
         }
@@ -1021,5 +1041,11 @@ final class DictationPaste {
         restoreTimer?.invalidate()
         restoreTimer = nil
         pendingSnapshot = nil
+        disarmReturnWatch()
+    }
+
+    private func disarmReturnWatch() {
+        ClipboardReturnWatch.shared.disarm(returnWatch)
+        returnWatch = nil
     }
 }

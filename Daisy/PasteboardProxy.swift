@@ -48,6 +48,7 @@ final class PasteboardProxy {
     private var restoreTask: Task<Void, Never>?
     private var pendingSnapshot: [[String: Data]]?
     private var pendingChangeCount = 0
+    private var returnWatch: UUID?
 
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "Pasteboard")
 
@@ -94,6 +95,10 @@ final class PasteboardProxy {
     /// copies something else in the meantime — their copy wins over our
     /// courtesy.
     func pasteAndReturn(_ text: String, _ borrow: Borrow) {
+        // A paste of someone else's borrow may still be waiting: one
+        // pending return at a time, or the older one's timer ends this one.
+        restoreTask?.cancel()
+        disarmReturnWatch()
         // Not typing, as far as the layout watcher's tap can tell.
         LayoutAutoFix.forgetAfterOwnInsert()
         NSPasteboard.general.clearContents()
@@ -102,10 +107,14 @@ final class PasteboardProxy {
         postCommandKeystroke(CGKeyCode(kVK_ANSI_V))
 
         pendingSnapshot = borrow.snapshot
+        // The person's own ⌘V meanwhile gets their clipboard.
+        if !borrow.snapshot.isEmpty {
+            returnWatch = ClipboardReturnWatch.shared.arm { [weak self] in self?.cancelPendingRestore() }
+        }
         restoreTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.restoreSeconds))
             guard !Task.isCancelled, let self else { return }
-            defer { self.pendingSnapshot = nil; self.restoreTask = nil }
+            defer { self.pendingSnapshot = nil; self.restoreTask = nil; self.disarmReturnWatch() }
             guard let snapshot = self.pendingSnapshot,
                   NSPasteboard.general.changeCount == self.pendingChangeCount else { return }
             self.restore(snapshot)
@@ -179,6 +188,11 @@ final class PasteboardProxy {
         pasteboard.writeObjects(items)
     }
 
+    private func disarmReturnWatch() {
+        ClipboardReturnWatch.shared.disarm(returnWatch)
+        returnWatch = nil
+    }
+
     /// Settle any outstanding borrow BEFORE a new one starts. Dropping
     /// the pending snapshot instead would lose the user's clipboard for
     /// good: two fixes a second apart, and what they had copied is
@@ -186,6 +200,7 @@ final class PasteboardProxy {
     private func cancelPendingRestore() {
         restoreTask?.cancel()
         restoreTask = nil
+        disarmReturnWatch()
         guard let snapshot = pendingSnapshot else { return }
         pendingSnapshot = nil
         // Only if the user hasn't copied something themselves in the
