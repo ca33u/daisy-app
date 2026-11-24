@@ -253,9 +253,9 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
     //
     // CONFINEMENT: every property below is touched only from the owner's
     // MainActor lifecycle calls (`start()` / `stop()`), never from the IO
-    // block — the block captures the format and converter it needs as
-    // immutable locals precisely so it never has to read this object's
-    // mutable state.
+    // block — what the block needs of formats and converters it keeps
+    // in its own `TapDelivery` precisely so it never has to read this
+    // object's mutable state.
 
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
@@ -269,11 +269,11 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
     private(set) var hostDeviceUID: String = ""
     /// Human-readable host name, for the log report.
     private(set) var hostDeviceName: String = ""
-    /// Format the tap delivers natively, before any conversion.
+    /// Format buffers were taken to come in when IO started, before any
+    /// conversion. Their rate since then is `counters.rate`.
     private(set) var nativeFormat: AVAudioFormat?
-    /// Format the owner will actually see. Equals `pinnedFormat` when a
-    /// conversion is in place, otherwise `nativeFormat`.
-    private(set) var deliveredFormat: AVAudioFormat?
+    /// The rate the tap itself reports, for the log: not what comes.
+    private var reportedRate: Double?
 
     // MARK: - Init
 
@@ -393,11 +393,12 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
             }
             tapID = newTapID
 
-            // 3. Ask the tap what it will hand us.
-            guard let native = Self.tapStreamFormat(tapID: newTapID) else {
+            // 3. Ask the tap what it will hand us: channels and sample
+            //    type. Its rate is the output's it listens to, not ours
+            //    (5c).
+            guard let reported = Self.tapStreamFormat(tapID: newTapID) else {
                 throw DaisyError.audioEngineFailed("Could not read the tap's audio format.")
             }
-            nativeFormat = native
 
             // 4. Pick a device to host the aggregate. The aggregate has to
             //    be built around a REAL output device: a tap-only aggregate
@@ -478,13 +479,26 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
                     lastStreamTerminalType: lastType,
                     hostInputTerminalTypes: hostInputs.map(Self.terminalType(of:)),
                     lastStreamFormat: lastFormat,
-                    tapFormat: (native.sampleRate, native.channelCount),
+                    tapFormat: (reported.sampleRate, reported.channelCount),
                     hostSampleRate: Self.nominalSampleRate(of: host.id)
                 ) else {
                     throw DaisyError.audioEngineFailed(
                         "The tap aggregate on \(host.name) has \(aggregateInputs.count) inputs for \(hostInputs.count) of the host's, the last of type \(lastType) at \(lastFormat.map { "\(Int($0.sampleRate)) Hz × \($0.channels)" } ?? "?") — not the tap's layout."
                     )
                 }
+            }
+
+            // 5c. The rate: the host's clock drives the IOProc, so buffers
+            //     come at the host's rate whatever the tap reports (24.11,
+            //     see `TapRate`). `deliver` watches the clock from there.
+            let rate = TapRateCheck.initial(host: Self.nominalSampleRate(of: host.id),
+                                            aggregate: Self.nominalSampleRate(of: newAggregateID),
+                                            reported: reported.sampleRate)
+            let native = Self.format(reported, at: rate) ?? reported
+            nativeFormat = native
+            reportedRate = reported.sampleRate
+            if native.sampleRate != reported.sampleRate {
+                log.notice("Tap reports \(Int(reported.sampleRate), privacy: .public) Hz, its host runs at \(Int(native.sampleRate), privacy: .public) — taking the host's")
             }
 
             // 6. Pin the downstream format across rebuilds.
@@ -516,13 +530,13 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
             } else {
                 outputFormat = native
             }
-            deliveredFormat = outputFormat
 
             // 7. Register the IOProc. The block captures the format and
-            //    converter as immutable locals rather than reading them
-            //    back off `self`, so the audio thread touches no mutable
-            //    state of this object at all.
-            let capturedConverter = converter
+            //    converter in a box only it touches, on `ioQueue`, rather
+            //    than reading them back off `self`.
+            let delivery = TapDelivery(format: native, converter: converter, outputFormat: outputFormat,
+                                       pinned: pinnedFormat)
+            counters.setRate(native.sampleRate)
             var newProcID: AudioDeviceIOProcID?
             try Self.check(
                 AudioDeviceCreateIOProcIDWithBlock(
@@ -533,9 +547,9 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
                     self?.deliver(
                         inInputData,
                         hostTime: Self.captureHostTime(inInputTime),
-                        format: native,
-                        converter: capturedConverter,
-                        outputFormat: outputFormat
+                        captured: Self.stampedHostTime(inInputTime),
+                        sampleTime: Self.sampleTime(inInputTime),
+                        delivery: delivery
                     )
                 },
                 "AudioDeviceCreateIOProcIDWithBlock"
@@ -625,7 +639,10 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
 
     /// One-line description for the log report.
     var diagnosticsLine: String {
-        let fmt = deliveredFormat.map { "\(Int($0.sampleRate))Hz/\($0.channelCount)ch" } ?? "?"
+        var fmt = nativeFormat.map { "\(Int(counters.rate ?? $0.sampleRate))Hz/\($0.channelCount)ch" } ?? "?"
+        if let reportedRate, let native = nativeFormat, reportedRate != counters.rate ?? native.sampleRate {
+            fmt += " reported=\(Int(reportedRate))Hz"
+        }
         let dropped = droppedBuffers > 0 ? " dropped=\(droppedBuffers)" : ""
         return "tap scope=\(scopeLabel) host=\(hostDeviceName.isEmpty ? "?" : hostDeviceName) format=\(fmt) cycles=\(counters.cycles) delivered=\(counters.delivered)\(dropped)"
     }
@@ -691,16 +708,24 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
     private func deliver(
         _ inInputData: UnsafePointer<AudioBufferList>,
         hostTime: UInt64,
-        format: AVAudioFormat,
-        converter: AVAudioConverter?,
-        outputFormat: AVAudioFormat
+        captured: UInt64?,
+        sampleTime: Double?,
+        delivery: TapDelivery
     ) {
         counters.cycle()
-        guard let copied = Self.pcmBuffer(from: inInputData, format: format) else { return }
+        if let measured = delivery.check.note(hostSeconds: captured.map { AVAudioTime.seconds(forHostTime: $0) },
+                                              sampleTime: sampleTime) {
+            let was = delivery.format.sampleRate
+            let done = delivery.move(to: measured)
+            delivery.check.moved(to: measured, done: done)
+            if done { counters.setRate(measured) }
+            log.error("Tap buffers come at \(Int(measured), privacy: .public) Hz, not \(Int(was), privacy: .public) — \(done ? "corrected" : "no conversion", privacy: .public)")
+        }
+        guard let copied = Self.pcmBuffer(from: inInputData, format: delivery.format) else { return }
 
         let outgoing: AVAudioPCMBuffer
-        if let converter {
-            guard let converted = Self.convert(copied, with: converter, to: outputFormat) else { return }
+        if let converter = delivery.converter {
+            guard let converted = Self.convert(copied, with: converter, to: delivery.outputFormat) else { return }
             outgoing = converted
         } else {
             outgoing = copied
@@ -731,9 +756,18 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
     /// — measured tens of milliseconds. Falls back to now when the HAL
     /// gives no valid host time.
     nonisolated static func captureHostTime(_ time: UnsafePointer<AudioTimeStamp>) -> UInt64 {
+        stampedHostTime(time) ?? mach_absolute_time()
+    }
+
+    /// The HAL's own time for the cycle, nil when it gives none.
+    nonisolated static func stampedHostTime(_ time: UnsafePointer<AudioTimeStamp>) -> UInt64? {
         let stamp = time.pointee
-        guard stamp.mFlags.contains(.hostTimeValid), stamp.mHostTime > 0 else { return mach_absolute_time() }
-        return stamp.mHostTime
+        return stamp.mFlags.contains(.hostTimeValid) && stamp.mHostTime > 0 ? stamp.mHostTime : nil
+    }
+
+    /// The cycle's position on the device's clock, when the HAL gives one.
+    nonisolated static func sampleTime(_ time: UnsafePointer<AudioTimeStamp>) -> Double? {
+        time.pointee.mFlags.contains(.sampleTimeValid) ? time.pointee.mSampleTime : nil
     }
 
     /// Copy a HAL `AudioBufferList` into an owned `AVAudioPCMBuffer`.
@@ -1162,9 +1196,17 @@ nonisolated final class ProcessTapAudioCapture: @unchecked Sendable {
         return (id, uid, stringProperty(id, kAudioObjectPropertyName) ?? uid)
     }
 
+    /// `format` with another sample rate; nil when the HAL wouldn't build it.
+    static func format(_ format: AVAudioFormat, at rate: Double) -> AVAudioFormat? {
+        var asbd = format.streamDescription.pointee
+        guard asbd.mSampleRate != rate else { return format }
+        asbd.mSampleRate = rate
+        return AVAudioFormat(streamDescription: &asbd)
+    }
+
     /// Same comparison the mic path uses before writing into an already
     /// open archive: rate, channels, sample type and interleaving.
-    private static func formatsMatch(_ a: AVAudioFormat, _ b: AVAudioFormat) -> Bool {
+    static func formatsMatch(_ a: AVAudioFormat, _ b: AVAudioFormat) -> Bool {
         a.sampleRate == b.sampleRate
             && a.channelCount == b.channelCount
             && a.commonFormat == b.commonFormat
@@ -1178,8 +1220,51 @@ nonisolated final class TapCounters: @unchecked Sendable {
     private let lock = NSLock()
     private var _cycles: UInt64 = 0
     private var _delivered: UInt64 = 0
+    private var _rate: Double?
     var cycles: UInt64 { lock.withLock { _cycles } }
     var delivered: UInt64 { lock.withLock { _delivered } }
     func cycle() { lock.withLock { _cycles &+= 1 } }
+    /// The rate buffers are taken to come at, for the log report.
+    var rate: Double? { lock.withLock { _rate } }
+    func setRate(_ rate: Double) { lock.withLock { _rate = rate } }
     func deliver() { lock.withLock { _delivered &+= 1 } }
+}
+
+/// The formats the IOProc works in. Touched only on the tap's `ioQueue`.
+nonisolated final class TapDelivery: @unchecked Sendable {
+    /// What a buffer from the HAL is.
+    private(set) var format: AVAudioFormat
+    /// What is handed on, and how `format` gets there when they differ.
+    private(set) var outputFormat: AVAudioFormat
+    private(set) var converter: AVAudioConverter?
+    /// The format a rebuild is held to; nil when buffers go on as they are.
+    private let pinned: AVAudioFormat?
+    var check: TapRateCheck
+
+    init(format: AVAudioFormat, converter: AVAudioConverter?, outputFormat: AVAudioFormat, pinned: AVAudioFormat?) {
+        self.format = format
+        self.converter = converter
+        self.outputFormat = outputFormat
+        self.pinned = pinned
+        check = TapRateCheck(rate: format.sampleRate)
+    }
+
+    /// Buffers are at `rate` from now on. False: it can't be handled, and
+    /// nothing changed.
+    func move(to rate: Double) -> Bool {
+        guard let moved = ProcessTapAudioCapture.format(format, at: rate) else { return false }
+        if let pinned {
+            if ProcessTapAudioCapture.formatsMatch(moved, pinned) {
+                converter = nil
+            } else {
+                guard let conv = AVAudioConverter(from: moved, to: pinned) else { return false }
+                converter = conv
+            }
+            outputFormat = pinned
+        } else {
+            outputFormat = moved
+        }
+        format = moved
+        return true
+    }
 }
