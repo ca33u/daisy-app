@@ -18,9 +18,10 @@
 //  Safe-by-default: `audioRetentionDays == 0` ⇒ no-op. Default
 //  changed from 0 to 1 (24-hour retention) in 1.0.6.9; users
 //  who explicitly picked a value keep it. `runNow()` ignores
-//  the cutoff entirely and purges all audio archives (for the
-//  Settings → Clear audio cache button — manual flush after the
-//  user accepts a destructive confirm alert).
+//  the cutoff entirely and purges the archives of every transcribed
+//  recording (for Settings → Delete audio files — manual flush after
+//  the user accepts a destructive confirm alert). Imported audio and
+//  recordings without a transcript keep theirs.
 //
 
 import DaisyCore
@@ -135,9 +136,9 @@ enum AudioRetentionSweep {
         }
     }
 
-    /// Immediate manual purge — deletes all known audio archives in
-    /// every session directory, ignoring the user's retention
-    /// setting. Backs the Settings → "Clear audio cache" button.
+    /// Immediate manual purge — deletes the archives retention may remove
+    /// (`purgeableArchives`) of every transcribed session, whatever the
+    /// retention setting. Backs Settings → "Delete audio files".
     /// Returns the freed-bytes count via the optional callback so
     /// the UI can display "Freed X MB". Best-effort: per-file
     /// failures are logged and skipped.

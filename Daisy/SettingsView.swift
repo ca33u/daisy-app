@@ -991,7 +991,7 @@ struct SettingsView: View {
         //   - "Audio cache was already empty" → "Nothing to clear —
         //     audio is already gone" mirrors the row caption when
         //     idle so the language is consistent before/after.
-        .alert("Delete all audio files?", isPresented: $showingClearAudioConfirm) {
+        .alert("Delete audio files?", isPresented: $showingClearAudioConfirm) {
             Button("Delete", role: .destructive) {
                 // The sweep refuses to run while a session is being
                 // transcribed (it would read the archive out from under
@@ -1026,7 +1026,9 @@ struct SettingsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Daisy deletes the audio from every session right now. Transcripts, summaries and screenshots stay. This can't be undone.")
+            // What `AudioRetentionSweep` leaves: imports, and audio that
+            // is the only copy of what was said.
+            Text("Daisy deletes the audio of transcribed recordings right now. Imported audio and the audio of recordings without a transcript stay, as do transcripts, summaries and screenshots. This can’t be undone")
         }
     }
 

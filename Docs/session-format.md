@@ -937,6 +937,12 @@ transcript exists — at least one non-empty line after the literal
 `## Transcript` heading. Not a flag, not a cached value. If the file is
 missing, unreadable, or cloud-evicted, the answer is no.
 
+Imported audio is the person's own file, and the sweep never removes it,
+with or without a transcript: an imported `.caf` is kept as
+`system_audio.caf`, the name of a recording's own archive. An import is
+told by `import.json` (§5), `daisy_imported: true` or
+`daisy_origin: import`.
+
 ### 7.5 Deleting
 
 A bulk delete must always exclude the folder currently being recorded.

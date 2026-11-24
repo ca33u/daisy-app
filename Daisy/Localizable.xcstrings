@@ -12238,12 +12238,12 @@
         }
       }
     },
-    "Daisy deletes the audio from every session right now. Transcripts, summaries and screenshots stay. This can't be undone." : {
+    "Daisy deletes the audio of transcribed recordings right now. Imported audio and the audio of recordings without a transcript stay, as do transcripts, summaries and screenshots. This can’t be undone" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Daisy удалит аудио из всех записей прямо сейчас. Транскрипты, саммари и скриншоты останутся. Это действие нельзя отменить."
+            "value" : "Daisy удалит аудио расшифрованных записей прямо сейчас. Импортированное аудио и аудио записей без транскрипта останутся, как и транскрипты, саммари и скриншоты. Это действие нельзя отменить"
           }
         }
       }
@@ -13315,16 +13315,6 @@
         }
       }
     },
-    "Delete all audio files?" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Удалить все аудиофайлы?"
-          }
-        }
-      }
-    },
     "Delete audio after" : {
       "localizations" : {
         "ru" : {
@@ -13341,6 +13331,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Удалить аудиофайлы"
+          }
+        }
+      }
+    },
+    "Delete audio files?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить аудиофайлы?"
           }
         }
       }
