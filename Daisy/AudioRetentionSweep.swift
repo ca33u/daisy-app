@@ -23,6 +23,7 @@
 //  user accepts a destructive confirm alert).
 //
 
+import DaisyCore
 import Foundation
 import os
 
@@ -41,10 +42,8 @@ enum AudioRetentionSweep {
 
     /// Audio filenames the sweep is allowed to remove. Anything else
     /// in a session directory (transcript.md, summary.json,
-    /// speakers.json, screenshots/) is preserved. Deliberately `.caf`
-    /// only: imported audio (`system_audio.m4a` etc., see
-    /// `AudioImporter`) is the person's own file — for a `.move` import
-    /// it is the ONLY copy — so retention never touches it.
+    /// speakers.json, screenshots/) is preserved. Imported audio is
+    /// never removed, whatever its name (`purgeableArchives`).
     nonisolated private static let purgeableNames: Set<String> = [
         "microphone.caf",
         "system_audio.caf",
@@ -57,6 +56,34 @@ enum AudioRetentionSweep {
         "microphone.part",
         "system_audio.part",
     ]
+
+    /// The raw archives in `directory` that retention may remove. None in
+    /// an imported session: its audio is the person's own file — for a
+    /// `.move` import the only copy outside the Trash. Its name alone
+    /// doesn't say so: an imported `.caf` is kept as `system_audio.caf`,
+    /// which is what a recording of Daisy's own is called, and up to and
+    /// including 1.0.8.56 it was deleted as one (found 24.11).
+    ///
+    /// Told by the sidecar, which stays after the first transcription, or
+    /// by the keys in the transcript: a session made by transcribing an
+    /// import again has a copy of its audio and the key, not the sidecar.
+    /// `daisy_imported` is the Mac's, `daisy_origin: import` the phone's.
+    nonisolated static func purgeableArchives(in directory: URL) -> [URL] {
+        guard let inner = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ), !inner.contains(where: { $0.lastPathComponent == ImportMarker.fileName }) else { return [] }
+        let archives = inner.filter { url in
+            let name = url.lastPathComponent
+            return purgeableNames.contains(name) || purgeablePrefixes.contains { name.hasPrefix($0) }
+        }
+        guard !archives.isEmpty else { return [] }
+        let transcript = (try? String(contentsOf: directory.appendingPathComponent("transcript.md"), encoding: .utf8)) ?? ""
+        let imported = SessionAudioProcessing.frontmatterValue("daisy_imported", in: transcript) == "true"
+            || SessionAudioProcessing.frontmatterValue("daisy_origin", in: transcript) == SessionOrigin.importedFile
+        return imported ? [] : archives
+    }
 
     /// Run the sweep with the current user setting. Background queue;
     /// returns immediately. No-op for retention == 0 (keep forever)
@@ -88,22 +115,10 @@ enum AudioRetentionSweep {
         let dirName = directory.lastPathComponent
         Task.detached(priority: .utility) {
             let fm = FileManager.default
-            guard let inner = try? fm.contentsOfDirectory(
-                at: directory,
-                includingPropertiesForKeys: [.fileSizeKey],
-                options: [.skipsHiddenFiles]
-            ) else {
-                log.info("per-session purge: unable to list \(dirName, privacy: .private)")
-                return
-            }
             var purged = 0
             var freed: Int64 = 0
-            for fileURL in inner {
+            for fileURL in purgeableArchives(in: directory) {
                 let name = fileURL.lastPathComponent
-                let shouldPurge =
-                    purgeableNames.contains(name) ||
-                    purgeablePrefixes.contains(where: { name.hasPrefix($0) })
-                guard shouldPurge else { continue }
                 let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
                 do {
                     try fm.removeItem(at: fileURL)
@@ -169,17 +184,7 @@ enum AudioRetentionSweep {
             // right back to claiming them after the refresh
             // (review find, 2026-09-02).
             guard RecordingSession.transcriptHasContent(in: sessionDir) else { continue }
-            guard let inner = try? fm.contentsOfDirectory(
-                at: sessionDir,
-                includingPropertiesForKeys: [.fileSizeKey],
-                options: [.skipsHiddenFiles]
-            ) else { continue }
-            for fileURL in inner {
-                let name = fileURL.lastPathComponent
-                let isAudio =
-                    purgeableNames.contains(name) ||
-                    purgeablePrefixes.contains(where: { name.hasPrefix($0) })
-                guard isAudio else { continue }
+            for fileURL in purgeableArchives(in: sessionDir) {
                 let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
                 fileCount += 1
                 totalBytes += Int64(size)
@@ -297,18 +302,7 @@ enum AudioRetentionSweep {
                 continue
             }
 
-            guard let inner = try? fm.contentsOfDirectory(
-                at: sessionDir,
-                includingPropertiesForKeys: [.fileSizeKey],
-                options: [.skipsHiddenFiles]
-            ) else { continue }
-
-            for fileURL in inner {
-                let name = fileURL.lastPathComponent
-                let shouldPurge =
-                    purgeableNames.contains(name) ||
-                    purgeablePrefixes.contains(where: { name.hasPrefix($0) })
-                guard shouldPurge else { continue }
+            for fileURL in purgeableArchives(in: sessionDir) {
                 let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
                 do {
                     try fm.removeItem(at: fileURL)

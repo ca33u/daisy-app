@@ -47,6 +47,32 @@ struct AudioImportTests {
         #expect(files.microphone.map(\.lastPathComponent) == ["microphone.wav", "microphone.part2.mp3"])
     }
 
+    /// An imported `.caf` carries the name of Daisy's own archive.
+    @Test("Audio retention never takes an imported file")
+    func retention_leavesImportedAudio() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        for name in ["system_audio.caf", "microphone.caf", "microphone.part2.caf", "system_audio.m4a", "transcript.md"] {
+            try Data(count: 16).write(to: dir.appendingPathComponent(name))
+        }
+        #expect(Set(AudioRetentionSweep.purgeableArchives(in: dir).map(\.lastPathComponent))
+                == ["system_audio.caf", "microphone.caf", "microphone.part2.caf"])
+        try marker().write(to: dir)
+        #expect(AudioRetentionSweep.purgeableArchives(in: dir).isEmpty)
+
+        // Transcribed again: the audio and the key, no sidecar.
+        try FileManager.default.removeItem(at: ImportMarker.url(in: dir))
+        for key in ["daisy_imported: true", "daisy_origin: import"] {
+            try Data("---\ntitle: \"T\"\n\(key)\n---\n\n## Transcript\n\nHi\n".utf8)
+                .write(to: dir.appendingPathComponent("transcript.md"))
+            #expect(AudioRetentionSweep.purgeableArchives(in: dir).isEmpty)
+        }
+        // A phone's own recording is not an import.
+        try Data("---\ntitle: \"T\"\ndaisy_origin: iphone\n---\n\n## Transcript\n\nHi\n".utf8)
+            .write(to: dir.appendingPathComponent("transcript.md"))
+        #expect(!AudioRetentionSweep.purgeableArchives(in: dir).isEmpty)
+    }
+
     @Test("Imported audio-only folder is valid, not interrupted")
     func classify_importedIsNotInterrupted() throws {
         let dir = try makeDir()
