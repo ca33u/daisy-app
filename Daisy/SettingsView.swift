@@ -2927,12 +2927,13 @@ struct SettingsView: View {
             Section {
                 Toggle(isOn: $settings.morningBriefEnabled) {
                     Text("Morning brief")
-                    Text("A card on Home each day: your meetings, open action items from recent sessions, and what to focus on.")
+                    Text("A card on Home each day: your meetings and open action items from recent sessions. When there are open items, your summary provider can add a short intro; Apple Intelligence doesn’t write one")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 .settingsRow(.morningBrief)
-                .onChange(of: settings.morningBriefEnabled) { _, _ in
+                .onChange(of: settings.morningBriefEnabled) { _, enabled in
+                    if !enabled { MorningBriefStore.shared.stop() }
                     MorningBriefStore.rescheduleNotification(settings: settings)
                 }
                 if settings.morningBriefEnabled {

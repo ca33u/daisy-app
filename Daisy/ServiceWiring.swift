@@ -320,6 +320,7 @@ enum ServiceWiring {
 
     /// Convenience for full initial wiring at launch.
     static func applyAll(settings: AppSettings, session: RecordingSession) {
+        MorningBriefStore.migrateConsent()
         applyAllHotkeys(settings: settings, session: session)
         applyMeetingAutoStart(settings: settings, session: session)
         applyCalendar(settings: settings, session: session)

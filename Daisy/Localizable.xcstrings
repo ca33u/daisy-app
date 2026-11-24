@@ -7845,12 +7845,12 @@
         }
       }
     },
-    "A card on Home each day: your meetings, open action items from recent sessions, and what to focus on." : {
+    "A card on Home each day: your meetings and open action items from recent sessions. When there are open items, your summary provider can add a short intro; Apple Intelligence doesn’t write one" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ежедневная карточка на главном экране: твои встречи, открытые задачи из недавних записей и приоритеты."
+            "value" : "Ежедневная карточка на главном экране: твои встречи и открытые задачи из недавних записей. Если задачи есть, провайдер саммари может добавить короткое вступление; Apple Intelligence его не пишет"
           }
         }
       }

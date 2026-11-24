@@ -33,6 +33,7 @@ struct DayCard: View {
     @Bindable private var brief = MorningBriefStore.shared
     @Bindable private var actionItems = ActionItemStore.shared
     @Bindable private var store = SessionStore.shared
+    @Bindable private var summarizer = Summarizer.shared
 
     /// Open items whose source session is older than this land in the
     /// separate "Overdue" block instead of "To close" (tunable).
@@ -111,15 +112,19 @@ struct DayCard: View {
         .background(Color.daisyBgElevated, in: RoundedRectangle(cornerRadius: 10))
         // Re-key on the data the brief depends on: on a cold launch the
         // card's .task can fire BEFORE the calendar + action items finish
-        // loading, hit prepare()'s "nothing to brief" guard, park at
+        // loading, find nothing open in prepare(), park at
         // .unavailable, and never re-run — so the lede stayed blank even
         // once the meeting + open items appeared (Egor 2026-07-22). Keying
         // the task on their counts re-invokes prepare() when they populate;
         // prepare() is idempotent (returns early once today's lede is ready).
         // `isTomorrow` is part of the id so the evening roll-over
         // re-runs prepare() for the new day instead of leaving this
-        // morning's lede above tomorrow's agenda (2026-07-26).
-        .task(id: "\(events.count)-\(actionItems.openCount)-\(isTomorrow)") {
+        // morning's lede above tomorrow's agenda (2026-07-26). The provider
+        // too: Settings is a sheet over this card, and "Summarize your day
+        // with …?" must name the one the tap sends to. And whether it is
+        // ready: that is checked after a launch or a switch, and a lede
+        // refused before the answer wasn't asked for again.
+        .task(id: "\(events.count)-\(actionItems.openCount)-\(isTomorrow)-\(summarizer.voiceNoteDestination)-\(summarizer.availability == .available)") {
             await brief.prepare(settings: settings)
         }
     }
