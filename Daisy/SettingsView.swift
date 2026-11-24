@@ -1680,7 +1680,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .disabled(!summarizerAvailable)
+                .disabled(!summarizer.availability.isWorthTrying)
                 .settingsRow(.summaryTiming)
                 if settings.summaryTiming == .endOfDay {
                     // Not the bare "At" the morning-brief row uses: that
@@ -1710,7 +1710,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if !summarizerAvailable {
+                if !summarizer.availability.isWorthTrying {
                     // The provider is set up on another tab now: say
                     // which, and go there.
                     Button("The summary provider isn’t ready yet — set it up") {
@@ -2819,7 +2819,7 @@ struct SettingsView: View {
                     // When the provider can't run, surface the specific,
                     // actionable reason here (warning tint) instead of
                     // leaving the user with only the "Unavailable" badge.
-                    if case .unavailable(let reason) = summarizer.availability {
+                    if let reason = summarizer.availability.reason {
                         Text(reason)
                             .font(.caption2)
                             .foregroundStyle(Color.daisyWarning)
@@ -4172,7 +4172,7 @@ struct SettingsView: View {
     private var summarizerBadgeState: StatusBadge.State {
         switch summarizer.availability {
         case .available: return .ok
-        case .unavailable: return .warn
+        case .unavailable, .unverified: return .warn
         case .unknown: return .busy
         }
     }
@@ -4181,6 +4181,7 @@ struct SettingsView: View {
         switch summarizer.availability {
         case .available: return String(localized: "Available")
         case .unavailable: return String(localized: "Unavailable")
+        case .unverified: return String(localized: "Couldn’t check")
         case .unknown: return String(localized: "Checking…")
         }
     }
@@ -4188,7 +4189,7 @@ struct SettingsView: View {
     private var summarizerStatusBody: String {
         switch summarizer.availability {
         case .available: return String(localized: "\(summarizer.providerKind.shortName) is ready for summaries.")
-        case .unavailable(let reason): return reason
+        case .unavailable(let reason), .unverified(let reason): return reason
         case .unknown: return ""
         }
     }

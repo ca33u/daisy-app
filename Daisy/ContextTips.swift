@@ -96,7 +96,7 @@ final class ContextTips {
         summaryReady: @escaping @MainActor () -> Bool? = {
             if RecordingSession.current?.settings.autoSummarize == false { return true }
             switch Summarizer.shared.availability {
-            case .unknown: return nil
+            case .unknown, .unverified: return nil
             case .available: return true
             case .unavailable: return false
             }

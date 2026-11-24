@@ -299,7 +299,30 @@ final class Summarizer {
     enum AvailabilityState: Equatable {
         case unknown
         case available
+        /// The provider isn't set up, and what is missing.
         case unavailable(String)
+        /// The check didn't work, so nothing is known; it is repeated.
+        case unverified(String)
+
+        /// Why it can't be used now, in words, when that is known.
+        var reason: String? {
+            switch self {
+            case .unavailable(let reason), .unverified(let reason): reason
+            case .unknown, .available: nil
+            }
+        }
+
+        /// What isn't set up, when that is known for certain.
+        var missing: String? {
+            if case .unavailable(let reason) = self { return reason }
+            return nil
+        }
+
+        /// Whether to try the provider: anything but a definite «no». An
+        /// attempt that fails says why; a skipped one says nothing.
+        var isWorthTrying: Bool {
+            missing == nil
+        }
     }
 
     /// Shared instance — Summarizer holds the user's provider preference,
@@ -312,6 +335,13 @@ final class Summarizer {
     private(set) var availability: AvailabilityState = .unknown
     @ObservationIgnored private var availabilityGeneration = 0
     @ObservationIgnored private var appliedAvailabilityGeneration = 0
+    /// The repeat after a check that failed, and how many there have been
+    /// since one last answered.
+    @ObservationIgnored private var recheck: Task<Void, Never>?
+    @ObservationIgnored private var rechecksDone = 0
+    @ObservationIgnored private let recheckDelays: [Duration]
+    /// Stands in for the provider's check in tests.
+    @ObservationIgnored private let readinessOverride: (@MainActor () async -> SummaryReadiness)?
     private(set) var isSummarizing = false
     private(set) var lastSummary: MeetingSummary?
 
@@ -632,7 +662,13 @@ final class Summarizer {
     private static let kInteractiveProvider = "daisy.summaryProvider.interactive"
 
 
-    private init() {
+    /// - Parameters: for tests; the app uses `shared`.
+    init(
+        readinessOverride: (@MainActor () async -> SummaryReadiness)? = nil,
+        recheckDelays: [Duration] = [.seconds(2), .seconds(10), .seconds(30), .seconds(120)]
+    ) {
+        self.readinessOverride = readinessOverride
+        self.recheckDelays = recheckDelays
         // Default to Apple Intelligence on macOS 26+ (where
         // FoundationModels is available). On macOS 14/15 fall back
         // to Anthropic as the default — it's the lowest-friction
@@ -705,13 +741,58 @@ final class Summarizer {
         let generation = availabilityGeneration
         let kind = providerKind
         let provider = makeProvider(kind)
-        let ready = await provider.isReady()
+        let readiness = if let readinessOverride { await readinessOverride() } else { await provider.readiness() }
         guard !Task.isCancelled, kind == providerKind, generation > appliedAvailabilityGeneration else { return }
         appliedAvailabilityGeneration = generation
-        if ready {
-            availability = .available
-        } else {
-            availability = .unavailable(reasonForCurrent())
+        switch readiness {
+        case .ready: availability = .available
+        case .notReady: availability = .unavailable(reasonForCurrent())
+        case .checkFailed(let why):
+            log.error("Availability check failed for \(kind.rawValue, privacy: .public): \(why, privacy: .public)")
+            availability = .unverified(why)
+            scheduleRecheck()
+            return
+        }
+        recheck?.cancel()
+        recheck = nil
+        rechecksDone = 0
+    }
+
+    /// Ask again when the last answer may no longer hold: there was none,
+    /// the check failed, or it was a «no» about something besides Daisy's
+    /// own settings — a server that may have been started since, an
+    /// account, a model still downloading. A key is
+    /// asked for again when it is changed, and reading the keychain can
+    /// raise a prompt.
+    func refreshIfUnsettled() async {
+        switch availability {
+        case .available: return
+        case .unavailable where !readinessChangesUnseen: return
+        case .unknown, .unverified, .unavailable: await refreshAvailability()
+        }
+    }
+
+    private var readinessChangesUnseen: Bool {
+        switch providerKind {
+        case .ollama, .lmStudio, .mcp, .agentCLI, .appleIntelligence, .daisyLocal: true
+        case .openai: openAIConnectionMethod == .account
+        default: false
+        }
+    }
+
+    /// A check that failed is repeated a few times, further and further
+    /// apart; after that the next one asked for elsewhere (Home coming
+    /// forward, Settings, a recording starting) tries again.
+    private func scheduleRecheck() {
+        guard recheck == nil, rechecksDone < recheckDelays.count else { return }
+        let delay = recheckDelays[rechecksDone]
+        rechecksDone += 1
+        recheck = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            // Cleared first: an answer cancels `recheck`, and this is it.
+            self?.recheck = nil
+            await self?.refreshAvailability()
         }
     }
 

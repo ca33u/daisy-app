@@ -318,6 +318,18 @@ extension RecordingSession {
             }
         }
 
+        // Stop skips the summary only on a definite «not set up»; anything
+        // short of a yes is settled now, before anything is sent (24.11).
+        if willSummarize { await summarizer.refreshIfUnsettled() }
+        if Task.isCancelled || sessionDirectory?.lastPathComponent != sessionID {
+            await bailRotated(stage: "after provider_check")
+            return
+        }
+        /// The provider turned out not to be set up, and what is missing.
+        let providerMissing = willSummarize ? summarizer.availability.missing : nil
+        /// Stop's decision with that: what may be sent.
+        let maySend = willSummarize && providerMissing == nil
+
         // ── Stage 2b: Transcript second pass ─────────────────────────
         //
         // Text-layer counterpart to Stage 1's ASR pass: hand the
@@ -348,7 +360,7 @@ extension RecordingSession {
             title: title,
             localeHint: localeHint,
             signposter: signposter,
-            willSummarize: willSummarize,
+            willSummarize: maySend,
             voiceNote: voiceNote,
             finalPassSeconds: finalPassSeconds
         )
@@ -375,7 +387,7 @@ extension RecordingSession {
             title: title,
             localeHint: localeHint,
             signposter: signposter,
-            willSummarize: willSummarize,
+            willSummarize: maySend,
             voiceNote: voiceNote
         )
 
@@ -474,12 +486,13 @@ extension RecordingSession {
         // Stop decided minutes ago, and the switch or the provider may have
         // changed since. A note it no longer lets through is left without a
         // summary — nothing failed, nothing to tell anyone.
-        let summarizing = voiceNote.summaryStillAllowed(willSummarize: willSummarize)
+        let summarizing = voiceNote.summaryStillAllowed(willSummarize: maySend)
         /// No summary, and nothing to say about it: the gate closed, or the
-        /// provider can't do this voice note (`leavesVoiceNoteQuietly`).
-        var leftQuietly = willSummarize && !summarizing
+        /// provider can't do this voice note (`leavesVoiceNoteQuietly`) or
+        /// isn't set up, as at Stop. A meeting says the last (below).
+        var leftQuietly = willSummarize && !summarizing && (providerMissing == nil || voiceNote.isVoiceNote)
         if leftQuietly {
-            log.info("post-stop: voice note left without a summary — its gate closed since Stop")
+            log.info("post-stop: voice note left without a summary — its gate closed since Stop, or the provider isn't set up")
         }
         if summarizing, finalHasSpeech {
             // Fold the OCR'd screen content into what the summarizer sees
@@ -642,15 +655,17 @@ extension RecordingSession {
             } else if !leftQuietly, summary == nil, !Task.isCancelled, finalHasSpeech {
                 // A summary that came but couldn't be saved has its own
                 // toast; this one is for the provider's answer.
-                let reason = summarizer.lastError ?? String(localized: "The provider returned no summary.")
+                let reason = providerMissing ?? summarizer.lastError ?? String(localized: "The provider returned no summary.")
                 SummaryFailureNote.announce(
                     SummaryFailureNote.write(
                         message: reason,
                         provider: summarizer.providerKind.shortName,
-                        cause: summarizer.lastFailureCause,
+                        cause: providerMissing == nil ? summarizer.lastFailureCause : nil,
                         in: directory
                     )
                 )
+                // Once per install, at the widget: who should write it.
+                if providerMissing != nil { ContextTips.shared.summaryProviderMissing() }
             }
         }
 
@@ -670,7 +685,7 @@ extension RecordingSession {
                 title: title,
                 localeHint: localeHint,
                 signposter: signposter,
-                willSummarize: willSummarize,
+                willSummarize: maySend,
                 voiceNote: voiceNote,
                 finalPassSeconds: finalPassSeconds
             )
@@ -679,7 +694,7 @@ extension RecordingSession {
                 title: title,
                 localeHint: localeHint,
                 signposter: signposter,
-                willSummarize: willSummarize,
+                willSummarize: maySend,
                 voiceNote: voiceNote
             )
             if Task.isCancelled || sessionDirectory?.lastPathComponent != sessionID {

@@ -142,7 +142,7 @@ final class OpenAIAccountManager: SummaryAccountManaging {
                 accountState = .notInstalled
             case .authorizationFailed:
                 accountState = .signedOut
-            case .remote(let message) where message.localizedCaseInsensitiveContains("session"):
+            case .sessionExpired:
                 accountState = .sessionExpired
             default:
                 accountState = .failed(message: codex.localizedDescription)

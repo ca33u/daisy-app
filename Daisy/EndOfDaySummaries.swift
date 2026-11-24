@@ -159,7 +159,9 @@ final class EndOfDaySummaries {
         // until midnight.
         await Summarizer.shared.refreshAvailability()
         guard let settings, settings.summaryTiming == .endOfDay else { return }
-        if case .unavailable(let reason) = Summarizer.shared.availability {
+        // A check that failed waits for the next tick too: the day is marked
+        // before the pass, and one that fails throughout would use it up.
+        if let reason = Summarizer.shared.availability.reason {
             // Day deliberately NOT marked: nothing was attempted, so the
             // right retry is the next tick, not tomorrow.
             log.error("End-of-day summaries skipped — provider unavailable: \(reason, privacy: .public)")

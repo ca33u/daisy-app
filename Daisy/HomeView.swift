@@ -115,8 +115,7 @@ struct HomeView: View {
             freeDiskBytes = DiskSpace.recordingsVolumeFreeBytes()
         }
         .task(id: "\(summarizer.openAIConnectionMethod.rawValue)|\(summarizer.agentCLIPath)") {
-            guard summarizer.openAIConnectionMethod == .account else { return }
-            await openAIAccount.refreshStatus()
+            await refreshOpenAIAccount()
         }
         // Re-read on activation: the user very likely left Daisy to go
         // empty the Trash, and a warning that survives the cleanup reads
@@ -128,9 +127,7 @@ struct HomeView: View {
         ) { _ in
             dashboardNow = Date()
             freeDiskBytes = DiskSpace.recordingsVolumeFreeBytes()
-            if summarizer.openAIConnectionMethod == .account {
-                Task { await openAIAccount.refreshStatus() }
-            }
+            Task { await refreshOpenAIAccount() }
         }
         // 2026-09-19 — was daisyHomeAccent, which every plain and bordered
         // button inside Home (and inside its sheets) inherited as its label
@@ -267,6 +264,15 @@ struct HomeView: View {
     /// the Daisy key need is listed.
     private var meetingsNotYet: Bool {
         ContextTips.shared.meetingsNotYet
+    }
+
+    /// The account's status and, when it writes the summaries, whether it
+    /// can: the checklist's row reads the second, and only Settings asked
+    /// for both (24.11).
+    private func refreshOpenAIAccount() async {
+        guard summarizer.openAIConnectionMethod == .account else { return }
+        await openAIAccount.refreshStatus()
+        if summarizer.providerKind == .openai { await summarizer.refreshAvailability() }
     }
 
     /// Summaries are on and the chosen provider can't write them — the

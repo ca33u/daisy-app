@@ -2898,16 +2898,16 @@ final class RecordingSession {
 
         startedAt = nowStarted
         status = .recording
-        // Ollama as the provider and not answering right now (after a
-        // restart it isn't running, and the launch-time check may have
-        // given up before it came up): ask again now, which starts it.
-        // `stop()` reads the cached availability and must not wait 20 s
-        // for a launch, so it has to be settled before the meeting ends
-        // (review 28.10). A voice note it will summarize too (07.11).
+        // The last answer about the provider may not hold — Ollama isn't
+        // running after a restart (asking starts it), the launch-time
+        // check failed or was too early, LM Studio has been opened since:
+        // ask again now. `stop()` reads the cached availability and must
+        // not wait 20 s for a launch, so it has to be settled before the
+        // meeting ends (review 28.10; not only Ollama since 24.11). A voice
+        // note it will summarize too (07.11).
         if Self.summarizesAtStop(mode: currentMode, kind: sessionKind, startedAt: nowStarted, gate: .current),
-           settings.autoSummarize,
-           summarizer.providerKind == .ollama, summarizer.availability != .available {
-            Task { [summarizer] in await summarizer.refreshAvailability() }
+           settings.autoSummarize, summarizer.availability != .available {
+            Task { [summarizer] in await summarizer.refreshIfUnsettled() }
         }
         // The recording's own log excerpt, kept in its folder from here
         // on (B-3): the Info lines a report sent hours later has lost.
@@ -4026,8 +4026,12 @@ final class RecordingSession {
         // writes nothing.
         let summarizesThisKind = Self.summarizesAtStop(mode: currentMode, kind: sessionKind,
                                                        startedAt: startedAt, gate: .current)
+        //
+        // `isWorthTrying`: only a definite «not set up» skips it. A check
+        // that failed, or hasn't answered, isn't that — finalize asks once
+        // more and tries (24.11).
         let willSummarize = settings.autoSummarize
-            && summarizer.availability == .available
+            && summarizer.availability.isWorthTrying
             && (!segments.isEmpty || capturedAnyAudio)
             && summarizesThisKind
             && !captureLikelyFailed
@@ -4691,8 +4695,10 @@ final class RecordingSession {
 
     func runSummary() async {
         guard !segments.isEmpty else { return }
-        guard case .available = summarizer.availability else { return }
         let priorStatus = status
+        if summarizer.availability != .available { await summarizer.refreshAvailability() }
+        // A second press, or a recording begun, during the check.
+        guard summarizer.availability.isWorthTrying, !summarizer.isSummarizing, status == priorStatus else { return }
         status = .summarizing
         await summarizer.summarize(
             transcript: fullTranscriptText,

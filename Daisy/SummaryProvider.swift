@@ -224,6 +224,16 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
     }
 }
 
+/// What a readiness check found.
+nonisolated enum SummaryReadiness: Equatable, Sendable {
+    case ready
+    /// Something the person has to set up: no key, no account, no app.
+    case notReady
+    /// The check itself didn't work, and why, in words. Says nothing about
+    /// whether the provider is set up.
+    case checkFailed(String)
+}
+
 /// Common interface every back-end must satisfy.
 protocol SummaryProvider: Sendable {
     var kind: SummaryProviderKind { get }
@@ -231,6 +241,10 @@ protocol SummaryProvider: Sendable {
     /// Quick "is this provider usable right now?" check. For Apple
     /// Intelligence — model availability. For cloud — non-empty API key.
     func isReady() async -> Bool
+
+    /// The same, for a provider whose check can fail without answering:
+    /// it asks another process. The rest get it from `isReady`.
+    func readiness() async -> SummaryReadiness
 
     /// Produce a structured summary. `localeHint` is a 2-letter ISO
     /// code ("ru", "en", …) used to prompt the model to respond in the
@@ -243,6 +257,12 @@ protocol SummaryProvider: Sendable {
         localeHint: String?,
         task: SummaryTask
     ) async throws -> MeetingSummary
+}
+
+extension SummaryProvider {
+    func readiness() async -> SummaryReadiness {
+        await isReady() ? .ready : .notReady
+    }
 }
 
 /// What a Daisy-key command is about (backlog 34 K-2).

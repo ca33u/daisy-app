@@ -266,7 +266,8 @@ final class PreMeetingBriefStore {
         // the connection but never answers would hang HERE, before the
         // generation timeout could ever apply. On timeout we proceed
         // optimistically rather than declare the provider dead.
-        if Summarizer.shared.availability == .unknown {
+        // A check that failed (`.unverified`) is the same as none.
+        if Summarizer.shared.availability.isWorthTrying, Summarizer.shared.availability != .available {
             _ = try? await Self.withTimeout(seconds: 15) {
                 await Summarizer.shared.refreshAvailability()
             }

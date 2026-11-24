@@ -26,10 +26,23 @@ nonisolated struct CodexAppServerSummarizer: SummaryProvider {
     }
 
     func isReady() async -> Bool {
-        guard let account = try? await service.account(executableOverride: executableOverride) else {
-            return false
+        await readiness() == .ready
+    }
+
+    /// «Not connected» only when Codex said so, or there is no Codex. A
+    /// helper that died, was slow or answered nonsense is a check that
+    /// failed: read as «no», it asked the person to connect an account
+    /// that was connected, and left meetings without a summary (24.11).
+    func readiness() async -> SummaryReadiness {
+        do {
+            let account = try await service.account(executableOverride: executableOverride)
+            return account?.type == "chatgpt" ? .ready : .notReady
+        } catch CodexAppServerError.notInstalled, CodexAppServerError.authorizationFailed,
+                CodexAppServerError.sessionExpired {
+            return .notReady
+        } catch {
+            return .checkFailed(error.localizedDescription)
         }
-        return account.type == "chatgpt"
     }
 
     func summarize(
@@ -71,6 +84,16 @@ nonisolated struct CodexAppServerSummarizer: SummaryProvider {
         )
 
         do {
+            // Asked again right before the text goes: a summary is tried
+            // after a check that failed too, and a Codex signed in with an
+            // API key would take it on that key, which isn't what the
+            // person chose.
+            guard try await service.account(executableOverride: executableOverride)?.type == "chatgpt" else {
+                throw SummaryProviderError.modelUnavailable(
+                    provider: "ChatGPT",
+                    reason: String(localized: "Connect your ChatGPT account in \(SettingsRow.summaryProvider.path).")
+                )
+            }
             let text = try await service.summarize(
                 prompt: userPrompt,
                 developerInstructions: developerInstructions,

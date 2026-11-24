@@ -597,12 +597,13 @@ enum MCPTools {
         guard !SessionStore.shared.isProcessing(session.id) else {
             return .error("Daisy is still processing session \(args.id) — its transcript isn't final yet. Try again when it finishes.")
         }
-        guard Summarizer.shared.availability == .available else {
+        if Summarizer.shared.availability != .available { await Summarizer.shared.refreshAvailability() }
+        guard Summarizer.shared.availability.isWorthTrying else {
             // Mirror the UI: a misconfigured/unavailable provider
             // should produce a clear, actionable message rather than a
             // generic failure after a long wait.
             let reason: String
-            if case .unavailable(let r) = Summarizer.shared.availability { reason = r }
+            if let r = Summarizer.shared.availability.reason { reason = r }
             else { reason = "The summary provider isn't ready. Check Daisy → Settings → AI → Summary provider." }
             return .error("Can't summarize: \(reason)")
         }

@@ -225,6 +225,20 @@ struct CodexAppServerSummarizerTests {
         }
     }
 
+    @Test("Nothing is sent unless Codex is on a ChatGPT account",
+          arguments: [nil, CodexAccountInfo(type: "apiKey", email: nil, plan: nil)])
+    func onlyThroughTheAccount(account: CodexAccountInfo?) async {
+        let mock = MockCodexAppServerService(account: account)
+        let provider = CodexAppServerSummarizer(model: "account-model", service: mock)
+        await #expect(throws: SummaryProviderError.self) {
+            try await provider.summarize(
+                transcript: "One two three four five six seven eight nine ten.",
+                title: "T", localeHint: "en", task: .standard
+            )
+        }
+        #expect(await mock.lastSummaryRequest == nil)
+    }
+
     @Test("Long transcripts reach App Server without provider-side truncation")
     func longTranscriptIsPreserved() async throws {
         let mock = MockCodexAppServerService()
@@ -282,11 +296,207 @@ struct OpenAIAccountManagerTests {
 
     @Test("Expired ChatGPT session maps to reconnect state")
     func expiredSession() async {
-        let mock = MockCodexAppServerService(accountError: .remote("session expired"))
+        let mock = MockCodexAppServerService(accountError: .sessionExpired)
         let manager = OpenAIAccountManager(service: mock, executableAvailable: { _ in true })
 
         await manager.refreshStatus()
 
         #expect(manager.accountState == .sessionExpired)
+    }
+}
+
+/// The connection against a real child process: a script named `codex`
+/// that answers `initialize` after a pause, as the real one does.
+@Suite("Codex App Server start", .timeLimit(.minutes(5)))
+struct CodexAppServerStartTests {
+    private struct FakeCodex {
+        let executable: URL
+        let directory: URL
+
+        /// How many times the process was started.
+        var starts: Int {
+            let log = directory.appendingPathComponent("starts")
+            return ((try? String(contentsOf: log, encoding: .utf8)) ?? "").split(separator: "\n").count
+        }
+    }
+
+    /// - Parameter failingStarts: how many first starts exit without a word.
+    private func makeCodex(failingStarts: Int = 0) throws -> FakeCodex {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("daisy-codex-start-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let executable = directory.appendingPathComponent("codex")
+        let script = """
+        #!/bin/sh
+        cd "$(dirname "$0")"
+        echo s >> starts
+        if [ "$(wc -l < starts)" -le \(failingStarts) ]; then exit 1; fi
+        while IFS= read -r line; do
+          id=$(printf '%s' "$line" | sed -n 's/.*"id":"\\([^"]*\\)".*/\\1/p')
+          case "$line" in
+            *'"initialize"'*) sleep 0.4; printf '{"id":"%s","result":{}}\\n' "$id" ;;
+            *'read"'*) printf '{"id":"%s","result":{"account":{"type":"chatgpt"}}}\\n' "$id" ;;
+          esac
+        done
+        """
+        try Data(script.utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        return FakeCodex(executable: executable, directory: directory)
+    }
+
+    /// The failure itself (24.11): two callers while the process starts.
+    @Test("Callers that arrive during the start share it")
+    func callersShareOneStart() async throws {
+        let codex = try makeCodex()
+        defer { try? FileManager.default.removeItem(at: codex.directory) }
+        let service = CodexAppServerService()
+        let path = codex.executable.path
+
+        let types = try await withThrowingTaskGroup(of: String?.self) { group in
+            for index in 0..<6 {
+                group.addTask {
+                    try await Task.sleep(for: .milliseconds(60 * index))
+                    return try await service.account(executableOverride: path)?.type
+                }
+            }
+            return try await group.reduce(into: []) { $0.append($1) }
+        }
+
+        #expect(types == Array(repeating: "chatgpt", count: 6))
+        #expect(codex.starts == 1)
+    }
+
+    @Test("A start that fails is tried again, for every caller")
+    func failedStartIsRetried() async throws {
+        let codex = try makeCodex(failingStarts: 1)
+        defer { try? FileManager.default.removeItem(at: codex.directory) }
+        let service = CodexAppServerService()
+        let path = codex.executable.path
+
+        async let first = service.account(executableOverride: path)
+        async let second = service.account(executableOverride: path)
+        let types = try await [first?.type, second?.type]
+
+        #expect(types == ["chatgpt", "chatgpt"])
+        #expect(codex.starts == 2)
+    }
+
+    @Test("A changed path ends the old process and never starts it again")
+    func changedPath() async throws {
+        let old = try makeCodex()
+        let new = try makeCodex()
+        defer {
+            try? FileManager.default.removeItem(at: old.directory)
+            try? FileManager.default.removeItem(at: new.directory)
+        }
+        let service = CodexAppServerService()
+
+        let early = Task { try await service.account(executableOverride: old.executable.path)?.type }
+        for _ in 0..<500 where old.starts == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(try await service.account(executableOverride: new.executable.path)?.type == "chatgpt")
+        _ = try? await early.value
+
+        #expect(old.starts == 1)
+        #expect(new.starts == 1)
+    }
+
+    @Test("A cancelled caller doesn't fail the others")
+    func cancelledCallerLeavesTheStart() async throws {
+        let codex = try makeCodex()
+        defer { try? FileManager.default.removeItem(at: codex.directory) }
+        let service = CodexAppServerService()
+        let path = codex.executable.path
+
+        let leaving = Task { try await service.account(executableOverride: path) }
+        try await Task.sleep(for: .milliseconds(50))
+        let staying = Task { try await service.account(executableOverride: path)?.type }
+        try await Task.sleep(for: .milliseconds(50))
+        leaving.cancel()
+
+        #expect(try await staying.value == "chatgpt")
+        #expect(codex.starts == 1)
+    }
+}
+
+@Suite("Summary provider readiness", .timeLimit(.minutes(5)))
+@MainActor
+struct SummaryReadinessTests {
+    @Test("Only Codex's own answer means the account isn't connected")
+    func codexReadiness() async {
+        func readiness(_ mock: MockCodexAppServerService) async -> SummaryReadiness {
+            await CodexAppServerSummarizer(model: "m", service: mock).readiness()
+        }
+        #expect(await readiness(MockCodexAppServerService()) == .ready)
+        #expect(await readiness(MockCodexAppServerService(account: nil)) == .notReady)
+        #expect(await readiness(MockCodexAppServerService(
+            account: CodexAccountInfo(type: "apiKey", email: nil, plan: nil))) == .notReady)
+        #expect(await readiness(MockCodexAppServerService(accountError: .notInstalled)) == .notReady)
+        #expect(await readiness(MockCodexAppServerService(accountError: .sessionExpired)) == .notReady)
+        #expect(CodexAppServerConnection.remoteError(for: "401 unauthorized") == .sessionExpired)
+        #expect(CodexAppServerConnection.remoteError(for: "couldn't refresh the token: network error") != .sessionExpired)
+        let failures: [CodexAppServerError] = [.disconnected, .timedOut, .launchFailed, .invalidResponse, .remote("busy")]
+        for error in failures {
+            #expect(await readiness(MockCodexAppServerService(accountError: error)) == .checkFailed(error.localizedDescription))
+        }
+    }
+
+    /// Answers in order, the last one over and over.
+    @MainActor
+    private final class Script {
+        private var answers: [SummaryReadiness]
+        private(set) var asked = 0
+        init(_ answers: [SummaryReadiness]) { self.answers = answers }
+        func next() -> SummaryReadiness {
+            asked += 1
+            return answers.count > 1 ? answers.removeFirst() : answers[0]
+        }
+    }
+
+    private func settled(_ summarizer: Summarizer, _ state: Summarizer.AvailabilityState) async -> Bool {
+        for _ in 0..<500 where summarizer.availability != state {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return summarizer.availability == state
+    }
+
+    @Test("A failed check is repeated until it answers")
+    func failedCheckIsRepeated() async {
+        let script = Script([.checkFailed("gone"), .checkFailed("gone"), .ready])
+        let summarizer = Summarizer(readinessOverride: { script.next() },
+                                    recheckDelays: [.milliseconds(20), .milliseconds(20), .milliseconds(20)])
+        #expect(await settled(summarizer, .available))
+        #expect(script.asked == 3)
+    }
+
+    @Test("It stops after the last repeat, and isn't read as «not set up»")
+    func repeatsEnd() async {
+        let script = Script([.checkFailed("gone")])
+        let summarizer = Summarizer(readinessOverride: { script.next() }, recheckDelays: [.milliseconds(20), .milliseconds(20)])
+        for _ in 0..<500 where script.asked < 3 { try? await Task.sleep(for: .milliseconds(20)) }
+        try? await Task.sleep(for: .milliseconds(300))
+        #expect(script.asked == 3)
+        #expect(summarizer.availability == .unverified("gone"))
+        #expect(summarizer.availability.isWorthTrying)
+    }
+
+    @Test("A definite no isn't repeated")
+    func definiteNo() async {
+        let script = Script([.notReady])
+        let summarizer = Summarizer(readinessOverride: { script.next() }, recheckDelays: [.milliseconds(20)])
+        for _ in 0..<500 where summarizer.availability == .unknown { try? await Task.sleep(for: .milliseconds(20)) }
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(script.asked == 1)
+        #expect(!summarizer.availability.isWorthTrying)
+        #expect(summarizer.availability.reason != nil)
+    }
+
+    @Test("Only a definite no rules the provider out")
+    func worthTrying() {
+        #expect(Summarizer.AvailabilityState.unknown.isWorthTrying)
+        #expect(Summarizer.AvailabilityState.available.isWorthTrying)
+        #expect(Summarizer.AvailabilityState.unverified("x").isWorthTrying)
+        #expect(!Summarizer.AvailabilityState.unavailable("x").isWorthTrying)
+        #expect(Summarizer.AvailabilityState.unverified("x").reason == "x")
+        #expect(Summarizer.AvailabilityState.unknown.reason == nil)
     }
 }

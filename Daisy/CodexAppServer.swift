@@ -126,6 +126,9 @@ actor CodexAppServerConnection {
     private var errorPipe: Pipe?
     private var generation = UUID()
     private var initialized = false
+    /// The start under way, shared by everyone who asks meanwhile.
+    private var starting: Task<Void, Error>?
+    private var isStopped = false
     private var readBuffer = Data()
     private var pendingRequests: [String: PendingRequest] = [:]
     private var notificationWaiters: [UUID: NotificationWaiter] = [:]
@@ -212,14 +215,39 @@ actor CodexAppServerConnection {
         }
     }
 
+    /// For good: the service has replaced this connection, and a caller
+    /// still holding it must not start the old binary again.
     func stop() {
+        isStopped = true
         stopProcess(error: CodexAppServerError.disconnected)
     }
 
     // MARK: Start / reconnect
 
+    /// One start at a time. At launch four places ask at once (Summarizer,
+    /// RecordingSession, Home twice), and the actor takes the next caller
+    /// while the first waits for `initialize`. Up to and including
+    /// 1.0.8.56 the second took the unfinished process for a dead one and
+    /// stopped it, the first's failure then stopped the second's, the
+    /// retry went the same way, and a connected ChatGPT account read as
+    /// «connect your account» (Egor 24.11).
     private func ensureStarted() async throws {
         if process?.isRunning == true, initialized { return }
+        if let starting { return try await starting.value }
+        // Not the caller's own work: a caller that is cancelled (Settings
+        // closed, a brief's timeout) must not fail the others.
+        // Cleared inside it, so a retry after a failure never meets the
+        // start that has just failed.
+        let task = Task {
+            defer { starting = nil }
+            try await start()
+        }
+        starting = task
+        try await task.value
+    }
+
+    private func start() async throws {
+        guard !isStopped else { throw CodexAppServerError.disconnected }
         if process != nil { stopProcess(error: CodexAppServerError.disconnected) }
 
         let process = Process()
@@ -403,7 +431,7 @@ actor CodexAppServerConnection {
                 pending.continuation.resume(returning: result)
             } else {
                 let rawMessage = object["error"]?["message"]?.stringValue ?? ""
-                pending.continuation.resume(throwing: CodexAppServerError.remote(Self.friendlyMessage(for: rawMessage)))
+                pending.continuation.resume(throwing: Self.remoteError(for: rawMessage))
             }
             return
         }
@@ -491,18 +519,21 @@ actor CodexAppServerConnection {
         UInt64(max(0.001, min(seconds, 3_600)) * 1_000_000_000)
     }
 
-    private static func friendlyMessage(for raw: String) -> String {
+    nonisolated static func remoteError(for raw: String) -> CodexAppServerError {
         let text = raw.lowercased()
+        let unreachable = CodexAppServerError.remote(
+            String(localized: "Codex couldn't reach OpenAI. Check your internet connection and try again.")
+        )
+        // First: a token that couldn't be refreshed offline hasn't expired.
+        if text.contains("network") || text.contains("offline") { return unreachable }
         if text.contains("auth") || text.contains("login") || text.contains("token") {
-            return String(localized: "Your ChatGPT session expired. Connect the account again.")
+            return .sessionExpired
         }
         if text.contains("rate") || text.contains("limit") || text.contains("quota") {
-            return String(localized: "Your ChatGPT plan limit has been reached. Try again after it resets.")
+            return .remote(String(localized: "Your ChatGPT plan limit has been reached. Try again after it resets."))
         }
-        if text.contains("network") || text.contains("offline") || text.contains("connect") {
-            return String(localized: "Codex couldn't reach OpenAI. Check your internet connection and try again.")
-        }
-        return String(localized: "Codex App Server couldn't complete the request.")
+        if text.contains("connect") { return unreachable }
+        return .remote(String(localized: "Codex App Server couldn't complete the request."))
     }
 }
 
@@ -583,8 +614,7 @@ actor CodexAppServerService: CodexAppServerServing {
     private var connectedExecutable: URL?
 
     func account(executableOverride: String = "") async throws -> CodexAccountInfo? {
-        let connection = try await connection(for: executableOverride)
-        let result = try await retryingRead {
+        let result = try await retryingRead(executableOverride) { connection in
             try await connection.request(
                 method: "account/read",
                 params: .object(["refreshToken": .bool(false)])
@@ -600,8 +630,7 @@ actor CodexAppServerService: CodexAppServerServing {
     }
 
     func models(executableOverride: String = "") async throws -> [CodexModelInfo] {
-        let connection = try await connection(for: executableOverride)
-        let result = try await retryingRead {
+        let result = try await retryingRead(executableOverride) { connection in
             try await connection.request(
                 method: "model/list",
                 params: .object(["limit": .number(100), "includeHidden": .bool(false)])
@@ -619,8 +648,7 @@ actor CodexAppServerService: CodexAppServerServing {
     }
 
     func rateLimits(executableOverride: String = "") async throws -> CodexRateLimitInfo? {
-        let connection = try await connection(for: executableOverride)
-        let result = try await retryingRead {
+        let result = try await retryingRead(executableOverride) { connection in
             try await connection.request(method: "account/rateLimits/read")
         }
         return Self.parseRateLimits(result)
@@ -843,20 +871,27 @@ actor CodexAppServerService: CodexAppServerServing {
             throw CodexAppServerError.notInstalled
         }
         if let connection, connectedExecutable == executable { return connection }
-        if let connection { await connection.stop() }
         let newConnection = try CodexAppServerConnection(executableURL: executable)
+        // Replaced before the wait: a caller that arrives during it gets
+        // the new connection rather than making a second one.
+        let replaced = connection
         connection = newConnection
         connectedExecutable = executable
+        await replaced?.stop()
         return newConnection
     }
 
     /// Account and catalog reads are idempotent. If the App Server died,
-    /// its next request starts a fresh process and retries once.
+    /// its next request starts a fresh process and retries once, on
+    /// the same connection: one replaced meanwhile fails, rather than
+    /// bring the old path back over the new one.
     private func retryingRead(
-        _ operation: () async throws -> CodexJSON
+        _ executableOverride: String,
+        _ operation: (CodexAppServerConnection) async throws -> CodexJSON
     ) async throws -> CodexJSON {
-        do { return try await operation() }
-        catch CodexAppServerError.disconnected { return try await operation() }
+        let connection = try await connection(for: executableOverride)
+        do { return try await operation(connection) }
+        catch CodexAppServerError.disconnected { return try await operation(connection) }
     }
 
     private func cleanup(threadID: String, connection: CodexAppServerConnection) async {
@@ -891,6 +926,7 @@ nonisolated enum CodexAppServerError: LocalizedError, Equatable {
     case invalidResponse
     case temporaryDirectoryFailed
     case authorizationFailed
+    case sessionExpired
     case remote(String)
 
     var errorDescription: String? {
@@ -909,6 +945,8 @@ nonisolated enum CodexAppServerError: LocalizedError, Equatable {
             return String(localized: "Daisy couldn't create a private temporary folder for the summary.")
         case .authorizationFailed:
             return String(localized: "ChatGPT sign-in was cancelled or failed.")
+        case .sessionExpired:
+            return String(localized: "Your ChatGPT session expired. Connect the account again.")
         case .remote(let message):
             return message
         }

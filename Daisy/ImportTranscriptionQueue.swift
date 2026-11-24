@@ -540,7 +540,7 @@ final class ImportTranscriptionQueue {
         guard let settings = RecordingSession.current?.settings, settings.transcriptSecondPass else { return nil }
         // Their deadlines are seconds; the local model would only time out.
         guard Summarizer.shared.runsQuickPasses else { return nil }
-        let willSummarize = summarizes && settings.autoSummarize && Summarizer.shared.availability == .available
+        let willSummarize = summarizes && settings.autoSummarize && Summarizer.shared.availability.isWorthTrying
         guard Summarizer.shared.providerIsEffectivelyLocal || willSummarize else { return nil }
         return SessionFinishingPasses(
             title: session.title,
@@ -704,11 +704,9 @@ final class ImportTranscriptionQueue {
         // A provider that can't run is a reason the meeting has no
         // summary, not a reason to say nothing — finalize keeps and says
         // it at stop, this path used to return here in silence (backlog
-        // 32 A-3). `.unknown` is the first seconds after launch, before
-        // the provider has been asked; ask now rather than skip.
-        if Summarizer.shared.availability == .unknown {
-            await Summarizer.shared.refreshAvailability()
-        }
+        // 32 A-3). Asked again first: `.unknown` is the first seconds after
+        // launch, and an older «no» may no longer hold (24.11).
+        await Summarizer.shared.refreshIfUnsettled()
         if case .unavailable(let reason) = Summarizer.shared.availability {
             guard !Task.isCancelled else { return .notAsked }
             log.warning("Finished recording \(sessionID, privacy: .public): summary skipped — provider unavailable: \(reason, privacy: .public)")
