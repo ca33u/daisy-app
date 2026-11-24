@@ -84,16 +84,6 @@ nonisolated struct CodexAppServerSummarizer: SummaryProvider {
         )
 
         do {
-            // Asked again right before the text goes: a summary is tried
-            // after a check that failed too, and a Codex signed in with an
-            // API key would take it on that key, which isn't what the
-            // person chose.
-            guard try await service.account(executableOverride: executableOverride)?.type == "chatgpt" else {
-                throw SummaryProviderError.modelUnavailable(
-                    provider: "ChatGPT",
-                    reason: String(localized: "Connect your ChatGPT account in \(SettingsRow.summaryProvider.path).")
-                )
-            }
             let text = try await service.summarize(
                 prompt: userPrompt,
                 developerInstructions: developerInstructions,

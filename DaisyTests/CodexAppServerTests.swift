@@ -225,20 +225,6 @@ struct CodexAppServerSummarizerTests {
         }
     }
 
-    @Test("Nothing is sent unless Codex is on a ChatGPT account",
-          arguments: [nil, CodexAccountInfo(type: "apiKey", email: nil, plan: nil)])
-    func onlyThroughTheAccount(account: CodexAccountInfo?) async {
-        let mock = MockCodexAppServerService(account: account)
-        let provider = CodexAppServerSummarizer(model: "account-model", service: mock)
-        await #expect(throws: SummaryProviderError.self) {
-            try await provider.summarize(
-                transcript: "One two three four five six seven eight nine ten.",
-                title: "T", localeHint: "en", task: .standard
-            )
-        }
-        #expect(await mock.lastSummaryRequest == nil)
-    }
-
     @Test("Long transcripts reach App Server without provider-side truncation")
     func longTranscriptIsPreserved() async throws {
         let mock = MockCodexAppServerService()
@@ -318,10 +304,29 @@ struct CodexAppServerStartTests {
             let log = directory.appendingPathComponent("starts")
             return ((try? String(contentsOf: log, encoding: .utf8)) ?? "").split(separator: "\n").count
         }
+
+        var pid: pid_t? {
+            let log = directory.appendingPathComponent("pid")
+            return (try? String(contentsOf: log, encoding: .utf8))
+                .flatMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        }
+
+        /// Every request that reached the process.
+        var requests: String {
+            let log = directory.appendingPathComponent("requests")
+            return ((try? String(contentsOf: log, encoding: .utf8)) ?? "").replacingOccurrences(of: "\\/", with: "/")
+        }
     }
 
-    /// - Parameter failingStarts: how many first starts exit without a word.
-    private func makeCodex(failingStarts: Int = 0) throws -> FakeCodex {
+    /// - Parameters:
+    ///   - failingStarts: how many first starts exit without a word.
+    ///   - account: the `account/read` answer.
+    ///   - diesAfter: the request it answers and then exits, in every run.
+    private func makeCodex(
+        failingStarts: Int = 0,
+        account: String = #"{"type":"chatgpt"}"#,
+        diesAfter: String = "none"
+    ) throws -> FakeCodex {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("daisy-codex-start-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
@@ -330,13 +335,19 @@ struct CodexAppServerStartTests {
         #!/bin/sh
         cd "$(dirname "$0")"
         echo s >> starts
+        echo $$ > pid
         if [ "$(wc -l < starts)" -le \(failingStarts) ]; then exit 1; fi
         while IFS= read -r line; do
+          printf '%s\\n' "$line" >> requests
           id=$(printf '%s' "$line" | sed -n 's/.*"id":"\\([^"]*\\)".*/\\1/p')
           case "$line" in
             *'"initialize"'*) sleep 0.4; printf '{"id":"%s","result":{}}\\n' "$id" ;;
-            *'read"'*) printf '{"id":"%s","result":{"account":{"type":"chatgpt"}}}\\n' "$id" ;;
+            *'read"'*) printf '{"id":"%s","result":{"account":\(account)}}\\n' "$id" ;;
+            *'thread\\/start"'*) printf '{"id":"%s","result":{"thread":{"id":"t"}}}\\n' "$id" ;;
+            *'turn\\/start"'*) printf '{"id":"%s","result":{}}\\n' "$id" ;;
+            *'thread\\/delete"'*) printf '{"id":"%s","result":{}}\\n' "$id" ;;
           esac
+          case "$line" in *'\(diesAfter)"'*) exit 0 ;; esac
         done
         """
         try Data(script.utf8).write(to: executable)
@@ -415,6 +426,85 @@ struct CodexAppServerStartTests {
 
         #expect(try await staying.value == "chatgpt")
         #expect(codex.starts == 1)
+    }
+
+    /// Text sent by each of the two callers. What the plan's failed with.
+    private func sendThroughBoth(_ codex: FakeCodex) async -> CodexAppServerError? {
+        let path = codex.executable.path
+        let service = CodexAppServerService()
+        await #expect(throws: SummaryProviderError.self) {
+            try await CodexAppServerSummarizer(model: "", executableOverride: path, service: service).summarize(
+                transcript: "Marker one two three four five six seven eight nine.",
+                title: "T", localeHint: "en", task: .standard
+            )
+        }
+        return await #expect(throws: CodexAppServerError.self) {
+            try await CodexMeetingPlanAnalysisProvider(model: "", executableOverride: path, service: service).generate(
+                developerInstructions: "d", userPrompt: "Marker", schema: Data("{}".utf8)
+            )
+        }
+    }
+
+    @Test("Nothing is sent unless Codex is on a ChatGPT account",
+          arguments: ["null", #"{"type":"apiKey"}"#])
+    func onlyThroughTheAccount(account: String) async throws {
+        let codex = try makeCodex(account: account)
+        defer { try? FileManager.default.removeItem(at: codex.directory) }
+
+        #expect(await sendThroughBoth(codex) == .accountNotConnected)
+
+        #expect(codex.requests.components(separatedBy: "account/read").count == 3)
+        #expect(!codex.requests.contains("start\""))
+        #expect(!codex.requests.contains("Marker"))
+    }
+
+    /// The control for the test above: on the account the text of both
+    /// goes, and this process answers it with nothing.
+    @Test("On a ChatGPT account both go ahead")
+    func goesAheadOnTheAccount() async throws {
+        let codex = try makeCodex()
+        defer { try? FileManager.default.removeItem(at: codex.directory) }
+
+        #expect(await sendThroughBoth(codex) == .invalidResponse)
+
+        #expect(codex.requests.components(separatedBy: "turn/start").count == 3)
+        #expect(codex.requests.contains("Marker"))
+        #expect(codex.starts == 1)
+    }
+
+    /// Another process may be on another account: a request for the one
+    /// that was asked isn't sent to the one started after it died.
+    @Test("A request for a process that died goes nowhere")
+    func requestStaysWithItsProcess() async throws {
+        let codex = try makeCodex(diesAfter: "read")
+        defer { try? FileManager.default.removeItem(at: codex.directory) }
+        let connection = try CodexAppServerConnection(executableURL: codex.executable)
+
+        let process = try await connection.runningProcess()
+        // It answers and exits, and the exit may be noticed first.
+        _ = try? await connection.request(method: "account/read", on: process)
+        let pid = try #require(codex.pid)
+        for _ in 0..<500 where kill(pid, 0) == 0 { try await Task.sleep(for: .milliseconds(10)) }
+
+        await #expect(throws: CodexAppServerError.disconnected) {
+            try await connection.request(method: "thread/start", on: process)
+        }
+        await #expect(throws: CodexAppServerError.disconnected) {
+            try await connection.waitForNotification(method: "turn/completed", timeout: 60, on: process)
+        }
+        #expect(codex.starts == 1)
+        #expect(!codex.requests.contains("thread/start"))
+
+        // Any process will do: another is started.
+        _ = try await connection.request(method: "thread/start")
+        #expect(codex.starts == 2)
+
+        // And the old one's requests don't go to it either.
+        await #expect(throws: CodexAppServerError.disconnected) {
+            try await connection.request(method: "thread/delete", on: process)
+        }
+        #expect(!codex.requests.contains("thread/delete"))
+        await connection.stop()
     }
 }
 

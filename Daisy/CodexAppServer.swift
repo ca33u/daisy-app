@@ -149,13 +149,25 @@ actor CodexAppServerConnection {
         self.executableURL = url
     }
 
+    /// - Parameter process: the process the request is for
+    ///   (`runningProcess`). If it has gone, the request fails rather than
+    ///   start another and go there. `nil`: whichever runs, started if
+    ///   need be.
     func request(
         method: String,
         params: CodexJSON? = nil,
-        timeout: TimeInterval = 15
+        timeout: TimeInterval = 15,
+        on process: UUID? = nil
     ) async throws -> CodexJSON {
+        if process == nil { try await ensureStarted() }
+        return try await sendRequest(method: method, params: params, timeout: timeout, on: process)
+    }
+
+    /// The process that runs now, started if need be, for an exchange
+    /// whose later requests hold only in it.
+    func runningProcess() async throws -> UUID {
         try await ensureStarted()
-        return try await sendRequest(method: method, params: params, timeout: timeout)
+        return generation
     }
 
     func notify(method: String, params: CodexJSON? = nil) async throws {
@@ -168,7 +180,8 @@ actor CodexAppServerConnection {
     func waitForNotification(
         method: String,
         matching: [String: String] = [:],
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        on process: UUID? = nil
     ) async throws -> CodexAppServerNotification {
         if let existing = recentNotifications.reversed().first(where: {
             doesNotification($0, match: method, fields: matching)
@@ -181,6 +194,11 @@ actor CodexAppServerConnection {
             try await withCheckedThrowingContinuation { continuation in
                 guard !Task.isCancelled else {
                     continuation.resume(throwing: CancellationError())
+                    return
+                }
+                // Gone before the wait began: there is nobody left to say it.
+                if let process, process != generation || !initialized {
+                    continuation.resume(throwing: CodexAppServerError.disconnected)
                     return
                 }
                 let timeoutTask = Task { [weak self] in
@@ -323,13 +341,19 @@ actor CodexAppServerConnection {
     private func sendRequest(
         method: String,
         params: CodexJSON?,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        on process: UUID? = nil
     ) async throws -> CodexJSON {
         let id = UUID().uuidString
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 guard !Task.isCancelled else {
                     continuation.resume(throwing: CancellationError())
+                    return
+                }
+                // Here, with nothing between it and the write.
+                if let process, process != generation || !initialized {
+                    continuation.resume(throwing: CodexAppServerError.disconnected)
                     return
                 }
                 let timeoutTask = Task { [weak self] in
@@ -391,7 +415,12 @@ actor CodexAppServerConnection {
         var data = try JSONEncoder().encode(message)
         data.append(0x0A)
         do { try inputHandle.write(contentsOf: data) }
-        catch { throw CodexAppServerError.disconnected }
+        catch {
+            // Its reader has gone before the exit was noticed: without this
+            // the retry would meet the same dead process.
+            stopProcess(error: CodexAppServerError.disconnected)
+            throw CodexAppServerError.disconnected
+        }
     }
 
     // MARK: Incoming messages
@@ -614,12 +643,25 @@ actor CodexAppServerService: CodexAppServerServing {
     private var connectedExecutable: URL?
 
     func account(executableOverride: String = "") async throws -> CodexAccountInfo? {
-        let result = try await retryingRead(executableOverride) { connection in
-            try await connection.request(
+        try await account(on: connection(for: executableOverride)).account
+    }
+
+    /// The account, and the process that said so.
+    private func account(
+        on connection: CodexAppServerConnection
+    ) async throws -> (account: CodexAccountInfo?, process: UUID) {
+        try await Self.retryingRead(connection) { connection in
+            let process = try await connection.runningProcess()
+            let result = try await connection.request(
                 method: "account/read",
-                params: .object(["refreshToken": .bool(false)])
+                params: .object(["refreshToken": .bool(false)]),
+                on: process
             )
+            return (try Self.parseAccount(result), process)
         }
+    }
+
+    private static func parseAccount(_ result: CodexJSON) throws -> CodexAccountInfo? {
         guard let account = result["account"], account != .null else { return nil }
         guard let type = account["type"]?.stringValue else { throw CodexAppServerError.invalidResponse }
         return CodexAccountInfo(
@@ -630,7 +672,7 @@ actor CodexAppServerService: CodexAppServerServing {
     }
 
     func models(executableOverride: String = "") async throws -> [CodexModelInfo] {
-        let result = try await retryingRead(executableOverride) { connection in
+        let result = try await Self.retryingRead(connection(for: executableOverride)) { connection in
             try await connection.request(
                 method: "model/list",
                 params: .object(["limit": .number(100), "includeHidden": .bool(false)])
@@ -648,7 +690,7 @@ actor CodexAppServerService: CodexAppServerServing {
     }
 
     func rateLimits(executableOverride: String = "") async throws -> CodexRateLimitInfo? {
-        let result = try await retryingRead(executableOverride) { connection in
+        let result = try await Self.retryingRead(connection(for: executableOverride)) { connection in
             try await connection.request(method: "account/rateLimits/read")
         }
         return Self.parseRateLimits(result)
@@ -750,6 +792,15 @@ actor CodexAppServerService: CodexAppServerServing {
         _ = try await connection.request(method: "account/logout", timeout: 15)
     }
 
+    /// The one way text goes to the App Server, for summaries and plan
+    /// analysis.
+    ///
+    /// The account is read first, in the process that will take the text:
+    /// a Codex signed in with an API key would run it on that key, which
+    /// isn't what the person chose. Here rather than in the callers, since
+    /// plan analysis had no check of its own (24.11). Every request after
+    /// it is for that process alone: another, started because it died,
+    /// may be on another account.
     func summarize(
         prompt: String,
         developerInstructions: String,
@@ -758,6 +809,10 @@ actor CodexAppServerService: CodexAppServerServing {
         executableOverride: String = ""
     ) async throws -> String {
         let connection = try await connection(for: executableOverride)
+        let (account, process) = try await account(on: connection)
+        guard account?.type == "chatgpt" else {
+            throw CodexAppServerError.accountNotConnected
+        }
         let fm = FileManager.default
         let directory = fm.temporaryDirectory
             .appendingPathComponent("daisy-codex-\(UUID().uuidString)", isDirectory: true)
@@ -790,7 +845,8 @@ actor CodexAppServerService: CodexAppServerServing {
         let threadResult = try await connection.request(
             method: "thread/start",
             params: .object(threadParams),
-            timeout: 20
+            timeout: 20,
+            on: process
         )
         guard let threadID = threadResult["thread"]?["id"]?.stringValue else {
             throw CodexAppServerError.invalidResponse
@@ -813,7 +869,8 @@ actor CodexAppServerService: CodexAppServerServing {
                         "networkAccess": .bool(false)
                     ])
                 ]),
-                timeout: 20
+                timeout: 20,
+                on: process
             )
             guard let id = turnResult["turn"]?["id"]?.stringValue else {
                 throw CodexAppServerError.invalidResponse
@@ -824,14 +881,16 @@ actor CodexAppServerService: CodexAppServerServing {
                 try await connection.waitForNotification(
                     method: "turn/completed",
                     matching: ["threadId": threadID],
-                    timeout: 180
+                    timeout: 180,
+                    on: process
                 )
             } onCancel: {
                 Task {
                     _ = try? await connection.request(
                         method: "turn/interrupt",
                         params: .object(["threadId": .string(threadID), "turnId": .string(id)]),
-                        timeout: 5
+                        timeout: 5,
+                        on: process
                     )
                 }
             }
@@ -840,7 +899,7 @@ actor CodexAppServerService: CodexAppServerServing {
                 throw CodexAppServerError.remote(CodexAppServerError.friendlySummaryMessage(errorMessage))
             }
             if let text = Self.agentMessage(in: completion.params["turn"]?["items"]) {
-                await cleanup(threadID: threadID, connection: connection)
+                await cleanup(threadID: threadID, connection: connection, process: process)
                 return text
             }
             if let item = await connection.recentNotification(
@@ -849,7 +908,7 @@ actor CodexAppServerService: CodexAppServerServing {
             ),
                item.params["item"]?["type"]?.stringValue == "agentMessage",
                let text = item.params["item"]?["text"]?.stringValue {
-                await cleanup(threadID: threadID, connection: connection)
+                await cleanup(threadID: threadID, connection: connection, process: process)
                 return text
             }
             throw CodexAppServerError.invalidResponse
@@ -858,10 +917,11 @@ actor CodexAppServerService: CodexAppServerServing {
                 _ = try? await connection.request(
                     method: "turn/interrupt",
                     params: .object(["threadId": .string(threadID), "turnId": .string(turnID)]),
-                    timeout: 5
+                    timeout: 5,
+                    on: process
                 )
             }
-            await cleanup(threadID: threadID, connection: connection)
+            await cleanup(threadID: threadID, connection: connection, process: process)
             throw error
         }
     }
@@ -885,20 +945,20 @@ actor CodexAppServerService: CodexAppServerServing {
     /// its next request starts a fresh process and retries once, on
     /// the same connection: one replaced meanwhile fails, rather than
     /// bring the old path back over the new one.
-    private func retryingRead(
-        _ executableOverride: String,
-        _ operation: (CodexAppServerConnection) async throws -> CodexJSON
-    ) async throws -> CodexJSON {
-        let connection = try await connection(for: executableOverride)
+    private static func retryingRead<Value>(
+        _ connection: CodexAppServerConnection,
+        _ operation: (CodexAppServerConnection) async throws -> Value
+    ) async throws -> Value {
         do { return try await operation(connection) }
         catch CodexAppServerError.disconnected { return try await operation(connection) }
     }
 
-    private func cleanup(threadID: String, connection: CodexAppServerConnection) async {
+    private func cleanup(threadID: String, connection: CodexAppServerConnection, process: UUID) async {
         _ = try? await connection.request(
             method: "thread/delete",
             params: .object(["threadId": .string(threadID)]),
-            timeout: 5
+            timeout: 5,
+            on: process
         )
         await connection.clearNotifications(matching: ["threadId": threadID])
     }
@@ -926,6 +986,7 @@ nonisolated enum CodexAppServerError: LocalizedError, Equatable {
     case invalidResponse
     case temporaryDirectoryFailed
     case authorizationFailed
+    case accountNotConnected
     case sessionExpired
     case remote(String)
 
@@ -945,6 +1006,8 @@ nonisolated enum CodexAppServerError: LocalizedError, Equatable {
             return String(localized: "Daisy couldn't create a private temporary folder for the summary.")
         case .authorizationFailed:
             return String(localized: "ChatGPT sign-in was cancelled or failed.")
+        case .accountNotConnected:
+            return String(localized: "Connect your ChatGPT account in \(SettingsRow.summaryProvider.path).")
         case .sessionExpired:
             return String(localized: "Your ChatGPT session expired. Connect the account again.")
         case .remote(let message):
