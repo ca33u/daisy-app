@@ -27515,12 +27515,12 @@
         }
       }
     },
-    "Summaries, polish, briefs and the Daisy key run on Claude through Daisy's server, with no API key of your own. Daisy's server passes the text to Anthropic and keeps none of it. One subscription works on your Mac, iPhone and Windows. Without one, three meeting summaries are free" : {
+    "Summaries, polish, briefs and the Daisy key run on Claude through Daisy's server, with no API key of your own. Daisy's server passes the text to Anthropic and keeps none of it. The subscription belongs to your Daisy account, not this Mac: sign in on another Mac and it works there too. Without one, three meeting summaries are free" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Саммари, полировка, брифы и клавиша Daisy работают на Claude через сервер Daisy, без своего API-ключа. Сервер Daisy передаёт текст в Anthropic и не хранит его. Одна подписка работает на Маке, iPhone и Windows. Без подписки бесплатны три саммари встреч"
+            "value" : "Саммари, полировка, брифы и клавиша Daisy работают на Claude через сервер Daisy, без своего API-ключа. Сервер Daisy передаёт текст в Anthropic и не хранит его. Подписка принадлежит аккаунту Daisy, а не этому Mac: войди на другом Mac, и она заработает и там. Без подписки бесплатны три саммари встреч"
           }
         }
       }

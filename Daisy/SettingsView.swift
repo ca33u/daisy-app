@@ -3707,7 +3707,7 @@ struct SettingsView: View {
         case .appleIntelligence:
             return String(localized: "Runs entirely on-device. Nothing about the transcript leaves your Mac. Apple's local model doesn't support every language (e.g. Russian) — for those, switch to a cloud provider.")
         case .daisySubscription:
-            return String(localized: "Summaries, polish, briefs and the Daisy key run on Claude through Daisy's server, with no API key of your own. Daisy's server passes the text to Anthropic and keeps none of it. One subscription works on your Mac, iPhone and Windows. Without one, three meeting summaries are free")
+            return String(localized: "Summaries, polish, briefs and the Daisy key run on Claude through Daisy's server, with no API key of your own. Daisy's server passes the text to Anthropic and keeps none of it. The subscription belongs to your Daisy account, not this Mac: sign in on another Mac and it works there too. Without one, three meeting summaries are free")
         case .anthropic:
             return String(localized: "Transcripts are sent to Anthropic over HTTPS using your own API key. Create one at console.anthropic.com/settings/keys — it's stored in your macOS Keychain. Each summary costs roughly $0.01–0.05.")
         case .openai:
