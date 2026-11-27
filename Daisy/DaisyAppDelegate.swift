@@ -66,7 +66,7 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         }
         // Paid for from Settings → AI: that is a yes to writing summaries
         // on the subscription, so its switch turns on. Only with the yes to
-        // sending text (the price buttons ask for it first; a wait begun
+        // sending text (the plan row comes only after it; a wait begun
         // from the return link doesn't), or the switch would land on a
         // provider that refuses.
         DaisyAccountStore.shared.onPaid = {

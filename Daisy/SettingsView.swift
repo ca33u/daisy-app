@@ -2762,6 +2762,14 @@ struct SettingsView: View {
                         summaryTestResult = .idle
                         summaryTestPreview = nil
                     }
+                    // The test row comes and goes with the subscription
+                    // (signing out, a payment): a result left from before
+                    // would stand there without its row.
+                    .onChange(of: subscriptionCanBeTested) {
+                        summaryTestRun += 1
+                        summaryTestResult = .idle
+                        summaryTestPreview = nil
+                    }
                 if !summarizer.usesDaisySubscription, DaisyAccountStore.shared.subscription?.active == true {
                     Text("The subscription is active, but summaries are still written by \(summarizer.ownProviderKind.displayName(ollamaModel: summarizer.ownProviderKind == .ollama ? summarizer.ollamaModel : nil)). Turn the switch above on to write them on the subscription")
                         .font(.caption)
@@ -2769,7 +2777,12 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 DaisySubscriptionRows { await summarizer.refreshAvailability() }
-                if summarizer.usesDaisySubscription { summaryTestRow }
+                // Only for a subscriber (`subscriptionCanBeTested`): for a
+                // free account the button could only sit there greyed out,
+                // under the plan and its own button.
+                if summarizer.usesDaisySubscription, subscriptionCanBeTested {
+                    summaryTestRow
+                }
             } header: {
                 summaryProviderHeader("Daisy Subscription", active: summarizer.usesDaisySubscription)
             } footer: {
@@ -3057,7 +3070,16 @@ struct SettingsView: View {
         return "\(name) · " + String(localized: "\(words) of \(VoiceProfileStore.unlockWords) words")
     }
 
-    /// «Test summary» and its result: the last row of whichever block is in use.
+    /// Whether «Test summary» is offered on the Daisy Subscription: to a
+    /// subscriber only. A free account's test would spend one of its three
+    /// summaries. One rule for whether the row is drawn and whether its
+    /// button works.
+    private var subscriptionCanBeTested: Bool {
+        DaisyAccountStore.shared.subscription?.active == true
+    }
+
+    /// «Test summary» and its result: the last row of the block in use
+    /// (on the subscription, for a subscriber only).
     private var summaryTestRow: some View {
         HStack {
             Button("Test summary") {
@@ -3701,8 +3723,8 @@ struct SettingsView: View {
         if summaryTestResult == .testing { return true }
         switch summarizer.providerKind {
         case .appleIntelligence: return true
-        // A free account's test would spend one of its three summaries.
-        case .daisySubscription: return DaisyAccountStore.shared.subscription?.active != true
+        // The row isn't drawn for a free account; the same rule, should it be.
+        case .daisySubscription: return !subscriptionCanBeTested
         case .daisyLocal: return !LocalSummaryModel.isInstalled
         case .anthropic: return settings.anthropicAPIKey.isBlank
         case .openai:

@@ -423,7 +423,7 @@ struct DaisySubscriptionTests {
         return false
     }
 
-    @Test("a payment made before Cancel is still seen: the asking goes on quietly, and the price buttons give way to Active")
+    @Test("a payment made before Cancel is still seen: the asking goes on quietly, and the plan row gives way to Active")
     func cancelledCheckoutStillSeesThePayment() async throws {
         let store = await account([
             (200, #"{"url":"https://whop.com/checkout/plan_x"}"#, json),
@@ -683,6 +683,16 @@ struct DaisySubscriptionTests {
         #expect(waiting)
         #expect(await eventually { !store.awaitingPayment && store.pendingCheckout == nil })
         await MainActor.run { store.stopWaitingForPayment() }
+    }
+
+    @Test("the plan picked is the plan asked for", arguments: [DaisyAccountStore.Plan.month, .year])
+    func checkoutAsksForThePickedPlan(plan: DaisyAccountStore.Plan) async throws {
+        let store = await account([(200, #"{"url":"https://whop.com/checkout/plan_x"}"#, json)])
+        try await store.checkout(plan)
+        await MainActor.run { store.stopWaitingForPayment() }
+        #expect(DaisyServerStub.requests.first?.url == DaisyAccountStore.base.appendingPathComponent("checkout"))
+        #expect(sentBody()["plan"] as? String == plan.rawValue)
+        #expect(["month", "year"].contains(plan.rawValue))
     }
 
     @Test("a second checkout for an account that already pays is refused, and Settings shows it as Active")

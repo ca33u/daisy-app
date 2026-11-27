@@ -456,8 +456,8 @@ final class DaisyAccountStore {
     /// Stops showing the wait: the person decided not to pay now. The
     /// status keeps being asked, quietly, until the same deadline. A
     /// payment made just before Cancel then shows as «Active» as soon as
-    /// Whop reports it; one read here could miss it and leave the price
-    /// buttons up for a second payment (review 27.11: the server refuses a
+    /// Whop reports it; one read here could miss it and leave the plan
+    /// row up for a second payment (review 27.11: the server refuses a
     /// second checkout only once the first membership is live).
     func cancelCheckout() async {
         awaitingPayment = false

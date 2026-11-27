@@ -28178,6 +28178,33 @@
           }
         }
       }
+    },
+    "daisySubscription.subscribe" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subscribe"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Оформить подписку"
+          }
+        }
+      }
+    },
+    "The payment page opens in your browser" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Страница оплаты откроется в браузере"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

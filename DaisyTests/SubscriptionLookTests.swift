@@ -100,9 +100,13 @@ struct SubscriptionLookTests {
     }
 
     private func rows(_ store: DaisyAccountStore) -> some View {
+        // The block's switch, then the rows, at the width of the narrowest
+        // Settings (a main window at its 860 pt floor leaves the form 569).
+        // Not drawn: the header's status and Refresh, the footer, «Test
+        // summary»; and the switch is on in every state.
         Form {
-            Section("Summary") {
-                LabeledContent("Provider") { Text("Daisy Subscription") }
+            Section("Daisy Subscription") {
+                Toggle("Write summaries on the Daisy Subscription", isOn: .constant(true))
                 DaisySubscriptionRows(store: store) {}
             }
         }
@@ -127,7 +131,7 @@ struct SubscriptionLookTests {
         for (name, signedIn, consented, status) in states {
             let store = await store(signedIn: signedIn, consented: consented, status: status)
             for scheme in [ColorScheme.light, .dark] {
-                try write(rows(store), name: name, size: CGSize(width: 640, height: 330), scheme: scheme)
+                try write(rows(store), name: name, size: CGSize(width: 569, height: 380), scheme: scheme)
             }
         }
         // Waiting for a payment: a checkout opened (into nothing) and not paid.
@@ -141,7 +145,7 @@ struct SubscriptionLookTests {
         await waiting.refreshSubscription()
         try await waiting.checkout(.year)
         for scheme in [ColorScheme.light, .dark] {
-            try write(rows(waiting), name: "9-waiting", size: CGSize(width: 640, height: 330), scheme: scheme)
+            try write(rows(waiting), name: "9-waiting", size: CGSize(width: 569, height: 380), scheme: scheme)
         }
         waiting.stopWaitingForPayment()
         let signedOut = await store(signedIn: false, consented: true, status: nil)

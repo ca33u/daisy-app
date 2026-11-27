@@ -22,6 +22,8 @@ struct DaisySubscriptionRows: View {
     @State private var confirmDelete = false
     @State private var error: String?
     @State private var busy = false
+    /// The plan picked in the row; nothing is bought until «Subscribe».
+    @State private var plan: DaisyAccountStore.Plan = .month
     /// Called when the account or the subscription changed, so readiness is asked again.
     let changed: @MainActor () async -> Void
 
@@ -183,14 +185,44 @@ struct DaisySubscriptionRows: View {
                 } else if store.hasAcknowledgedCloudDisclosure {
                     // Not before the yes to sending text: one thing to
                     // decide at a time, and it comes first.
-                    // Keyed: a noun like the rows above it («Тариф»), and
-                    // not the word a «Subscribe» button elsewhere would get.
+                    // «Plan» is keyed: a noun like the rows above it
+                    // («Тариф»). So is the button: in Russian it takes the
+                    // verb of the row above («Не оформлена» → «Оформить
+                    // подписку»), not the «Подключить» of connecting an
+                    // account.
+                    //
+                    // A choice, then a button (Egor 27.11): as two price
+                    // buttons the row read as a choice between plans, and
+                    // a click went straight to the payment. Now the prices
+                    // only choose, and one button, saying where it leads,
+                    // opens the payment page.
                     LabeledContent(String(localized: "daisySubscription.plan", defaultValue: "Plan")) {
-                        HStack(spacing: 8) {
-                            Button("$7.99 a month") { run { try await store.checkout(.month) } }
+                        VStack(alignment: .trailing, spacing: 8) {
+                            // The label is hidden, and still what VoiceOver reads.
+                            Picker(String(localized: "daisySubscription.plan", defaultValue: "Plan"), selection: $plan) {
+                                Text("$7.99 a month").tag(DaisyAccountStore.Plan.month)
+                                Text("$59.99 a year").tag(DaisyAccountStore.Plan.year)
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                            .fixedSize()
+                            HStack(spacing: 10) {
+                                // One line: wrapped, it took the row's
+                                // width and pushed the button off the
+                                // trailing edge.
+                                Text("The payment page opens in your browser")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .fixedSize()
+                                Button(String(localized: "daisySubscription.subscribe", defaultValue: "Subscribe")) {
+                                    // The plan as it stands at the click.
+                                    let picked = plan
+                                    run { try await store.checkout(picked) }
+                                }
                                 .buttonStyle(.daisyPrimary)
-                            Button("$59.99 a year") { run { try await store.checkout(.year) } }
-                                .buttonStyle(.bordered)
+                                .accessibilityHint(Text("The payment page opens in your browser"))
+                            }
                         }
                         .disabled(busy)
                     }
