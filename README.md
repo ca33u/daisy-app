@@ -148,7 +148,7 @@ Release notes for each version go in `scripts/release-notes/<shortVersion>.md` a
 
 ## Support and contact
 
-Daisy is free, open source and built independently. If it saves you time, you can [help it stay that way](https://mydaisy.io/support-daisy): a one-time payment of $5, $10 or $25. It is a thank-you to the developer, not a charitable donation, and it unlocks nothing.
+Daisy is free, open source and built independently. If it saves you time, you can [help it stay that way](https://mydaisy.io/support-daisy): a one-time payment of any amount. It is a thank-you to the developer, not a charitable donation, and it unlocks nothing.
 
 - Chat with the community → [Discord](https://discord.gg/JYCZRZXy6j)
 - Questions, ideas, show-and-tell → [GitHub Discussions](https://github.com/ca33u/daisy-app/discussions)
