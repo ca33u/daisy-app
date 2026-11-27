@@ -18,6 +18,7 @@ import SwiftUI
 struct DaisySubscriptionRows: View {
     @Bindable private var store = DaisyAccountStore.shared
     @State private var showSignIn = false
+    @State private var askDisclosure = false
     @State private var confirmDelete = false
     @State private var error: String?
     @State private var busy = false
@@ -25,33 +26,54 @@ struct DaisySubscriptionRows: View {
     let changed: @MainActor () async -> Void
 
     var body: some View {
-        Group {
-            accountRow
-            if store.isSignedIn { subscriptionRows }
-            if let error {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(Color.daisyWarning)
-                    .fixedSize(horizontal: false, vertical: true)
+        // The sheet, the alerts and the refresh hang on one row: on a
+        // Group they would be applied to every row of it.
+        accountRow
+            .sheet(isPresented: $showSignIn) {
+                DaisySignInSheet {
+                    showSignIn = false
+                    Task { await changed() }
+                }
+            }
+            // With this provider text goes through our server: said and
+            // agreed to before the first sign-in. The sign-in sheet opens
+            // only from here, after the yes.
+            .alert("Send text through Daisy's server?", isPresented: $askDisclosure) {
+                Button("Cancel", role: .cancel) {}
+                Button("Continue") {
+                    store.acknowledgeCloudDisclosure()
+                    if !store.isSignedIn { showSignIn = true }
+                    Task { await changed() }
+                }
+            } message: {
+                Text("With the Daisy Subscription, the text Daisy's AI works on — meetings, dictations, Daisy key commands, briefs — goes through Daisy's server to Anthropic. The server keeps none of it. Names and contacts are replaced before sending only if “Protect sensitive data before cloud AI” is on")
+            }
+            .confirmationDialog("Delete your Daisy account?", isPresented: $confirmDelete) {
+                Button("Delete account", role: .destructive) { run { try await store.deleteAccount() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Your email and ways to sign in are deleted from Daisy's server. A paid subscription isn't cancelled by this: cancel it where you bought it. Recordings on this Mac stay")
+            }
+            .task(id: store.isSignedIn) {
+                guard store.isSignedIn else { return }
+                await store.refreshAccount()
+                await store.refreshSubscription()
+                await changed()
+            }
+        if store.isSignedIn, !store.hasAcknowledgedCloudDisclosure {
+            // Signed in, the yes not given (a session kept from before the
+            // question existed): nothing is sent until it is.
+            LabeledContent("") {
+                Button("Confirm sending text…") { askDisclosure = true }
+                    .buttonStyle(.daisyPrimary)
             }
         }
-        .sheet(isPresented: $showSignIn) {
-            DaisySignInSheet {
-                showSignIn = false
-                Task { await changed() }
-            }
-        }
-        .confirmationDialog("Delete your Daisy account?", isPresented: $confirmDelete) {
-            Button("Delete account", role: .destructive) { run { try await store.deleteAccount() } }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Your email and ways to sign in are deleted from Daisy's server. A paid subscription isn't cancelled by this: cancel it where you bought it. Recordings on this Mac stay")
-        }
-        .task(id: store.isSignedIn) {
-            guard store.isSignedIn else { return }
-            await store.refreshAccount()
-            await store.refreshSubscription()
-            await changed()
+        if store.isSignedIn { subscriptionRows }
+        if let error {
+            Text(error)
+                .font(.caption)
+                .foregroundStyle(Color.daisyWarning)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -80,8 +102,10 @@ struct DaisySubscriptionRows: View {
             }
         } else {
             LabeledContent("Daisy account") {
-                Button("Sign in") { showSignIn = true }
-                    .buttonStyle(.daisyPrimary)
+                Button("Sign in") {
+                    if store.hasAcknowledgedCloudDisclosure { showSignIn = true } else { askDisclosure = true }
+                }
+                .buttonStyle(.daisyPrimary)
             }
         }
     }
@@ -180,7 +204,7 @@ struct DaisySubscriptionRows: View {
 
 // MARK: - Sign in
 
-struct DaisySignInSheet: View {
+private struct DaisySignInSheet: View {
     let onDone: () -> Void
 
     @Environment(\.dismiss) private var dismiss

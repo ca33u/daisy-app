@@ -224,14 +224,41 @@ final class DaisyAccountStore {
     @ObservationIgnored var onChange: (@MainActor () -> Void)?
 
     @ObservationIgnored private let session: URLSession
+    /// Tests only: the provider under test shares the account's stubbed session.
+    nonisolated var urlSessionForTests: URLSession { session }
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private let log = Logger(subsystem: "app.essazanov.Daisy", category: "DaisyAccount")
     private static let accountKey = "daisy.account"
+    private static let disclosureKey = "daisy.account.cloudDisclosureAcknowledged"
 
-    init(session: URLSession = .shared, defaults: UserDefaults = .standard, readStored: Bool = !TestHost.isActive) {
+    /// The yes to «Send text through Daisy's server?», asked before the
+    /// first sign-in (27.11): with this provider the text of meetings and
+    /// dictations goes to our server, and nothing goes there unasked. The
+    /// provider sends nothing without it.
+    /// Kept across sign-out (an expired session must not take it back, as
+    /// the ChatGPT account's isn't); a deleted account takes it along.
+    private(set) var hasAcknowledgedCloudDisclosure = false
+
+    func acknowledgeCloudDisclosure() {
+        guard !hasAcknowledgedCloudDisclosure else { return }
+        defaults.set(true, forKey: Self.disclosureKey)
+        hasAcknowledgedCloudDisclosure = true
+        onChange?()
+    }
+
+    /// `restoring`: tests only — a store that is already signed in, without
+    /// the keychain.
+    init(session: URLSession = .shared, defaults: UserDefaults = .standard, readStored: Bool = !TestHost.isActive,
+         restoring: (token: String, account: DaisyAccountInfo)? = nil) {
         self.session = session
         self.defaults = defaults
+        hasAcknowledgedCloudDisclosure = defaults.bool(forKey: Self.disclosureKey)
+        if let restoring {
+            sessionToken = restoring.token
+            account = restoring.account
+            return
+        }
         guard readStored else { return }
         sessionToken = DaisySessionKeychain.read()
         if let data = defaults.data(forKey: Self.accountKey) {
@@ -309,6 +336,9 @@ final class DaisyAccountStore {
         guard let sessionToken else { return }
         let (status, json) = try await call("account", method: "DELETE", bearer: sessionToken)
         guard status == 200 || status == 401 else { throw DaisyAccountFailure.from(status: status, json: json) }
+        // The next sign-in is a new account: it is asked again.
+        defaults.removeObject(forKey: Self.disclosureKey)
+        hasAcknowledgedCloudDisclosure = false
         signOut()
     }
 

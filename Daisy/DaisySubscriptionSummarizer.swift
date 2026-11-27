@@ -30,6 +30,7 @@ nonisolated enum DaisySubscriptionError: LocalizedError, Equatable {
     case signedOut
     case trialUsed
     case subscriptionRequired
+    case consentNeeded
     case dailyLimit
     case monthlyLimit
     case busy
@@ -42,6 +43,8 @@ nonisolated enum DaisySubscriptionError: LocalizedError, Equatable {
             String(localized: "Your three free summaries are used. The transcript is safe; subscribe to Daisy to get the summary")
         case .subscriptionRequired:
             String(localized: "This needs a Daisy Subscription. The free summaries cover meeting summaries only")
+        case .consentNeeded:
+            String(localized: "Open the Daisy Subscription in Settings and confirm sending text through Daisy's server")
         case .dailyLimit:
             String(localized: "Today's Daisy Subscription allowance is used up. The transcript is safe; try again tomorrow")
         case .monthlyLimit:
@@ -81,10 +84,14 @@ nonisolated struct DaisySubscriptionSummarizer: SummaryProvider {
     /// Tests only: a session and a subscription state that bypass the account store.
     let sessionOverride: String?
     let subscribedOverride: Bool?
+    /// The account to act for; nil is the app's own (`DaisyAccountStore.shared`).
+    let accountStore: DaisyAccountStore?
 
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "DaisySubscription")
 
-    init(urlSession: URLSession = .shared, sessionOverride: String? = nil, subscribedOverride: Bool? = nil) {
+    init(urlSession: URLSession = .shared, sessionOverride: String? = nil, subscribedOverride: Bool? = nil,
+         accountStore: DaisyAccountStore? = nil) {
+        self.accountStore = accountStore
         self.urlSession = urlSession
         self.sessionOverride = sessionOverride
         self.subscribedOverride = subscribedOverride
@@ -92,18 +99,23 @@ nonisolated struct DaisySubscriptionSummarizer: SummaryProvider {
 
     func isReady() async -> Bool { await readiness() == .ready }
 
+    private func store() async -> DaisyAccountStore {
+        if let accountStore { return accountStore }
+        return await MainActor.run { DaisyAccountStore.shared }
+    }
+
     /// Signed in, and a subscription or a free summary left. No answer
     /// from the server is not «not set up».
     func readiness() async -> SummaryReadiness {
         if sessionOverride != nil { return .ready }
+        let store = await store()
         let (signedIn, status, failed) = await MainActor.run { () -> (Bool, DaisySubscriptionStatus?, Bool) in
-            let store = DaisyAccountStore.shared
-            return (store.isSignedIn, store.subscription, store.subscriptionCheckFailed)
+            (store.isSignedIn && store.hasAcknowledgedCloudDisclosure, store.subscription, store.subscriptionCheckFailed)
         }
         guard signedIn else { return .notReady }
-        let fresh = await DaisyAccountStore.shared.currentSubscription()
+        let fresh = await store.currentSubscription()
         // The check may have found the session over and signed out.
-        guard await MainActor.run(body: { DaisyAccountStore.shared.isSignedIn }) else { return .notReady }
+        guard await MainActor.run(body: { store.isSignedIn }) else { return .notReady }
         guard let known = fresh ?? (failed ? nil : status) else {
             return .checkFailed(String(localized: "Daisy's server can't be reached. Try again"))
         }
@@ -148,20 +160,27 @@ nonisolated struct DaisySubscriptionSummarizer: SummaryProvider {
     ) async throws -> MeetingSummary {
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > 40 else { throw SummaryProviderError.transcriptTooShort }
+        let store = await store()
         let session: String? = if let sessionOverride { sessionOverride } else {
-            await MainActor.run { DaisyAccountStore.shared.sessionToken }
+            await MainActor.run { store.sessionToken }
         }
         guard let session else { throw DaisySubscriptionError.signedOut }
+        // Nothing goes to our server without the yes given before signing in.
+        if sessionOverride == nil {
+            guard await MainActor.run(body: { store.hasAcknowledgedCloudDisclosure }) else {
+                throw DaisySubscriptionError.consentNeeded
+            }
+        }
 
         // The free path only when the status is known and not active: a
         // subscriber whose status couldn't be read goes to /v1/complete, and
         // its 402 sends a meeting to the free path if it really has to.
         let subscribed: Bool? = if let subscribedOverride { subscribedOverride } else {
-            await DaisyAccountStore.shared.currentSubscription()?.active
+            await store.currentSubscription()?.active
         }
         if subscribed == false {
             return try await freeSummary(task: task, transcript: trimmed, title: title, localeHint: localeHint,
-                                         session: session)
+                                         session: session, store: store)
         }
 
         let system = SummaryPrompt.systemInstructions(localeHint: localeHint, task: task)
@@ -190,14 +209,14 @@ nonisolated struct DaisySubscriptionSummarizer: SummaryProvider {
             bytes = try await openRetrying(request)
         } catch SummaryProviderError.httpError(_, let status, let body) {
             if let ours = DaisySubscriptionError.from(status: status, body: body) {
-                if ours == .signedOut { await MainActor.run { DaisyAccountStore.shared.signOut() } }
+                if ours == .signedOut { await MainActor.run { store.signOut() } }
                 if ours == .subscriptionRequired {
                     // The subscription ended since the status was read: the
                     // free summaries, if any are left, for a meeting.
-                    await DaisyAccountStore.shared.refreshSubscription()
+                    await store.refreshSubscription()
                     if case .meeting = task {
                         return try await freeSummary(task: task, transcript: trimmed, title: title, localeHint: localeHint,
-                                                     session: session)
+                                                     session: session, store: store)
                     }
                 }
                 throw ours
@@ -288,7 +307,7 @@ nonisolated struct DaisySubscriptionSummarizer: SummaryProvider {
     /// summary only: the server's prompt drafts no follow-up on request, so
     /// «Draft follow-up» would spend a free summary for nothing.
     private func freeSummary(task: SummaryTask, transcript: String, title: String, localeHint: String?,
-                             session: String) async throws -> MeetingSummary {
+                             session: String, store: DaisyAccountStore) async throws -> MeetingSummary {
         guard case .meeting(let forceFollowUp, let oneVoice) = task, !forceFollowUp else {
             throw DaisySubscriptionError.subscriptionRequired
         }
@@ -309,13 +328,13 @@ nonisolated struct DaisySubscriptionSummarizer: SummaryProvider {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         if let left = json?["trialRemaining"] as? Int {
-            await MainActor.run { DaisyAccountStore.shared.noteTrialRemaining(left) }
+            await MainActor.run { store.noteTrialRemaining(left) }
         }
         guard status == 200 else {
             let code = json?["error"] as? String
             if status == 400, code == "transcript_too_short" { throw SummaryProviderError.transcriptTooShort }
             if status == 401 {
-                await MainActor.run { DaisyAccountStore.shared.signOut() }
+                await MainActor.run { store.signOut() }
                 throw DaisySubscriptionError.signedOut
             }
             if status == 402 { throw DaisySubscriptionError.trialUsed }

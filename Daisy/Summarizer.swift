@@ -851,6 +851,9 @@ final class Summarizer {
             if !store.isSignedIn {
                 return String(localized: "Sign in to Daisy in \(SettingsRow.summaryProvider.path) to use the Daisy Subscription")
             }
+            if !store.hasAcknowledgedCloudDisclosure {
+                return String(localized: "Confirm sending text through Daisy's server in \(SettingsRow.summaryProvider.path)")
+            }
             return String(localized: "Your three free summaries are used. Subscribe to Daisy in \(SettingsRow.summaryProvider.path)")
         }
     }

@@ -28061,6 +28061,56 @@
           }
         }
       }
+    },
+    "Send text through Daisy's server?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправлять текст через сервер Daisy?"
+          }
+        }
+      }
+    },
+    "With the Daisy Subscription, the text Daisy's AI works on — meetings, dictations, Daisy key commands, briefs — goes through Daisy's server to Anthropic. The server keeps none of it. Names and contacts are replaced before sending only if “Protect sensitive data before cloud AI” is on" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "С подпиской Daisy текст, с которым работает ИИ Daisy, — встречи, диктовки, команды клавиши Daisy, брифы — идёт через сервер Daisy в Anthropic. Сервер его не хранит. Имена и контакты заменяются перед отправкой, только если включено «Защищать чувствительные данные перед облачным ИИ»"
+          }
+        }
+      }
+    },
+    "Open the Daisy Subscription in Settings and confirm sending text through Daisy's server" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открой «Подписку Daisy» в Настройках и подтверди отправку текста через сервер Daisy"
+          }
+        }
+      }
+    },
+    "Confirm sending text through Daisy's server in %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подтверди отправку текста через сервер Daisy в «%@»"
+          }
+        }
+      }
+    },
+    "Confirm sending text…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подтвердить отправку текста…"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

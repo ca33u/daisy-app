@@ -54,6 +54,10 @@ final class DaisyServerStub: URLProtocol, @unchecked Sendable {
 
 @Suite("Daisy Subscription on the Mac", .serialized)
 struct DaisySubscriptionTests {
+    /// The stores' defaults: suites of this suite's own, gone with it (no
+    /// plist left in ~/Library/Preferences).
+    private let scratch = ScratchDefaults("DaisySubscription")
+
     private func session(_ responses: [(Int, String, [String: String])]) -> URLSession {
         DaisyServerStub.responses = responses.map { (status: $0.0, body: $0.1, headers: $0.2) }
         DaisyServerStub.requests = []
@@ -208,6 +212,113 @@ struct DaisySubscriptionTests {
             Issue.record("a cut-off stream was taken as a summary")
         } catch SummaryProviderError.streamInterrupted {
         }
+    }
+
+    /// A signed-in account of its own: scratch defaults, the stubbed server.
+    @MainActor
+    private func account(_ responses: [(Int, String, [String: String])], consented: Bool = true,
+                         defaults: UserDefaults? = nil) -> DaisyAccountStore {
+        let store = DaisyAccountStore(
+            session: session(responses),
+            defaults: defaults ?? scratch.make(),
+            readStored: false,
+            restoring: (token: "s1.session.sig", account: DaisyAccountInfo(id: "acct", email: nil, providers: ["email"])))
+        if consented { store.acknowledgeCloudDisclosure() }
+        return store
+    }
+
+    private func statusJSON(active: Bool, trial: Int) -> String {
+        active
+            ? #"{"active":true,"sources":[{"source":"web","renewsAt":"2026-12-27T12:00:00.000Z"}],"trialRemaining":0}"#
+            : #"{"active":false,"sources":[],"trialRemaining":\#(trial)}"#
+    }
+
+    @Test("signed in without the yes to sending text: not ready, and nothing is sent")
+    func nothingWithoutConsent() async throws {
+        let store = await account([], consented: false)
+        let provider = DaisySubscriptionSummarizer(urlSession: session([]), accountStore: store)
+        #expect(await provider.readiness() == .notReady)
+        await #expect(throws: DaisySubscriptionError.consentNeeded) {
+            _ = try await provider.summarize(transcript: transcript, title: "Launch", localeHint: "en", task: .standard)
+        }
+        #expect(DaisyServerStub.requests.isEmpty)
+    }
+
+    @Test("the yes is kept for the next launch, says so once, and goes with a deleted account")
+    func consentIsKeptAndCleared() async throws {
+        let defaults = scratch.make()
+        let changes = await MainActor.run { () -> Int in
+            let store = account([], consented: false, defaults: defaults)
+            var count = 0
+            store.onChange = { count += 1 }
+            store.acknowledgeCloudDisclosure()
+            store.acknowledgeCloudDisclosure()
+            return count
+        }
+        #expect(changes == 1)
+        let again = await account([(200, #"{"deleted":true,"subscriptionsCancelled":false,"linked":[]}"#, json)],
+                                  consented: false, defaults: defaults)
+        #expect(await MainActor.run { again.hasAcknowledgedCloudDisclosure })
+        try await again.deleteAccount()
+        #expect(await MainActor.run { !again.hasAcknowledgedCloudDisclosure && !again.isSignedIn })
+        let afterDelete = await account([], consented: false, defaults: defaults)
+        #expect(await MainActor.run { !afterDelete.hasAcknowledgedCloudDisclosure })
+    }
+
+    @Test("a session /v1/complete refuses signs the account out")
+    func refusedSessionOnSendSignsOut() async throws {
+        let store = await account([
+            (200, statusJSON(active: true, trial: 0), json),
+            (401, #"{"error":"session_expired"}"#, json),
+        ])
+        let provider = DaisySubscriptionSummarizer(urlSession: store.urlSessionForTests, accountStore: store)
+        await #expect(throws: DaisySubscriptionError.signedOut) {
+            _ = try await provider.summarize(transcript: transcript, title: "Launch", localeHint: "en", task: .standard)
+        }
+        #expect(await MainActor.run { !store.isSignedIn })
+    }
+
+    @Test("ready with a subscription or a free summary left; not ready with neither; a server that didn't answer is no «not set up»")
+    func readiness() async throws {
+        let subscribed = DaisySubscriptionSummarizer(accountStore: await account([(200, statusJSON(active: true, trial: 0), json)]))
+        #expect(await subscribed.readiness() == .ready)
+        let trial = DaisySubscriptionSummarizer(accountStore: await account([(200, statusJSON(active: false, trial: 2), json)]))
+        #expect(await trial.readiness() == .ready)
+        let used = DaisySubscriptionSummarizer(accountStore: await account([(200, statusJSON(active: false, trial: 0), json)]))
+        #expect(await used.readiness() == .notReady)
+        let down = DaisySubscriptionSummarizer(accountStore: await account([(500, "oops", json)]))
+        guard case .checkFailed = await down.readiness() else {
+            Issue.record("a failed check read as an answer")
+            return
+        }
+    }
+
+    @Test("a session the server refuses signs out, and the provider is not ready")
+    func refusedSessionSignsOut() async throws {
+        let store = await account([(401, #"{"error":"session_expired"}"#, json)])
+        let provider = DaisySubscriptionSummarizer(accountStore: store)
+        #expect(await provider.readiness() == .notReady)
+        #expect(await MainActor.run { !store.isSignedIn })
+    }
+
+    @Test("a subscription that ended since the status was read: a meeting falls back to a free summary")
+    func endedSubscriptionFallsBack() async throws {
+        // Status read as active, then /v1/complete says 402, the status is
+        // read again, and the meeting goes to /api/summary.
+        let store = await account([
+            (200, statusJSON(active: true, trial: 0), json),
+            (402, #"{"error":"subscription_required"}"#, json),
+            (200, statusJSON(active: false, trial: 3), json),
+            (200, #"{"text":\#(String(reflecting: summaryJSON)),"trialRemaining":2}"#, json),
+        ])
+        let provider = DaisySubscriptionSummarizer(urlSession: store.urlSessionForTests, accountStore: store)
+        let summary = try await provider.summarize(transcript: transcript, title: "Launch", localeHint: "en", task: .standard)
+        #expect(summary.summary == "Launch plan agreed.")
+        #expect(DaisyServerStub.requests.map(\.url) == [
+            DaisyAccountStore.base.appendingPathComponent("subscription"), DaisySubscriptionSummarizer.endpoint,
+            DaisyAccountStore.base.appendingPathComponent("subscription"), DaisySubscriptionSummarizer.freeEndpoint,
+        ])
+        #expect(await MainActor.run { store.subscription?.trialRemaining } == 2)
     }
 
     @Test("the server's refusals map to their own errors")
