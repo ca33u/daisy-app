@@ -28111,6 +28111,33 @@
           }
         }
       }
+    },
+    "Sending text" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправка текста"
+          }
+        }
+      }
+    },
+    "daisySubscription.plan" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plan"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Тариф"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

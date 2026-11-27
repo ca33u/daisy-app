@@ -16,7 +16,7 @@ import AuthenticationServices
 import SwiftUI
 
 struct DaisySubscriptionRows: View {
-    @Bindable private var store = DaisyAccountStore.shared
+    @Bindable private var store: DaisyAccountStore
     @State private var showSignIn = false
     @State private var askDisclosure = false
     @State private var confirmDelete = false
@@ -25,12 +25,18 @@ struct DaisySubscriptionRows: View {
     /// Called when the account or the subscription changed, so readiness is asked again.
     let changed: @MainActor () async -> Void
 
+    /// `store`: the app's own account, or a test's.
+    init(store: DaisyAccountStore = .shared, changed: @escaping @MainActor () async -> Void) {
+        self.store = store
+        self.changed = changed
+    }
+
     var body: some View {
         // The sheet, the alerts and the refresh hang on one row: on a
         // Group they would be applied to every row of it.
         accountRow
             .sheet(isPresented: $showSignIn) {
-                DaisySignInSheet {
+                DaisySignInSheet(store: store) {
                     showSignIn = false
                     Task { await changed() }
                 }
@@ -63,7 +69,7 @@ struct DaisySubscriptionRows: View {
         if store.isSignedIn, !store.hasAcknowledgedCloudDisclosure {
             // Signed in, the yes not given (a session kept from before the
             // question existed): nothing is sent until it is.
-            LabeledContent("") {
+            LabeledContent("Sending text") {
                 Button("Confirm sending text…") { askDisclosure = true }
                     .buttonStyle(.daisyPrimary)
             }
@@ -156,8 +162,12 @@ struct DaisySubscriptionRows: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                } else {
-                    LabeledContent("") {
+                } else if store.hasAcknowledgedCloudDisclosure {
+                    // Not before the yes to sending text: one thing to
+                    // decide at a time, and it comes first.
+                    // Keyed: a noun like the rows above it («Тариф»), and
+                    // not the word a «Subscribe» button elsewhere would get.
+                    LabeledContent(String(localized: "daisySubscription.plan", defaultValue: "Plan")) {
                         HStack(spacing: 8) {
                             Button("$7.99 a month") { run { try await store.checkout(.month) } }
                                 .buttonStyle(.daisyPrimary)
@@ -202,9 +212,18 @@ struct DaisySubscriptionRows: View {
     }
 }
 
+#if DEBUG
+extension DaisySubscriptionRows {
+    /// The sign-in sheet's content, for looking at it outside the app.
+    static func signInSheetForInspection(store: DaisyAccountStore) -> some View { DaisySignInSheet(store: store) {} }
+}
+#endif
+
 // MARK: - Sign in
 
 private struct DaisySignInSheet: View {
+    /// The account being signed in to: the rows' own.
+    let store: DaisyAccountStore
     let onDone: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -216,8 +235,6 @@ private struct DaisySignInSheet: View {
     @State private var code = ""
     @State private var codeSent = false
     @State private var work: Task<Void, Never>?
-
-    private var store: DaisyAccountStore { .shared }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -279,7 +296,8 @@ private struct DaisySignInSheet: View {
 
             Divider().padding(.vertical, 4)
 
-            TextField("Email", text: $email, prompt: Text("name@example.com"))
+            // Verbatim: as a localized key the address turns into a link.
+            TextField("Email", text: $email, prompt: Text(verbatim: "name@example.com"))
                 .textFieldStyle(.roundedBorder)
                 .textContentType(.emailAddress)
                 .onSubmit(sendCode)
