@@ -27474,6 +27474,593 @@
           }
         }
       }
+    },
+    "Daisy connected to Google Calendar" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy подключена к Google Календарю"
+          }
+        }
+      }
+    },
+    "You're signed in to Daisy" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вход в Daisy выполнен"
+          }
+        }
+      }
+    },
+    "You can close this tab and return to Daisy" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Можно закрыть вкладку и вернуться в Daisy"
+          }
+        }
+      }
+    },
+    "Close this tab" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закрыть вкладку"
+          }
+        }
+      }
+    },
+    "Summaries, polish, briefs and the Daisy key run on Claude through Daisy's server, with no API key of your own. Daisy's server passes the text to Anthropic and keeps none of it. One subscription works on your Mac, iPhone and Windows. Without one, three meeting summaries are free" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Саммари, полировка, брифы и клавиша Daisy работают на Claude через сервер Daisy, без своего API-ключа. Сервер Daisy передаёт текст в Anthropic и не хранит его. Одна подписка работает на Маке, iPhone и Windows. Без подписки бесплатны три саммари встреч"
+          }
+        }
+      }
+    },
+    "Sign in to Daisy in %@ to use the Daisy Subscription" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Войди в Daisy в «%@», чтобы пользоваться подпиской Daisy"
+          }
+        }
+      }
+    },
+    "Your three free summaries are used. Subscribe to Daisy in %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Три бесплатных саммари использованы. Оформи подписку Daisy в «%@»"
+          }
+        }
+      }
+    },
+    "Daisy Subscription" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подписка Daisy"
+          }
+        }
+      }
+    },
+    "Sent through Daisy's server to Anthropic, on your Daisy Subscription. Daisy keeps no text" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Через сервер Daisy в Anthropic, по подписке Daisy. Daisy не хранит текст"
+          }
+        }
+      }
+    },
+    "Signing in isn't available right now. Try again later" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вход сейчас недоступен. Попробуй позже"
+          }
+        }
+      }
+    },
+    "Couldn't sign in. Try again" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось войти. Попробуй ещё раз"
+          }
+        }
+      }
+    },
+    "Check the email address" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверь адрес почты"
+          }
+        }
+      }
+    },
+    "Too many codes for this address. Try again in an hour" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Слишком много кодов для этого адреса. Попробуй через час"
+          }
+        }
+      }
+    },
+    "Wrong code. Tries left: %lld" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Неверный код. Осталось попыток: %lld"
+          }
+        }
+      }
+    },
+    "The code has expired. Ask for a new one" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Срок действия кода истёк. Запроси новый"
+          }
+        }
+      }
+    },
+    "You're signed out of Daisy. Sign in again" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вход в Daisy больше не действует. Войди снова"
+          }
+        }
+      }
+    },
+    "This account already has a Daisy Subscription" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У этого аккаунта уже есть подписка Daisy"
+          }
+        }
+      }
+    },
+    "Daisy's server can't be reached. Try again" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сервер Daisy недоступен. Попробуй ещё раз"
+          }
+        }
+      }
+    },
+    "Delete your Daisy account?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить аккаунт Daisy?"
+          }
+        }
+      }
+    },
+    "Delete account" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить аккаунт"
+          }
+        }
+      }
+    },
+    "Your email and ways to sign in are deleted from Daisy's server. A paid subscription isn't cancelled by this: cancel it where you bought it. Recordings on this Mac stay" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Почта и способы входа удалятся с сервера Daisy. Платная подписка от этого не отменится: отмени её там, где она оформлена. Записи на этом Маке останутся"
+          }
+        }
+      }
+    },
+    "Daisy account" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Аккаунт Daisy"
+          }
+        }
+      }
+    },
+    "daisyAccount.signedIn" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Signed in"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вход выполнен"
+          }
+        }
+      }
+    },
+    "Sign out" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выйти"
+          }
+        }
+      }
+    },
+    "Delete account…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить аккаунт…"
+          }
+        }
+      }
+    },
+    "Sign in" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Войти"
+          }
+        }
+      }
+    },
+    "Subscription" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подписка"
+          }
+        }
+      }
+    },
+    "Bought on iPhone, managed in the App Store" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Оформлена на iPhone, управляется в App Store"
+          }
+        }
+      }
+    },
+    "Manage subscription" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Управлять подпиской"
+          }
+        }
+      }
+    },
+    "Not subscribed" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не оформлена"
+          }
+        }
+      }
+    },
+    "Free summaries left: %lld of 3" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Осталось бесплатных саммари: %lld из 3"
+          }
+        }
+      }
+    },
+    "The free summaries are used" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Бесплатные саммари использованы"
+          }
+        }
+      }
+    },
+    "Waiting for the payment…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ждём подтверждения оплаты…"
+          }
+        }
+      }
+    },
+    "$7.99 a month" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "$7,99 в месяц"
+          }
+        }
+      }
+    },
+    "$59.99 a year" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "$59,99 в год"
+          }
+        }
+      }
+    },
+    "Daisy's server can't be reached" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сервер Daisy недоступен"
+          }
+        }
+      }
+    },
+    "Active" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Активна"
+          }
+        }
+      }
+    },
+    "Active until %@, won't renew" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Активна до %@, не продлится"
+          }
+        }
+      }
+    },
+    "Active, renews %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Активна, продлится %@"
+          }
+        }
+      }
+    },
+    "Sign in to Daisy" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вход в Daisy"
+          }
+        }
+      }
+    },
+    "Summaries on the Daisy Subscription stay with your account on every device. Recording and transcription work without it" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Саммари по подписке Daisy привязаны к аккаунту и доступны на всех устройствах. Запись и расшифровка работают без входа"
+          }
+        }
+      }
+    },
+    "Continue with Google" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Продолжить с Google"
+          }
+        }
+      }
+    },
+    "Email" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Почта"
+          }
+        }
+      }
+    },
+    "Continue with email" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Продолжить с почтой"
+          }
+        }
+      }
+    },
+    "We sent a 6-digit code to %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мы отправили код из 6 цифр на %@"
+          }
+        }
+      }
+    },
+    "Code" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Код"
+          }
+        }
+      }
+    },
+    "Use another email" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Другой адрес"
+          }
+        }
+      }
+    },
+    "You're signed out of Daisy. The transcript is safe; sign in to get the summary" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вход в Daisy больше не действует. Транскрипт сохранён; войди, чтобы получить саммари"
+          }
+        }
+      }
+    },
+    "Your three free summaries are used. The transcript is safe; subscribe to Daisy to get the summary" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Три бесплатных саммари использованы. Транскрипт сохранён; оформи подписку Daisy, чтобы получить саммари"
+          }
+        }
+      }
+    },
+    "This needs a Daisy Subscription. The free summaries cover meeting summaries only" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для этого нужна подписка Daisy. Бесплатные саммари — только для встреч"
+          }
+        }
+      }
+    },
+    "Today's Daisy Subscription allowance is used up. The transcript is safe; try again tomorrow" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дневной лимит подписки Daisy исчерпан. Транскрипт сохранён; попробуй завтра"
+          }
+        }
+      }
+    },
+    "This month's Daisy Subscription allowance is used up. The transcript is safe" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Месячный лимит подписки Daisy исчерпан. Транскрипт сохранён"
+          }
+        }
+      }
+    },
+    "Daisy's summary service is busy. The transcript is safe; try again later" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сервис саммари Daisy занят. Транскрипт сохранён; попробуй позже"
+          }
+        }
+      }
+    },
+    "The answer was cut off" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ответ оборвался"
+          }
+        }
+      }
+    },
+    "Account actions" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Действия с аккаунтом"
+          }
+        }
+      }
+    },
+    "Buying on the website isn't available yet" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Покупка на сайте пока недоступна"
+          }
+        }
+      }
+    },
+    "Too many tries. Wait a minute and try again" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Слишком много попыток. Подожди минуту и попробуй снова"
+          }
+        }
+      }
+    },
+    "Signed in, but this Mac's keychain refused to keep it. Try again" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вход выполнен, но Связка ключей на этом Маке его не сохранила. Попробуй ещё раз"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

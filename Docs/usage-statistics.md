@@ -105,6 +105,7 @@ refuses anything else.
 | `template.followup.created` / `template.summary.created` | a follow-up template / a meeting-notes template was saved in My style |
 | `template.followup.applied` / `template.summary.applied` | a meeting's follow-up / notes were written by a template |
 | `template.switched` | a meeting's template was changed by hand in its card |
+| `subscription.web.checkout_opened` / `subscription.web.activated` | the Daisy Subscription's page on mydaisy.io was opened from Settings / its payment was seen while Daisy waited for it. No amount, no plan |
 
 "Ask Daisy" is not in the app yet, and of the Daisy key's counters
 `daisy_key.intent.ask` and `daisy_key.intent.action` are not counted yet — the
@@ -116,7 +117,8 @@ The rest are counted from Daisy 1.0.8.35.
 account:
 - `apple`, `anthropic`, `openai`, `openai_account` (a ChatGPT account), `gemini`, `cursor`, `kimi`, `yandex`, `gigachat`, `deepseek`, `grok`;
 - `ollama`, `lmstudio`, `mcp`, `agent_cli`;
-- `daisy_local` (Daisy's own local model, on this Mac).
+- `daisy_local` (Daisy's own local model, on this Mac);
+- `daisy_subscription` (the Daisy Subscription, through Daisy's server).
 
 `yandex` (YandexGPT), `gigachat` (GigaChat) and `deepseek` (DeepSeek) are sent from Daisy 1.0.8.45, `grok` (Grok) from Daisy 1.0.8.49. `daisy_local` comes with the local model; daisy-api has to accept it before a build that sends it ships.
 

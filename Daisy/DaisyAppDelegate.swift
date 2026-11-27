@@ -59,6 +59,11 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         VocabularyBridge.shared.start()
         // Backlog 41: `.linked-source.json` for readers such as Flow.
         Task { @MainActor in await LinkedSourcePublisher.shared.start() }
+        // The Daisy account (27.11): signing in or out, or the subscription
+        // changing, asks the summary provider again.
+        DaisyAccountStore.shared.onChange = {
+            Task { @MainActor in await Summarizer.shared.refreshAvailability() }
+        }
         // Project renames the app quit in the middle of are finished once
         // the sessions are read. Not in the test host: those are the real
         // library's.

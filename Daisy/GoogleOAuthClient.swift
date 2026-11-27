@@ -171,6 +171,8 @@ enum GoogleOAuthClient {
         let refresh_token: String?
         let expires_in: Int
         let scope: String?
+        /// Only with the `openid` scope: what Daisy sign-in sends to daisy-api.
+        let id_token: String?
     }
 
     /// Userinfo endpoint response — used right after token exchange
@@ -186,6 +188,43 @@ enum GoogleOAuthClient {
     /// failure. Caller is expected to persist the result via
     /// `GoogleAccountStore.save(_:)`.
     static func connect() async throws -> ConnectResult {
+        let tokens = try await authorize(scopes: scopes, extra: [
+            // `access_type=offline` is what produces a refresh_token.
+            // Without it Google returns an access token only and
+            // Daisy would have to re-prompt every hour.
+            URLQueryItem(name: "access_type", value: "offline"),
+            // `prompt=consent` forces Google to issue a refresh token
+            // even if the user already authorized Daisy in a previous
+            // session. Without it, repeat-connect flows hand back an
+            // access token with no refresh token — silently breaking
+            // long-term auth.
+            URLQueryItem(name: "prompt", value: "consent"),
+        ], heading: String(localized: "Daisy connected to Google Calendar"))
+        return try await finishConnect(tokens)
+    }
+
+    /// Sign in to Daisy with Google (27.11): the same browser flow with
+    /// `openid email` only, no calendar and no refresh token. Returns
+    /// Google's ID token, which daisy-api checks (its audience is this
+    /// client); nil when the person closed the page or said no.
+    static func signInIDToken() async throws -> String? {
+        let tokens: TokenResponse
+        do {
+            tokens = try await authorize(scopes: ["openid", "email"], extra: [
+                URLQueryItem(name: "prompt", value: "select_account"),
+            ], heading: String(localized: "You're signed in to Daisy"))
+        } catch OAuthError.missingCode(let error) where error == "access_denied" {
+            return nil
+        } catch OAuthError.timedOut {
+            // The tab was closed, or left: nothing to say but «not signed in».
+            return nil
+        }
+        return tokens.id_token
+    }
+
+    /// Steps 1–6: PKCE, the loopback listener, the browser, the code,
+    /// the token exchange.
+    private static func authorize(scopes: [String], extra: [URLQueryItem], heading: String) async throws -> TokenResponse {
         // 1. Generate PKCE pair + state nonce.
         let codeVerifier = Self.randomURLSafeString(length: 64)
         let codeChallenge = Self.codeChallenge(for: codeVerifier)
@@ -193,7 +232,7 @@ enum GoogleOAuthClient {
 
         // 2. Start local listener on an ephemeral port, get the
         //    actual port so we can build the redirect_uri.
-        let callback = try await CallbackListener.start()
+        let callback = try await CallbackListener.start(heading: heading)
         defer { callback.stop() }
 
         let redirectURI = "http://localhost:\(callback.port)"
@@ -208,17 +247,7 @@ enum GoogleOAuthClient {
             URLQueryItem(name: "state", value: state),
             URLQueryItem(name: "code_challenge", value: codeChallenge),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
-            // `access_type=offline` is what produces a refresh_token.
-            // Without it Google returns an access token only and
-            // Daisy would have to re-prompt every hour.
-            URLQueryItem(name: "access_type", value: "offline"),
-            // `prompt=consent` forces Google to issue a refresh token
-            // even if the user already authorized Daisy in a previous
-            // session. Without it, repeat-connect flows hand back an
-            // access token with no refresh token — silently breaking
-            // long-term auth.
-            URLQueryItem(name: "prompt", value: "consent"),
-        ]
+        ] + extra
         guard let authURL = authComponents.url else {
             throw OAuthError.browserLaunchFailed
         }
@@ -245,11 +274,14 @@ enum GoogleOAuthClient {
         }
 
         // 6. Exchange code for tokens (POST form-urlencoded).
-        let tokens = try await exchangeCodeForTokens(
+        return try await exchangeCodeForTokens(
             code: code,
             codeVerifier: codeVerifier,
             redirectURI: redirectURI
         )
+    }
+
+    private static func finishConnect(_ tokens: TokenResponse) async throws -> ConnectResult {
         let expiresAt = Date().addingTimeInterval(TimeInterval(tokens.expires_in - 60))
         // -60s safety margin so we refresh slightly before Google
         // expires the token; saves a 401 round-trip.
@@ -466,7 +498,7 @@ private final class CallbackListener: @unchecked Sendable {
     /// the connection handler, and silences NWListener's
     /// "Started without setting … connection handler" warning.
     @MainActor
-    static func start() async throws -> CallbackListener {
+    static func start(heading: String) async throws -> CallbackListener {
         let parameters = NWParameters.tcp
         // Bind to loopback only — external hosts must not be able
         // to deliver an OAuth callback to us.
@@ -502,7 +534,7 @@ private final class CallbackListener: @unchecked Sendable {
             // First-callback-wins: the promise's lock dedups so
             // subsequent connections (rare; browsers sometimes
             // probe with a duplicate request) are no-ops.
-            Self.serveCallback(on: connection, fulfilling: paramsPromise)
+            Self.serveCallback(on: connection, heading: heading, fulfilling: paramsPromise)
         }
 
         listener.start(queue: .main)
@@ -521,7 +553,14 @@ private final class CallbackListener: @unchecked Sendable {
         // promise's once-only semantics.
         try await withThrowingTaskGroup(of: [String: String].self) { group in
             group.addTask { [paramsPromise] in
-                try await paramsPromise.value
+                // Cancelled (the sign-in sheet closed): the wait ends now,
+                // not when a browser that may never call back does, so the
+                // listener is stopped with it.
+                try await withTaskCancellationHandler {
+                    try await paramsPromise.value
+                } onCancel: {
+                    paramsPromise.fail(CancellationError())
+                }
             }
             group.addTask { [paramsPromise] in
                 try await Task.sleep(for: .seconds(timeoutSeconds))
@@ -551,6 +590,7 @@ private final class CallbackListener: @unchecked Sendable {
 
     nonisolated static func serveCallback(
         on connection: NWConnection,
+        heading: String,
         fulfilling paramsPromise: AsyncThrowingPromise<[String: String]>
     ) {
         connection.start(queue: .main)
@@ -567,7 +607,7 @@ private final class CallbackListener: @unchecked Sendable {
             let params = parseQueryParams(fromHTTPRequest: raw)
             // Send a friendly HTML page back so the browser shows
             // "you can close this tab" instead of a blank page.
-            let html = Self.successHTML
+            let html = Self.successHTML(heading: heading)
             let response = """
             HTTP/1.1 200 OK\r
             Content-Type: text/html; charset=utf-8\r
@@ -610,13 +650,18 @@ private final class CallbackListener: @unchecked Sendable {
     /// HTTP response — no extra `/daisy.svg` request, no asset
     /// pipeline. Geometry is Daisy B+, as `BrandLogo.tsx` on the
     /// website and `DaisyMark.imageset` in-app draw it: eight ink
-    /// teardrop petals and the favicon's amber core.
-    static let successHTML = """
+    /// teardrop petals and the core in the same ink: the mark is all one
+    /// colour, never ink petals with an amber core (Egor's brand rule).
+    nonisolated static func successHTML(heading: String) -> String {
+        let language = Locale.current.language.languageCode?.identifier == "ru" ? "ru" : "en"
+        let close = String(localized: "You can close this tab and return to Daisy")
+        let button = String(localized: "Close this tab")
+        return """
     <!doctype html>
-    <html lang="en">
+    <html lang="\(language)">
     <head>
       <meta charset="utf-8">
-      <title>Daisy — Connected</title>
+      <title>Daisy</title>
       <style>
         body {
           margin: 0;
@@ -670,11 +715,11 @@ private final class CallbackListener: @unchecked Sendable {
             <use href="#petal" transform="rotate(270 50 50)"/>
             <use href="#petal" transform="rotate(315 50 50)"/>
           </g>
-          <circle cx="50" cy="50" r="10.5" fill="#F4A623"/>
+          <circle cx="50" cy="50" r="10.5" fill="#1c1a17"/>
         </svg>
-        <h1>Daisy connected to Google Calendar</h1>
-        <p>You can close this tab and return to Daisy.</p>
-        <button class="btn" onclick="window.close()">Close this tab</button>
+        <h1>\(heading)</h1>
+        <p>\(close)</p>
+        <button class="btn" onclick="window.close()">\(button)</button>
       </div>
       <!--
         Auto-close after 1.2s for browsers that permit it.
@@ -687,6 +732,7 @@ private final class CallbackListener: @unchecked Sendable {
     </body>
     </html>
     """
+    }
 }
 
 // MARK: - Tiny async promise primitive

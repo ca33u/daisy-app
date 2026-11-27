@@ -774,7 +774,9 @@ final class Summarizer {
 
     private var readinessChangesUnseen: Bool {
         switch providerKind {
-        case .ollama, .lmStudio, .mcp, .agentCLI, .appleIntelligence, .daisyLocal: true
+        // The subscription can start, run out or be refunded on another
+        // device or the website.
+        case .ollama, .lmStudio, .mcp, .agentCLI, .appleIntelligence, .daisyLocal, .daisySubscription: true
         case .openai: openAIConnectionMethod == .account
         default: false
         }
@@ -844,6 +846,12 @@ final class Summarizer {
             return String(localized: "Daisy can't find the \(agentCLIKind.displayName) command. Install it and sign in (run it once in Terminal), or set its full path in \(SettingsRow.summaryProvider.path).")
         case .daisyLocal:
             return DaisyLocalSummarizer.unavailableReason()
+        case .daisySubscription:
+            let store = DaisyAccountStore.shared
+            if !store.isSignedIn {
+                return String(localized: "Sign in to Daisy in \(SettingsRow.summaryProvider.path) to use the Daisy Subscription")
+            }
+            return String(localized: "Your three free summaries are used. Subscribe to Daisy in \(SettingsRow.summaryProvider.path)")
         }
     }
 
@@ -1098,6 +1106,9 @@ final class Summarizer {
         case .agentCLI:
             // The CLI runs locally; the model does not. Never local.
             return false
+        case .daisySubscription:
+            // Daisy's server, then Anthropic.
+            return false
         }
     }
 
@@ -1186,6 +1197,8 @@ final class Summarizer {
             )
         case .daisyLocal:
             return DaisyLocalSummarizer()
+        case .daisySubscription:
+            return DaisySubscriptionSummarizer()
         }
     }
 }

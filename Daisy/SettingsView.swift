@@ -3052,6 +3052,9 @@ struct SettingsView: View {
         case .appleIntelligence:
             EmptyView()
 
+        case .daisySubscription:
+            DaisySubscriptionRows { await summarizer.refreshAvailability() }
+
         case .daisyLocal:
             // Its own row with download and delete comes in Л-4; for now
             // what it runs, or why it can't.
@@ -3608,7 +3611,10 @@ struct SettingsView: View {
     /// `daisy.summaryProvider = daisyLocal`), so the picker doesn't move
     /// the person off it.
     private var availableSummaryProviders: [SummaryProviderKind] {
-        let offered = SummaryProviderKind.allCases.filter { $0 != .daisyLocal || summarizer.providerKind == .daisyLocal }
+        // «Подписка Daisy» first: the one way that needs no key (27.11).
+        let offered = [.daisySubscription] + SummaryProviderKind.allCases.filter {
+            $0 != .daisySubscription && ($0 != .daisyLocal || summarizer.providerKind == .daisyLocal)
+        }
         if #available(macOS 26.0, *) {
             return offered
         }
@@ -3621,6 +3627,8 @@ struct SettingsView: View {
         if summaryTestResult == .testing { return true }
         switch summarizer.providerKind {
         case .appleIntelligence: return true
+        // A free account's test would spend one of its three summaries.
+        case .daisySubscription: return DaisyAccountStore.shared.subscription?.active != true
         case .daisyLocal: return !LocalSummaryModel.isInstalled
         case .anthropic: return settings.anthropicAPIKey.isBlank
         case .openai:
@@ -3698,6 +3706,8 @@ struct SettingsView: View {
         switch summarizer.providerKind {
         case .appleIntelligence:
             return String(localized: "Runs entirely on-device. Nothing about the transcript leaves your Mac. Apple's local model doesn't support every language (e.g. Russian) — for those, switch to a cloud provider.")
+        case .daisySubscription:
+            return String(localized: "Summaries, polish, briefs and the Daisy key run on Claude through Daisy's server, with no API key of your own. Daisy's server passes the text to Anthropic and keeps none of it. One subscription works on your Mac, iPhone and Windows. Without one, three meeting summaries are free")
         case .anthropic:
             return String(localized: "Transcripts are sent to Anthropic over HTTPS using your own API key. Create one at console.anthropic.com/settings/keys — it's stored in your macOS Keychain. Each summary costs roughly $0.01–0.05.")
         case .openai:

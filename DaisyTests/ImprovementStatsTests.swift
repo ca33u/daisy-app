@@ -23,6 +23,7 @@ struct ImprovementStatsTests {
             .daisyKeyFocusChanged, .daisyKeyMeetingCommand,
             .templateFollowUpCreated, .templateFollowUpApplied, .templateSummaryCreated, .templateSummaryApplied,
             .templateSwitched,
+            .subscriptionCheckoutOpened, .subscriptionActivated,
         ]
         events += ImprovementStats.DaisyKeyIntentName.allCases.map { .daisyKeyIntent($0) }
         for kind in SummaryProviderKind.allCases {

@@ -85,6 +85,9 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
     /// DaisyLLM helper on this Mac — see DaisyLocalSummarizer. Opt-in,
     /// never a default; background work only.
     case daisyLocal
+    /// «Подписка Daisy» (27.11): every job on the Daisy account's
+    /// subscription, through daisy-api — see DaisySubscriptionSummarizer.
+    case daisySubscription
 
     var displayName: String {
         switch self {
@@ -103,6 +106,7 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
         case .mcp: return String(localized: "Custom MCP server (advanced)")
         case .agentCLI: return String(localized: "Codex (your ChatGPT subscription)")
         case .daisyLocal: return String(localized: "Daisy local model")
+        case .daisySubscription: return String(localized: "Daisy Subscription")
         }
     }
 
@@ -123,6 +127,7 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
         case .mcp: return String(localized: "MCP")
         case .agentCLI: return String(localized: "Codex CLI")
         case .daisyLocal: return String(localized: "Daisy local model")
+        case .daisySubscription: return String(localized: "Daisy Subscription")
         }
     }
 
@@ -189,6 +194,8 @@ enum SummaryProviderKind: String, Codable, CaseIterable, Sendable {
             return String(localized: "Sent to OpenAI by the Codex CLI on your Mac, on your subscription — counts against your plan's limits.")
         case .daisyLocal:
             return String(localized: "On this Mac — nothing is sent anywhere.")
+        case .daisySubscription:
+            return String(localized: "Sent through Daisy's server to Anthropic, on your Daisy Subscription. Daisy keeps no text")
         }
     }
 

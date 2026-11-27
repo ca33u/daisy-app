@@ -154,6 +154,10 @@ nonisolated enum ImprovementStats {
         case templateSummaryCreated
         case templateSummaryApplied
         case templateSwitched
+        /// The Daisy Subscription bought on the website (27.11): the page
+        /// opened, and the payment seen after it. No amounts, no plan.
+        case subscriptionCheckoutOpened
+        case subscriptionActivated
 
         /// The counter names an occurrence adds to.
         var names: [String] {
@@ -210,6 +214,8 @@ nonisolated enum ImprovementStats {
             case .templateSummaryCreated: return ["template.summary.created"]
             case .templateSummaryApplied: return ["template.summary.applied"]
             case .templateSwitched: return ["template.switched"]
+            case .subscriptionCheckoutOpened: return ["subscription.web.checkout_opened"]
+            case .subscriptionActivated: return ["subscription.web.activated"]
             }
         }
 
@@ -230,6 +236,7 @@ nonisolated enum ImprovementStats {
             case .mcp: return "mcp"
             case .agentCLI: return "agent_cli"
             case .daisyLocal: return "daisy_local"
+            case .daisySubscription: return "daisy_subscription"
             }
         }
     }
@@ -246,7 +253,7 @@ nonisolated enum ImprovementStats {
     /// Docs/usage-statistics.md publishes them. A test keeps `Event` to it.
     static let publishedNames: Set<String> = {
         let providers = ["apple", "anthropic", "openai", "openai_account", "gemini", "cursor", "kimi", "yandex", "gigachat", "deepseek", "grok",
-                         "ollama", "lmstudio", "mcp", "agent_cli", "daisy_local"]
+                         "ollama", "lmstudio", "mcp", "agent_cli", "daisy_local", "daisy_subscription"]
         return Set([
             "recording.started", "recording.started.calendar", "recording.saved",
             "recording.length.under15m", "recording.length.15to60m", "recording.length.over60m",
@@ -268,6 +275,7 @@ nonisolated enum ImprovementStats {
             "daisy_key.focus_changed", "daisy_key.meeting_command",
             "template.followup.created", "template.followup.applied",
             "template.summary.created", "template.summary.applied", "template.switched",
+            "subscription.web.checkout_opened", "subscription.web.activated",
         ] + providers.map { "summary." + $0 } + providers.map { "summary.failed." + $0 }
           + DaisyKeyIntentName.allCases.map { "daisy_key.intent." + $0.rawValue })
     }()

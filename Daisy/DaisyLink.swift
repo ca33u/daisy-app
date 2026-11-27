@@ -9,12 +9,16 @@
 //  project's is its stable id, `inbox` or `notes` (`SessionFolder.linkID`),
 //  or — for a reader with no registry — its slug.
 //
+//  `daisy://subscription` (27.11): back from buying the Daisy Subscription
+//  on mydaisy.io — opens the provider's Settings and asks the server.
+//
 
 import Foundation
 
 nonisolated enum DaisyLink: Equatable, Sendable {
     case session(String)
     case project(String)
+    case subscription
 
     static let scheme = "daisy"
 
@@ -26,6 +30,11 @@ nonisolated enum DaisyLink: Equatable, Sendable {
     /// (`/`, `..`) rather than a session.
     init?(_ url: URL) {
         guard Self.isDaisyLink(url), let kind = url.host?.lowercased() else { return nil }
+        if kind == "subscription" {
+            guard url.path.isEmpty || url.path == "/" else { return nil }
+            self = .subscription
+            return
+        }
         let parts = url.path.split(separator: "/", omittingEmptySubsequences: true)
         guard parts.count == 1 else { return nil }
         let id = String(parts[0])
@@ -67,6 +76,9 @@ enum DaisyLinkRouter {
                 return
             }
             AppNavigation.shared.openProjectInLibrary(folder)
+        case .subscription:
+            ContextTips.openSettings(.ai, row: .summaryProvider)
+            DaisyAccountStore.shared.handleReturnLink()
         }
     }
 }
