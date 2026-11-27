@@ -151,15 +151,33 @@ struct DaisySubscriptionRows: View {
                     }
                 }
                 if store.awaitingPayment {
-                    LabeledContent("") {
-                        HStack(spacing: 8) {
-                            ProgressView().controlSize(.small)
-                            // No second checkout while one may still be
-                            // paying: the server's 409 can't see a payment
-                            // Whop hasn't confirmed yet.
-                            Text("Waiting for the payment…")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    // Never a dead end: the browser tab can be closed before
+                    // paying, so the page opens again from here and the wait
+                    // can be called off. After Cancel the store keeps asking
+                    // quietly, so a payment that did go through still shows.
+                    // No page to reopen once the return link came
+                    // (`daisy://subscription`): that page was paid.
+                    LabeledContent(String(localized: "daisySubscription.plan", defaultValue: "Plan")) {
+                        VStack(alignment: .trailing, spacing: 8) {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text("Waiting for the payment…")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            HStack(spacing: 8) {
+                                if store.pendingCheckout != nil {
+                                    Button("Open the payment page again") { store.reopenCheckout() }
+                                        .buttonStyle(.bordered)
+                                }
+                                Button("Cancel") {
+                                    Task {
+                                        await store.cancelCheckout()
+                                        await changed()
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                            }
                         }
                     }
                 } else if store.hasAcknowledgedCloudDisclosure {

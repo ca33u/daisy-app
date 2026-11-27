@@ -14,17 +14,59 @@ import Foundation
 import Testing
 @testable import Daisy
 
-/// Its own stub, so this suite can run beside CloudStreamingTests.
+/// The pages a store under test asked the browser to open.
+@MainActor
+final class OpenedPages {
+    var urls: [URL] = []
+}
+
+/// Its own stub, so this suite can run beside CloudStreamingTests. What
+/// the tests read and what the loading thread writes is behind one lock.
 final class DaisyServerStub: URLProtocol, @unchecked Sendable {
-    nonisolated(unsafe) static var responses: [(status: Int, body: String, headers: [String: String])] = []
-    nonisolated(unsafe) static var requests: [URLRequest] = []
-    nonisolated(unsafe) static var bodies: [Data] = []
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var answers: [(status: Int, body: String, headers: [String: String])] = []
+    nonisolated(unsafe) private static var asked: [URLRequest] = []
+    nonisolated(unsafe) private static var sent: [Data] = []
+    nonisolated(unsafe) private static var heldPath: String?
+    nonisolated(unsafe) private static var held: [() -> Void] = []
+    /// Under `lock`: the request was given up, and nothing more is said to its client.
+    private var stopped = false
+
+    static var requests: [URLRequest] { lock.withLock { asked } }
+    static var bodies: [Data] { lock.withLock { sent } }
+
+    /// Requests to this path (its last component) get their answer only at
+    /// `release()`: for what happens while a request is on its way.
+    static func hold(_ path: String) {
+        lock.withLock { heldPath = path }
+    }
+
+    /// Sends the answers held back, and holds no more: a request that
+    /// arrives after this is answered at once, not left waiting.
+    static func release() {
+        let waiting = lock.withLock {
+            heldPath = nil
+            let all = held
+            held = []
+            return all
+        }
+        for answer in waiting { answer() }
+    }
+
+    static func reset(_ responses: [(status: Int, body: String, headers: [String: String])]) {
+        lock.withLock {
+            answers = responses
+            asked = []
+            sent = []
+            heldPath = nil
+            held = []
+        }
+    }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        Self.requests.append(request)
         var data = Data()
         if let stream = request.httpBodyStream {
             stream.open()
@@ -40,16 +82,32 @@ final class DaisyServerStub: URLProtocol, @unchecked Sendable {
         } else {
             data = request.httpBody ?? Data()
         }
-        Self.bodies.append(data)
-        let next = Self.responses.isEmpty ? (status: 500, body: "no stub", headers: [:]) : Self.responses.removeFirst()
-        let response = HTTPURLResponse(url: request.url!, statusCode: next.status, httpVersion: "HTTP/1.1",
-                                       headerFields: next.headers)!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(next.body.utf8))
-        client?.urlProtocolDidFinishLoading(self)
+        // Noted, and held or not, in one step: a test that sees the
+        // request and releases finds its answer already held.
+        let answerNow: (() -> Void)? = Self.lock.withLock {
+            Self.asked.append(request)
+            Self.sent.append(data)
+            let next = Self.answers.isEmpty ? (status: 500, body: "no stub", headers: [:]) : Self.answers.removeFirst()
+            let answer = { [self] in
+                guard !Self.lock.withLock({ stopped }) else { return }
+                let response = HTTPURLResponse(url: request.url!, statusCode: next.status, httpVersion: "HTTP/1.1",
+                                               headerFields: next.headers)!
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: Data(next.body.utf8))
+                client?.urlProtocolDidFinishLoading(self)
+            }
+            if let hold = Self.heldPath, request.url?.lastPathComponent == hold {
+                Self.held.append(answer)
+                return nil
+            }
+            return answer
+        }
+        answerNow?()
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        Self.lock.withLock { stopped = true }
+    }
 }
 
 @Suite("Daisy Subscription on the Mac", .serialized)
@@ -59,9 +117,7 @@ struct DaisySubscriptionTests {
     private let scratch = ScratchDefaults("DaisySubscription")
 
     private func session(_ responses: [(Int, String, [String: String])]) -> URLSession {
-        DaisyServerStub.responses = responses.map { (status: $0.0, body: $0.1, headers: $0.2) }
-        DaisyServerStub.requests = []
-        DaisyServerStub.bodies = []
+        DaisyServerStub.reset(responses.map { (status: $0.0, body: $0.1, headers: $0.2) })
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [DaisyServerStub.self]
         return URLSession(configuration: config)
@@ -217,12 +273,17 @@ struct DaisySubscriptionTests {
     /// A signed-in account of its own: scratch defaults, the stubbed server.
     @MainActor
     private func account(_ responses: [(Int, String, [String: String])], consented: Bool = true,
-                         defaults: UserDefaults? = nil) -> DaisyAccountStore {
+                         defaults: UserDefaults? = nil, opened: OpenedPages? = nil) -> DaisyAccountStore {
+        // A wait that asks every 30 ms: the stub's answers are shared by
+        // the suite, so a test that opens a checkout ends its wait itself
+        // (`stopWaitingForPayment`, or signing out).
         let store = DaisyAccountStore(
             session: session(responses),
             defaults: defaults ?? scratch.make(),
             readStored: false,
-            restoring: (token: "s1.session.sig", account: DaisyAccountInfo(id: "acct", email: nil, providers: ["email"])))
+            restoring: (token: "s1.session.sig", account: DaisyAccountInfo(id: "acct", email: nil, providers: ["email"])),
+            openInBrowser: { opened?.urls.append($0) },
+            pollInterval: .milliseconds(30))
         if consented { store.acknowledgeCloudDisclosure() }
         return store
     }
@@ -321,6 +382,326 @@ struct DaisySubscriptionTests {
         #expect(await MainActor.run { store.subscription?.trialRemaining } == 2)
     }
 
+    @Test("a checkout whose tab was closed is no dead end: the page opens again, and the wait can be called off")
+    func checkoutCanBeReopenedAndCancelled() async throws {
+        let opened = await MainActor.run { OpenedPages() }
+        // Asked every 10 minutes here, so the only reads are the ones the test makes.
+        let store = await MainActor.run {
+            DaisyAccountStore(
+                session: session([
+                    (200, #"{"url":"https://whop.com/checkout/plan_x"}"#, json),
+                    (200, statusJSON(active: false, trial: 3), json),
+                ]),
+                defaults: scratch.make(), readStored: false,
+                restoring: (token: "s1.session.sig", account: DaisyAccountInfo(id: "acct", email: nil, providers: ["email"])),
+                openInBrowser: { opened.urls.append($0) },
+                pollInterval: .seconds(600))
+        }
+        try await store.checkout(.year)
+        #expect(await MainActor.run { store.awaitingPayment })
+        #expect(await MainActor.run { opened.urls } == [URL(string: "https://whop.com/checkout/plan_x")!])
+        await MainActor.run { store.reopenCheckout() }
+        let twice = await MainActor.run { opened.urls }
+        #expect(twice.count == 2 && twice[1] == twice[0])
+        await store.cancelCheckout()
+        #expect(await MainActor.run { !store.awaitingPayment && store.pendingCheckout == nil })
+        // Called off, the status was asked once (the checkout, then that read), and nothing reopens.
+        #expect(DaisyServerStub.requests.map(\.url) == [
+            DaisyAccountStore.base.appendingPathComponent("checkout"), DaisyAccountStore.base.appendingPathComponent("subscription"),
+        ])
+        await MainActor.run { store.reopenCheckout() }
+        #expect(await MainActor.run { opened.urls.count } == 2)
+        await MainActor.run { store.stopWaitingForPayment() }
+    }
+
+    /// Waits, up to 3 s, for what a quick wait should bring.
+    private func eventually(_ condition: @MainActor @Sendable () -> Bool) async -> Bool {
+        for _ in 0..<150 {
+            if await MainActor.run(body: condition) { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return false
+    }
+
+    @Test("a payment made before Cancel is still seen: the asking goes on quietly, and the price buttons give way to Active")
+    func cancelledCheckoutStillSeesThePayment() async throws {
+        let store = await account([
+            (200, #"{"url":"https://whop.com/checkout/plan_x"}"#, json),
+            (200, statusJSON(active: false, trial: 3), json),
+            (200, statusJSON(active: false, trial: 3), json),
+            (200, statusJSON(active: true, trial: 0), json),
+        ])
+        // In one hop to the main actor, so the quiet asking can't run between the two.
+        try await Task { @MainActor in
+            try await store.checkout(.month)
+            await store.cancelCheckout()
+        }.value
+        #expect(await MainActor.run { !store.awaitingPayment })
+        #expect(await eventually { store.subscription?.active == true })
+        #expect(await MainActor.run { !store.awaitingPayment && store.pendingCheckout == nil })
+        // Seen, the asking is over: nothing more is requested.
+        let asked = DaisyServerStub.requests.count
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(DaisyServerStub.requests.count == asked)
+    }
+
+    @Test("back from the payment page before Whop has reported it: the wait starts again and ends as Active")
+    func returnLinkResumesTheWait() async {
+        let store = await account([
+            (200, statusJSON(active: false, trial: 3), json),
+            (200, statusJSON(active: true, trial: 0), json),
+        ])
+        await store.returnedFromCheckout()
+        // No page to reopen: this wait began from the link, not from a checkout here.
+        #expect(await MainActor.run { store.pendingCheckout == nil })
+        #expect(await eventually { store.subscription?.active == true && !store.awaitingPayment })
+    }
+
+    @Test("back from the payment page of a checkout opened here: that page is not offered again, and paying turns the switch")
+    func returnLinkAfterACheckoutHere() async throws {
+        let opened = await MainActor.run { OpenedPages() }
+        let paid = await MainActor.run { OpenedPages() }
+        let store = await account([
+            (200, #"{"url":"https://whop.com/checkout/plan_x"}"#, json),
+            (200, statusJSON(active: false, trial: 3), json),
+            (200, statusJSON(active: false, trial: 3), json),
+            (200, statusJSON(active: true, trial: 0), json),
+            (200, statusJSON(active: true, trial: 0), json),
+        ], opened: opened)
+        await MainActor.run { store.onPaid = { paid.urls.append(URL(string: "daisy://paid")!) } }
+        // In one hop to the main actor, so the first wait asks nothing in between.
+        try await Task { @MainActor in
+            try await store.checkout(.year)
+            await store.returnedFromCheckout()
+        }.value
+        #expect(await MainActor.run { store.pendingCheckout == nil })
+        await MainActor.run { store.reopenCheckout() }
+        #expect(await MainActor.run { opened.urls.count } == 1)
+        #expect(await eventually { store.subscription?.active == true && !store.awaitingPayment })
+        // Seen while the wait was showing: said once.
+        #expect(await MainActor.run { paid.urls.count } == 1)
+    }
+
+    @Test("a payment seen after Cancel doesn't turn the switch: the wait was called off")
+    func paymentAfterCancelLeavesTheSwitch() async throws {
+        let paid = await MainActor.run { OpenedPages() }
+        let store = await account([
+            (200, #"{"url":"https://whop.com/checkout/plan_x"}"#, json),
+            (200, statusJSON(active: false, trial: 3), json),
+            (200, statusJSON(active: false, trial: 3), json),
+            (200, statusJSON(active: true, trial: 0), json),
+        ])
+        await MainActor.run { store.onPaid = { paid.urls.append(URL(string: "daisy://paid")!) } }
+        // In one hop to the main actor: the wait is called off before anything is asked.
+        try await Task { @MainActor in
+            try await store.checkout(.month)
+            await store.cancelCheckout()
+        }.value
+        #expect(await eventually { store.subscription?.active == true })
+        #expect(await MainActor.run { paid.urls.isEmpty })
+    }
+
+    @Test("back from a page that said the payment wasn't completed: the prices again, no wait, no switch")
+    func returnLinkAfterAFailedPayment() async throws {
+        let paid = await MainActor.run { OpenedPages() }
+        let store = await MainActor.run {
+            DaisyAccountStore(
+                session: session([
+                    (200, #"{"url":"https://whop.com/checkout/plan_x"}"#, json),
+                    (200, statusJSON(active: false, trial: 3), json),
+                ]),
+                defaults: scratch.make(), readStored: false,
+                restoring: (token: "s1.session.sig", account: DaisyAccountInfo(id: "acct", email: nil, providers: ["email"])),
+                openInBrowser: { _ in },
+                pollInterval: .seconds(600))
+        }
+        await MainActor.run { store.onPaid = { paid.urls.append(URL(string: "daisy://paid")!) } }
+        try await store.checkout(.year)
+        await store.returnedFromCheckout(paymentFailed: true)
+        #expect(await MainActor.run { !store.awaitingPayment && store.pendingCheckout == nil })
+        #expect(await MainActor.run { store.subscription?.active == false && paid.urls.isEmpty })
+        await MainActor.run { store.stopWaitingForPayment() }
+
+        // With no checkout open here (the link typed, or Daisy started by it): one read, and no wait.
+        let cold = await account([(200, statusJSON(active: false, trial: 3), json)])
+        await cold.returnedFromCheckout(paymentFailed: true)
+        #expect(await MainActor.run { !cold.awaitingPayment })
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(DaisyServerStub.requests.count == 1)
+    }
+
+    @Test("paid while the wait was called off: a second checkout the server still lets through opens no page")
+    func paidMeanwhileOpensNoSecondPage() async throws {
+        let opened = await MainActor.run { OpenedPages() }
+        let store = await account([
+            (200, #"{"url":"https://whop.com/checkout/plan_x"}"#, json),
+            (200, statusJSON(active: false, trial: 3), json),
+            (200, statusJSON(active: true, trial: 0), json),
+            (200, #"{"url":"https://whop.com/checkout/plan_y"}"#, json),
+        ], opened: opened)
+        try await Task { @MainActor in
+            try await store.checkout(.month)
+            await store.cancelCheckout()
+        }.value
+        #expect(await eventually { store.subscription?.active == true })
+        do {
+            try await store.checkout(.year)
+            Issue.record("a second page opened for a subscriber")
+        } catch {
+            #expect(error as? DaisyAccountFailure == .alreadySubscribed)
+        }
+        #expect(await MainActor.run { opened.urls.count } == 1)
+        #expect(await MainActor.run { !store.awaitingPayment && store.pendingCheckout == nil })
+    }
+
+    @Test("a wait replaced while it was asking doesn't end the one that replaced it")
+    func replacedWaitLeavesTheNewOne() async throws {
+        let opened = await MainActor.run { OpenedPages() }
+        let store = await account([
+            (200, #"{"url":"https://whop.com/checkout/plan_x"}"#, json),
+            (200, statusJSON(active: false, trial: 3), json),
+            (200, #"{"url":"https://whop.com/checkout/plan_y"}"#, json),
+        ], opened: opened)
+        // The first wait's question stays on its way…
+        DaisyServerStub.hold("subscription")
+        try await store.checkout(.year)
+        #expect(await eventually { DaisyServerStub.requests.count == 2 })
+        // …and is given up when the second checkout starts its own wait.
+        try await store.checkout(.month)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await MainActor.run { store.awaitingPayment })
+        #expect(await MainActor.run { store.pendingCheckout } == URL(string: "https://whop.com/checkout/plan_y")!)
+        await MainActor.run { store.stopWaitingForPayment() }
+    }
+
+    @Test("signed out while the payment page was being made: no page, no wait")
+    func signOutDuringCheckout() async throws {
+        let opened = await MainActor.run { OpenedPages() }
+        let store = await account([(200, #"{"url":"https://whop.com/checkout/plan_x"}"#, json)], opened: opened)
+        DaisyServerStub.hold("checkout")
+        let pending = Task { @MainActor in try await store.checkout(.year) }
+        #expect(await eventually { DaisyServerStub.requests.count == 1 })
+        await MainActor.run { store.signOut() }
+        DaisyServerStub.release()
+        do {
+            try await pending.value
+            Issue.record("a checkout went through for a session that is gone")
+        } catch {
+            #expect(error as? DaisyAccountFailure == .signedOut)
+        }
+        #expect(await MainActor.run { !store.awaitingPayment && store.pendingCheckout == nil && opened.urls.isEmpty })
+    }
+
+    @Test("a status that arrives after signing out is nobody's")
+    func statusAfterSignOut() async {
+        let store = await account([(200, statusJSON(active: true, trial: 0), json)])
+        DaisyServerStub.hold("subscription")
+        let pending = Task { @MainActor in await store.refreshSubscription() }
+        #expect(await eventually { DaisyServerStub.requests.count == 1 })
+        await MainActor.run { store.signOut() }
+        DaisyServerStub.release()
+        #expect(await pending.value == nil)
+        #expect(await MainActor.run { store.subscription == nil && !store.subscriptionCheckFailed })
+    }
+
+    @Test("a read that failed starts no wait for someone already subscribed")
+    func returnLinkWithAFailedReadAndASubscription() async {
+        let store = await account([
+            (200, statusJSON(active: true, trial: 0), json),
+            (500, "oops", json),
+        ])
+        await store.refreshSubscription()
+        await store.returnedFromCheckout()
+        #expect(await MainActor.run { store.subscription?.active == true && !store.awaitingPayment })
+        #expect(DaisyServerStub.requests.count == 2)
+    }
+
+    @Test("called off, then a second checkout: its wait is its own")
+    func secondCheckoutAfterCancel() async throws {
+        let opened = await MainActor.run { OpenedPages() }
+        let store = await MainActor.run {
+            DaisyAccountStore(
+                session: session([
+                    (200, #"{"url":"https://whop.com/checkout/plan_x"}"#, json),
+                    (200, statusJSON(active: false, trial: 3), json),
+                    (200, #"{"url":"https://whop.com/checkout/plan_y"}"#, json),
+                ]),
+                defaults: scratch.make(), readStored: false,
+                restoring: (token: "s1.session.sig", account: DaisyAccountInfo(id: "acct", email: nil, providers: ["email"])),
+                openInBrowser: { opened.urls.append($0) },
+                pollInterval: .seconds(600))
+        }
+        try await store.checkout(.year)
+        await store.cancelCheckout()
+        try await store.checkout(.month)
+        // The first wait's task was replaced; give its end a moment to (not) clear the second.
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await MainActor.run { store.awaitingPayment })
+        #expect(await MainActor.run { store.pendingCheckout } == URL(string: "https://whop.com/checkout/plan_y")!)
+        await MainActor.run { store.stopWaitingForPayment() }
+    }
+
+    @Test("back from the payment page with the subscription already active: no wait")
+    func returnLinkWithAnActiveSubscription() async {
+        let store = await account([(200, statusJSON(active: true, trial: 0), json)])
+        await store.returnedFromCheckout()
+        #expect(await MainActor.run { store.subscription?.active == true && !store.awaitingPayment })
+        #expect(DaisyServerStub.requests.count == 1)
+    }
+
+    @Test("signing out ends a wait for a payment, and its page is forgotten")
+    func signOutEndsTheWait() async throws {
+        let opened = await MainActor.run { OpenedPages() }
+        let store = await account([(200, #"{"url":"https://whop.com/checkout/plan_x"}"#, json)], opened: opened)
+        try await store.checkout(.year)
+        #expect(await MainActor.run { store.awaitingPayment && store.pendingCheckout != nil })
+        await MainActor.run { store.signOut() }
+        #expect(await MainActor.run { !store.awaitingPayment && store.pendingCheckout == nil })
+        await MainActor.run { store.reopenCheckout() }
+        #expect(await MainActor.run { opened.urls.count } == 1)
+        // Nothing is asked for a session that is gone.
+        let asked = DaisyServerStub.requests.count
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(DaisyServerStub.requests.count == asked)
+    }
+
+    @Test("a wait that runs out ends by itself")
+    func waitRunsOut() async throws {
+        let store = await MainActor.run {
+            DaisyAccountStore(
+                session: session([(200, #"{"url":"https://whop.com/checkout/plan_x"}"#, json)]),
+                defaults: scratch.make(), readStored: false,
+                restoring: (token: "s1.session.sig", account: DaisyAccountInfo(id: "acct", email: nil, providers: ["email"])),
+                openInBrowser: { _ in },
+                paymentWait: .milliseconds(600), pollInterval: .milliseconds(30))
+        }
+        // In one hop to the main actor: the wait is 600 ms.
+        let waiting = try await Task { @MainActor in
+            try await store.checkout(.year)
+            return store.awaitingPayment
+        }.value
+        #expect(waiting)
+        #expect(await eventually { !store.awaitingPayment && store.pendingCheckout == nil })
+        await MainActor.run { store.stopWaitingForPayment() }
+    }
+
+    @Test("a second checkout for an account that already pays is refused, and Settings shows it as Active")
+    func checkoutRefusedForASubscriber() async {
+        let opened = await MainActor.run { OpenedPages() }
+        let store = await account([
+            (409, #"{"error":"already_subscribed"}"#, json),
+            (200, statusJSON(active: true, trial: 0), json),
+        ], opened: opened)
+        do {
+            try await store.checkout(.year)
+            Issue.record("a second checkout went through")
+        } catch {
+            #expect(error as? DaisyAccountFailure == .alreadySubscribed)
+        }
+        #expect(await MainActor.run { store.subscription?.active == true && !store.awaitingPayment })
+        #expect(await MainActor.run { opened.urls.isEmpty })
+    }
+
     @Test("the server's refusals map to their own errors")
     func refusals() {
         #expect(DaisySubscriptionError.from(status: 401, body: #"{"error":"session_expired"}"#) == .signedOut)
@@ -376,8 +757,13 @@ struct DaisySubscriptionTests {
 
     @Test("daisy://subscription is the way back from the website")
     func link() {
-        #expect(DaisyLink(URL(string: "daisy://subscription")!) == .subscription)
-        #expect(DaisyLink(URL(string: "daisy://subscription/")!) == .subscription)
+        #expect(DaisyLink(URL(string: "daisy://subscription")!) == .subscription(paymentFailed: false))
+        #expect(DaisyLink(URL(string: "daisy://subscription/")!) == .subscription(paymentFailed: false))
+        // The page that says the payment wasn't completed adds this; anything else is the usual way back.
+        #expect(DaisyLink(URL(string: "daisy://subscription?status=failed")!) == .subscription(paymentFailed: true))
+        #expect(DaisyLink(URL(string: "daisy://subscription/?status=FAILED")!) == .subscription(paymentFailed: true))
+        #expect(DaisyLink(URL(string: "daisy://subscription?status=success")!) == .subscription(paymentFailed: false))
+        #expect(DaisyLink(URL(string: "daisy://subscription?other=failed")!) == .subscription(paymentFailed: false))
         #expect(DaisyLink(URL(string: "daisy://subscription/x")!) == nil)
         #expect(DaisyLink(URL(string: "daisy://session/2026-11-27_meet")!) == .session("2026-11-27_meet"))
     }

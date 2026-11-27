@@ -282,7 +282,9 @@ nonisolated enum ImprovementStats {
 
     /// Counts one occurrence, when the person agreed. Cheap; any thread.
     static func record(_ event: Event, count: Int = 1) {
-        guard mode == .on, count > 0 else { return }
+        // Never from a test: the test host has the person's own
+        // preferences and counts file. Tests use `add(…to:)`.
+        guard !TestHost.isActive, mode == .on, count > 0 else { return }
         store.add(event.names, count: count, day: day(Date()))
     }
 
@@ -290,6 +292,7 @@ nonisolated enum ImprovementStats {
     /// tour's demo meeting (`StoredSession.isDemo`, Onboarding 2.0, 24.10):
     /// trying things on the demo is not using the feature.
     static func record(_ event: Event, count: Int = 1, onDemo: Bool) {
+        guard !TestHost.isActive else { return }
         add(event, count: count, onDemo: onDemo, mode: mode, to: store)
     }
 

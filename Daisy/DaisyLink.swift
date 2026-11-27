@@ -11,6 +11,7 @@
 //
 //  `daisy://subscription` (27.11): back from buying the Daisy Subscription
 //  on mydaisy.io — opens the provider's Settings and asks the server.
+//  `?status=failed` when the page said the payment wasn't completed.
 //
 
 import Foundation
@@ -18,7 +19,9 @@ import Foundation
 nonisolated enum DaisyLink: Equatable, Sendable {
     case session(String)
     case project(String)
-    case subscription
+    /// `paymentFailed`: the page the person comes back from said the
+    /// payment wasn't completed (mydaisy.io/buy/done adds `status=failed`).
+    case subscription(paymentFailed: Bool)
 
     static let scheme = "daisy"
 
@@ -32,7 +35,9 @@ nonisolated enum DaisyLink: Equatable, Sendable {
         guard Self.isDaisyLink(url), let kind = url.host?.lowercased() else { return nil }
         if kind == "subscription" {
             guard url.path.isEmpty || url.path == "/" else { return nil }
-            self = .subscription
+            let status = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "status" }?.value?.lowercased()
+            self = .subscription(paymentFailed: status == "failed")
             return
         }
         let parts = url.path.split(separator: "/", omittingEmptySubsequences: true)
@@ -76,9 +81,9 @@ enum DaisyLinkRouter {
                 return
             }
             AppNavigation.shared.openProjectInLibrary(folder)
-        case .subscription:
+        case .subscription(let paymentFailed):
             ContextTips.openSettings(.ai, row: .summaryProvider)
-            DaisyAccountStore.shared.handleReturnLink()
+            DaisyAccountStore.shared.handleReturnLink(paymentFailed: paymentFailed)
         }
     }
 }

@@ -218,16 +218,33 @@ final class DaisyAccountStore {
     private(set) var subscriptionCheckFailed = false
     /// A checkout was opened and its payment is not seen yet.
     private(set) var awaitingPayment = false
+    /// That checkout's page, to open again: the browser tab may have been
+    /// closed before paying (Egor 27.11: closed it, and Settings only span).
+    private(set) var pendingCheckout: URL?
 
     /// Signed in, signed out or the subscription changed: Summarizer asks
     /// the provider again.
     @ObservationIgnored var onChange: (@MainActor () -> Void)?
+    /// A payment was seen while its wait was still showing: paid from the
+    /// rows in Settings, and not called off. The app then writes summaries
+    /// on the subscription; a payment seen any other way (after Cancel, on
+    /// a later launch) leaves that switch to the person.
+    @ObservationIgnored var onPaid: (@MainActor () -> Void)?
 
     @ObservationIgnored private let session: URLSession
+    /// Opens a page in the browser; a test's own in tests.
+    @ObservationIgnored private let openInBrowser: @MainActor (URL) -> Void
     /// Tests only: the provider under test shares the account's stubbed session.
     nonisolated var urlSessionForTests: URLSession { session }
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var pollTask: Task<Void, Never>?
+    /// Reads of the status, numbered: Cancel's read runs beside the quiet
+    /// asking, and an older answer must not replace a newer one.
+    @ObservationIgnored private var subscriptionRead = 0
+    @ObservationIgnored private var subscriptionReadApplied = 0
+    /// `paymentWait` and `pollInterval`, shorter in a test.
+    @ObservationIgnored private let waitsFor: Duration
+    @ObservationIgnored private let asksEvery: Duration
     @ObservationIgnored private let log = Logger(subsystem: "app.essazanov.Daisy", category: "DaisyAccount")
     private static let accountKey = "daisy.account"
     private static let disclosureKey = "daisy.account.cloudDisclosureAcknowledged"
@@ -250,8 +267,14 @@ final class DaisyAccountStore {
     /// `restoring`: tests only — a store that is already signed in, without
     /// the keychain.
     init(session: URLSession = .shared, defaults: UserDefaults = .standard, readStored: Bool = !TestHost.isActive,
-         restoring: (token: String, account: DaisyAccountInfo)? = nil) {
+         restoring: (token: String, account: DaisyAccountInfo)? = nil,
+         openInBrowser: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
+         paymentWait: Duration = DaisyAccountStore.paymentWait,
+         pollInterval: Duration = DaisyAccountStore.pollInterval) {
         self.session = session
+        self.openInBrowser = openInBrowser
+        waitsFor = paymentWait
+        asksEvery = pollInterval
         self.defaults = defaults
         hasAcknowledgedCloudDisclosure = defaults.bool(forKey: Self.disclosureKey)
         if let restoring {
@@ -318,7 +341,8 @@ final class DaisyAccountStore {
     }
 
     func signOut() {
-        pollTask?.cancel()
+        // A wait for a payment ends with the session that started it.
+        stopWaitingForPayment()
         DaisySessionKeychain.delete()
         sessionToken = nil
         account = nil
@@ -349,20 +373,30 @@ final class DaisyAccountStore {
     @discardableResult
     func refreshSubscription() async -> DaisySubscriptionStatus? {
         guard let sessionToken else { return nil }
+        subscriptionRead &+= 1
+        let read = subscriptionRead
         let reply: (Int, [String: Any]?)
         do {
             reply = try await call("subscription", method: "GET", bearer: sessionToken)
         } catch {
-            // A check given up (Settings closed) says nothing about the server.
-            if !Task.isCancelled { subscriptionCheckFailed = true }
+            // A check given up (Settings closed) says nothing about the
+            // server; neither does one whose session is gone meanwhile.
+            if !Task.isCancelled, self.sessionToken == sessionToken { subscriptionCheckFailed = true }
             return nil
         }
+        // An answer about a session that is no longer this store's (signed
+        // out, or another account signed in while it was on its way) is
+        // nobody's status here.
+        guard self.sessionToken == sessionToken else { return nil }
         let (status, json) = reply
         if status == 401 { signOut(); return nil }
         guard status == 200, let parsed = DaisySubscriptionStatus.parse(json) else {
             subscriptionCheckFailed = true
             return nil
         }
+        // An answer to an older read than one already applied is dropped.
+        guard read > subscriptionReadApplied else { return subscription }
+        subscriptionReadApplied = read
         let changed = parsed != subscription
         subscription = parsed
         subscriptionCheckedAt = Date()
@@ -392,6 +426,9 @@ final class DaisyAccountStore {
     func checkout(_ plan: Plan) async throws {
         guard let sessionToken else { throw DaisyAccountFailure.signedOut }
         let (status, json) = try await call("checkout", method: "POST", body: ["plan": plan.rawValue], bearer: sessionToken)
+        // Signed out while the page was being made: it belongs to that
+        // account, and a wait here would outlive its session.
+        guard self.sessionToken == sessionToken else { throw DaisyAccountFailure.signedOut }
         if status == 409 {
             await refreshSubscription()
             throw DaisyAccountFailure.alreadySubscribed
@@ -401,36 +438,92 @@ final class DaisyAccountStore {
             if status == 503 || status == 404 { throw DaisyAccountFailure.checkoutUnavailable }
             throw DaisyAccountFailure.from(status: status, json: json)
         }
+        // Paid meanwhile (seen by the quiet asking while this was on its
+        // way): no second page.
+        if subscription?.active == true { throw DaisyAccountFailure.alreadySubscribed }
         ImprovementStats.record(.subscriptionCheckoutOpened)
-        NSWorkspace.shared.open(url)
+        pendingCheckout = url
+        openInBrowser(url)
         waitForPayment()
     }
 
-    /// `daisy://subscription`: back from the website.
-    func handleReturnLink() {
-        Task { await refreshSubscription() }
+    /// The same checkout page again, for a tab that was closed.
+    func reopenCheckout() {
+        guard awaitingPayment, let pendingCheckout else { return }
+        openInBrowser(pendingCheckout)
     }
 
+    /// Stops showing the wait: the person decided not to pay now. The
+    /// status keeps being asked, quietly, until the same deadline. A
+    /// payment made just before Cancel then shows as «Active» as soon as
+    /// Whop reports it; one read here could miss it and leave the price
+    /// buttons up for a second payment (review 27.11: the server refuses a
+    /// second checkout only once the first membership is live).
+    func cancelCheckout() async {
+        awaitingPayment = false
+        pendingCheckout = nil
+        await refreshSubscription()
+    }
+
+    /// `daisy://subscription`: back from the website.
+    func handleReturnLink(paymentFailed: Bool) {
+        Task { await returnedFromCheckout(paymentFailed: paymentFailed) }
+    }
+
+    /// Back from the page that follows a payment. Whop may not have
+    /// reported it yet, so the wait starts again, with its spinner, where
+    /// one read could miss it. The page is not offered again: it was paid.
+    /// By what the store knows, not by this one answer: a read that failed
+    /// starts no wait for someone already subscribed.
+    ///
+    /// Back from a page that said the payment wasn't completed («try again
+    /// from Daisy»): as Cancel. The prices come back, and a wait already
+    /// running keeps asking quietly — the page can't know, and a charge
+    /// that went through after all still shows. No wait is started.
+    func returnedFromCheckout(paymentFailed: Bool = false) async {
+        guard sessionToken != nil else { return }
+        if paymentFailed {
+            await cancelCheckout()
+            return
+        }
+        pendingCheckout = nil
+        await refreshSubscription()
+        if sessionToken != nil, subscription?.active != true { waitForPayment() }
+    }
+
+    /// Ends the wait and its asking: the payment was seen, or the session
+    /// is gone.
     func stopWaitingForPayment() {
-        pollTask?.cancel()
-        pollTask = nil
-        if awaitingPayment, subscription?.active == true {
+        // Counted whether the wait was still shown or called off: the
+        // payment came from a checkout opened here either way.
+        let paid = subscription?.active == true
+        let shown = awaitingPayment
+        if pollTask != nil, paid {
             ImprovementStats.record(.subscriptionActivated)
         }
+        pollTask?.cancel()
+        pollTask = nil
         awaitingPayment = false
+        pendingCheckout = nil
+        if shown, paid { onPaid?() }
     }
 
     private func waitForPayment() {
         pollTask?.cancel()
         awaitingPayment = true
+        let waitsFor = waitsFor, asksEvery = asksEvery
         pollTask = Task { [weak self] in
-            let deadline = ContinuousClock.now + Self.paymentWait
+            let deadline = ContinuousClock.now + waitsFor
             while !Task.isCancelled, ContinuousClock.now < deadline {
-                try? await Task.sleep(for: Self.pollInterval)
+                try? await Task.sleep(for: asksEvery)
                 guard let self, !Task.isCancelled else { return }
                 if await self.refreshSubscription()?.active == true { return }
             }
-            self?.awaitingPayment = false
+            // Replaced by a newer wait, or stopped: that one's state, not ours.
+            guard !Task.isCancelled, let self else { return }
+            self.pollTask = nil
+            self.awaitingPayment = false
+            self.pendingCheckout = nil
         }
     }
 

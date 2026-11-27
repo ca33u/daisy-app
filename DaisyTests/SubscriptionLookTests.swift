@@ -19,6 +19,37 @@ import SwiftUI
 import Testing
 @testable import Daisy
 
+/// Its own stub, answering by path. Not DaisySubscriptionTests' one: the
+/// suites run side by side, and a shared stub hands one suite's answers to
+/// the other's requests. And not a queue: the rows ask for the account and
+/// the subscription themselves when drawn, at a moment of their own, so
+/// an answer has to belong to a question, not to a turn.
+final class SubscriptionLookStub: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var answers: [String: (status: Int, body: String)] = [:]
+
+    /// The answers by the path's last component («subscription», «checkout»);
+    /// any other path gets a 500.
+    static func answer(_ answers: [String: (Int, String)]) {
+        lock.withLock { Self.answers = answers.mapValues { (status: $0.0, body: $0.1) } }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let path = request.url?.lastPathComponent ?? ""
+        let next = Self.lock.withLock { Self.answers[path] } ?? (status: 500, body: "no stub")
+        let response = HTTPURLResponse(url: request.url!, statusCode: next.status, httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(next.body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 @Suite("Subscription look", .serialized)
 @MainActor
 struct SubscriptionLookTests {
@@ -28,18 +59,16 @@ struct SubscriptionLookTests {
         ProcessInfo.processInfo.environment["DAISY_LOOK_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
-    private func stubSession(_ responses: [(Int, String)]) -> URLSession {
-        DaisyServerStub.responses = responses.map { (status: $0.0, body: $0.1, headers: ["Content-Type": "application/json"]) }
-        DaisyServerStub.requests = []
-        DaisyServerStub.bodies = []
+    private func stubSession(_ answers: [String: (Int, String)]) -> URLSession {
+        SubscriptionLookStub.answer(answers)
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [DaisyServerStub.self]
+        config.protocolClasses = [SubscriptionLookStub.self]
         return URLSession(configuration: config)
     }
 
     private func store(signedIn: Bool, consented: Bool, status: (Int, String)?) async -> DaisyAccountStore {
         let store = DaisyAccountStore(
-            session: stubSession(status.map { [$0] } ?? []),
+            session: stubSession(status.map { ["subscription": $0] } ?? [:]),
             defaults: scratch.make(),
             readStored: false,
             restoring: signedIn
@@ -101,6 +130,20 @@ struct SubscriptionLookTests {
                 try write(rows(store), name: name, size: CGSize(width: 640, height: 330), scheme: scheme)
             }
         }
+        // Waiting for a payment: a checkout opened (into nothing) and not paid.
+        let waiting = DaisyAccountStore(
+            session: stubSession(["subscription": (200, free), "checkout": (200, #"{"url":"https://whop.com/checkout/plan_x"}"#)]),
+            defaults: scratch.make(), readStored: false,
+            restoring: (token: "s1.session.sig", account: DaisyAccountInfo(id: "acct", email: "anna@example.com", providers: ["email"])),
+            openInBrowser: { _ in },
+            pollInterval: .seconds(600))
+        waiting.acknowledgeCloudDisclosure()
+        await waiting.refreshSubscription()
+        try await waiting.checkout(.year)
+        for scheme in [ColorScheme.light, .dark] {
+            try write(rows(waiting), name: "9-waiting", size: CGSize(width: 640, height: 330), scheme: scheme)
+        }
+        waiting.stopWaitingForPayment()
         let signedOut = await store(signedIn: false, consented: true, status: nil)
         for scheme in [ColorScheme.light, .dark] {
             try write(DaisySubscriptionRows.signInSheetForInspection(store: signedOut), name: "8-sign-in", size: CGSize(width: 420, height: 380), scheme: scheme)

@@ -28129,6 +28129,16 @@
         }
       }
     },
+    "Open the payment page again" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть страницу оплаты снова"
+          }
+        }
+      }
+    },
     "Help Daisy stay independent" : {
       "localizations" : {
         "ru" : {
