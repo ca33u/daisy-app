@@ -1301,16 +1301,6 @@
         }
       }
     },
-    "Buy me a coffee" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Угостить кофе"
-          }
-        }
-      }
-    },
     "By folder or title it would apply to none of your recent meetings (%lld checked)." : {
       "localizations" : {
         "ru" : {
@@ -28135,6 +28125,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Тариф"
+          }
+        }
+      }
+    },
+    "Help Daisy stay independent" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Помочь Daisy оставаться независимой"
           }
         }
       }

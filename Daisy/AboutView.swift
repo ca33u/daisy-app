@@ -39,17 +39,22 @@ struct AboutView: View {
 
     var body: some View {
         Form {
-            // Ko-fi sits above everything else (Egor, 2026-08-31): Daisy
-            // is free and open source, and the donation link is the one
-            // row we actually want a visitor of this page to notice.
+            // The support link sits above everything else (Egor,
+            // 2026-08-31): Daisy is free and open source, and this is the
+            // one row we actually want a visitor of this page to notice.
             // Reuses the standard link-row idiom — no special styling, a
             // plain top-of-page section is emphasis enough.
+            // Since 27.11 it is «support», not «a coffee» or «a donation»
+            // (Egor), and it opens mydaisy.io/support-daisy: the site sends
+            // that on to the payment page (Whop, in place of Ko-fi), so the
+            // page can change without a release. The Ko-fi address was
+            // written in here, and every older Daisy still opens it.
             Section {
                 aboutLinkRow(
-                    icon: "cup.and.saucer",
-                    title: "Buy me a coffee",
-                    detail: "ko-fi.com/ca33u",
-                    url: URL(string: "https://ko-fi.com/ca33u")
+                    icon: "heart",
+                    title: "Help Daisy stay independent",
+                    detail: "mydaisy.io/support-daisy",
+                    url: URL(string: "https://mydaisy.io/support-daisy")
                 )
             } header: {
                 Text("Support Daisy")
