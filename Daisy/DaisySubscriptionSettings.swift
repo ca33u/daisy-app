@@ -241,7 +241,7 @@ private struct DaisySignInSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Sign in to Daisy")
                     .font(.title2.weight(.semibold))
-                Text("Summaries on the Daisy Subscription stay with your account on every device. Recording and transcription work without it")
+                Text("The Daisy Subscription belongs to your account, not to this Mac. Recording and transcription work without signing in")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

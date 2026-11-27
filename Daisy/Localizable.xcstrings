@@ -27882,12 +27882,12 @@
         }
       }
     },
-    "Summaries on the Daisy Subscription stay with your account on every device. Recording and transcription work without it" : {
+    "The Daisy Subscription belongs to your account, not to this Mac. Recording and transcription work without signing in" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Саммари по подписке Daisy привязаны к аккаунту и доступны на всех устройствах. Запись и расшифровка работают без входа"
+            "value" : "Подписка Daisy принадлежит аккаунту, а не этому Mac. Запись и расшифровка работают без входа"
           }
         }
       }
