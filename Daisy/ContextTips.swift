@@ -305,7 +305,7 @@ final class ContextTips {
         case .summaryProvider:
             WidgetBubbleContent(
                 text: Copy.summaryAsk, actionTitle: Copy.summaryAction, autoDismiss: 20, tag: bubbleTag,
-                action: { openSettings(.ai, row: .summaryProvider) })
+                action: { openSettings(.ai, row: .summaryProvider(for: Summarizer.shared.providerKind)) })
         case .project:
             nil
         }

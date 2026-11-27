@@ -64,6 +64,15 @@ final class DaisyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         DaisyAccountStore.shared.onChange = {
             Task { @MainActor in await Summarizer.shared.refreshAvailability() }
         }
+        // Paid for from Settings → AI: that is a yes to writing summaries
+        // on the subscription, so its switch turns on. Only with the yes to
+        // sending text (the price buttons ask for it first; a wait begun
+        // from the return link doesn't), or the switch would land on a
+        // provider that refuses.
+        DaisyAccountStore.shared.onPaid = {
+            guard DaisyAccountStore.shared.hasAcknowledgedCloudDisclosure else { return }
+            Summarizer.shared.usesDaisySubscription = true
+        }
         // Project renames the app quit in the middle of are finished once
         // the sessions are read. Not in the test host: those are the real
         // library's.

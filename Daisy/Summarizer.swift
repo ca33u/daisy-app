@@ -385,15 +385,72 @@ final class Summarizer {
     var providerKind: SummaryProviderKind {
         didSet {
             guard oldValue != providerKind else { return }
-            UserDefaults.standard.set(providerKind.rawValue, forKey: Self.kProvider)
-            // Choosing the local model keeps the provider it replaces for
-            // the interactive route.
-            if providerKind == .daisyLocal, oldValue != .daisyLocal { interactiveFallback = oldValue }
+            // The own provider follows an own selection and stays while
+            // the subscription writes. Choosing the local model keeps the
+            // provider it replaces for the interactive route — never the
+            // subscription: switching it off must not leave Daisy key
+            // commands going to Daisy's server. (`SummaryProviderChoice`.)
+            let choice = SummaryProviderChoice(selected: oldValue, own: ownProviderKind, interactiveFallback: interactiveFallback)
+                .selecting(providerKind)
+            ownProviderKind = choice.own
+            interactiveFallback = choice.interactiveFallback
+            SummaryProviderChoiceStore().save(choice)
             // A yes to send voice notes to the old provider goes with it
             // (07.11): coming back to it starts with the switch off.
             // `SettingsWiring` reloads the switch Settings shows.
             VoiceNoteCloudSwitch().providerChanged(from: voiceNoteDestination(kind: oldValue), to: voiceNoteDestination)
+            // The old provider's status says nothing about the new one, and
+            // in Settings it would show under the other block until the
+            // check answers.
+            availability = .unknown
             Task { await refreshAvailability() }
+        }
+    }
+
+    /// The person's own provider (a key, an account, a local model): what
+    /// Settings shows in the second block, and what summaries go back to
+    /// when the Daisy Subscription is switched off (Egor 27.11: the
+    /// subscription is a block of its own, the other providers another).
+    private(set) var ownProviderKind: SummaryProviderKind
+
+    /// The own provider at launch: the selected one, whatever was kept
+    /// (the selection can be written by another build, or by hand, and a
+    /// stale kept value must not name a provider the person left). Only
+    /// while the subscription is selected is it the kept one — and for
+    /// someone who chose the subscription before the own one was kept
+    /// (1.0.8.58), the default.
+    nonisolated static func ownProvider(
+        stored: SummaryProviderKind?, selected: SummaryProviderKind, default fallback: SummaryProviderKind
+    ) -> SummaryProviderKind {
+        guard selected == .daisySubscription else { return selected }
+        if let stored, stored != .daisySubscription { return stored }
+        return fallback
+    }
+
+    /// Whether the provider being left is kept for the interactive route
+    /// when the local model is chosen.
+    nonisolated static func keepsAsInteractiveFallback(old: SummaryProviderKind, new: SummaryProviderKind) -> Bool {
+        new == .daisyLocal && old != .daisyLocal && old != .daisySubscription
+    }
+
+    /// What the provider picker offers: one's own providers. Not the Daisy
+    /// Subscription (a block of its own, with a switch); the local model
+    /// only while it is the one chosen (Л-4); Apple Intelligence from
+    /// macOS 26.
+    nonisolated static func offeredProviders(selected: SummaryProviderKind, appleIntelligence: Bool) -> [SummaryProviderKind] {
+        SummaryProviderKind.allCases.filter {
+            $0 != .daisySubscription
+                && ($0 != .daisyLocal || selected == .daisyLocal)
+                && ($0 != .appleIntelligence || appleIntelligence)
+        }
+    }
+
+    /// Whether summaries are written on the Daisy Subscription.
+    var usesDaisySubscription: Bool {
+        get { providerKind == .daisySubscription }
+        set {
+            guard newValue != usesDaisySubscription else { return }
+            providerKind = newValue ? .daisySubscription : ownProviderKind
         }
     }
 
@@ -404,12 +461,7 @@ final class Summarizer {
     /// local model too, slow but on this Mac. Never a provider the person
     /// didn't pick: that would make the local model the first thing to
     /// send their words elsewhere.
-    var interactiveFallback: SummaryProviderKind? {
-        didSet {
-            if interactiveFallback == .daisyLocal { interactiveFallback = nil }
-            UserDefaults.standard.set(interactiveFallback?.rawValue, forKey: Self.kInteractiveProvider)
-        }
-    }
+    private(set) var interactiveFallback: SummaryProviderKind?
 
     /// What a Daisy-key command or a selection rewrite goes to.
     var interactiveProviderKind: SummaryProviderKind {
@@ -619,7 +671,6 @@ final class Summarizer {
     @ObservationIgnored
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "Summarizer")
 
-    private static let kProvider = "daisy.summaryProvider"
     private static let kAnthropicModel = "daisy.anthropicModel"
     private static let kOpenAIModel = "daisy.openaiModel"
     private static let kKimiModel = "daisy.kimiModel"
@@ -659,7 +710,6 @@ final class Summarizer {
     private static let kCursorAgentPath = "daisy.cursorAgentPath"
     private static let kLMStudioModel = "daisy.lmStudioModel"
     private static let kLMStudioBaseURL = "daisy.lmStudioBaseURL"
-    private static let kInteractiveProvider = "daisy.summaryProvider.interactive"
 
 
     /// - Parameters: for tests; the app uses `shared`.
@@ -678,13 +728,10 @@ final class Summarizer {
             if #available(macOS 26.0, *) { return .appleIntelligence }
             return .anthropic
         }()
-        let storedProvider = UserDefaults.standard.string(forKey: Self.kProvider)
-            ?? defaultKind.rawValue
-        let selected = SummaryProviderKind(rawValue: storedProvider) ?? defaultKind
-        self.providerKind = selected
-        let storedInteractive = UserDefaults.standard.string(forKey: Self.kInteractiveProvider)
-            .flatMap(SummaryProviderKind.init(rawValue:))
-        self.interactiveFallback = storedInteractive == .daisyLocal ? nil : storedInteractive
+        let choice = SummaryProviderChoiceStore().load(default: defaultKind)
+        self.providerKind = choice.selected
+        self.ownProviderKind = choice.own
+        self.interactiveFallback = choice.interactiveFallback
 
         self.anthropicModel = UserDefaults.standard.string(forKey: Self.kAnthropicModel)
             ?? AnthropicAPISummarizer.defaultModelID
@@ -849,12 +896,12 @@ final class Summarizer {
         case .daisySubscription:
             let store = DaisyAccountStore.shared
             if !store.isSignedIn {
-                return String(localized: "Sign in to Daisy in \(SettingsRow.summaryProvider.path) to use the Daisy Subscription")
+                return String(localized: "Sign in to Daisy in \(SettingsRow.daisySubscription.path) to use the Daisy Subscription")
             }
             if !store.hasAcknowledgedCloudDisclosure {
-                return String(localized: "Confirm sending text through Daisy's server in \(SettingsRow.summaryProvider.path)")
+                return String(localized: "Confirm sending text through Daisy's server in \(SettingsRow.daisySubscription.path)")
             }
-            return String(localized: "Your three free summaries are used. Subscribe to Daisy in \(SettingsRow.summaryProvider.path)")
+            return String(localized: "Your three free summaries are used. Subscribe to Daisy in \(SettingsRow.daisySubscription.path)")
         }
     }
 

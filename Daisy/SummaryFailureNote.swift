@@ -95,7 +95,7 @@ nonisolated struct SummaryFailureNote: Codable, Equatable, Sendable {
             style: .warning,
             duration: .seconds(15)
         ) {
-            AppNavigation.shared.openInSettings(.ai, row: .summaryProvider)
+            AppNavigation.shared.openInSettings(.ai, row: .summaryProvider(for: Summarizer.shared.providerKind))
         }
     }
 }

@@ -1261,7 +1261,7 @@ struct SessionDetailView: View {
                     .controlSize(.small)
                 } else {
                     Button("Summary settings") {
-                        AppNavigation.shared.openInSettings(.ai, row: .summaryProvider)
+                        AppNavigation.shared.openInSettings(.ai, row: .summaryProvider(for: Summarizer.shared.providerKind))
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)

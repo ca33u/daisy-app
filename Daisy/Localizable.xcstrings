@@ -28139,12 +28139,42 @@
         }
       }
     },
+    "Write summaries on the Daisy Subscription" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Писать саммари по подписке Daisy"
+          }
+        }
+      }
+    },
+    "Not in use while summaries are written on the Daisy Subscription. Switch that off above to go back to this provider" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не используется, пока саммари пишутся по подписке Daisy. Выключи переключатель выше, чтобы вернуться к этому провайдеру"
+          }
+        }
+      }
+    },
     "Help Daisy stay independent" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Помочь Daisy оставаться независимой"
+          }
+        }
+      }
+    },
+    "The subscription is active, but summaries are still written by %@. Turn the switch above on to write them on the subscription" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подписка активна, но саммари пока пишет %@. Включи переключатель выше, чтобы писать их по подписке"
           }
         }
       }

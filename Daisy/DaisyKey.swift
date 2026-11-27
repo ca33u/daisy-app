@@ -1826,7 +1826,9 @@ final class DaisyKeyController {
              ? String(localized: "To translate into \(name), connect a summary provider or download the language in System Settings → General → Language & Region")
              : String(localized: "To translate into \(name), connect a summary provider"),
              style: .warning,
-             action: (String(localized: "Open Settings"), { ContextTips.openSettings(.ai, row: .summaryProvider) }))
+             action: (String(localized: "Open Settings"), {
+                 ContextTips.openSettings(.ai, row: .summaryProvider(for: Summarizer.shared.interactiveProviderKind))
+             }))
     }
 
     /// Whether commands may go to this cloud provider (one yes each).

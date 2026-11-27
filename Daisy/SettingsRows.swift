@@ -81,6 +81,7 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
     case layoutFixHotkey = "dictation.layoutFixHotkey"
 
     // AI
+    case daisySubscription = "ai.daisySubscription"
     case summaryProvider = "ai.summaryProvider"
     case summaryLanguage = "ai.summaryLanguage"
     case protectSensitiveData = "ai.protectSensitiveData"
@@ -151,7 +152,7 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
              .transcriptionLanguage, .layoutFixer, .layoutFixAsYouType, .layoutFixSwitchesSource,
              .layoutFixHotkey:
             .dictation
-        case .summaryProvider, .summaryLanguage, .protectSensitiveData, .secondPass,
+        case .daisySubscription, .summaryProvider, .summaryLanguage, .protectSensitiveData, .secondPass,
              .followUpsInMyVoice, .morningBrief, .preMeetingBrief, .researchAttendees, .myStyle:
             .ai
         case .recordingsFolder, .spaceUsed, .deleteAudioFiles, .deleteRecordings, .audioStorage,
@@ -222,6 +223,7 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
         case .layoutFixAsYouType: "Fix the layout as I type"
         case .layoutFixSwitchesSource: "Switch the input source after a fix"
         case .layoutFixHotkey: "Fix the keyboard layout"
+        case .daisySubscription: "Daisy Subscription"
         case .summaryProvider: "Summary provider"
         case .summaryLanguage: "Summary language"
         case .summaryTiming: "Summarize"
@@ -264,6 +266,14 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
     /// can't leave an old path behind in an error (S4).
     nonisolated var path: String {
         [tab.path, title].joined(separator: " → ")
+    }
+
+    /// Where «the summary provider» is for the provider that writes now:
+    /// the Daisy Subscription's block while it does, the own provider's
+    /// otherwise. Links and messages about a summary that didn't come
+    /// land on the block the person has to look at.
+    nonisolated static func summaryProvider(for kind: SummaryProviderKind) -> SettingsRow {
+        kind == .daisySubscription ? .daisySubscription : .summaryProvider
     }
 
     /// The row that stands in for this one while it is hidden — the

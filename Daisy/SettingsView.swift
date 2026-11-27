@@ -43,6 +43,9 @@ struct SettingsView: View {
     @Bindable private var layoutFixExceptions = LayoutFixExceptions.shared
 
     @State private var summaryTestResult: TestResult = .idle
+    /// Which run of the provider test the row shows: a result comes back
+    /// to its own run only (`testSummaryProvider`).
+    @State private var summaryTestRun = 0
     @State private var pendingAccountDisclosure: SummaryConnectionProvider?
     /// What the last Grok reply said about Zero Data Retention ("on",
     /// "off", "" before one) — read for the footer, written by
@@ -1716,7 +1719,7 @@ struct SettingsView: View {
                     // The provider is set up on another tab now: say
                     // which, and go there.
                     Button("The summary provider isn’t ready yet — set it up") {
-                        AppNavigation.shared.openInSettings(.ai, row: .summaryProvider)
+                        AppNavigation.shared.openInSettings(.ai, row: .summaryProvider(for: summarizer.providerKind))
                     }
                     .buttonStyle(.link)
                     .font(.caption)
@@ -2743,90 +2746,102 @@ struct SettingsView: View {
             // single setup flow. Caption rolls into one footer
             // explaining where transcripts go for the selected
             // provider.
+            // Block one (Egor 27.11): the Daisy Subscription, always here —
+            // sign in and subscribe without first giving up the provider in
+            // use. Its switch decides whether summaries are written on it.
             Section {
-                Picker("Provider", selection: $summarizer.providerKind) {
-                    ForEach(availableSummaryProviders, id: \.self) { kind in
-                        // Model-aware for Ollama: a `:cloud` model is not
-                        // local, so the row reads "Ollama (cloud model)".
-                        Text(kind.displayName(ollamaModel: kind == .ollama ? summarizer.ollamaModel : nil)).tag(kind)
+                Toggle("Write summaries on the Daisy Subscription", isOn: Binding(
+                    get: { summarizer.usesDaisySubscription },
+                    set: { summarizer.usesDaisySubscription = $0 }))
+                    .settingsRow(.daisySubscription)
+                    // A test's result and preview are the old provider's.
+                    // (A payment made from the rows below turns this switch
+                    // on: `DaisyAccountStore.onPaid`, wired at launch.)
+                    .onChange(of: summarizer.providerKind) {
+                        summaryTestRun += 1
+                        summaryTestResult = .idle
+                        summaryTestPreview = nil
                     }
-                }
-                .pickerStyle(.menu)
-                .settingsRow(.summaryProvider)
-                .onAppear {
-                    // If a user upgraded TO macOS 26 with an old
-                    // setting OR is downgrading from 26 with
-                    // .appleIntelligence stuck in UserDefaults,
-                    // bounce them onto a valid provider so the
-                    // picker doesn't render an unreachable selection.
-                    if !availableSummaryProviders.contains(summarizer.providerKind),
-                       let firstAvailable = availableSummaryProviders.first {
-                        summarizer.providerKind = firstAvailable
-                    }
-                }
-                // Said here, before the first recording: Apple Intelligence
-                // picked by someone whose meetings arrive in a language it
-                // can't write would otherwise find out from a meeting with
-                // no summary (backlog 32 A-3, 19.10.2026). The explicit
-                // summary language keeps its own warning under its picker.
-                if let warning = appleIntelligenceLanguageWarning {
-                    Text(warning)
+                if !summarizer.usesDaisySubscription, DaisyAccountStore.shared.subscription?.active == true {
+                    Text("The subscription is active, but summaries are still written by \(summarizer.ownProviderKind.displayName(ollamaModel: summarizer.ownProviderKind == .ollama ? summarizer.ollamaModel : nil)). Turn the switch above on to write them on the subscription")
                         .font(.caption)
-                        .foregroundStyle(Color.daisyWarning)
+                        .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-
-                providerInlineRows
-
-                // Test row — final action in the block. Apple
-                // Intelligence has nothing to validate remotely so
-                // we skip it for that provider.
-                if summarizer.providerKind != .appleIntelligence {
-                    HStack {
-                        Button("Test summary") {
-                            Task { await testSummaryProvider() }
-                        }
-                        .buttonStyle(.daisyPrimary)
-                        .disabled(testSummaryButtonDisabled)
-                        Spacer()
-                        summaryTestStatusView
-                    }
-                }
+                DaisySubscriptionRows { await summarizer.refreshAvailability() }
+                if summarizer.usesDaisySubscription { summaryTestRow }
             } header: {
-                // Status (and its Refresh) ride at the header level, right-
-                // aligned — same idea as the Transcription badges.
-                HStack(spacing: 8) {
-                    Text("Summary provider")
-                    Spacer()
-                    StatusBadge(state: summarizerBadgeState, message: summarizerStatusText)
-                    Button("Refresh") {
-                        Task {
-                            if summarizer.providerKind == .openai,
-                               summarizer.openAIConnectionMethod == .account {
-                                await openAIAccount.refreshStatus()
-                                adoptDefaultOpenAIAccountModelIfNeeded()
+                summaryProviderHeader("Daisy Subscription", active: summarizer.usesDaisySubscription)
+            } footer: {
+                summaryProviderFooter(daisySubscriptionFooter, active: summarizer.usesDaisySubscription)
+            }
+
+            // Block two: the person's own provider — a key, an account, a
+            // local model. Kept as chosen while the subscription writes.
+            Section {
+                // One row with two faces: the picker, or, while the
+                // subscription writes, the own provider's name. One anchor
+                // for both (SettingsFrameTests: a row is anchored once).
+                Group {
+                    if summarizer.usesDaisySubscription {
+                        LabeledContent("Provider") {
+                            Text(summarizer.ownProviderKind.displayName(
+                                ollamaModel: summarizer.ownProviderKind == .ollama ? summarizer.ollamaModel : nil))
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Picker("Provider", selection: $summarizer.providerKind) {
+                            ForEach(availableSummaryProviders, id: \.self) { kind in
+                                // Model-aware for Ollama: a `:cloud` model is not
+                                // local, so the row reads "Ollama (cloud model)".
+                                Text(kind.displayName(ollamaModel: kind == .ollama ? summarizer.ollamaModel : nil)).tag(kind)
                             }
-                            await summarizer.refreshAvailability()
+                        }
+                        .pickerStyle(.menu)
+                        .onAppear {
+                            // If a user upgraded TO macOS 26 with an old
+                            // setting OR is downgrading from 26 with
+                            // .appleIntelligence stuck in UserDefaults,
+                            // bounce them onto a valid provider so the
+                            // picker doesn't render an unreachable selection.
+                            if !availableSummaryProviders.contains(summarizer.providerKind),
+                               let firstAvailable = availableSummaryProviders.first {
+                                summarizer.providerKind = firstAvailable
+                            }
                         }
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(Color.daisyTextPrimary)
                 }
-            } footer: {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(summarySectionFooter)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                    // When the provider can't run, surface the specific,
-                    // actionable reason here (warning tint) instead of
-                    // leaving the user with only the "Unavailable" badge.
-                    if let reason = summarizer.availability.reason {
-                        Text(reason)
-                            .font(.caption2)
+                .settingsRow(.summaryProvider)
+                if summarizer.usesDaisySubscription {
+                    Text("Not in use while summaries are written on the Daisy Subscription. Switch that off above to go back to this provider")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    // Said here, before the first recording: Apple Intelligence
+                    // picked by someone whose meetings arrive in a language it
+                    // can't write would otherwise find out from a meeting with
+                    // no summary (backlog 32 A-3, 19.10.2026). The explicit
+                    // summary language keeps its own warning under its picker.
+                    if let warning = appleIntelligenceLanguageWarning {
+                        Text(warning)
+                            .font(.caption)
                             .foregroundStyle(Color.daisyWarning)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+
+                    providerInlineRows
+
+                    // Test row — final action in the block. Apple
+                    // Intelligence has nothing to validate remotely so
+                    // we skip it for that provider.
+                    if summarizer.providerKind != .appleIntelligence { summaryTestRow }
+                }
+            } header: {
+                summaryProviderHeader("Summary provider", active: !summarizer.usesDaisySubscription)
+            } footer: {
+                if !summarizer.usesDaisySubscription {
+                    summaryProviderFooter(summarySectionFooter, active: true)
                 }
             }
 
@@ -3042,6 +3057,68 @@ struct SettingsView: View {
         return "\(name) · " + String(localized: "\(words) of \(VoiceProfileStore.unlockWords) words")
     }
 
+    /// «Test summary» and its result: the last row of whichever block is in use.
+    private var summaryTestRow: some View {
+        HStack {
+            Button("Test summary") {
+                Task { await testSummaryProvider() }
+            }
+            .buttonStyle(.daisyPrimary)
+            .disabled(testSummaryButtonDisabled)
+            Spacer()
+            summaryTestStatusView
+        }
+    }
+
+    /// A block's header: its name, and on the block in use the status and
+    /// its Refresh — same idea as the Transcription badges.
+    private func summaryProviderHeader(_ title: LocalizedStringKey, active: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+            Spacer()
+            if active {
+                StatusBadge(state: summarizerBadgeState, message: summarizerStatusText)
+                Button("Refresh") {
+                    Task {
+                        if summarizer.providerKind == .openai,
+                           summarizer.openAIConnectionMethod == .account {
+                            await openAIAccount.refreshStatus()
+                            adoptDefaultOpenAIAccountModelIfNeeded()
+                        }
+                        await summarizer.refreshAvailability()
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .tint(Color.daisyTextPrimary)
+            }
+        }
+    }
+
+    /// A block's footer: where the text goes, and on the block in use why
+    /// it can't run, when it can't.
+    private func summaryProviderFooter(_ text: String, active: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(text)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            // When the provider can't run, surface the specific,
+            // actionable reason here (warning tint) instead of
+            // leaving the user with only the "Unavailable" badge.
+            if active, let reason = summarizer.availability.reason {
+                Text(reason)
+                    .font(.caption2)
+                    .foregroundStyle(Color.daisyWarning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// What the Daisy Subscription block says under itself, in use or not.
+    private var daisySubscriptionFooter: String {
+        String(localized: "Summaries, polish, briefs and the Daisy key run on Claude through Daisy's server, with no API key of your own. Daisy's server passes the text to Anthropic and keeps none of it. The subscription belongs to your Daisy account, not this Mac: sign in on another Mac and it works there too. Without one, three meeting summaries are free")
+    }
+
     /// Inline credential / model rows for the selected provider.
     /// Lives inside the unified Summary section so picker → keys →
     /// model render as one visual block. Apple Intelligence has no
@@ -3053,7 +3130,8 @@ struct SettingsView: View {
             EmptyView()
 
         case .daisySubscription:
-            DaisySubscriptionRows { await summarizer.refreshAvailability() }
+            // Its rows are block one's, whichever provider is in use.
+            EmptyView()
 
         case .daisyLocal:
             // Its own row with download and delete comes in Л-4; for now
@@ -3611,14 +3689,10 @@ struct SettingsView: View {
     /// `daisy.summaryProvider = daisyLocal`), so the picker doesn't move
     /// the person off it.
     private var availableSummaryProviders: [SummaryProviderKind] {
-        // «Подписка Daisy» first: the one way that needs no key (27.11).
-        let offered = [.daisySubscription] + SummaryProviderKind.allCases.filter {
-            $0 != .daisySubscription && ($0 != .daisyLocal || summarizer.providerKind == .daisyLocal)
-        }
         if #available(macOS 26.0, *) {
-            return offered
+            return Summarizer.offeredProviders(selected: summarizer.providerKind, appleIntelligence: true)
         }
-        return offered.filter { $0 != .appleIntelligence }
+        return Summarizer.offeredProviders(selected: summarizer.providerKind, appleIntelligence: false)
     }
 
     /// Single Test-button enable rule across all providers — saves
@@ -3707,7 +3781,7 @@ struct SettingsView: View {
         case .appleIntelligence:
             return String(localized: "Runs entirely on-device. Nothing about the transcript leaves your Mac. Apple's local model doesn't support every language (e.g. Russian) — for those, switch to a cloud provider.")
         case .daisySubscription:
-            return String(localized: "Summaries, polish, briefs and the Daisy key run on Claude through Daisy's server, with no API key of your own. Daisy's server passes the text to Anthropic and keeps none of it. The subscription belongs to your Daisy account, not this Mac: sign in on another Mac and it works there too. Without one, three meeting summaries are free")
+            return daisySubscriptionFooter
         case .anthropic:
             return String(localized: "Transcripts are sent to Anthropic over HTTPS using your own API key. Create one at console.anthropic.com/settings/keys — it's stored in your macOS Keychain. Each summary costs roughly $0.01–0.05.")
         case .openai:
@@ -4393,6 +4467,8 @@ struct SettingsView: View {
     }
 
     private func testSummaryProvider() async {
+        summaryTestRun += 1
+        let run = summaryTestRun
         summaryTestResult = .testing
         summaryTestPreview = nil
         // Use the isolated `runProbe` path — calling the regular
@@ -4415,15 +4491,31 @@ struct SettingsView: View {
         let chosenHint: String? = (settings.summaryLanguage == SummaryLanguage.auto.id)
             ? nil
             : settings.summaryLanguage
+        let tested = summarizer.providerKind
+        // Whether the answer still belongs in the row. Not if a newer test
+        // or a change of provider took the row over. And if the provider
+        // changed with this tab off screen (a payment turning the switch
+        // on — nothing here saw it), the row goes back to idle: the answer
+        // would show under the other block, and «testing» would stay.
+        func showsThisRun() -> Bool {
+            guard run == summaryTestRun else { return false }
+            guard tested == summarizer.providerKind else {
+                summaryTestResult = .idle
+                return false
+            }
+            return true
+        }
         do {
             let summary = try await summarizer.runProbe(
                 transcript: Self.fixtureTranscript,
                 title: Self.fixtureTitle,
                 localeHint: chosenHint
             )
+            guard showsThisRun() else { return }
             summaryTestResult = .success(String(localized: "Summary came through."))
             summaryTestPreview = summary
         } catch {
+            guard showsThisRun() else { return }
             // Wrap the raw error — system messages from URLSession /
             // CoreData / decoder show up here looking like "The
             // request timed out." with no context. Prefixing keeps

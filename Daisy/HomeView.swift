@@ -393,8 +393,8 @@ struct HomeView: View {
                             title: String(localized: "Summary provider"),
                             caption: ContextTips.Copy.homeSummaryCaption,
                             status: .notDetermined,
-                            action: { AppNavigation.shared.openInSettings(.ai, row: .summaryProvider) },
-                            openSettings: { AppNavigation.shared.openInSettings(.ai, row: .summaryProvider) }
+                            action: { AppNavigation.shared.openInSettings(.ai, row: .summaryProvider(for: Summarizer.shared.providerKind)) },
+                            openSettings: { AppNavigation.shared.openInSettings(.ai, row: .summaryProvider(for: Summarizer.shared.providerKind)) }
                         )
                     }
                 }

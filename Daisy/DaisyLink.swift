@@ -82,7 +82,7 @@ enum DaisyLinkRouter {
             }
             AppNavigation.shared.openProjectInLibrary(folder)
         case .subscription(let paymentFailed):
-            ContextTips.openSettings(.ai, row: .summaryProvider)
+            ContextTips.openSettings(.ai, row: .daisySubscription)
             DaisyAccountStore.shared.handleReturnLink(paymentFailed: paymentFailed)
         }
     }

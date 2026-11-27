@@ -367,12 +367,13 @@ final class EndOfDaySummaries {
             // Silence here would read as "nothing needed doing", which
             // is the opposite of what happened.
             ToastCenter.shared.showAction(
-                Self.failureText(meetingsFailed: attemptedMeetings > 0),
+                Self.failureText(meetingsFailed: attemptedMeetings > 0,
+                                 row: .summaryProvider(for: Summarizer.shared.providerKind)),
                 actionLabel: String(localized: "Summary settings"),
                 style: .error,
                 duration: .seconds(8)
             ) {
-                AppNavigation.shared.openInSettings(.ai, row: .summaryProvider)
+                AppNavigation.shared.openInSettings(.ai, row: .summaryProvider(for: Summarizer.shared.providerKind))
             }
         }
     }
@@ -394,10 +395,10 @@ final class EndOfDaySummaries {
     /// What the pass says when nothing came out: tonight's meetings, as it
     /// always said, or tonight's voice notes when no meeting was among
     /// what failed (07.11).
-    static func failureText(meetingsFailed: Bool) -> String {
+    static func failureText(meetingsFailed: Bool, row: SettingsRow = .summaryProvider) -> String {
         meetingsFailed
-            ? String(localized: "Couldn't summarize tonight's meetings — check \(SettingsRow.summaryProvider.path).")
-            : String(localized: "Couldn't summarize tonight's voice notes — check \(SettingsRow.summaryProvider.path).")
+            ? String(localized: "Couldn't summarize tonight's meetings — check \(row.path).")
+            : String(localized: "Couldn't summarize tonight's voice notes — check \(row.path).")
     }
 
     /// What the pass says when something was summarized.
