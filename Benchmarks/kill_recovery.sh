@@ -1,4 +1,6 @@
 #!/bin/zsh
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright © 2026 Egor Sazanov, addicted. Additional terms: NOTICE.md
 # End-to-end crash-recovery scenario (backlog P0: "kill -9 at minute 40,
 # through the product, not a unit test").
 #

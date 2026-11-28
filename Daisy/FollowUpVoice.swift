@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright © 2026 Egor Sazanov, addicted. Additional terms: NOTICE.md
 //
 //  FollowUpVoice.swift
 //  Daisy

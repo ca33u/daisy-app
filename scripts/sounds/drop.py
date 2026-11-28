@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright © 2026 Egor Sazanov, addicted. Additional terms: NOTICE.md
 # Generates Daisy's cues «Капля» (Daisy/Resources/Sounds/DaisyDropStart.wav, DaisyDropDone.wav).
 # Run: python3 scripts/sounds/drop.py <scratch-dir>  (needs numpy; the shipped files are the approved drafts, see below)
 # 01.11 (Egor: the bell H3 was «писклявый и системный», wanted softer and alive): K2, a water

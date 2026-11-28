@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright © 2026 Egor Sazanov, addicted. Additional terms: NOTICE.md
 #
 # release.sh — build, notarise, sign for Sparkle, and deploy a new
 # Daisy release to mydaisy.io.

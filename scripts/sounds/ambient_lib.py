@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright © 2026 Egor Sazanov, addicted. Additional terms: NOTICE.md
 # Ambient cues: soft sine/triangle pads and bells with a synthetic reverb tail.
 import numpy as np, wave, sys, os
 SR = 48000

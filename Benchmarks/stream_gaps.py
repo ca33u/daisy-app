@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright © 2026 Egor Sazanov, addicted. Additional terms: NOTICE.md
 """How long does a cloud model stay silent while it streams a long summary?
 
 Daisy streams cloud summaries with an IDLE timeout (Anthropic 120 s; OpenAI,

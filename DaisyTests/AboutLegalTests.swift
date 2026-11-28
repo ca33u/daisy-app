@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright © 2026 Egor Sazanov, addicted. Additional terms: NOTICE.md
 //
 //  AboutLegalTests.swift
 //  DaisyTests
@@ -7,7 +9,9 @@
 //  and the link to the source code among the legal notices of the About
 //  window (its term 1). These hold the app to that file, so the two can't
 //  drift: the attribution word for word, the copyright line, the license
-//  row, and LICENSE and NOTICE.md inside the app.
+//  row, and LICENSE and NOTICE.md inside the app. The same file says source
+//  files carry an SPDX line; scripts/license-headers.py writes it, and
+//  everySourceFileCarriesTheLicenseHeader fails for a file added without it.
 //
 //  AboutLookTests draws the block into PNG files, as SubscriptionLookTests
 //  does for its rows. Does nothing in a normal run — only with a folder to
@@ -73,6 +77,49 @@ struct AboutLegalTests {
         }
         let license = try String(contentsOf: try #require(app.url(forResource: "LICENSE", withExtension: nil)), encoding: .utf8)
         #expect(license.contains("GNU AFFERO GENERAL PUBLIC LICENSE"))
+    }
+
+    /// NOTICE.md: «Source files carry an SPDX line». The two lines open
+    /// every Swift file of ours, as scripts/license-headers.py writes them:
+    /// the app, its tests, the helper, the packages. Which folders are not
+    /// ours (build output, package checkouts, vendored code) is the
+    /// script's list, read from it, so the two can't disagree; hidden
+    /// folders are out in both.
+    @Test func everySourceFileCarriesTheLicenseHeader() throws {
+        let spdx = "SPDX-License-Identifier: AGPL-3.0-only"
+        let terms = "\(LegalNotices.copyright). Additional terms: NOTICE.md"
+        #expect(try repositoryText("NOTICE.md").contains("Source files carry an SPDX line (`\(spdx)`)"))
+        let script = try repositoryText("scripts/license-headers.py")
+        #expect(script.contains("\"\(spdx)\"") && script.contains("\"\(terms)\""), "the script writes another header")
+        let list = try #require(script.firstMatch(of: /SKIPPED_FOLDERS = \{([^}]+)\}/), "no SKIPPED_FOLDERS in the script")
+        let skipped = Set(list.1.matches(of: /"([^"]+)"/).map { String($0.1) })
+        #expect(skipped.isSuperset(of: ["build", "SourcePackages", "checkouts"]), "\(skipped.sorted())")
+
+        let header = "// \(spdx)\n// \(terms)\n"
+        var folders: Set<String> = []
+        var bare: [String] = []
+        let files = try #require(FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey]))
+        for case let file as URL in files {
+            let name = file.lastPathComponent
+            if try file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
+                if name.hasPrefix(".") || skipped.contains(name) { files.skipDescendants() }
+                continue
+            }
+            guard file.pathExtension == "swift" else { continue }
+            let path = String(file.path.dropFirst(root.path.count + 1))
+            folders.insert(String(path.prefix { $0 != "/" }))
+            var text = try String(contentsOf: file, encoding: .utf8)[...]
+            // A package manifest keeps its tools version on the first line.
+            if text.hasPrefix("// swift-tools-version"), let firstBreak = text.firstIndex(of: "\n") {
+                text = text[text.index(after: firstBreak)...]
+            }
+            if !text.hasPrefix(header) { bare.append(path) }
+        }
+        #expect(folders.isSuperset(of: ["Daisy", "DaisyTests", "DaisyLLM", "Packages"]), "looked only in \(folders.sorted()) under \(root.path)")
+        #expect(bare.isEmpty, """
+            \(bare.count) files lack the license header — run scripts/license-headers.py \
+            (third-party source goes into a folder that script skips): \(bare.sorted().joined(separator: ", "))
+            """)
     }
 
     /// The block's own strings are in Russian too, captions without a full

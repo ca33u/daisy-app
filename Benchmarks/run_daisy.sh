@@ -1,4 +1,6 @@
 #!/bin/zsh
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright © 2026 Egor Sazanov, addicted. Additional terms: NOTICE.md
 set -euo pipefail
 
 if [[ $# -lt 2 || $# -gt 4 ]]; then

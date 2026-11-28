@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright © 2026 Egor Sazanov, addicted. Additional terms: NOTICE.md
 # Бэклог 16 Р-4: дополняет русскую локализацию Sparkle ключами, которых
 # в ней нет.
 #

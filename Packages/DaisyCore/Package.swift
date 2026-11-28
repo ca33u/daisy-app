@@ -1,4 +1,6 @@
 // swift-tools-version: 6.2
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright © 2026 Egor Sazanov, addicted. Additional terms: NOTICE.md
 import PackageDescription
 
 // DaisyCore — platform-free heart of Daisy for iPhone: the session

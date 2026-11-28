@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright © 2026 Egor Sazanov, addicted. Additional terms: NOTICE.md
 # /// script
 # requires-python = ">=3.11"
 # dependencies = ["boto3==1.43.112"]

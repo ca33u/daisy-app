@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright © 2026 Egor Sazanov, addicted. Additional terms: NOTICE.md
 """Tuning harness for TranscriptPolisher's validation guards.
 
 `DaisyTests/TranscriptPolisherCorpusTests.swift` is AUTHORITATIVE — it runs

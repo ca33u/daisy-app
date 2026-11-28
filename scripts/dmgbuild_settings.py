@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright © 2026 Egor Sazanov, addicted. Additional terms: NOTICE.md
 # dmgbuild settings — Daisy installer disk image
 #
 # Used by scripts/release.sh step [4/6] in place of `create-dmg` because

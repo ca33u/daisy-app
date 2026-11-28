@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright © 2026 Egor Sazanov, addicted. Additional terms: NOTICE.md
 """Writes Daisy/Acknowledgements.txt — the licenses and notices of what
 Daisy for Mac links and the models it downloads, shipped inside Daisy.app
 (Egor 22.10; the iPhone build has had one since 1.0).

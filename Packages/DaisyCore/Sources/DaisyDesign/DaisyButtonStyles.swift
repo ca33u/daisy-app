@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright © 2026 Egor Sazanov, addicted. Additional terms: NOTICE.md
 //
 //  DaisyButtonStyles.swift
 //  DaisyDesign — moved from daisy-app/Daisy/DaisyButtonStyles.swift @ 1.0.7.72 (backlog 5 E-1), shared by the Mac and the phone.
