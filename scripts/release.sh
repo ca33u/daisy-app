@@ -31,7 +31,15 @@
 #   ./scripts/release.sh upload-dmg build/Daisy-1.0.1.dmg 3  (R2 upload only)
 #
 # The publish step uploads the DMG to R2, injects the appcast item, updates
-# the channel pointer, and commits daisy-web. DAISY_AUTO_PUSH=1 also pushes it.
+# the channel pointer, and commits daisy-web. It also commits the pbxproj
+# bump here and tags it v<version>: the source of the build, which the
+# appcast and the site link to. DAISY_AUTO_PUSH=1 pushes that tag and then,
+# once the tag is on GitHub, daisy-web.
+#
+# Exit status: 0 published (or, without DAISY_AUTO_PUSH, ready with the
+# commands printed); 1 stopped before anything was published or uploaded;
+# 2 NOT published although the DMG is uploaded: the site push was held or
+# refused, and the commands that finish the release are printed.
 #
 
 set -euo pipefail
@@ -250,9 +258,9 @@ PY
 # The DMG is downloaded from R2 at the appcast item's build — the published
 # bytes, never a rebuild.
 # The release hangs on the tag v<version>, which must
-# already be on GitHub: this script never pushes the app repository, so
-# for a stable/hotfix release (tagged after the build, see RELEASING.md)
-# it prints the command to run once the tag is pushed. Publishing is
+# already be on GitHub. tag_release_source pushes it before the site goes
+# out; when it could not (see there), this prints the command to run once
+# the tag is pushed. Publishing is
 # gated behind DAISY_AUTO_PUSH=1, like the daisy-web push. Never fails
 # the release — the site is already published by the time this runs.
 # -----------------------------------------------------------------------------
@@ -336,6 +344,8 @@ PY
         echo "**SHA-256** \`${sha}\`"
         echo
         echo "Already installed? Daisy updates itself through Sparkle."
+        echo
+        echo "Source for this version: $(source_url "${version}")"
         if [[ -f "${notes}" ]]; then
             echo
             echo "## What's new in ${version}"
@@ -352,6 +362,495 @@ PY
     fi
     rm -rf "${work}"
     return 0
+}
+
+# -----------------------------------------------------------------------------
+# source_url <marketing-version>
+#
+# Where the source of one released version is: the tag v<version> on GitHub.
+# Daisy is under the AGPL from 1.0.8.60, and its section 6(d) wants a build
+# offered for download to come with its source, offered the same way. So
+# everything this script publishes for a version says this address: both
+# appcast descriptions (the update window, the site's changelog) and the
+# GitHub Release. The site shows the same address beside its Download
+# buttons (daisy-web lib/versionSource.ts). Made from the version here,
+# never typed into a notes file.
+# -----------------------------------------------------------------------------
+source_url() {
+    echo "https://github.com/${GITHUB_REPO}/tree/v$1"
+}
+
+# -----------------------------------------------------------------------------
+# github_git <git arguments…>
+#
+# git against GitHub's public https address the way a reader of the source
+# link reaches it: no credential helper, no password prompt, no askpass
+# window. The app repository is public, so reading it needs none of them,
+# and the SSH `origin` is not involved.
+# -----------------------------------------------------------------------------
+github_git() {
+    GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false SSH_ASKPASS=/usr/bin/false \
+        git -c credential.helper= "$@"
+}
+
+# -----------------------------------------------------------------------------
+# github_tag_commit <marketing-version>
+#
+# Prints the commit v<version> names on GitHub, or nothing when the tag is
+# not there. An annotated tag lists its commit on the ^{} line, a lightweight
+# one only on the plain line. Fails when GitHub gave no answer.
+# -----------------------------------------------------------------------------
+github_tag_commit() {
+    local tag="v$1" refs
+    refs=$(github_git ls-remote --tags "https://github.com/${GITHUB_REPO}.git" \
+        "refs/tags/${tag}" "refs/tags/${tag}^{}" 2>/dev/null) || return 1
+    echo "${refs}" | awk -v t="refs/tags/${tag}" '
+        $2 == t "^{}" { peeled = $1 }
+        $2 == t       { plain = $1 }
+        END { if (peeled != "") print peeled; else if (plain != "") print plain }'
+}
+
+# True when v<version> is on GitHub. No answer counts as no.
+source_tag_on_github() {
+    [[ -n "$(github_tag_commit "$1" || true)" ]]
+}
+
+# -----------------------------------------------------------------------------
+# github_tag_matches <marketing-version> <commit>
+#
+# Compares what v<version> names on GitHub with <commit>, the code being
+# released. 0: the same code. 1: other code, or it can't be compared (the
+# tagged commit is left in SOURCE_TAG_REMOTE). 2: no such tag on GitHub.
+# The pbxproj is left out: it differs by the version numbers alone.
+# -----------------------------------------------------------------------------
+PBXPROJ_IN_REPO="Daisy.xcodeproj/project.pbxproj"
+SOURCE_TAG_REMOTE=""
+
+github_tag_matches() {
+    local tag="v$1" commit="$2"
+    SOURCE_TAG_REMOTE=$(github_tag_commit "$1" || true)
+    [[ -n "${SOURCE_TAG_REMOTE}" ]] || return 2
+    if ! git -C "${DAISY_REPO}" cat-file -e "${SOURCE_TAG_REMOTE}^{commit}" 2>/dev/null; then
+        # Not in this checkout yet: read it from GitHub. No local tag is made.
+        github_git -C "${DAISY_REPO}" fetch -q --no-tags \
+            "https://github.com/${GITHUB_REPO}.git" "refs/tags/${tag}" 2>/dev/null || true
+    fi
+    git -C "${DAISY_REPO}" diff --quiet "${SOURCE_TAG_REMOTE}" "${commit}" \
+        -- . ":(exclude)${PBXPROJ_IN_REPO}" 2>/dev/null || return 1
+}
+
+# -----------------------------------------------------------------------------
+# uncommitted_source
+#
+# What is in the working tree and not in HEAD, as `git status` lines. Two
+# things don't count: the pbxproj this script writes back (the tagged commit
+# carries it) and dot-folders (agent and editor state, never built).
+# Untracked files do count: the project's folders are synchronized groups,
+# so Xcode builds a file git has never seen.
+# -----------------------------------------------------------------------------
+uncommitted_source() {
+    git -C "${DAISY_REPO}" status --porcelain 2>/dev/null \
+        | grep -vE '^.. "?(Daisy\.xcodeproj/project\.pbxproj"?$|\.)' || true
+}
+
+# -----------------------------------------------------------------------------
+# tag_release_source <marketing-version> <build>
+#
+# Puts the source of the build just made on GitHub as the tag v<version>,
+# BEFORE daisy-web is pushed. The appcast and the site link to that tag
+# (source_url); until 2026-11-28 it was pushed by hand after this script,
+# so the link went live dead and stayed dead if the tag was forgotten.
+#
+# The tag is the commit RELEASING.md always tagged: the pbxproj bump
+# "<version> (b<build>)" on top of the commit that was archived. It is made
+# only when that commit is exactly what was built: nothing uncommitted when
+# the run started (BUILT_CHANGES) or now, and HEAD still the commit the run
+# started from (BUILT_COMMIT). A tag that exists is never moved. Only the
+# tag is pushed, and only with DAISY_AUTO_PUSH=1; branches stay for the
+# person to push.
+#
+# Never fails the release. It leaves what happened in SOURCE_TAG_STATE:
+#   on-github    the tag is on GitHub and names this build's code
+#   mismatch     the tag is on GitHub and names other code (SOURCE_TAG_REMOTE)
+#   local        tagged here, not on GitHub yet (not pushed, or the push failed)
+#   unseen       pushed to origin, yet GitHub's public address doesn't show it
+#   dirty        not tagged: the build held changes that are in no commit
+#   moved        not tagged: HEAD moved during the build
+#   changed      not tagged: the tree changed during the build
+#   local-other  not tagged: a local v<version> names other code
+#   uncommitted  not tagged: the pbxproj bump couldn't be committed
+#   untagged     the bump is committed, the tag couldn't be made
+#   no-git       not a git checkout
+# push_daisy_web reads it: the site goes out only with the tag on GitHub,
+# and finish_tag_commands prints what is left to do for each state.
+# -----------------------------------------------------------------------------
+SOURCE_TAG_STATE=""
+
+tag_release_source() {
+    local version="$1" build="$2"
+    local tag="v${version}"
+    local tagged="" matches=0
+
+    echo "▸ source tag ${tag}…"
+    if [[ -z "${BUILT_COMMIT:-}" ]]; then
+        SOURCE_TAG_STATE="no-git"
+        echo "  ⚠ ${DAISY_REPO} is not a git checkout — no tag." >&2
+        return 0
+    fi
+
+    # A version released again with a new build: the tag is the first
+    # build's. The same code may go out under it; other code may not.
+    github_tag_matches "${version}" "${BUILT_COMMIT}" || matches=$?
+    if [[ "${matches}" == "0" ]]; then
+        SOURCE_TAG_STATE="on-github"
+        echo "  ⊘ ${tag} is already on GitHub and names this build's code — left as is"
+        return 0
+    elif [[ "${matches}" == "1" ]]; then
+        SOURCE_TAG_STATE="mismatch"
+        echo "  ✗ ${tag} on GitHub (${SOURCE_TAG_REMOTE:0:7}) is not the code of this build (${BUILT_COMMIT:0:7})." >&2
+        return 0
+    fi
+
+    if [[ -n "${BUILT_CHANGES:-}" ]]; then
+        SOURCE_TAG_STATE="dirty"
+        echo "  ⚠ Not tagged: the build was made with changes that are in no commit:" >&2
+        echo "${BUILT_CHANGES}" | sed 's/^/      /' >&2
+        return 0
+    fi
+    if [[ "$(git -C "${DAISY_REPO}" rev-parse HEAD 2>/dev/null || true)" != "${BUILT_COMMIT}" ]]; then
+        SOURCE_TAG_STATE="moved"
+        echo "  ⚠ Not tagged: HEAD moved during the build (it started from ${BUILT_COMMIT:0:7})." >&2
+        return 0
+    fi
+
+    tagged=$(git -C "${DAISY_REPO}" rev-parse -q --verify "refs/tags/${tag}^{commit}" 2>/dev/null || true)
+    if [[ -n "${tagged}" ]]; then
+        # A local tag an earlier run or a person left. Usable only if it
+        # names the code that was built.
+        if ! git -C "${DAISY_REPO}" diff --quiet "${tagged}" "${BUILT_COMMIT}" -- . ":(exclude)${PBXPROJ_IN_REPO}" 2>/dev/null; then
+            SOURCE_TAG_STATE="local-other"
+            echo "  ⚠ Not pushed: a local ${tag} (${tagged:0:7}) names other code than this build's (${BUILT_COMMIT:0:7})." >&2
+            return 0
+        fi
+    else
+        if [[ -n "$(uncommitted_source)" ]]; then
+            SOURCE_TAG_STATE="changed"
+            echo "  ⚠ Not tagged: the tree changed during the build:" >&2
+            uncommitted_source | sed 's/^/      /' >&2
+            return 0
+        fi
+        if ! git -C "${DAISY_REPO}" diff --quiet -- "${PBXPROJ_IN_REPO}" 2>/dev/null; then
+            if ! git -C "${DAISY_REPO}" commit -q -m "${version} (b${build})" -- "${PBXPROJ_IN_REPO}"; then
+                SOURCE_TAG_STATE="uncommitted"
+                echo "  ⚠ Not tagged: couldn't commit ${PBXPROJ_IN_REPO}." >&2
+                return 0
+            fi
+            echo "  ✓ committed: ${version} (b${build})"
+        fi
+        if ! git -C "${DAISY_REPO}" tag "${tag}"; then
+            SOURCE_TAG_STATE="untagged"
+            echo "  ⚠ Couldn't create ${tag}." >&2
+            return 0
+        fi
+        echo "  ✓ tagged ${tag} ($(git -C "${DAISY_REPO}" rev-parse --short "${tag}^{commit}" 2>/dev/null || true))"
+    fi
+
+    SOURCE_TAG_STATE="local"
+    if [[ "${DAISY_AUTO_PUSH:-0}" != "1" ]]; then
+        echo "    Not pushed (DAISY_AUTO_PUSH is off)."
+        return 0
+    fi
+    if ! git -C "${DAISY_REPO}" push origin "refs/tags/${tag}"; then
+        echo "  ⚠ Couldn't push ${tag}." >&2
+        return 0
+    fi
+    if source_tag_on_github "${version}"; then
+        SOURCE_TAG_STATE="on-github"
+        echo "  ✓ $(source_url "${version}")"
+    else
+        SOURCE_TAG_STATE="unseen"
+        echo "  ⚠ Pushed ${tag} to origin, but https://github.com/${GITHUB_REPO} doesn't show it." >&2
+    fi
+    return 0
+}
+
+# -----------------------------------------------------------------------------
+# finish_tag_commands <marketing-version> [<build>]
+#
+# Prints the commands that put v<version> on GitHub from the state
+# tag_release_source left, one per line, ready to paste. Prints nothing when
+# the tag is there. Fails when no command does it (other code under the
+# tag, no git).
+# -----------------------------------------------------------------------------
+finish_tag_commands() {
+    local version="$1" build="${2:-}"
+    local tag="v${version}" paths=""
+
+    case "${SOURCE_TAG_STATE:-}" in
+        on-github)
+            ;;
+        local)
+            echo "      cd ${DAISY_REPO}"
+            echo "      git push origin ${tag}"
+            ;;
+        unseen)
+            echo "    origin took ${tag}, but it is not at https://github.com/${GITHUB_REPO}."
+            echo "    Check where origin points (git remote get-url origin), then:"
+            echo "      cd ${DAISY_REPO}"
+            echo "      git push origin ${tag}"
+            ;;
+        moved|changed)
+            echo "    The archive was made from ${BUILT_COMMIT:0:7}. Tag that commit. (Its pbxproj has the"
+            echo "    previous version numbers; this build got its own on the command line.)"
+            if [[ "${SOURCE_TAG_STATE}" == "changed" ]]; then
+                echo "    Only if the changes listed above came after the archive step; if they were"
+                echo "    built, no commit is this build's source: release again from a clean tree."
+            fi
+            echo "      cd ${DAISY_REPO}"
+            echo "      git tag ${tag} ${BUILT_COMMIT}"
+            echo "      git push origin ${tag}"
+            ;;
+        dirty)
+            # `XY path`, and `XY old -> new` for a rename.
+            paths=$(echo "${BUILT_CHANGES:-}" | sed -e 's/^...//' -e 's/^.* -> //' | tr '\n' ' ')
+            echo "    Commit what was built, then tag that commit. Only if these files are still"
+            echo "    as they were when the archive was made; otherwise release again from a clean tree."
+            echo "      cd ${DAISY_REPO}"
+            echo "      git add -- ${paths}${PBXPROJ_IN_REPO}"
+            echo "      git commit -m \"${version} (b${build})\" -- ${paths}${PBXPROJ_IN_REPO}"
+            echo "      git tag ${tag}"
+            echo "      git push origin ${tag}"
+            ;;
+        local-other)
+            echo "    The local ${tag} is not this build. If it is a leftover, replace it:"
+            echo "      cd ${DAISY_REPO}"
+            echo "      git tag -d ${tag}"
+            echo "      git tag ${tag} ${BUILT_COMMIT}"
+            echo "      git push origin ${tag}"
+            ;;
+        uncommitted)
+            echo "      cd ${DAISY_REPO}"
+            echo "      git commit -m \"${version} (b${build})\" -- ${PBXPROJ_IN_REPO}"
+            echo "      git tag ${tag}"
+            echo "      git push origin ${tag}"
+            ;;
+        untagged)
+            echo "      cd ${DAISY_REPO}"
+            echo "      git tag ${tag}"
+            echo "      git push origin ${tag}"
+            ;;
+        "")
+            # promote: the tag is the beta's, made when it was cut.
+            if source_tag_on_github "${version}"; then
+                :
+            elif git -C "${DAISY_REPO}" rev-parse -q --verify "refs/tags/${tag}^{commit}" >/dev/null 2>&1; then
+                echo "      cd ${DAISY_REPO}"
+                echo "      git push origin ${tag}"
+            else
+                echo "    There is no ${tag} here either. Tag the commit Daisy ${version} was built from"
+                echo "    (the «${version} (b…)» commit) and push it:"
+                echo "      cd ${DAISY_REPO}"
+                echo "      git tag ${tag} <that commit>"
+                echo "      git push origin ${tag}"
+            fi
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# -----------------------------------------------------------------------------
+# web_checkout_ready
+#
+# daisy-web's checkout is shared with other sessions, and a push to its main
+# is a deploy. Before anything is built or changed: the checkout must be on
+# main and level with origin/main, so that the release adds one commit, its
+# own, and pushes that alone. Uncommitted files of other sessions are fine
+# and are never touched (commit_daisy_web names its paths).
+# -----------------------------------------------------------------------------
+web_checkout_ready() {
+    local branch ahead behind
+
+    if ! git -C "${DAISY_WEB_REPO}" fetch -q origin main; then
+        echo "  ✗ Couldn't fetch origin/main in ${DAISY_WEB_REPO}." >&2
+        return 1
+    fi
+    branch=$(git -C "${DAISY_WEB_REPO}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
+    if [[ "${branch}" != "main" ]]; then
+        echo "  ✗ ${DAISY_WEB_REPO} is on «${branch}», not main: the release commit goes to main." >&2
+        return 1
+    fi
+    ahead=$(git -C "${DAISY_WEB_REPO}" rev-list --count origin/main..HEAD)
+    behind=$(git -C "${DAISY_WEB_REPO}" rev-list --count HEAD..origin/main)
+    if [[ "${ahead}" != "0" ]]; then
+        echo "  ✗ ${DAISY_WEB_REPO} has ${ahead} commit(s) that are not on origin/main:" >&2
+        git -C "${DAISY_WEB_REPO}" log --oneline origin/main..HEAD | cut -c1-110 | sed 's/^/      /' >&2
+        echo "    The release pushes one commit, its own. Push these first, or move them off main." >&2
+        return 1
+    fi
+    if [[ "${behind}" != "0" ]]; then
+        echo "  ✗ ${DAISY_WEB_REPO} is ${behind} commit(s) behind origin/main. Bring it up to date first:" >&2
+        echo "      cd ${DAISY_WEB_REPO}" >&2
+        echo "      git pull --rebase --autostash" >&2
+        return 1
+    fi
+}
+
+# -----------------------------------------------------------------------------
+# commit_daisy_web <message>
+#
+# Commits the release's own files in daisy-web, by name: the appcast and the
+# version pointers, those that exist and changed. Never the whole index —
+# another session may have staged work in this checkout. 0: committed
+# (WEB_RELEASE_COMMIT). 1: nothing changed. 2: git refused.
+# -----------------------------------------------------------------------------
+WEB_RELEASE_COMMIT=""
+
+commit_daisy_web() {
+    local message="$1" path changed=""
+
+    for path in public/appcast.xml lib/latestVersion.ts lib/betaVersion.ts; do
+        [[ -e "${DAISY_WEB_REPO}/${path}" ]] || continue
+        [[ -n "$(git -C "${DAISY_WEB_REPO}" status --porcelain -- "${path}" 2>/dev/null)" ]] || continue
+        git -C "${DAISY_WEB_REPO}" add -- "${path}" || return 2
+        changed="${changed} ${path}"
+    done
+    [[ -n "${changed}" ]] || return 1
+    # Unquoted on purpose: three fixed paths, no spaces in them.
+    # shellcheck disable=SC2086
+    git -C "${DAISY_WEB_REPO}" commit -q -m "${message}" -- ${changed} || return 2
+    WEB_RELEASE_COMMIT=$(git -C "${DAISY_WEB_REPO}" rev-parse HEAD)
+}
+
+# -----------------------------------------------------------------------------
+# push_daisy_web <marketing-version> [<build>]
+#
+# Pushes daisy-web's release commit: the push is the deploy, so this is the
+# moment the appcast and the site's Download button go live. Both link to
+# the source of <version> (source_url), so the push waits for the tag: it is
+# held while v<version> is missing from GitHub or names other code.
+#
+# It pushes one commit, the release's. With anything else ahead of
+# origin/main (another session's commit in the shared checkout), on another
+# branch, or behind origin/main, it holds and says what to do; so it does
+# when GitHub rejects the push.
+#
+# WEB_PUSH_STATE says how it ended: pushed, manual (DAISY_AUTO_PUSH is off:
+# the commands are printed) or held. Fails on held, and then every line a
+# person needs to finish the release has been printed.
+# -----------------------------------------------------------------------------
+WEB_PUSH_STATE=""
+
+push_daisy_web() {
+    local version="$1" build="${2:-}"
+    local tag="v${version}"
+    local branch ahead behind
+
+    WEB_PUSH_STATE="held"
+    if [[ "${SOURCE_TAG_STATE:-}" == "mismatch" ]]; then
+        echo "  ✗ daisy-web NOT pushed: ${tag} is on GitHub and names other code (${SOURCE_TAG_REMOTE:0:7}) than this" >&2
+        echo "    build's (${BUILT_COMMIT:0:7}), so $(source_url "${version}")" >&2
+        echo "    would offer source that is not this build's. A tag is never moved: a changed build" >&2
+        echo "    needs its own version number. See the difference:" >&2
+        echo "      cd ${DAISY_REPO}" >&2
+        echo "      git diff --stat ${SOURCE_TAG_REMOTE} ${BUILT_COMMIT}" >&2
+        if [[ -n "${WEB_RELEASE_COMMIT}" ]]; then
+            echo "    The site commit ${WEB_RELEASE_COMMIT:0:7} must not go out. To take it back while it is still the" >&2
+            echo "    last commit there (other files in that checkout are left alone):" >&2
+            echo "      cd ${DAISY_WEB_REPO}" >&2
+            echo "      git reset --soft ${WEB_RELEASE_COMMIT}~1" >&2
+            echo "      git restore --staged --worktree -- public/appcast.xml lib/latestVersion.ts lib/betaVersion.ts" >&2
+        fi
+        return 1
+    fi
+
+    if [[ "${DAISY_AUTO_PUSH:-0}" != "1" ]]; then
+        WEB_PUSH_STATE="manual"
+        echo "    daisy-web is committed, not pushed (DAISY_AUTO_PUSH is off)."
+        echo "    Review: cd ${DAISY_WEB_REPO} && git show HEAD"
+        echo "    To publish, in this order (the appcast and the site link to ${tag}):"
+        finish_tag_commands "${version}" "${build}" || true
+        echo "      cd ${DAISY_WEB_REPO}"
+        echo "      git push origin main"
+        return 0
+    fi
+
+    if ! source_tag_on_github "${version}"; then
+        echo "  ✗ daisy-web NOT pushed: ${tag} is not on GitHub, and the appcast and the site link to" >&2
+        echo "    $(source_url "${version}")" >&2
+        echo "    To finish, in this order:" >&2
+        finish_tag_commands "${version}" "${build}" >&2 || true
+        echo "      cd ${DAISY_WEB_REPO}" >&2
+        echo "      git push origin main" >&2
+        return 1
+    fi
+
+    if ! git -C "${DAISY_WEB_REPO}" fetch -q origin main; then
+        echo "  ✗ daisy-web NOT pushed: couldn't fetch origin/main to see what the push would carry." >&2
+        echo "    When the network is back, check that the release commit is the only one ahead, then:" >&2
+        echo "      cd ${DAISY_WEB_REPO}" >&2
+        echo "      git log --oneline origin/main..HEAD" >&2
+        echo "      git push origin main" >&2
+        return 1
+    fi
+    branch=$(git -C "${DAISY_WEB_REPO}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
+    if [[ "${branch}" != "main" ]]; then
+        echo "  ✗ daisy-web NOT pushed: the checkout is on «${branch}», not main (it was on main in step 0)." >&2
+        echo "    The release commit is ${WEB_RELEASE_COMMIT:0:12}. Put it on main and push:" >&2
+        echo "      cd ${DAISY_WEB_REPO}" >&2
+        echo "      git switch main" >&2
+        echo "      git cherry-pick ${WEB_RELEASE_COMMIT}" >&2
+        echo "      git push origin main" >&2
+        return 1
+    fi
+    if git -C "${DAISY_WEB_REPO}" merge-base --is-ancestor "${WEB_RELEASE_COMMIT}" origin/main 2>/dev/null; then
+        # Another session's push from the shared checkout took it along.
+        WEB_PUSH_STATE="pushed"
+        echo "  ✓ daisy-web's release commit is already on origin/main — Vercel deploys in 1-2 min"
+        return 0
+    fi
+    ahead=$(git -C "${DAISY_WEB_REPO}" rev-list --count origin/main..HEAD)
+    behind=$(git -C "${DAISY_WEB_REPO}" rev-list --count HEAD..origin/main)
+    if [[ "${ahead}" != "1" || "$(git -C "${DAISY_WEB_REPO}" rev-parse HEAD)" != "${WEB_RELEASE_COMMIT}" ]]; then
+        echo "  ✗ daisy-web NOT pushed: the push would carry more than the release commit (${WEB_RELEASE_COMMIT:0:7})." >&2
+        echo "    Ahead of origin/main:" >&2
+        git -C "${DAISY_WEB_REPO}" log --oneline origin/main..HEAD | cut -c1-110 | sed 's/^/      /' >&2
+        echo "    A push to main deploys all of them. Push when the others are meant to go out too," >&2
+        echo "    or after their author has moved them off main:" >&2
+        echo "      cd ${DAISY_WEB_REPO}" >&2
+        echo "      git push origin main" >&2
+        return 1
+    fi
+    if [[ "${behind}" != "0" ]] || ! git -C "${DAISY_WEB_REPO}" push origin main; then
+        echo "  ✗ daisy-web NOT pushed: GitHub refused the push, or origin/main has moved on since step 0" >&2
+        echo "    (${behind} new commit(s) at the last look). Put the release commit on top of it and push:" >&2
+        echo "      cd ${DAISY_WEB_REPO}" >&2
+        echo "      git pull --rebase --autostash" >&2
+        echo "      git push origin main" >&2
+        return 1
+    fi
+    WEB_PUSH_STATE="pushed"
+    echo "  ✓ pushed daisy-web — Vercel deploys in 1-2 min"
+}
+
+# -----------------------------------------------------------------------------
+# app_branch_reminder
+#
+# The tag is on GitHub; the branch it was cut from is not pushed by this
+# script (a branch is the person's to publish: on main a push is public
+# history, and a hotfix branch is merged first). Says so when the branch
+# has commits its upstream lacks, with the command.
+# -----------------------------------------------------------------------------
+app_branch_reminder() {
+    local branch unpushed
+    branch=$(git -C "${DAISY_REPO}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+    [[ -n "${branch}" && "${branch}" != "HEAD" ]] || return 0
+    unpushed=$(git -C "${DAISY_REPO}" rev-list --count "origin/${branch}..HEAD" 2>/dev/null || echo "?")
+    [[ "${unpushed}" != "0" ]] || return 0
+    echo "    Branch : «${branch}» is not pushed yet (only the tag is). When ready:"
+    echo "               cd ${DAISY_REPO}"
+    echo "               git push origin ${branch}"
 }
 
 # -----------------------------------------------------------------------------
@@ -396,6 +895,9 @@ if [[ "${1:-}" == "promote" ]]; then
         echo "Usage: $0 promote <marketing-version>" >&2
         exit 1
     fi
+    # Before the appcast is touched: the shared checkout must be on main and
+    # level with origin/main.
+    web_checkout_ready || exit 1
     APPCAST_FILE="${DAISY_WEB_REPO}/public/appcast.xml"
     PROMOTED_BUILD=$(VERSION="${PROMOTE_VERSION}" APPCAST_FILE="${APPCAST_FILE}" python3 <<'PY'
 import os, re, pathlib, sys
@@ -433,22 +935,24 @@ export const LATEST_BUILD = ${PROMOTED_BUILD};
 // Each build has its own path — see release.sh step [6/6] notes.
 export const LATEST_DMG_URL = \`/downloads/\${LATEST_BUILD}/Daisy-\${LATEST_VERSION}.dmg\`;
 EOF
-    (
-        cd "${DAISY_WEB_REPO}"
-        git add public/appcast.xml lib/latestVersion.ts
-        if git diff --staged --quiet; then
-            echo "  ⊘ nothing to promote (already stable?)"
-        else
-            git commit -m "release: promote Daisy ${PROMOTE_VERSION} (build ${PROMOTED_BUILD}) to stable" >/dev/null
-            echo "  ✓ Daisy ${PROMOTE_VERSION} (build ${PROMOTED_BUILD}) promoted to stable"
-            if [[ "${DAISY_AUTO_PUSH:-0}" == "1" ]]; then
-                git push
-                echo "  ✓ pushed daisy-web — Vercel deploys in 1-2 min"
-            else
-                echo "    Push:   cd ${DAISY_WEB_REPO} && git push"
-            fi
+    PROMOTE_COMMITTED=0
+    commit_daisy_web "release: promote Daisy ${PROMOTE_VERSION} (build ${PROMOTED_BUILD}) to stable" || PROMOTE_COMMITTED=$?
+    if [[ "${PROMOTE_COMMITTED}" == "1" ]]; then
+        echo "  ⊘ nothing to promote (already stable?)"
+    elif [[ "${PROMOTE_COMMITTED}" != "0" ]]; then
+        echo "  ✗ Couldn't commit the promotion in ${DAISY_WEB_REPO}; appcast.xml and lib/latestVersion.ts are changed there, uncommitted." >&2
+        exit 2
+    else
+        echo "  ✓ Daisy ${PROMOTE_VERSION} (build ${PROMOTED_BUILD}) promoted to stable (committed in daisy-web)"
+        # The main Download button now serves this version and shows its
+        # source link; the tag is the beta's, pushed when it was cut.
+        if ! push_daisy_web "${PROMOTE_VERSION}"; then
+            echo
+            echo "  ✗ Daisy ${PROMOTE_VERSION} is NOT promoted on the site: the daisy-web commit (${WEB_RELEASE_COMMIT:0:7}) is made"
+            echo "    locally and not pushed. What to do next is printed above."
+            exit 2
         fi
-    )
+    fi
     github_release "${PROMOTE_VERSION}"
     exit 0
 fi
@@ -581,6 +1085,43 @@ fi
 
 if ! git -C "${DAISY_REPO}" diff --quiet || ! git -C "${DAISY_REPO}" diff --cached --quiet; then
     echo "  ⚠ Working tree has uncommitted changes — releasing from a dirty tree."
+fi
+# What is about to be built, for tag_release_source in [6/6]: the commit and
+# whatever the tree holds beyond it. With anything beyond it there is no
+# commit to publish as this build's source. A run that publishes
+# (DAISY_AUTO_PUSH=1) stops here: found in [6/6] the same thing would hold
+# the site back after the archive and both notary rounds. A run that only
+# builds and commits goes on with a warning; its tag is then made by hand.
+BUILT_COMMIT=$(git -C "${DAISY_REPO}" rev-parse HEAD 2>/dev/null || true)
+BUILT_CHANGES=$(uncommitted_source)
+if [[ -n "${BUILT_CHANGES}" ]]; then
+    if [[ "${DAISY_AUTO_PUSH:-0}" == "1" ]]; then
+        echo "  ✗ These changes are in no commit, so no commit is the source of this build and v${VERSION} can't be tagged:" >&2
+        echo "${BUILT_CHANGES}" | sed 's/^/      /' >&2
+        echo "    Commit them (or take them out of the tree) and run again. Nothing was built." >&2
+        exit 1
+    fi
+    echo "  ⚠ These changes are in no commit, so v${VERSION} can't be tagged as the source of this build:"
+    echo "${BUILT_CHANGES}" | sed 's/^/      /'
+    echo "    The build goes on (DAISY_AUTO_PUSH is off); the commands to commit and tag them are printed at the end."
+fi
+# The same for a version that is on GitHub already (a re-release with a new
+# build): the tag is never moved, so it has to name this code.
+if [[ "${DAISY_AUTO_PUSH:-0}" == "1" && -n "${BUILT_COMMIT}" ]]; then
+    TAG_MATCHES=0
+    github_tag_matches "${VERSION}" "${BUILT_COMMIT}" || TAG_MATCHES=$?
+    if [[ "${TAG_MATCHES}" == "1" ]]; then
+        echo "  ✗ v${VERSION} is on GitHub (${SOURCE_TAG_REMOTE:0:7}) and names other code than ${BUILT_COMMIT:0:7}." >&2
+        echo "    A tag is never moved: a changed build needs its own version number. Nothing was built." >&2
+        echo "      git -C ${DAISY_REPO} diff --stat ${SOURCE_TAG_REMOTE} ${BUILT_COMMIT}" >&2
+        exit 1
+    fi
+fi
+# daisy-web's checkout is shared, and its push is a deploy: on main and
+# level with origin/main now, so the release pushes one commit, its own.
+if ! web_checkout_ready; then
+    echo "    Nothing was built." >&2
+    exit 1
 fi
 CURRENT_BRANCH=$(git -C "${DAISY_REPO}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
 echo "  • branch: ${CURRENT_BRANCH}"
@@ -836,6 +1377,7 @@ BUILD="${BUILD}" \
 CHANNEL="${CHANNEL}" \
 PUBDATE="${PUBDATE}" \
 DOWNLOAD_URL="${DOWNLOAD_URL_BASE}/${BUILD}/${DMG_NAME}" \
+SOURCE_URL="$(source_url "${VERSION}")" \
 SIGNATURE_LINE="${SIGNATURE_OUTPUT}" \
 NOTES_MD="${NOTES_MD}" \
 NOTES_MD_RU="${NOTES_MD_RU}" \
@@ -847,6 +1389,7 @@ version       = os.environ["VERSION"]
 build         = os.environ["BUILD"]
 pubdate       = os.environ["PUBDATE"]
 download_url  = os.environ["DOWNLOAD_URL"]
+source_url    = os.environ["SOURCE_URL"]
 signature     = os.environ["SIGNATURE_LINE"].strip()
 notes_path    = pathlib.Path(os.environ["NOTES_MD"])
 notes_path_ru = pathlib.Path(os.environ["NOTES_MD_RU"])
@@ -893,6 +1436,16 @@ if not notes_html:
     print(f"  ✗ No bullet lines found in {notes_path.name}", file=sys.stderr)
     sys.exit(1)
 
+# The last line of each description: where the source of this version is
+# (source_url in the shell above). The update window and the site's
+# changelog both render the description, so the build is never offered
+# without it. Generated: a notes file can't forget it or name another
+# version. The class is what the site's changelog styles the line by
+# (daisy-web looks for exactly `version-source`).
+def source_line(label):
+    link = html.escape(source_url)
+    return f'        <p class="version-source">{label}: <a href="{link}">{link}</a></p>'
+
 # Р-3: a second, Russian <description> in the same <item>. Sparkle picks
 # by the system language and falls back to the untagged one, so English
 # stays the default for everyone else.
@@ -904,6 +1457,7 @@ if notes_html_ru:
         <ul>
 {notes_html_ru}
         </ul>
+{source_line("Исходный код этой версии")}
       ]]></description>"""
     print(f"  → Russian release notes included ({notes_path_ru.name})")
 else:
@@ -927,6 +1481,7 @@ item_block = f"""    <item>
         <ul>
 {notes_html}
         </ul>
+{source_line("Source for this version")}
       ]]></description>{description_ru}
       <enclosure
         url="{download_url}"
@@ -964,7 +1519,9 @@ item_re = re.compile(
     re.DOTALL,
 )
 if item_re.search(content):
-    new_content = item_re.sub(item_block + "\n", content, count=1)
+    # A function, not a template: in a template `\1` or `\g` in the notes
+    # would be read as a group reference and any other backslash is an error.
+    new_content = item_re.sub(lambda _: item_block + "\n", content, count=1)
     appcast_path.write_text(new_content, encoding="utf-8")
     print(f"  ↻ Replaced existing <item> for Daisy {version} (build {build})")
     sys.exit(0)
@@ -1030,27 +1587,22 @@ else
     echo "  ⊘ lib/latestVersion.ts not found — skipping (web Hero/Download CTAs may serve a stale link)"
 fi
 
-(
-    cd "${DAISY_WEB_REPO}"
-    git add public/appcast.xml lib/latestVersion.ts
-    [[ -f lib/betaVersion.ts ]] && git add lib/betaVersion.ts
-    if git diff --staged --quiet; then
-        echo "  ⊘ nothing to commit in daisy-web (already published?)"
-    else
-        CHANNEL_NOTE=""
-        [[ "${CHANNEL}" == "beta" ]] && CHANNEL_NOTE=", beta"
-        git commit -m "release: Daisy ${VERSION} (build ${BUILD}${CHANNEL_NOTE})" >/dev/null
-        echo "  ✓ committed: release: Daisy ${VERSION} (build ${BUILD}${CHANNEL_NOTE})"
-        if [[ "${DAISY_AUTO_PUSH:-0}" == "1" ]]; then
-            git push
-            echo "  ✓ pushed daisy-web — Vercel deploys in 1-2 min"
-        else
-            echo "    Review: cd ${DAISY_WEB_REPO} && git show HEAD"
-            echo "    Push:   cd ${DAISY_WEB_REPO} && git push"
-            echo "    (or rerun with DAISY_AUTO_PUSH=1 to push automatically)"
-        fi
-    fi
-)
+# Committed here, pushed in 7b: the push is what publishes, and it waits
+# for the source tag. The commit names its files (commit_daisy_web): the
+# checkout is shared, and the index may hold another session's work.
+# WEB_RELEASE_COMMITTED is commit_daisy_web's status: 0 committed, 1 nothing
+# changed, 2 git refused.
+CHANNEL_NOTE=""
+[[ "${CHANNEL}" == "beta" ]] && CHANNEL_NOTE=", beta"
+WEB_RELEASE_COMMITTED=0
+commit_daisy_web "release: Daisy ${VERSION} (build ${BUILD}${CHANNEL_NOTE})" || WEB_RELEASE_COMMITTED=$?
+if [[ "${WEB_RELEASE_COMMITTED}" == "0" ]]; then
+    echo "  ✓ committed: release: Daisy ${VERSION} (build ${BUILD}${CHANNEL_NOTE})"
+elif [[ "${WEB_RELEASE_COMMITTED}" == "1" ]]; then
+    echo "  ⊘ nothing to commit in daisy-web (already published?)"
+else
+    echo "  ✗ Couldn't commit the release in ${DAISY_WEB_REPO}: appcast.xml and the version file are changed there, uncommitted." >&2
+fi
 
 # -----------------------------------------------------------------------------
 # 7. Write the released version back into project.pbxproj so Xcode dev
@@ -1070,13 +1622,52 @@ if [[ -f "${PBXPROJ}" ]]; then
         -e "s/CURRENT_PROJECT_VERSION = [0-9]\{2,\};/CURRENT_PROJECT_VERSION = ${BUILD};/g" \
         -e "s/MARKETING_VERSION = [0-9][0-9.]\{3,\};/MARKETING_VERSION = ${VERSION};/g" \
         "${PBXPROJ}"
-    echo "  ✓ project.pbxproj bumped to ${VERSION} (${BUILD}) — commit it with your next app-repo push"
+    echo "  ✓ project.pbxproj bumped to ${VERSION} (${BUILD})"
+fi
+
+# -----------------------------------------------------------------------------
+# 7b. The source of this build goes to GitHub as v<version>, and only then
+#     daisy-web is pushed: the appcast item and the site's Download button
+#     link to that tag, and the push is what makes them public.
+# -----------------------------------------------------------------------------
+tag_release_source "${VERSION}" "${BUILD}"
+if [[ -f "${PBXPROJ}" ]] && ! git -C "${DAISY_REPO}" diff --quiet -- "${PBXPROJ_IN_REPO}" 2>/dev/null; then
+    echo "    project.pbxproj is not committed — commit it with your next app-repo push"
+fi
+if [[ "${WEB_RELEASE_COMMITTED}" == "0" ]]; then
+    push_daisy_web "${VERSION}" "${BUILD}" || true
+elif [[ "${WEB_RELEASE_COMMITTED}" == "1" ]]; then
+    WEB_PUSH_STATE="none"
+else
+    WEB_PUSH_STATE="held"
+    echo "  ✗ daisy-web NOT pushed: there is no release commit. Commit and push it, after v${VERSION} is on GitHub:" >&2
+    finish_tag_commands "${VERSION}" "${BUILD}" >&2 || true
+    echo "      cd ${DAISY_WEB_REPO}" >&2
+    echo "      git commit -m \"release: Daisy ${VERSION} (build ${BUILD}${CHANNEL_NOTE})\" -- public/appcast.xml lib/latestVersion.ts lib/betaVersion.ts" >&2
+    echo "      git push origin main" >&2
+fi
+
+# The site push was held or refused: nothing a person sees has changed. Said
+# plainly, with a status of its own, so that neither a person nor a session
+# reads the run as a release.
+if [[ "${WEB_PUSH_STATE}" == "held" ]]; then
+    echo
+    echo "────────────────────────────────────────────────────────────────"
+    echo "  ✗ Daisy ${VERSION} (build ${BUILD}) is NOT published."
+    echo "    Done     : the DMG is in R2 as downloads/${BUILD}/${DMG_NAME} (build ${BUILD} is taken)"
+    if [[ -n "${WEB_RELEASE_COMMIT}" ]]; then
+        echo "               the daisy-web commit is made locally (${WEB_RELEASE_COMMIT:0:7})"
+    fi
+    echo "    Not done : the daisy-web push — the appcast and the site still serve the previous version"
+    echo "    What to do next is printed above."
+    echo "────────────────────────────────────────────────────────────────"
+    exit 2
 fi
 
 # -----------------------------------------------------------------------------
 # 8. Stable releases also go to GitHub Releases with the same DMG. The
-#    tag usually isn't pushed yet at this point (RELEASING.md §3), so
-#    this most often prints the one command to run after pushing it.
+#    tag is on GitHub by now; without DAISY_AUTO_PUSH this prints the one
+#    command to run after the pushes.
 # -----------------------------------------------------------------------------
 if [[ "${CHANNEL}" == "stable" ]]; then
     echo
@@ -1085,8 +1676,15 @@ fi
 
 echo
 echo "────────────────────────────────────────────────────────────────"
-echo "  ✓ Daisy ${VERSION} (build ${BUILD}) released on the ${CHANNEL} channel."
+if [[ "${WEB_PUSH_STATE}" == "manual" ]]; then
+    echo "  ✓ Daisy ${VERSION} (build ${BUILD}) is built for the ${CHANNEL} channel — NOT published yet:"
+    echo "    DAISY_AUTO_PUSH is off, the commands that publish it are above."
+else
+    echo "  ✓ Daisy ${VERSION} (build ${BUILD}) released on the ${CHANNEL} channel."
+fi
 echo "    DMG    : ${DMG_PATH}"
 echo "    Length : ${DMG_LENGTH} bytes"
 echo "    Item   : injected into appcast.xml"
+echo "    Source : $(source_url "${VERSION}")"
+app_branch_reminder
 echo "────────────────────────────────────────────────────────────────"
