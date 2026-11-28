@@ -2764,8 +2764,11 @@ struct SettingsView: View {
                     }
                     // The test row comes and goes with the subscription
                     // (signing out, a payment): a result left from before
-                    // would stand there without its row.
+                    // would stand there without its row. Only while the
+                    // subscription writes: the own provider's row stays put,
+                    // and its test is its own.
                     .onChange(of: subscriptionCanBeTested) {
+                        guard summarizer.usesDaisySubscription else { return }
                         summaryTestRun += 1
                         summaryTestResult = .idle
                         summaryTestPreview = nil
