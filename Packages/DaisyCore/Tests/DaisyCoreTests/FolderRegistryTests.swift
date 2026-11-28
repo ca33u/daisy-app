@@ -9,10 +9,10 @@ struct FolderRegistryTests {
     @Test func aFoldersTrackersRideTheRegistryAndSurviveARecase() throws {
         var phone = FolderRegistry()
         phone.upsert(name: "Daisy")
-        phone.setProject(ProjectContext(repo: "ca33u/daisy-app", linearTeam: "DAI"), for: "daisy")
+        phone.setProject(ProjectContext(repo: "addicted-studio/daisy-app", linearTeam: "DAI"), for: "daisy")
         let data = try #require(phone.encoded())
         let decoded = try #require(FolderRegistry.decode(data))
-        #expect(decoded.entry("daisy")?.project?.repo == "ca33u/daisy-app")
+        #expect(decoded.entry("daisy")?.project?.repo == "addicted-studio/daisy-app")
         var mac = decoded
         mac.upsert(name: "DAISY")                       // a recase on the other side
         #expect(mac.entry("daisy")?.project?.linearTeam == "DAI")

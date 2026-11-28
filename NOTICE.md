@@ -16,7 +16,7 @@ Unless a file says otherwise, every file in this repository is under these terms
 
 These terms supplement the license for the material in this repository whose copyright Egor Sazanov holds. Each is of a kind that section 7 of the license permits. They add no limit on selling or on the purposes Daisy may be used for. They apply when you convey a modified version or let other people use one over a network, not to changes you keep to yourself.
 
-1. **Attribution — section 7(b).** Daisy shows this author attribution among its legal notices (the About window): "Daisy (https://mydaisy.io) by Egor Sazanov, addicted", with a link to its source code (<https://github.com/ca33u/daisy-app>). A modified version must preserve it, with that link, wherever it shows its legal notices, as "Based on Daisy (https://mydaisy.io) by Egor Sazanov, addicted" or words to that effect.
+1. **Attribution — section 7(b).** Daisy shows this author attribution among its legal notices (the About window): "Daisy (https://mydaisy.io) by Egor Sazanov, addicted", with a link to its source code (<https://github.com/addicted-studio/daisy-app>). A modified version must preserve it, with that link, wherever it shows its legal notices, as "Based on Daisy (https://mydaisy.io) by Egor Sazanov, addicted" or words to that effect.
 
 2. **Origin — section 7(c), and section 7(d) for endorsement.** A modified version must be marked as different from the original. It must not be presented as Daisy, or as made or endorsed by Daisy's authors, and their names may not be used to promote it beyond the attribution in term 1.
 
@@ -44,7 +44,7 @@ The mark is also drawn in code in a few places (the petal shape in `Daisy/DaisyW
 
 ## History
 
-Every commit from [`310141b`](https://github.com/ca33u/daisy-app/commit/310141b287e9fca3cb5a00ef6473e5ecf869b049) (22 May 2026) up to and including [`94a45d1`](https://github.com/ca33u/daisy-app/commit/94a45d1bdbbcaadece1b2f14d30f11b8a0da1222) (28 November 2026), and every release built from them up to and including 1.0.8.59, was published under the Apache License 2.0 and remains available under it. Its text is the [`LICENSE` file at `94a45d1`](https://github.com/ca33u/daisy-app/blob/94a45d1bdbbcaadece1b2f14d30f11b8a0da1222/LICENSE). This notice does not change the terms that commits before `310141b` were published under. The license of any commit is the one in its own LICENSE file.
+Every commit from [`310141b`](https://github.com/addicted-studio/daisy-app/commit/310141b287e9fca3cb5a00ef6473e5ecf869b049) (22 May 2026) up to and including [`94a45d1`](https://github.com/addicted-studio/daisy-app/commit/94a45d1bdbbcaadece1b2f14d30f11b8a0da1222) (28 November 2026), and every release built from them up to and including 1.0.8.59, was published under the Apache License 2.0 and remains available under it. Its text is the [`LICENSE` file at `94a45d1`](https://github.com/addicted-studio/daisy-app/blob/94a45d1bdbbcaadece1b2f14d30f11b8a0da1222/LICENSE). This notice does not change the terms that commits before `310141b` were published under. The license of any commit is the one in its own LICENSE file.
 
 Everything after `94a45d1` is under AGPL-3.0-only with the terms in this file, except the brand artwork named above.
 

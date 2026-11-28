@@ -256,7 +256,7 @@ PY
 # gated behind DAISY_AUTO_PUSH=1, like the daisy-web push. Never fails
 # the release — the site is already published by the time this runs.
 # -----------------------------------------------------------------------------
-GITHUB_REPO="${DAISY_GITHUB_REPO:-ca33u/daisy-app}"
+GITHUB_REPO="${DAISY_GITHUB_REPO:-addicted-studio/daisy-app}"
 
 github_release() {
     local version="$1"

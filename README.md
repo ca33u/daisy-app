@@ -6,7 +6,7 @@ A Mac app that records your meetings and transcribes them on-device, with a loca
 
 ## Download
 
-- **[Latest release on GitHub](https://github.com/ca33u/daisy-app/releases/latest)** or **[mydaisy.io](https://mydaisy.io)** — the same signed, notarized DMG.
+- **[Latest release on GitHub](https://github.com/addicted-studio/daisy-app/releases/latest)** or **[mydaisy.io](https://mydaisy.io)** — the same signed, notarized DMG.
 - Apple Silicon (M1 or later), macOS 14 Sonoma or later. Intel Macs are not supported: the DMG is a universal build, but Intel builds are untested. The Apple Intelligence summarizer and the Apple SpeechAnalyzer dictation engine need macOS 26.
 - Updates arrive in the app through Sparkle.
 
@@ -82,7 +82,7 @@ Requirements:
 Clone and open:
 
 ```bash
-git clone https://github.com/ca33u/daisy-app.git
+git clone https://github.com/addicted-studio/daisy-app.git
 cd daisy-app
 open Daisy.xcodeproj
 ```
@@ -146,7 +146,7 @@ and the [public evidence](./Benchmarks/reports/public/).
 DAISY_AUTO_PUSH=1 ./scripts/release.sh <shortVersion> <buildNumber> [stable|beta]
 ```
 
-Beta is the default channel from `main`; stable is promoted from a soaked beta with `./scripts/release.sh promote <version>` (no rebuild). Six steps: archive → export → notarize → DMG → publish to the [daisy-web](https://github.com/ca33u/daisy-web) repo → inject an `<item>` into `appcast.xml` and commit. Vercel auto-deploys the site within a couple of minutes. Every stable version also becomes a [GitHub Release](https://github.com/ca33u/daisy-app/releases) with the same DMG (`./scripts/release.sh github-release <version>`). Full branch/channel model and the hotfix flow are in [`RELEASING.md`](./RELEASING.md).
+Beta is the default channel from `main`; stable is promoted from a soaked beta with `./scripts/release.sh promote <version>` (no rebuild). Six steps: archive → export → notarize → DMG → publish to the [daisy-web](https://github.com/addicted-studio/daisy-web) repo → inject an `<item>` into `appcast.xml` and commit. Vercel auto-deploys the site within a couple of minutes. Every stable version also becomes a [GitHub Release](https://github.com/addicted-studio/daisy-app/releases) with the same DMG (`./scripts/release.sh github-release <version>`). Full branch/channel model and the hotfix flow are in [`RELEASING.md`](./RELEASING.md).
 
 Release notes for each version go in `scripts/release-notes/<shortVersion>.md` as a flat markdown bullet list (`- one line per change`). The script extracts those bullets and embeds them in the appcast `<description>` so Sparkle shows them in its update sheet.
 
@@ -155,7 +155,7 @@ Release notes for each version go in `scripts/release-notes/<shortVersion>.md` a
 Daisy is free, open source and built independently. If it saves you time, you can [help it stay that way](https://mydaisy.io/support-daisy): a one-time payment of any amount. It is a thank-you to the developer, not a charitable donation, and it unlocks nothing.
 
 - Chat with the community → [Discord](https://discord.gg/JYCZRZXy6j)
-- Questions, ideas, show-and-tell → [GitHub Discussions](https://github.com/ca33u/daisy-app/discussions)
+- Questions, ideas, show-and-tell → [GitHub Discussions](https://github.com/addicted-studio/daisy-app/discussions)
 - Product issues, feature requests → file an issue on this repo or email **support@mydaisy.io**
 - Security disclosures → see [`SECURITY.md`](./SECURITY.md)
 - Procurement / security review / commercial license / tailored deployment → email **hello@mydaisy.io**

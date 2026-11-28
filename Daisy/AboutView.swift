@@ -188,7 +188,7 @@ struct AboutView: View {
                     icon: "bubble.left.and.bubble.right",
                     title: "Community",
                     detail: "Q&A, ideas, show-and-tell",
-                    url: URL(string: "https://github.com/ca33u/daisy-app/discussions")
+                    url: URL(string: "https://github.com/addicted-studio/daisy-app/discussions")
                 )
                 aboutLinkRow(
                     icon: "person.2.wave.2",
@@ -331,9 +331,9 @@ nonisolated enum LegalNotices {
     static let licenseName = "AGPL-3.0"
 
     static let website = "https://mydaisy.io"
-    static let sourceCode = "https://github.com/ca33u/daisy-app"
-    static let licenseText = "https://github.com/ca33u/daisy-app/blob/main/LICENSE"
-    static let notice = "https://github.com/ca33u/daisy-app/blob/main/NOTICE.md"
+    static let sourceCode = "https://github.com/addicted-studio/daisy-app"
+    static let licenseText = "https://github.com/addicted-studio/daisy-app/blob/main/LICENSE"
+    static let notice = "https://github.com/addicted-studio/daisy-app/blob/main/NOTICE.md"
 }
 
 /// The «Appropriate Legal Notices» of AGPL section 0, in the page's own
@@ -354,7 +354,7 @@ struct AboutLegalSection: View {
             AboutLinkRow(
                 icon: "chevron.left.forwardslash.chevron.right",
                 title: "Source code",
-                detail: "github.com/ca33u/daisy-app",
+                detail: "github.com/addicted-studio/daisy-app",
                 url: URL(string: LegalNotices.sourceCode)
             )
             AboutLinkRow(

@@ -45,8 +45,8 @@ struct AboutLegalTests {
         let source = try repositoryText("Daisy/AboutView.swift")
         #expect(source.contains("detail: LegalNotices.licenseName"), "the License row shows LegalNotices.licenseName")
         #expect(!source.contains("Apache"), "AboutView still names the Apache license")
-        #expect(LegalNotices.licenseText == "https://github.com/ca33u/daisy-app/blob/main/LICENSE")
-        #expect(LegalNotices.notice == "https://github.com/ca33u/daisy-app/blob/main/NOTICE.md")
+        #expect(LegalNotices.licenseText == "https://github.com/addicted-studio/daisy-app/blob/main/LICENSE")
+        #expect(LegalNotices.notice == "https://github.com/addicted-studio/daisy-app/blob/main/NOTICE.md")
     }
 
     /// Term 1 of NOTICE.md quotes the attribution the About window shows
