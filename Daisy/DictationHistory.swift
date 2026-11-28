@@ -47,6 +47,14 @@ nonisolated struct DictationEntry: Codable, Identifiable, Equatable, Sendable {
     var text: String
     /// When the dictation was recorded.
     var date: Date
+    /// The text as it was recognized (vocabulary applied), kept beside
+    /// `text` when the cleanup by context changed what was pasted
+    /// (28.11.2026). A model's correction can change what was meant in
+    /// ways no check can tell from a fix — a «not» dropped, a number one
+    /// digit off — so the person's own words are never overwritten: the
+    /// history offers them back («Copy as recognized»). nil for every
+    /// dictation pasted as recognized, and in files written before.
+    var recognized: String? = nil
 }
 
 /// How long dictations are kept.
@@ -144,14 +152,43 @@ final class DictationHistory {
     /// the dictionary already applied) so the history matches what the
     /// user actually got. Whitespace-only / empty transcripts are ignored
     /// — there's nothing useful to re-copy.
-    func record(_ text: String) {
+    ///
+    /// Returns the entry's id, for `replace(_:with:)`: a dictation is
+    /// recorded as recognized before it is corrected by context, and its
+    /// entry takes the corrected text when that is what lands
+    /// (`DictationSteps`).
+    @discardableResult
+    func record(_ text: String) -> UUID? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return nil }
         // Store the original text (not the trimmed copy) so leading/
         // trailing formatting the user dictated is preserved on re-copy.
         let entry = DictationEntry(text: text, date: Date())
         entries = Self.swept([entry] + entries, retention: retention)
         persist()
+        return entry.id
+    }
+
+    /// Put `text` in place of an entry's own: the same dictation, as it
+    /// was pasted after all. Its date stays, and the text it had stays
+    /// beside the new one as `recognized`. Nothing happens when the
+    /// entry is gone (cleared meanwhile) or the text is empty.
+    func replace(_ id: UUID, with text: String) {
+        guard let updated = Self.replacing(id, with: text, in: entries) else { return }
+        entries = updated
+        persist()
+    }
+
+    /// The list with one entry's text changed, or nil when there is
+    /// nothing to change.
+    nonisolated static func replacing(_ id: UUID, with text: String, in list: [DictationEntry]) -> [DictationEntry]? {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let index = list.firstIndex(where: { $0.id == id }), list[index].text != text else { return nil }
+        var updated = list
+        // The first text is the recognized one, whatever replaces it later.
+        if updated[index].recognized == nil { updated[index].recognized = updated[index].text }
+        updated[index].text = text
+        return updated
     }
 
     /// Drop the entire history. Used by the "Clear history" control.

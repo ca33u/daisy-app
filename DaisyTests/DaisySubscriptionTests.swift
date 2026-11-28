@@ -179,6 +179,159 @@ struct DaisySubscriptionTests {
         #expect(body["maxTokens"] as? Int == user.count + 4_000)
     }
 
+    // MARK: - Dictation cleanup (28.11.2026)
+
+    @Test("a dictation's cleanup goes without a schema, however short, and comes back as plain text")
+    func cleanupTask() async throws {
+        let provider = DaisySubscriptionSummarizer(urlSession: session([(200, anthropicSSE("Call me back."), sse)]),
+                                                   sessionOverride: "s", subscribedOverride: true)
+        // Ten characters: a summary's floor is not this task's.
+        let summary = try await provider.summarize(transcript: "call me bk", title: "Dictation", localeHint: nil,
+                                                   task: .dictationCleanup(.init(terms: ["Figma"])))
+        #expect(summary.clientFollowUp == "Call me back.")
+        #expect(DaisyServerStub.requests.first?.url == DaisySubscriptionSummarizer.endpoint)
+        let body = sentBody()
+        #expect(body["task"] as? String == "dictationCleanup")
+        // No `schema` key at all: the server answers one with 400.
+        #expect(Set(body.keys) == ["task", "system", "user", "maxTokens"])
+        let user = try #require(body["user"] as? String)
+        #expect(user == "<<<DICTATION>>>\ncall me bk\n<<<END DICTATION>>>")
+        #expect(body["maxTokens"] as? Int == 64 + user.count)
+        let system = try #require(body["system"] as? String)
+        #expect(system.contains("Figma") && !system.contains("clientFollowUp"))
+        #expect(!String(decoding: DaisyServerStub.bodies[0], as: UTF8.self).contains("daisy-reply-schema-"))
+    }
+
+    @Test("a cleanup cut at the ceiling, refused or broken off is not applied, though it came as HTTP 200 with text")
+    func cleanupNotFinished() async throws {
+        let input = "call me back at five tomorrow"
+        func cleaned(stop: String?) async -> (text: String, outcome: DictationCleanup.Outcome) {
+            let provider = DaisySubscriptionSummarizer(
+                urlSession: session([(200, anthropicSSE("Call me back at five tomorrow.", stop: stop), sse)]),
+                sessionOverride: "s", subscribedOverride: true)
+            return await DictationCleanup.run(input, kind: .daisySubscription) { text in
+                try await provider.summarize(transcript: text, title: "Dictation", localeHint: nil,
+                                             task: .dictationCleanup(.init())).clientFollowUp
+            }
+        }
+        let truncated = await cleaned(stop: "max_tokens")
+        #expect(truncated.outcome == .rejected(.truncated) && truncated.text == input)
+        let refused = await cleaned(stop: "refusal")
+        #expect(refused.outcome == .rejected(.refused) && refused.text == input)
+        let paused = await cleaned(stop: "pause_turn")
+        #expect(paused.outcome == .rejected(.stopped) && paused.text == input)
+        // No stop reason: the server's time ran out mid-answer.
+        let cutOff = await cleaned(stop: nil)
+        #expect(cutOff.outcome == .failed && cutOff.text == input)
+        let finished = await cleaned(stop: "end_turn")
+        #expect(finished.outcome == .applied && finished.text == "Call me back at five tomorrow.")
+    }
+
+    @Test("the cleanup is asked once, and without a subscription not at all")
+    func cleanupIsNotRetried() async throws {
+        let busy = DaisySubscriptionSummarizer(
+            urlSession: session([(503, #"{"error":"provider_busy","providerStatus":529}"#, json), (200, anthropicSSE("Call me back."), sse)]),
+            sessionOverride: "s", subscribedOverride: true)
+        await #expect(throws: DaisySubscriptionError.busy) {
+            _ = try await busy.summarize(transcript: "call me bk", title: "Dictation", localeHint: nil, task: .dictationCleanup(.init()))
+        }
+        #expect(DaisyServerStub.requests.count == 1)
+
+        let free = DaisySubscriptionSummarizer(urlSession: session([]), sessionOverride: "s", subscribedOverride: false)
+        await #expect(throws: DaisySubscriptionError.subscriptionRequired) {
+            _ = try await free.summarize(transcript: "call me bk", title: "Dictation", localeHint: nil, task: .dictationCleanup(.init()))
+        }
+        #expect(DaisyServerStub.requests.isEmpty)
+        // The ceiling asked for is what the server reserves: small.
+        #expect(DaisySubscriptionSummarizer.maxTokens(for: .dictationCleanup(.init()), userChars: 100) == 164)
+        #expect(DaisySubscriptionSummarizer.taskName(.dictationCleanup(.init())) == "dictationCleanup")
+    }
+
+    @Test("the cleanup goes by the status last read and never asks for it: no subscription known, nothing is sent")
+    func cleanupUsesTheCachedStatus() async throws {
+        func cleanup(_ store: DaisyAccountStore) async throws -> MeetingSummary {
+            try await DaisySubscriptionSummarizer(urlSession: store.urlSessionForTests, accountStore: store)
+                .summarize(transcript: "call me back at five tomorrow", title: "Dictation", localeHint: nil,
+                           task: .dictationCleanup(.init()))
+        }
+        // Signed in, the status never read: not known to be active.
+        let unknown = await account([(200, anthropicSSE("Call me back at five tomorrow."), sse)])
+        do {
+            _ = try await cleanup(unknown)
+            Issue.record("sent without a known subscription")
+        } catch {
+            #expect(error as? DaisySubscriptionError == .subscriptionRequired)
+            // The state it comes to: its own skip, not a failure the breaker counts.
+            #expect(DictationCleanup.outcome(for: error) == .skipped(.noSubscription))
+        }
+        #expect(DaisyServerStub.requests.isEmpty)
+
+        // Read as inactive: the same, and no free summary is spent on it.
+        let inactive = await account([(200, statusJSON(active: false, trial: 3), json)])
+        await inactive.refreshSubscription()
+        await #expect(throws: DaisySubscriptionError.subscriptionRequired) { _ = try await cleanup(inactive) }
+        #expect(DaisyServerStub.requests.count == 1)
+
+        // Read as active: one request, the cleanup itself — no status read in front of it.
+        let active = await account([(200, statusJSON(active: true, trial: 0), json),
+                                    (200, anthropicSSE("Call me back at five tomorrow."), sse)])
+        await active.refreshSubscription()
+        #expect(try await cleanup(active).clientFollowUp == "Call me back at five tomorrow.")
+        #expect(DaisyServerStub.requests.map { $0.url?.lastPathComponent } == ["subscription", "complete"])
+    }
+
+    @Test("the server saying there is no subscription is that state too, and a meeting's free summary is not spent on a dictation")
+    func cleanupRefusedForNoSubscription() async throws {
+        let provider = DaisySubscriptionSummarizer(
+            urlSession: session([(402, #"{"error":"subscription_required"}"#, json)]),
+            sessionOverride: "s", subscribedOverride: true)
+        do {
+            _ = try await provider.summarize(transcript: "call me back at five tomorrow", title: "Dictation", localeHint: nil,
+                                             task: .dictationCleanup(.init()))
+            Issue.record("a 402 read as an answer")
+        } catch {
+            #expect(error as? DaisySubscriptionError == .subscriptionRequired)
+            #expect(DictationCleanup.outcome(for: error) == .skipped(.noSubscription))
+        }
+        #expect(DaisyServerStub.requests.map { $0.url?.lastPathComponent } == ["complete"])
+        // The allowances used up are states of their own.
+        for (code, reason) in [("daily_limit", DictationCleanup.SkipReason.dailyLimit), ("monthly_limit", .monthlyLimit)] {
+            let limited = DaisySubscriptionSummarizer(urlSession: session([(429, #"{"error":"\#(code)"}"#, json)]),
+                                                      sessionOverride: "s", subscribedOverride: true)
+            let result = await DictationCleanup.run("call me back at five tomorrow", kind: .daisySubscription) { text in
+                try await limited.summarize(transcript: text, title: "Dictation", localeHint: nil,
+                                            task: .dictationCleanup(.init())).clientFollowUp
+            }
+            #expect(result.outcome == .skipped(reason), "\(code)")
+            #expect(result.text == "call me back at five tomorrow")
+        }
+    }
+
+    @Test("a session handed in from outside that the server refuses never signs this Mac's account out")
+    func overriddenSessionDoesNotSignOut() async throws {
+        // The bench's `DAISY_BENCH_SESSION`: another session than the store's.
+        let store = await account([(401, #"{"error":"session_expired"}"#, json),
+                                   (401, #"{"error":"session_expired"}"#, json),
+                                   (401, #"{"error":"session_expired"}"#, json)])
+        let subscribed = DaisySubscriptionSummarizer(urlSession: store.urlSessionForTests, sessionOverride: "another.session",
+                                                     subscribedOverride: true, accountStore: store)
+        await #expect(throws: DaisySubscriptionError.signedOut) {
+            _ = try await subscribed.summarize(transcript: "call me back at five tomorrow", title: "Dictation", localeHint: nil,
+                                               task: .dictationCleanup(.init()))
+        }
+        await #expect(throws: DaisySubscriptionError.signedOut) {
+            _ = try await subscribed.summarize(transcript: transcript, title: "Launch", localeHint: "en", task: .standard)
+        }
+        // The free summaries' road too.
+        let free = DaisySubscriptionSummarizer(urlSession: store.urlSessionForTests, sessionOverride: "another.session",
+                                               subscribedOverride: false, accountStore: store)
+        await #expect(throws: DaisySubscriptionError.signedOut) {
+            _ = try await free.summarize(transcript: transcript, title: "Launch", localeHint: "en", task: .standard)
+        }
+        #expect(DaisyServerStub.requests.count == 3)
+        #expect(await MainActor.run { store.isSignedIn && store.sessionToken == "s1.session.sig" })
+    }
+
     @Test("without a subscription a meeting summary is one of the free three, on /api/summary")
     func freeSummary() async throws {
         let provider = DaisySubscriptionSummarizer(

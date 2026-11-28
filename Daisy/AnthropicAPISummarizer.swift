@@ -43,7 +43,10 @@ nonisolated struct AnthropicAPISummarizer: SummaryProvider {
         task: SummaryTask
     ) async throws -> MeetingSummary {
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count > 40 else {
+        // A dictation to correct is often one short phrase; its own floor
+        // is `DictationCleanup.minChars`.
+        let cleanup = task.isDictationCleanup
+        guard cleanup || trimmed.count > 40 else {
             throw SummaryProviderError.transcriptTooShort
         }
         guard let apiKey = apiKeyOverride ?? KeychainStore.get(account: SecretKey.anthropicAPIKey),
@@ -51,8 +54,11 @@ nonisolated struct AnthropicAPISummarizer: SummaryProvider {
             throw SummaryProviderError.missingAPIKey(provider: "Anthropic")
         }
 
-        let systemPrompt = SummaryPrompt.systemInstructions(localeHint: localeHint, task: task)
+        let systemPrompt = SummaryPrompt.systemInstructions(localeHint: localeHint, task: task, plainText: cleanup)
         let userPrompt = SummaryPrompt.userPrompt(title: title, transcript: trimmed, task: task)
+        if cleanup {
+            return try await cleanDictation(system: systemPrompt, user: userPrompt, apiKey: apiKey)
+        }
 
         var body: [String: Any] = [
             "model": model,
@@ -162,6 +168,83 @@ nonisolated struct AnthropicAPISummarizer: SummaryProvider {
                 message: error.localizedDescription
             )
         }
+    }
+
+    /// A dictation corrected by context (`SummaryTask.dictationCleanup`):
+    /// the answer is the text itself, read as it streams — no envelope, no
+    /// schema — with thinking off and the lowest effort, because someone
+    /// is waiting to see their words appear. The same request Daisy's
+    /// server makes for this task on the subscription (src/complete.ts in
+    /// daisy-api), so both paths answer alike.
+    ///
+    /// One attempt, no retries: `DictationCleanup.run` gives the whole
+    /// thing 2.5 s, and a retry's backoff alone is longer than that.
+    private func cleanDictation(system: String, user: String, apiKey: String) async throws -> MeetingSummary {
+        var body: [String: Any] = [
+            "model": model,
+            // About what was read, and no thinking to leave room for.
+            "max_tokens": DictationCleanup.maxTokens(userChars: user.count),
+            "stream": true,
+            "system": system,
+            "messages": [
+                ["role": "user", "content": user]
+            ]
+        ]
+        if Self.acceptsThinkingOff(model) {
+            body["thinking"] = ["type": "disabled"]
+        }
+        if Self.acceptsEffort(model) {
+            body["output_config"] = ["effort": "low"]
+        }
+
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.timeoutInterval = CloudStreaming.idleTimeout
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+
+        let bytes = try await CloudStreaming.open(request, session: urlSession, provider: "Anthropic", log: log, maxAttempts: 1)
+        var stream = AnthropicStreamAccumulator()
+        do {
+            try await CloudStreaming.forEachData(in: bytes) { stream.consume($0) }
+        } catch {
+            // Bill what was generated before the break (the deadline
+            // cancelling the request is such a break), then report it.
+            TokenLedgerSink.recordAnthropic(model: model, json: stream.messageJSON)
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+            throw SummaryProviderError.streamInterrupted(provider: "Anthropic", message: error.localizedDescription)
+        }
+        TokenLedgerSink.recordAnthropic(model: model, json: stream.messageJSON)
+
+        if let message = stream.streamError {
+            log.error("Anthropic stream error event: \(message, privacy: .public)")
+            throw SummaryProviderError.streamInterrupted(provider: "Anthropic", message: message)
+        }
+        // Only a reply the model finished by itself is the text: one cut
+        // at the ceiling is half a sentence, a refusal is not the person's
+        // words at all, and both come back as HTTP 200 with text in them.
+        try DictationCleanup.requireFinished(stopReason: stream.stopReason, provider: "Anthropic")
+        return MeetingSummary(summary: "", sections: [], actionItems: [], clientFollowUp: stream.text)
+    }
+
+    /// The model a dictation is corrected on, whatever model writes the
+    /// summaries: the newest Haiku, the fastest there is, and the one
+    /// Daisy's server uses for the same task (`ANTHROPIC_FAST_MODEL` in
+    /// daisy-api). A pinned snapshot, like every dateless id since 4.6.
+    /// Checked 28.11.2026 against platform.claude.com/docs/en/about-claude/
+    /// models/overview (the id) and …/build-with-claude/effort (it takes
+    /// all five effort levels, `low` the fastest, and `thinking:
+    /// {"type": "disabled"}` at `high` effort or below).
+    static let dictationCleanupModelID = "claude-haiku-5-5"
+
+    /// `thinking: {"type": "disabled"}`: Haiku 5.5 takes it (see
+    /// `dictationCleanupModelID`). An allow-list of what was checked: the
+    /// newer Opus and Sonnet answer it with a 400, and a model that isn't
+    /// here simply keeps its own default.
+    static func acceptsThinkingOff(_ model: String) -> Bool {
+        model.lowercased().hasPrefix("claude-haiku-5")
     }
 
     /// The generations known to take a 64K ceiling and `effort`: the

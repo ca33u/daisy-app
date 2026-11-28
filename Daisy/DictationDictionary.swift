@@ -342,6 +342,28 @@ final class DictationDictionary {
         return (result, fixes)
     }
 
+    /// The rules once more, over a text a model wrote from `corrected`
+    /// (the text these same rules had already been through): the person's
+    /// spellings put back where the model undid them.
+    ///
+    /// A second pass over the first one's output is only safe for a rule
+    /// that leaves that output alone. «Jira → Jira Cloud» doesn't: it
+    /// finds its own needle in what it wrote, and would make it «Jira
+    /// Cloud Cloud». So a rule is left out when it changes its own
+    /// replacement, and when it changes `corrected` — whichever rules are
+    /// left do nothing to a text the model returned as it was, and act
+    /// only on what the model wrote differently.
+    nonisolated static func respell(
+        _ text: String, afterModelFrom corrected: String, rules: [DictationReplacement]
+    ) -> String {
+        let stable = rules.filter { rule in
+            let alone = [rule]
+            return applyCounting(to: rule.to, rules: alone).text == rule.to
+                && applyCounting(to: corrected, rules: alone).text == corrected
+        }
+        return applyCounting(to: text, rules: stable).text
+    }
+
     // MARK: - Whisper biasing
 
     /// Canonical spellings to bias the Whisper decoder toward (fed in as

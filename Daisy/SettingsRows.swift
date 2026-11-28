@@ -72,6 +72,7 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
     // Dictation
     case dictationEngine = "dictation.engine"
     case fixProductNames = "dictation.fixProductNames"
+    case fixDictationByContext = "dictation.fixByContext"
     case pasteViaClipboard = "dictation.pasteViaClipboard"
     case livePreview = "dictation.livePreview"
     case transcriptionLanguage = "dictation.transcriptionLanguage"
@@ -148,7 +149,7 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
              .speakersInTranscript, .nameKnownPeople, .splitMicVoices, .removeEcho, .knownSpeakers,
              .summaryTiming:
             .meetings
-        case .dictationEngine, .fixProductNames, .pasteViaClipboard, .livePreview,
+        case .dictationEngine, .fixProductNames, .fixDictationByContext, .pasteViaClipboard, .livePreview,
              .transcriptionLanguage, .layoutFixer, .layoutFixAsYouType, .layoutFixSwitchesSource,
              .layoutFixHotkey:
             .dictation
@@ -216,6 +217,7 @@ enum SettingsRow: String, CaseIterable, Hashable, Sendable {
         case .knownSpeakers: "Known speakers"
         case .dictationEngine: "Model: dictation"
         case .fixProductNames: "Fix product names"
+        case .fixDictationByContext: "Fix dictation by context"
         case .pasteViaClipboard: "Paste through the clipboard"
         case .livePreview: "Live preview while dictating"
         case .transcriptionLanguage: "Transcription language"

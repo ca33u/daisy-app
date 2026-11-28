@@ -147,7 +147,9 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
         task: SummaryTask
     ) async throws -> MeetingSummary {
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count > 40 else {
+        // A dictation to correct is often one short phrase; its own floor
+        // is `DictationCleanup.minChars`.
+        guard task.isDictationCleanup || trimmed.count > 40 else {
             throw SummaryProviderError.transcriptTooShort
         }
 
@@ -190,6 +192,18 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
         switch task {
         case .dictationPolish(let instruction):
             return try await polishDictation(text: trimmed, instruction: instruction)
+        case .dictationCleanup(let context):
+            // Freeform, like the polish: the guided schema is meeting-shaped.
+            // The rules and the fence are the cloud path's own, in their
+            // plain-text form.
+            let session = LanguageModelSession(instructions: SummaryPrompt.dictationCleanupRules(context))
+            do {
+                let response = try await session.respond(to: SummaryPrompt.dictationCleanupUserPrompt(text: trimmed))
+                return MeetingSummary(summary: "", sections: [], actionItems: [],
+                                      clientFollowUp: response.content.trimmingCharacters(in: .whitespacesAndNewlines))
+            } catch {
+                throw Self.dictationCleanupError(error, languageCode: localeHint)
+            }
         case .voiceCommand(let context):
             // Freeform, like the polish: the guided schema is meeting-shaped.
             let session = LanguageModelSession(instructions: SummaryPrompt.voiceCommandRules(context))
@@ -382,6 +396,32 @@ final class AppleIntelligenceSummarizer: SummaryProvider {
             }
             throw error
         }
+    }
+
+    /// A generation error as the dictation cleanup reads it. The model
+    /// declining, or its guardrails stopping it, is an answer that isn't
+    /// used — not the model being down — and a language it doesn't write
+    /// is neither: each gets its own name, so `DictationCleanup` doesn't
+    /// count them as failures and pause the cleanup for them. Both of
+    /// Apple's error types: macOS 26's, and the one macOS 27 throws.
+    private static func dictationCleanupError(_ error: any Error, languageCode: String?) -> any Error {
+        let refused = SummaryProviderError.refused(provider: "Apple Intelligence")
+        let language = SummaryProviderError.unsupportedLanguage(provider: "Apple Intelligence", languageCode: languageCode)
+        if let old = error as? LanguageModelSession.GenerationError {
+            switch old {
+            case .guardrailViolation, .refusal: return refused
+            case .unsupportedLanguageOrLocale: return language
+            default: return error
+            }
+        }
+        if #available(macOS 27.0, *), let new = error as? LanguageModelError {
+            switch new {
+            case .guardrailViolation, .refusal: return refused
+            case .unsupportedLanguageOrLocale: return language
+            default: return error
+            }
+        }
+        return error
     }
 
     // MARK: - TaskLocal mode passes (freeform)

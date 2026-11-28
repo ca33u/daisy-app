@@ -28235,6 +28235,246 @@
           }
         }
       }
+    },
+    "Fix dictation by context" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Исправлять диктовку по контексту"
+          }
+        }
+      }
+    },
+    "Runs on this Mac" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Работает на этом Mac"
+          }
+        }
+      }
+    },
+    "%@ answers too slowly for this, so dictation is inserted as recognized" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ отвечает слишком долго, поэтому диктовка вставляется как распознана"
+          }
+        }
+      }
+    },
+    "Send each dictation's text to %@?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправлять текст каждой диктовки в %@?"
+          }
+        }
+      }
+    },
+    "Send each dictation's text to Daisy's server, then Anthropic?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправлять текст каждой диктовки на сервер Daisy, затем в Anthropic?"
+          }
+        }
+      }
+    },
+    "Allow sending to Daisy's server" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешить отправку на сервер Daisy"
+          }
+        }
+      }
+    },
+    "Dictation fixes — %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Исправление диктовки — %@"
+          }
+        }
+      }
+    },
+    "Dictation wasn’t fixed by context: allow sending in Settings" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Диктовка вставлена без исправления по контексту: разреши отправку в настройках"
+          }
+        }
+      }
+    },
+    "Each dictation's text and up to %lld entries from your vocabulary are sent to %@ before it's inserted. Audio stays on this Mac" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Текст каждой диктовки и до %lld записей из твоего словаря отправляются в %@ перед вставкой. Аудио остаётся на этом Mac"
+          }
+        }
+      }
+    },
+    "Each dictation's text and up to %lld entries from your vocabulary are sent to Daisy's server, then Anthropic, before it's inserted. Audio stays on this Mac" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Текст каждой диктовки и до %lld записей из твоего словаря отправляются на сервер Daisy, затем в Anthropic, перед вставкой. Аудио остаётся на этом Mac"
+          }
+        }
+      }
+    },
+    "Up to %lld entries from your vocabulary go with each dictation. Audio stays on this Mac, and nothing is sent while this is off" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "С каждой диктовкой отправляется до %lld записей из твоего словаря. Аудио остаётся на этом Mac, а пока это выключено, ничего не отправляется"
+          }
+        }
+      }
+    },
+    "Not sent to %@ until you allow it" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не отправляется в %@, пока ты не разрешишь"
+          }
+        }
+      }
+    },
+    "Not sent to Daisy's server until you allow it" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не отправляется на сервер Daisy, пока ты не разрешишь"
+          }
+        }
+      }
+    },
+    "Needs an active Daisy Subscription" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нужна активная подписка Daisy"
+          }
+        }
+      }
+    },
+    "%@ isn’t set up, so dictation is inserted as recognized" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: провайдер не настроен, поэтому диктовка вставляется как распознана"
+          }
+        }
+      }
+    },
+    "Today's Daisy Subscription allowance is used up, so dictation is inserted as recognized" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дневной лимит подписки Daisy исчерпан, поэтому диктовка вставляется как распознана"
+          }
+        }
+      }
+    },
+    "This month's Daisy Subscription allowance is used up, so dictation is inserted as recognized" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Месячный лимит подписки Daisy исчерпан, поэтому диктовка вставляется как распознана"
+          }
+        }
+      }
+    },
+    "%@ didn’t answer several times in a row. Daisy tries again in a few minutes; until then dictation is inserted as recognized" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: несколько раз подряд не было ответа. Daisy попробует снова через несколько минут, а пока диктовка вставляется как распознана"
+          }
+        }
+      }
+    },
+    "Runs on this Mac. Apple Intelligence corrects only dictations in a language it writes and can tell from the text; the rest are inserted as recognized" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Работает на этом Mac. Apple Intelligence исправляет только диктовки на языке, на котором умеет писать и который удалось определить по тексту; остальные вставляются как распознаны"
+          }
+        }
+      }
+    },
+    "Dictations in that language are inserted as recognized" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Диктовки на этом языке вставляются как распознаны"
+          }
+        }
+      }
+    },
+    "cloud model" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "облачная модель"
+          }
+        }
+      }
+    },
+    "After a revoke, dictation is inserted as recognized until you allow sending again" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "После отзыва диктовка вставляется как распознана, пока ты снова не разрешишь отправку"
+          }
+        }
+      }
+    },
+    "Copy as recognized" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скопировать как распознано"
+          }
+        }
+      }
+    },
+    "%@ · fixed by context" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · исправлено по контексту"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

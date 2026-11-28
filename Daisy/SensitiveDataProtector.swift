@@ -131,8 +131,9 @@ nonisolated enum SensitiveDataProtector {
         // restored locally afterwards.
         let reversibleOnly: Bool
         switch task {
-        // A Daisy-key command's result goes into the person's field too.
-        case .dictationPolish, .transcriptPolish, .voiceCommand: reversibleOnly = true
+        // A Daisy-key command's result goes into the person's field too,
+        // and so does a dictation corrected by context.
+        case .dictationPolish, .dictationCleanup, .transcriptPolish, .voiceCommand: reversibleOnly = true
         default:                                  reversibleOnly = false
         }
         var context = TaskContext(session: PseudonymSession(
@@ -179,6 +180,12 @@ nonisolated enum SensitiveDataProtector {
                 return task
             case .dictationPolish(let instruction):
                 return .dictationPolish(instruction: protect(instruction))
+            case .dictationCleanup(var context):
+                // The vocabulary holds names too (a colleague, a client):
+                // protected first, so the same name in the dictation gets
+                // the same token and the model can still match them.
+                context.terms = context.terms.map { protect($0) }
+                return .dictationCleanup(context)
             case .voiceCommand(var context):
                 context.voice = context.voice.map { protect($0) }
                 context.structure = context.structure.map { protect($0) }

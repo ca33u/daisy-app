@@ -890,6 +890,23 @@ final class DaisyKeyIndicator {
         }
     }
 
+    /// «Working» for something that isn't a Daisy-key command — a
+    /// dictation being corrected by context: the flower turns only if it
+    /// was at rest, so a command's own stage is never replaced. Returns
+    /// the moment it began, to end exactly that with `endWorking`.
+    func showWorking() -> Date? {
+        guard stage == .none else { return nil }
+        show(.understanding)
+        return since
+    }
+
+    /// Ends what `showWorking` began, and only that: a command that has
+    /// meanwhile shown its own «understanding» (a later moment) keeps it.
+    func endWorking(_ began: Date?) {
+        guard let began, stage == .understanding, since == began else { return }
+        show(.none)
+    }
+
     /// A note was kept — unless the command it is kept from just failed:
     /// that stays red, as «Не вышло» (spec 21.10); the note is the safety
     /// net, the pill says so.

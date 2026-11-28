@@ -31,6 +31,9 @@ struct DaisyApp: App {
         // `--daisy-llm-smoke`: run the local model once and exit, before
         // anything below starts (DaisyLLMSmoke). Returns at once otherwise.
         DaisyLLMSmoke.runIfRequested()
+        // `--daisy-dictation-cleanup-bench`: time «Fix dictation by
+        // context» on a file of phrases and exit, likewise.
+        DictationCleanupBench.runIfRequested()
 
         // A write to a pipe whose reader has gone (a Codex app server or an
         // agent CLI that exited) raises SIGPIPE, and its default action ends

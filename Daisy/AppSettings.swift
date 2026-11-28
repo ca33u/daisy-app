@@ -359,6 +359,23 @@ final class AppSettings {
         didSet { defaults.set(dictationPastesViaClipboard, forKey: Self.k_dictationPastesViaClipboard) }
     }
 
+    /// «Fix dictation by context» (28.11.2026): a dictation's text goes
+    /// through the summary provider before it is inserted, to replace the
+    /// words the recognizer misheard and fix grammar and punctuation
+    /// (`DictationCleanup`). OFF by default: with a provider that isn't on
+    /// this Mac it sends the text of every dictation there, and an update
+    /// must not start that. Turning it on with such a provider asks first,
+    /// and the yes is that provider's own (`DictationCleanupConsent`);
+    /// turning it off takes every yes back, so turning it on again asks
+    /// again. The key lives on `DictationCleanup.enabledKey` because
+    /// `DictationPaste` reads it straight from UserDefaults.
+    var fixesDictationByContext: Bool {
+        didSet {
+            defaults.set(fixesDictationByContext, forKey: DictationCleanup.enabledKey)
+            if !fixesDictationByContext { DictationCleanupConsent(defaults: defaults).revokeAll() }
+        }
+    }
+
     /// EXPERIMENTAL: stream the DICTATION live preview through FluidAudio's
     /// Nemotron 3.5 multilingual streaming ASR (560 ms chunks, Neural
     /// Engine) instead of the Whisper rolling-window pass. Preview-only —
@@ -1515,6 +1532,7 @@ final class AppSettings {
         defaults.removeObject(forKey: "daisy.polishDictationInMyVoice")
         self.fixBrandNamesInDictation = defaults.object(forKey: BrandCorrections.defaultsKey) as? Bool ?? true
         self.dictationPastesViaClipboard = defaults.bool(forKey: Self.k_dictationPastesViaClipboard)
+        self.fixesDictationByContext = defaults.bool(forKey: DictationCleanup.enabledKey)
         // Decode HotkeyChoice from UserDefaults JSON. Fall back to
         // ⌃⌥⌘R default if missing/corrupt. (Old enum-based string
         // values from pre-v1.1 installs are now invalid and will

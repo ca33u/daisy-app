@@ -41,6 +41,14 @@ nonisolated struct MCPSummarizer: SummaryProvider {
 
     private let log = Logger(subsystem: "app.essazanov.Daisy", category: "MCPSummarizer")
 
+    /// Asked once more right before the tool is called, and the call is
+    /// given up if it throws. `connect` and `initialize` are network round
+    /// trips of their own, after the caller's last look at whether the
+    /// text may go: the dictation cleanup re-checks its switch and its yes
+    /// here, so one taken back during the handshake sends no text
+    /// (`Summarizer.cleanDictation`). nil for every other task.
+    var beforeToolCall: (@Sendable () async throws -> Void)?
+
     init(baseURL: URL, toolName: String, argumentsTemplate: String) {
         self.baseURL = baseURL
         self.toolName = toolName
@@ -137,9 +145,15 @@ nonisolated struct MCPSummarizer: SummaryProvider {
         do {
             try await client.connect()
             try await client.initialize()
+            // Nothing of the text has been sent so far.
+            try await beforeToolCall?()
             let text = try await client.callTool(name: toolName, arguments: arguments)
             client.disconnect()
             return try parse(text)
+        } catch let denied as DictationCleanup.NotPermitted {
+            // Not an MCP error: its own reason goes up as it is.
+            client.disconnect()
+            throw denied
         } catch {
             client.disconnect()
             throw mapError(error)

@@ -118,16 +118,26 @@ final class DictationPaste {
     /// with brand names still transliterated, and the dictation wouldn't
     /// have counted toward the voice-profile unlock.
     ///
-    /// What gets pasted and what the voice profile learns from are the
-    /// same text. That was once a fork — an LLM "polish" pass could
-    /// rewrite the paste in the user's previous profile, and feeding that
-    /// back into the corpus would have taught the profile the model's
-    /// taste rather than the person's. The polish pass is gone
-    /// (2026-09-12, see `finishDictation`), and with it the reason for
-    /// two arguments. If a style rewrite ever comes back on this path,
-    /// the corpus must again get the RAW transcript, not the rewrite.
+    /// What gets pasted and what the voice profile learns from were the
+    /// same text from 2026-09-12, when the «in my voice» rewrite left this
+    /// path, until 28.11.2026. Since then a dictation may be corrected by
+    /// its context before it lands (`DictationCleanup`), and the two part
+    /// again: the history gets what was pasted — it is what a re-paste
+    /// puts back — and the corpus gets the text as it was BEFORE the
+    /// model, so the profile learns the person's words and not a model's
+    /// taste. `prepare` is all of it for a text no model touches;
+    /// `DictationSteps` is the order of it for one that may be.
     @discardableResult
     func prepare(_ input: String) -> String {
+        let transcript = correct(input)
+        DictationHistory.shared.record(transcript)
+        appendToCorpus(transcript)
+        return transcript
+    }
+
+    /// The person's vocabulary and the built-in brand layer. `counting`
+    /// false: nothing goes to the «fixes made by Daisy» count (the bench).
+    func correct(_ input: String, counting: Bool = true) -> String {
         var transcript = input
         var dictionaryFixes: Int
         (transcript, dictionaryFixes) = DictationDictionary.shared.applyCounting(to: transcript)
@@ -140,40 +150,51 @@ final class DictationPaste {
         // trigger. Gated by Settings → Transcription → Fix product
         // names (default ON).
         if UserDefaults.standard.object(forKey: BrandCorrections.defaultsKey) as? Bool ?? true {
-            let triggers = Set(
-                DictationDictionary.shared.replacements.map { $0.from.lowercased() }
-            )
-            let brand = BrandCorrections.apply(to: transcript, userTriggers: triggers)
+            let brand = BrandCorrections.apply(to: transcript, userTriggers: brandTriggers())
             transcript = brand.text
             dictionaryFixes += brand.fixes
         }
         // Feed the Home "fixes made by Daisy" widget.
-        UsageStats.shared.recordFixes(dictionary: dictionaryFixes)
-
-        // Log the final, about-to-be-pasted text to the
-        // dictation history so the user can glance back / re-copy it later.
-        // Placed AFTER `apply(to:)` so the record matches exactly what
-        // lands in the user's field (dictionary already applied). Like
-        // `DictationDictionary`, `DictationHistory` is `@MainActor` and
-        // we're already on the MainActor here, so this is a plain
-        // synchronous same-actor call — no await, no hop. `record` ignores
-        // empty/whitespace-only input, so a stray blank transcript that
-        // slips past the early guard above still won't pollute the log.
-        DictationHistory.shared.record(transcript)
-
-        // Grow the persistent voice-profile corpus (Wispr-style: the
-        // profile unlocks once enough real dictation has accumulated).
-        // Placed before the AX/clipboard fork so every successful
-        // dictation counts regardless of how it lands in the field.
-        //
-        // The corpus gets the user's own vocabulary and the brand layer
-        // applied — those are spelling, and "Figma" is how this person
-        // writes it. Nothing else touches the text before it lands here,
-        // so the profile learns from the person's own words.
-        if !(practiceKeepsOutOfCorpus && NSApp.isActive) {
-            VoiceProfileStore.shared.appendDictation(transcript)
-        }
+        if counting { UsageStats.shared.recordFixes(dictionary: dictionaryFixes) }
         return transcript
+    }
+
+    private func brandTriggers() -> Set<String> {
+        Set(DictationDictionary.shared.replacements.map { $0.from.lowercased() })
+    }
+
+    /// The person's spellings put back into a text a model wrote from
+    /// `corrected`: a model may write a term its own way, and the
+    /// vocabulary has the last word. Not `correct` again — a rule that
+    /// finds its needle in its own replacement («Jira → Jira Cloud») would
+    /// apply to what it had already written (`DictationDictionary.respell`).
+    /// The brand layer goes by the same rule: only if it leaves the text
+    /// it has been through alone.
+    func respell(_ cleaned: String, afterModelFrom corrected: String) -> String {
+        var text = DictationDictionary.respell(cleaned, afterModelFrom: corrected,
+                                               rules: DictationDictionary.shared.replacements)
+        if UserDefaults.standard.object(forKey: BrandCorrections.defaultsKey) as? Bool ?? true {
+            let triggers = brandTriggers()
+            if BrandCorrections.apply(to: corrected, userTriggers: triggers).text == corrected {
+                text = BrandCorrections.apply(to: text, userTriggers: triggers).text
+            }
+        }
+        return text
+    }
+
+    /// Grow the persistent voice-profile corpus (Wispr-style: the
+    /// profile unlocks once enough real dictation has accumulated).
+    /// Every successful dictation counts regardless of how it lands in
+    /// the field.
+    ///
+    /// The corpus gets the user's own vocabulary and the brand layer
+    /// applied — those are spelling, and "Figma" is how this person
+    /// writes it. Nothing else touches the text before it lands here,
+    /// so the profile learns from the person's own words.
+    private func appendToCorpus(_ text: String) {
+        if !(practiceKeepsOutOfCorpus && NSApp.isActive) {
+            VoiceProfileStore.shared.appendDictation(text)
+        }
     }
 
     /// `micSawDigitalSilence` — the recorder of the session that held
@@ -204,11 +225,183 @@ final class DictationPaste {
             return
         }
 
-        // `prepare` applies the user's vocabulary + brand corrections and
-        // does the once-per-dictation bookkeeping (fixes counter,
-        // history, voice-profile corpus); `deliver` puts the result where
-        // the caret is. Both are MainActor-isolated same-actor calls.
-        await deliver(prepare(transcript), context: .freshDictation)
+        // One after another, in the order they were said (`DictationOrder`).
+        let steps = dictationSteps()
+        await order.run { await steps.run(transcript) }
+    }
+
+    private let order = DictationOrder()
+
+    /// The steps of a dictation with the app's own effects: the
+    /// vocabulary, the history file, the voice-profile corpus, the cleanup
+    /// and the field. All MainActor-isolated same-actor calls.
+    private func dictationSteps() -> DictationSteps {
+        DictationSteps(
+            correct: { [self] in correct($0) },
+            // The final, about-to-be-pasted text, so the user can glance
+            // back / re-copy it later; `record` ignores a blank one.
+            recordHistory: { DictationHistory.shared.record($0) },
+            replaceHistory: { DictationHistory.shared.replace($0, with: $1) },
+            appendCorpus: { [self] in appendToCorpus($0) },
+            clean: { [self] in await cleanedByContext($0) },
+            respell: { [self] in respell($0, afterModelFrom: $1) },
+            // Feed the Home "fixes made by Daisy" widget.
+            countCleanup: { UsageStats.shared.recordFixes(polished: 1) },
+            deliver: { [self] text, moved in await deliver(text, context: .freshDictation, targetMoved: moved) },
+            began: { [order] in order.began($0) },
+            landed: { [order] in order.landed($0) })
+    }
+
+    // MARK: - Cleanup by context
+
+    /// Whose dictation it is: the person's, or a line of the bench's file.
+    enum CleanupMode {
+        case dictation
+        /// `DictationCleanupBench`: the same way a dictation goes, without
+        /// what belongs to a person at a keyboard — the switch and the
+        /// stored yes (the bench's flag is its yes), the field, the
+        /// flower, the breaker. `route`: the provider and address the flag
+        /// was given for; `terms`: the vocabulary words to send.
+        case bench(route: DictationCleanup.Route, deadline: Duration?, terms: [String], provider: (any SummaryProvider)?)
+    }
+
+    /// The text corrected by its context, or the text itself: whenever the
+    /// cleanup is off, not allowed, not possible, late or not believed,
+    /// `text` comes back and the dictation goes on as it always did.
+    func cleanedByContext(_ text: String, mode: CleanupMode = .dictation) async -> DictationSteps.Cleaned {
+        let summarizer = Summarizer.shared
+        // The provider and where it sends text, read once: the yes is
+        // checked against this, and the request refuses to go anywhere
+        // else (`Summarizer.cleanDictation`), so a provider changed in
+        // Settings while this dictation is on its way gets none of it.
+        let route = summarizer.dictationCleanupRoute
+        func skipped(_ reason: DictationCleanup.SkipReason) -> DictationSteps.Cleaned {
+            DictationCleanup.logSkip(reason, kind: route?.kind, chars: text.count)
+            return DictationSteps.Cleaned(text: text, outcome: .skipped(reason))
+        }
+        var isDictation = false
+        if case .dictation = mode {
+            isDictation = true
+            // The switch, the provider, the subscription, the yes, and
+            // what is known of the provider: the same answer the caption
+            // in Settings is written from.
+            if let reason = DictationCleanup.standingSkip(DictationCleanup.standing()) {
+                if reason == .consent, let route,
+                   DictationCleanupConsent().shouldShowNotice(route.kind, destination: route.destination) {
+                    tellCleanupNeedsConsent()
+                }
+                if reason == .noSubscription { refreshSubscriptionStatus() }
+                return skipped(reason)
+            }
+            // A password is never sent anywhere. Secure input says so even
+            // where Accessibility can't see the field (or isn't granted).
+            if IsSecureEventInputEnabled() || AXFocus.kind() == .secure { return skipped(.secureField) }
+        }
+        guard let route else { return skipped(.provider) }
+        // The bench's yes was for one provider at one address.
+        if case .bench(let allowed, _, _, _) = mode, allowed != route { return skipped(.consent) }
+        if let length = DictationCleanup.lengthSkip(text, kind: route.kind) { return skipped(length) }
+        let language = await DictationCleanup.language(of: text)
+        // Apple's on-device model is asked only for a language it is known
+        // to write: one it doesn't, it refuses or answers in another, and
+        // a text whose language couldn't be told may be either.
+        if route.kind == .appleIntelligence {
+            guard let language, #available(macOS 26.0, *), AppleIntelligenceSummarizer.supportsLanguage(language) else {
+                return skipped(.language)
+            }
+        }
+
+        let terms: [String]
+        let deadline: Duration?
+        let permission: DictationCleanup.Permission
+        var provider: (any SummaryProvider)?
+        switch mode {
+        case .dictation:
+            terms = Array(DictationDictionary.shared.biasTerms().prefix(SummaryPrompt.dictationCleanupTermLimit))
+            deadline = DictationCleanup.deadline
+            permission = .stored(.standard)
+        case .bench(_, let limit, let benchTerms, let benchProvider):
+            terms = benchTerms
+            deadline = limit
+            permission = .granted
+            provider = benchProvider
+        }
+        let context = DictationCleanupContext(terms: terms, language: language)
+        // Where the text was going when the wait began, and the widget's
+        // flower turning while the answer is awaited — only if it was at
+        // rest, and only that turn is ended: a Daisy-key command's own
+        // stage is not this dictation's to show or to end. No words: the
+        // text arriving says it.
+        let target = isDictation ? insertionTarget() : nil
+        let working = isDictation ? DaisyKeyIndicator.shared.showWorking() : nil
+        defer { DaisyKeyIndicator.shared.endWorking(working) }
+        let cleaner = provider
+        let result = await DictationCleanup.run(text, kind: route.kind, deadline: deadline) { text in
+            try await Summarizer.shared.cleanDictation(text, context: context, route: route,
+                                                       permission: permission, using: cleaner)
+        }
+        guard isDictation else { return DictationSteps.Cleaned(text: result.text, outcome: result.outcome) }
+        DictationCleanupStatus.shared.record(result.outcome, for: route.kind)
+        if result.outcome == .skipped(.noSubscription) { refreshSubscriptionStatus() }
+        // The person may have clicked into another field, or another app,
+        // while the answer was on its way.
+        let moved = target.map { DictationCleanup.targetMoved(from: $0, to: insertionTarget()) } ?? false
+        if moved { log.notice("Focus moved while the cleanup was awaited — clipboard only, no typing") }
+        return DictationSteps.Cleaned(text: result.text, outcome: result.outcome, targetMoved: moved)
+    }
+
+    /// The subscription's status read again, for the next dictation: this
+    /// one went by what was last known and never waits for the account.
+    /// Asked of the server each time, not taken from a status under a
+    /// minute old: a subscription paid for a moment ago is seen by the
+    /// very next dictation.
+    private func refreshSubscriptionStatus() {
+        let account = DaisyAccountStore.shared
+        guard account.isSignedIn else { return }
+        Task { await account.refreshSubscription() }
+    }
+
+    /// The field that has the keyboard, as Accessibility names it.
+    private struct FocusedField: Equatable {
+        let element: AXUIElement
+        static func == (lhs: FocusedField, rhs: FocusedField) -> Bool { CFEqual(lhs.element, rhs.element) }
+    }
+
+    /// The app in front and, when Accessibility can say, the focused
+    /// field and the app that owns it (a floating panel's field belongs to
+    /// another app than the one in front). Each read is capped at 100 ms.
+    private func insertionTarget() -> DictationCleanup.InsertionTarget<FocusedField> {
+        var target = DictationCleanup.InsertionTarget<FocusedField>(
+            app: NSWorkspace.shared.frontmostApplication?.processIdentifier, field: nil)
+        guard AXIsProcessTrusted() else { return target }
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, 0.1)
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &ref) == .success,
+              let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() else { return target }
+        let element = ref as! AXUIElement
+        target.field = FocusedField(element: element)
+        var owner: pid_t = 0
+        AXUIElementGetPid(element, &owner)
+        if owner != 0 { target.app = owner }
+        return target
+    }
+
+    /// The provider changed (or where it sends text) since the yes was
+    /// given: the dictation went in as recognized, and this says once why
+    /// and where the yes is. On the widget's pill too — dictation happens
+    /// in other apps, the toast lives in Daisy's window.
+    private func tellCleanupNeedsConsent() {
+        let text = String(localized: "Dictation wasn’t fixed by context: allow sending in Settings")
+        let open: @MainActor () -> Void = { ContextTips.openSettings(.dictation, row: .fixDictationByContext) }
+        ToastCenter.shared.showAction(text, actionLabel: String(localized: "Open Settings"), style: .info,
+                                      duration: .seconds(8), perform: open)
+        WidgetBubbleCenter.shared.present(
+            WidgetBubbleContent(text: text, actionTitle: String(localized: "Open Settings"), autoDismiss: 8,
+                                tag: "dictation-cleanup-consent",
+                                action: { open(); WidgetBubbleCenter.shared.openMainWindow?() }),
+            notificationTitle: "Daisy"
+        )
     }
 
     /// Where a `deliver` call came from — only a FRESH dictation shows
@@ -255,6 +448,13 @@ final class DictationPaste {
             )
             return
         }
+        // Still on its way to the field (its text is in the history before
+        // the cleanup's answer is awaited): it lands by itself in a
+        // moment, and pasting it now as well would put it in twice.
+        guard !order.isInFlight(last.id) else {
+            log.notice("Re-paste asked for a dictation still on its way — left to land once")
+            return
+        }
         ImprovementStats.record(.dictationRepaste)
         await deliver(last.text, context: .repaste)
     }
@@ -264,14 +464,20 @@ final class DictationPaste {
     /// an auto-paste and a timed restore of the user's prior clipboard.
     /// Assumes the text is already corrected — callers that start from a
     /// raw dictation run `prepare` first.
-    private func deliver(_ transcript: String, context: DeliveryContext) async {
+    ///
+    /// `targetMoved`: the text waited (for the cleanup by context) and the
+    /// person meanwhile moved to another field or app. It is then not
+    /// written or typed anywhere — it would land in the wrong place — and
+    /// goes on the clipboard for them to paste, as after `deliverNow`'s
+    /// own wait.
+    private func deliver(_ transcript: String, context: DeliveryContext, targetMoved: Bool = false) async {
         // One at a time: a delivery waits for a late write before it falls
         // back, and a second one starting meanwhile would type into the
         // middle of it.
         let previous = deliveryInFlight
         let task = Task { @MainActor [weak self] in
             await previous?.value
-            await self?.deliverNow(transcript, context: context)
+            await self?.deliverNow(transcript, context: context, targetMoved: targetMoved)
         }
         deliveryInFlight = task
         await task.value
@@ -282,7 +488,7 @@ final class DictationPaste {
     /// the same words delivered again aren't taken for a double landing.
     private var deliveryGeneration = 0
 
-    private func deliverNow(_ transcript: String, context: DeliveryContext) async {
+    private func deliverNow(_ transcript: String, context: DeliveryContext, targetMoved: Bool = false) async {
         deliveryGeneration &+= 1
         // The text goes in by a road the layout watcher's tap doesn't see
         // as typing: the word it remembers is no longer before the caret
@@ -305,7 +511,9 @@ final class DictationPaste {
         //    and secure fields often refuse, in which case we fall through
         //    to the clipboard route below.
         let axStart = Date()
-        let attempt = await attemptAXInsert(transcript)
+        // Not attempted when the person moved on during an earlier wait:
+        // the write would go into whatever has the keyboard now.
+        let attempt = targetMoved ? AXAttempt(outcome: .refused) : await attemptAXInsert(transcript)
         let axOutcome = attempt.outcome
         // `.notice` so it stays in the system log (latency audit 31.10,
         // item 0): the time and the branch, nothing about the app or text.
@@ -315,7 +523,7 @@ final class DictationPaste {
         // on meanwhile (another app, another field), typing or ⌘V would
         // land there — as shortcuts, or in the next message — so the text
         // only goes on the clipboard for them to paste.
-        var focusMoved = false
+        var focusMoved = targetMoved
         if let pending = attempt.pending {
             AXUIElementSetMessagingTimeout(pending.element, 0.1)
             let last = Self.axStringValue(of: pending.element)
@@ -440,10 +648,18 @@ final class DictationPaste {
                 SystemPermissions.shared.openAccessibilitySettings()
             }
         case .failed:
-            ToastCenter.shared.show(
-                String(localized: "Press ⌘V within \(Int(Self.retentionSeconds)) s"),
-                style: .warning
-            )
+            let text = String(localized: "Press ⌘V within \(Int(Self.retentionSeconds)) s")
+            ToastCenter.shared.show(text, style: .warning)
+            // The person is in another field or app by now, where a toast
+            // in Daisy's window isn't seen: said on the widget's pill too
+            // (a notification without one), for as long as the text is on
+            // the clipboard.
+            if focusMoved {
+                WidgetBubbleCenter.shared.present(
+                    WidgetBubbleContent(text: text, autoDismiss: Self.retentionSeconds, tag: "dictation-press-paste"),
+                    notificationTitle: "Daisy"
+                )
+            }
         }
 
         pendingSnapshot = ClipboardSnapshot(

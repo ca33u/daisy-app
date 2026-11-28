@@ -1054,20 +1054,127 @@ final class Summarizer {
         )
     }
 
+    // MARK: - Dictation cleanup
+
+    /// The provider that corrects a dictation by context: the interactive
+    /// route's — someone is waiting — or nil when that one can't answer
+    /// while they wait (`dictationCleanupProvider(interactive:openAIViaAccount:)`).
+    var dictationCleanupProviderKind: SummaryProviderKind? {
+        Self.dictationCleanupProvider(interactive: interactiveProviderKind,
+                                      openAIViaAccount: openAIConnectionMethod == .account)
+    }
+
+    /// The rule, apart from the stored settings. A provider that starts a
+    /// command-line agent for every request (Codex on the ChatGPT account,
+    /// the agent CLI, Cursor) takes seconds before it reads a word, and
+    /// the local model loads gigabytes (`runsQuickPasses`): neither fits
+    /// between speaking and seeing the text. The local model is only what
+    /// the interactive route gives when nothing was chosen before it —
+    /// with a provider recorded, that one is asked, with its own yes.
+    /// No `default`: a new provider has to be decided here.
+    nonisolated static func dictationCleanupProvider(
+        interactive kind: SummaryProviderKind, openAIViaAccount: Bool
+    ) -> SummaryProviderKind? {
+        switch kind {
+        case .agentCLI, .cursor, .daisyLocal:
+            return nil
+        case .openai:
+            return openAIViaAccount ? nil : kind
+        case .appleIntelligence, .anthropic, .gemini, .kimi, .yandex, .gigachat, .deepseek, .grok,
+             .ollama, .lmStudio, .mcp, .daisySubscription:
+            return kind
+        }
+    }
+
+    /// Where `kind` sends text now (`destination(kind:…)`), for a yes that
+    /// is about the place and not the provider's name
+    /// (`DictationCleanupConsent`).
+    func destination(of kind: SummaryProviderKind) -> String {
+        voiceNoteDestination(kind: kind)
+    }
+
+    /// The cleanup's provider and where it sends text now: what a yes is
+    /// checked against, and what `cleanDictation` is then held to.
+    var dictationCleanupRoute: DictationCleanup.Route? {
+        dictationCleanupProviderKind.map { DictationCleanup.Route(kind: $0, destination: destination(of: $0)) }
+    }
+
+    /// A dictation's text corrected by its context (`SummaryTask.dictationCleanup`),
+    /// as the provider wrote it: `DictationCleanup.run` holds it to a
+    /// deadline and decides whether it is believed. Throws when the
+    /// provider fails — or when the request may no longer go
+    /// (`DictationCleanup.permit`): the caller checked the switch and the
+    /// yes for `route` a moment ago, and since then the person may have
+    /// chosen another provider, pointed this one elsewhere, taken the yes
+    /// back or switched the cleanup off. It is asked twice: before the
+    /// provider is built, in the same turn of the main actor, so the
+    /// provider is the one that was allowed; and again as the last thing
+    /// before that provider is called, after the privacy filter has run
+    /// off the main actor — a yes taken back meanwhile sends nothing. An
+    /// MCP server, which is connected to first, asks a third time before
+    /// its tool is called.
+    ///
+    /// With one's own Anthropic key the request goes to the newest Haiku
+    /// whatever model writes the summaries — the fastest one, and the one
+    /// Daisy's server uses for the same task. Through the same privacy
+    /// boundary as every other task: names and secrets are replaced before
+    /// a cloud provider sees them and put back in the answer.
+    ///
+    /// `permission`: the app's is the stored switch and yes; the bench
+    /// brings its own. `provider`: the bench's own too, built on a key or
+    /// a session from its environment; nil is the app's.
+    func cleanDictation(
+        _ text: String, context: DictationCleanupContext, route: DictationCleanup.Route,
+        permission: DictationCleanup.Permission = .stored(.standard),
+        using provider: (any SummaryProvider)? = nil
+    ) async throws -> String {
+        let kind = route.kind
+        let permit: @MainActor @Sendable () throws -> Void = { [self] in
+            try DictationCleanup.permit(route: route, current: dictationCleanupRoute,
+                                        isLocal: isEffectivelyLocal(kind), permission: permission)
+        }
+        try permit()
+        var cleaner: any SummaryProvider = provider ?? (kind == .anthropic
+            ? AnthropicAPISummarizer(model: AnthropicAPISummarizer.dictationCleanupModelID)
+            : makeProvider(kind))
+        // An MCP server is connected to and greeted before the tool is
+        // called — two round trips after `beforeSend` below: asked a third
+        // time there, right before the text goes.
+        if var mcp = cleaner as? MCPSummarizer {
+            mcp.beforeToolCall = { try await permit() }
+            cleaner = mcp
+        }
+        let summary = try await summarizeWithPrivacy(
+            provider: cleaner,
+            providerIsLocal: isEffectivelyLocal(kind),
+            transcript: text,
+            title: "Dictation",
+            localeHint: context.language,
+            task: .dictationCleanup(context),
+            beforeSend: permit
+        )
+        return summary.clientFollowUp
+    }
+
     /// One privacy boundary shared by normal summaries, Settings probes and
     /// every task routed through `SummaryProvider`. Detection runs off the
     /// MainActor; only aggregate counts are logged, never values or spans.
+    ///
+    /// `beforeSend`: called as the last thing before the provider is, once
+    /// the filter has run; throwing stops the request (the dictation
+    /// cleanup's re-check of its yes).
     private func summarizeWithPrivacy(
         provider: any SummaryProvider,
         providerIsLocal: Bool,
         transcript: String,
         title: String,
         localeHint: String?,
-        task: SummaryTask
+        task: SummaryTask,
+        beforeSend: (@MainActor () throws -> Void)? = nil
     ) async throws -> MeetingSummary {
         var summary = try await summarizeProtected(
             provider: provider, providerIsLocal: providerIsLocal,
-            transcript: transcript, title: title, localeHint: localeHint, task: task)
+            transcript: transcript, title: title, localeHint: localeHint, task: task, beforeSend: beforeSend)
         // A voice note's summary has no letter (Egor 07.11): nobody else
         // was there to receive one. The prompt says so; this holds it
         // for a model that writes one anyway, on every path.
@@ -1081,7 +1188,8 @@ final class Summarizer {
         transcript: String,
         title: String,
         localeHint: String?,
-        task: SummaryTask
+        task: SummaryTask,
+        beforeSend: (@MainActor () throws -> Void)? = nil
     ) async throws -> MeetingSummary {
         let enabled = AppSettings.protectSensitiveDataBeforeCloudAIEnabled
         let shouldProtect = SensitiveDataProtector.shouldProtect(
@@ -1089,6 +1197,7 @@ final class Summarizer {
             providerIsLocal: providerIsLocal
         )
         guard shouldProtect else {
+            try beforeSend?()
             return try await provider.summarize(
                 transcript: transcript,
                 title: title,
@@ -1107,6 +1216,7 @@ final class Summarizer {
         log.info(
             "Cloud privacy filter prepared \(protected.report.distinctReplacements, privacy: .public) pseudonyms and \(protected.report.redactedOccurrences, privacy: .public) irreversible redactions"
         )
+        try beforeSend?()
         let remoteSummary = try await provider.summarize(
             transcript: protected.transcript,
             title: protected.title,

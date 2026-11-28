@@ -1892,11 +1892,16 @@ extension RecordingSession {
     /// can be tested. Also what stops a model that reasons in plain prose,
     /// with no tag to strip (typewhisper-mac#1802: 85 characters in, 2,964
     /// of reasoning out; «Understood.» for 140).
+    /// `slack`: what a result may be longer by on top of `maxShare` — 40
+    /// for a rewrite, so a very short dictation doesn't trip the bound;
+    /// the cleanup of a dictation passes 0, because 40 characters over a
+    /// 20-character phrase is room for a whole answer in its place.
     nonisolated static func acceptsPolish(of input: String, result: String,
-                                          minShare: Double = 0.4, maxShare: Double = 2.5) -> Bool {
+                                          minShare: Double = 0.4, maxShare: Double = 2.5,
+                                          slack: Double = 40) -> Bool {
         let inCount = Double(input.count)
         let outCount = Double(result.count)
-        return outCount >= inCount * minShare && outCount <= inCount * maxShare + 40
+        return outCount >= inCount * minShare && outCount <= inCount * maxShare + slack
     }
 
     // MARK: - Side notes (voice notes layered over a meeting)

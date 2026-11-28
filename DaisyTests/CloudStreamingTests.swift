@@ -1026,6 +1026,84 @@ struct CloudStreamingTests {
         _ = try await yandex([(200, yandexSSE(summaryJSON, finish: "stop"))], model: "deepseek-v4.1-flash", transcript: long)
         #expect(try requestJSON()["max_tokens"] as? Int == 16_384)
     }
+
+    // MARK: - Dictation cleanup (28.11.2026)
+
+    @Test("Anthropic: a dictation's cleanup is plain text on the newest Haiku, thinking off, lowest effort")
+    func anthropicDictationCleanup() async throws {
+        let s = session([(200, anthropicSSE(text: "Call me back.", stop: "end_turn"))])
+        let provider = AnthropicAPISummarizer(model: AnthropicAPISummarizer.dictationCleanupModelID, urlSession: s, apiKeyOverride: "test")
+        // Ten characters: a summary's floor is not this task's.
+        let summary = try await provider.summarize(transcript: "call me bk", title: "Dictation", localeHint: nil,
+                                                   task: .dictationCleanup(.init(terms: ["Figma"])))
+        #expect(summary.clientFollowUp == "Call me back.")
+        let body = try requestJSON()
+        #expect(body["model"] as? String == "claude-haiku-5-5")
+        #expect(body["thinking"] as? [String: String] == ["type": "disabled"])
+        // The effort and nothing else: no format to hold the reply to.
+        #expect(body["output_config"] as? [String: String] == ["effort": "low"])
+        let user = "<<<DICTATION>>>\ncall me bk\n<<<END DICTATION>>>"
+        #expect(((body["messages"] as? [[String: Any]])?.first?["content"] as? String) == user)
+        #expect(body["max_tokens"] as? Int == 64 + user.count)
+        let system = try #require(body["system"] as? String)
+        #expect(system.contains("Figma") && !system.contains("clientFollowUp"))
+        #expect(StubProtocol.requests.count == 1)
+        // Billed under the model that answered, not the one that writes summaries.
+        #expect(StubProtocol.spends.last?.model == "claude-haiku-5-5")
+    }
+
+    @Test("Anthropic: a cleanup cut at the ceiling or refused is not applied, though it came as HTTP 200 with text")
+    func anthropicDictationCleanupNotFinished() async throws {
+        let input = "call me back at five tomorrow"
+        func cleaned(stop: String) async -> (text: String, outcome: DictationCleanup.Outcome) {
+            let s = session([(200, anthropicSSE(text: "Call me back at five tomorrow.", stop: stop))])
+            let provider = AnthropicAPISummarizer(model: AnthropicAPISummarizer.dictationCleanupModelID, urlSession: s, apiKeyOverride: "test")
+            return await DictationCleanup.run(input, kind: .anthropic) { text in
+                try await provider.summarize(transcript: text, title: "Dictation", localeHint: nil,
+                                             task: .dictationCleanup(.init())).clientFollowUp
+            }
+        }
+        let truncated = await cleaned(stop: "max_tokens")
+        #expect(truncated.outcome == .rejected(.truncated) && truncated.text == input)
+        let refused = await cleaned(stop: "refusal")
+        #expect(refused.outcome == .rejected(.refused) && refused.text == input)
+        let paused = await cleaned(stop: "pause_turn")
+        #expect(paused.outcome == .rejected(.stopped) && paused.text == input)
+        let finished = await cleaned(stop: "end_turn")
+        #expect(finished.outcome == .applied && finished.text == "Call me back at five tomorrow.")
+    }
+
+    @Test("Anthropic: the cleanup is asked once, and only a model that takes the two parameters gets them")
+    func anthropicDictationCleanupOneAttempt() async throws {
+        // Overloaded: a summary would wait and ask again; the cleanup has 2.5 s in all.
+        let busy = session([(529, "{}"), (200, anthropicSSE(text: "Call me back.", stop: "end_turn"))])
+        await #expect(throws: (any Error).self) {
+            _ = try await AnthropicAPISummarizer(model: AnthropicAPISummarizer.dictationCleanupModelID, urlSession: busy, apiKeyOverride: "test")
+                .summarize(transcript: "call me bk", title: "Dictation", localeHint: nil, task: .dictationCleanup(.init()))
+        }
+        #expect(StubProtocol.requests.count == 1)
+
+        // Haiku 4.5 rejects `effort` and has no thinking to turn off.
+        let old = session([(200, anthropicSSE(text: "Call me back.", stop: "end_turn"))])
+        _ = try await AnthropicAPISummarizer(model: "claude-haiku-4-5-20251001", urlSession: old, apiKeyOverride: "test")
+            .summarize(transcript: "call me bk", title: "Dictation", localeHint: nil, task: .dictationCleanup(.init()))
+        let body = try requestJSON()
+        #expect(body["thinking"] == nil)
+        #expect(body["output_config"] == nil)
+        #expect(AnthropicAPISummarizer.acceptsThinkingOff("claude-haiku-5-5"))
+        #expect(!AnthropicAPISummarizer.acceptsThinkingOff("claude-opus-5-5") && !AnthropicAPISummarizer.acceptsThinkingOff("claude-sonnet-5-5"))
+
+        // Every other task is as it was: no `thinking` field, and the floor.
+        let meeting = session([(200, anthropicSSE(text: summaryJSON, stop: "end_turn"))])
+        _ = try await AnthropicAPISummarizer(urlSession: meeting, apiKeyOverride: "test")
+            .summarize(transcript: twoHourTranscript, title: "Launch", localeHint: "en", task: .standard)
+        #expect(try requestJSON()["thinking"] == nil)
+        await #expect(throws: SummaryProviderError.self) {
+            _ = try await AnthropicAPISummarizer(urlSession: session([]), apiKeyOverride: "test")
+                .summarize(transcript: "call me bk", title: "Dictation", localeHint: nil, task: .dictationPolish(instruction: "x"))
+        }
+        #expect(StubProtocol.requests.isEmpty)
+    }
 }
 
 /// The parts of the YandexGPT provider that need no network.

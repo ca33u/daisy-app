@@ -13,6 +13,11 @@
 //  key and the bill are ours. The reply streams back as Anthropic's events
 //  and is read exactly as AnthropicAPISummarizer reads its own.
 //
+//  One task is asked differently (28.11): a dictation corrected by context
+//  (`dictationCleanup`) goes without a schema and comes back as plain text,
+//  on the server's fast model with thinking off — someone is waiting for
+//  their words to be inserted.
+//
 //  The text leaves the Mac as for every cloud provider: pseudonymized when
 //  the person turned that on (`Summarizer.summarizeProtected`). The server
 //  passes it to Anthropic and keeps no word of it.
@@ -129,6 +134,7 @@ nonisolated struct DaisySubscriptionSummarizer: SummaryProvider {
         case .preMeetingBrief: "preMeetingBrief"
         case .voiceProfile: "voiceProfile"
         case .dictationPolish: "dictationPolish"
+        case .dictationCleanup: "dictationCleanup"
         case .transcriptPolish: "transcriptPolish"
         case .speakerNames: "speakerNames"
         case .catchUp: "catchUp"
@@ -145,6 +151,8 @@ nonisolated struct DaisySubscriptionSummarizer: SummaryProvider {
     static func maxTokens(for task: SummaryTask, userChars: Int) -> Int {
         let ceiling = AnthropicAPISummarizer.maxOutputTokens(for: serverModel)
         switch task {
+        // No thinking there, and the server's own cap for the task is 2,048.
+        case .dictationCleanup: return DictationCleanup.maxTokens(userChars: userChars)
         case .dictationPolish, .voiceCommand: return min(ceiling, userChars + 4_000)
         case .transcriptPolish: return min(ceiling, userChars + 8_000)
         case .speakerNames: return 4_000
@@ -159,7 +167,10 @@ nonisolated struct DaisySubscriptionSummarizer: SummaryProvider {
         task: SummaryTask
     ) async throws -> MeetingSummary {
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count > 40 else { throw SummaryProviderError.transcriptTooShort }
+        // A dictation to correct is often one short phrase; its own floor
+        // is `DictationCleanup.minChars`, and the server has none for it.
+        let cleanup = task.isDictationCleanup
+        guard cleanup || trimmed.count > 40 else { throw SummaryProviderError.transcriptTooShort }
         let store = await store()
         let session: String? = if let sessionOverride { sessionOverride } else {
             await MainActor.run { store.sessionToken }
@@ -175,24 +186,44 @@ nonisolated struct DaisySubscriptionSummarizer: SummaryProvider {
         // The free path only when the status is known and not active: a
         // subscriber whose status couldn't be read goes to /v1/complete, and
         // its 402 sends a meeting to the free path if it really has to.
-        let subscribed: Bool? = if let subscribedOverride { subscribedOverride } else {
-            await store.currentSubscription()?.active
+        let subscribed: Bool?
+        if let subscribedOverride {
+            subscribed = subscribedOverride
+        } else if cleanup {
+            // The status as it was last read, never a request for it: the
+            // cleanup has 2.5 s in all, and a status read alone can take
+            // that. Only a subscription known to be active sends. A
+            // session given from outside (the bench) is not the store's,
+            // whose status says nothing about it: the server judges.
+            if sessionOverride != nil {
+                subscribed = true
+            } else {
+                subscribed = await MainActor.run { store.subscription?.active } ?? false
+            }
+        } else {
+            subscribed = await store.currentSubscription()?.active
+        }
+        if cleanup, subscribed != true {
+            // No free cleanup: the three free summaries are meetings'.
+            throw DaisySubscriptionError.subscriptionRequired
         }
         if subscribed == false {
             return try await freeSummary(task: task, transcript: trimmed, title: title, localeHint: localeHint,
                                          session: session, store: store)
         }
 
-        let system = SummaryPrompt.systemInstructions(localeHint: localeHint, task: task)
+        let system = SummaryPrompt.systemInstructions(localeHint: localeHint, task: task, plainText: cleanup)
         let user = SummaryPrompt.userPrompt(title: title, transcript: trimmed, task: task)
         let schemaPlaceholder = "daisy-reply-schema-\(UUID().uuidString)"
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "task": Self.taskName(task),
             "system": system,
             "user": user,
             "maxTokens": Self.maxTokens(for: task, userChars: user.count),
-            "schema": schemaPlaceholder,
         ]
+        // The cleanup's answer is the text itself: the server refuses a
+        // schema sent with it.
+        if !cleanup { body["schema"] = schemaPlaceholder }
         var request = URLRequest(url: Self.endpoint)
         request.httpMethod = "POST"
         request.setValue("Bearer \(session)", forHTTPHeaderField: "authorization")
@@ -206,10 +237,22 @@ nonisolated struct DaisySubscriptionSummarizer: SummaryProvider {
 
         let bytes: URLSession.AsyncBytes
         do {
-            bytes = try await openRetrying(request)
+            // The cleanup has 2.5 s in all (`DictationCleanup.deadline`):
+            // a retry's wait alone is longer.
+            bytes = try await openRetrying(request, attempts: cleanup ? 1 : Self.maxAttempts)
         } catch SummaryProviderError.httpError(_, let status, let body) {
             if let ours = DaisySubscriptionError.from(status: status, body: body) {
-                if ours == .signedOut { await MainActor.run { store.signOut() } }
+                // A session handed in from outside (a test, the bench) is
+                // not the store's: the server refusing IT says nothing
+                // about the account signed in on this Mac, which must not
+                // be signed out for it.
+                if ours == .signedOut, sessionOverride == nil { await MainActor.run { store.signOut() } }
+                if ours == .subscriptionRequired, cleanup {
+                    // The status read was wrong: read again for the next
+                    // dictation, without this one waiting for it.
+                    if sessionOverride == nil { Task { await store.refreshSubscription() } }
+                    throw ours
+                }
                 if ours == .subscriptionRequired {
                     // The subscription ended since the status was read: the
                     // free summaries, if any are left, for a meeting.
@@ -244,6 +287,12 @@ nonisolated struct DaisySubscriptionSummarizer: SummaryProvider {
             throw SummaryProviderError.streamInterrupted(provider: Self.providerName,
                                                          message: String(localized: "The answer was cut off"))
         }
+        if cleanup {
+            // Only a reply the model finished by itself is the text: one
+            // cut at the ceiling or a refusal comes back as HTTP 200 too.
+            try DictationCleanup.requireFinished(stopReason: stream.stopReason, provider: Self.providerName)
+            return MeetingSummary(summary: "", sections: [], actionItems: [], clientFollowUp: stream.text)
+        }
         switch stream.stopReason {
         case "max_tokens": throw SummaryProviderError.outputTruncated(provider: Self.providerName)
         case "refusal": throw SummaryProviderError.refused(provider: Self.providerName)
@@ -264,7 +313,7 @@ nonisolated struct DaisySubscriptionSummarizer: SummaryProvider {
     /// second and would be counted again.
     static let maxAttempts = 3
 
-    private func openRetrying(_ request: URLRequest) async throws -> URLSession.AsyncBytes {
+    private func openRetrying(_ request: URLRequest, attempts: Int = maxAttempts) async throws -> URLSession.AsyncBytes {
         var attempt = 0
         while true {
             attempt += 1
@@ -272,15 +321,15 @@ nonisolated struct DaisySubscriptionSummarizer: SummaryProvider {
                 return try await CloudStreaming.open(request, session: urlSession, provider: Self.providerName, log: log,
                                                      maxAttempts: 1)
             } catch SummaryProviderError.httpError(let provider, let status, let body) {
-                guard attempt < Self.maxAttempts, Self.isRetryable(status: status, body: body) else {
+                guard attempt < attempts, Self.isRetryable(status: status, body: body) else {
                     throw SummaryProviderError.httpError(provider: provider, status: status, body: body)
                 }
             } catch {
                 if Task.isCancelled || error is CancellationError { throw CancellationError() }
-                guard attempt < Self.maxAttempts, CloudHTTPRetry.isTransient(error),
+                guard attempt < attempts, CloudHTTPRetry.isTransient(error),
                       (error as? URLError)?.code != .timedOut else { throw error }
             }
-            log.warning("Daisy: retry \(attempt, privacy: .public)/\(Self.maxAttempts, privacy: .public)")
+            log.warning("Daisy: retry \(attempt, privacy: .public)/\(attempts, privacy: .public)")
             try await Task.sleep(for: .seconds(CloudHTTPRetry.backoff(attempt)))
         }
     }
@@ -334,7 +383,7 @@ nonisolated struct DaisySubscriptionSummarizer: SummaryProvider {
             let code = json?["error"] as? String
             if status == 400, code == "transcript_too_short" { throw SummaryProviderError.transcriptTooShort }
             if status == 401 {
-                await MainActor.run { store.signOut() }
+                if sessionOverride == nil { await MainActor.run { store.signOut() } }
                 throw DaisySubscriptionError.signedOut
             }
             if status == 402 { throw DaisySubscriptionError.trialUsed }

@@ -179,7 +179,7 @@ struct DictationHistoryView: View {
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Text(Self.relativeFormatter.localizedString(for: entry.date, relativeTo: Date()))
+                Text(Self.caption(for: entry))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -188,6 +188,23 @@ struct DictationHistoryView: View {
         }
         .buttonStyle(.plain)
         .help("Copy")
+        // The way back for a dictation the cleanup by context changed:
+        // the words as they were recognized are kept beside what was
+        // pasted, and this hands them over.
+        .contextMenu {
+            Button("Copy") { copy(entry) }
+            if let recognized = entry.recognized {
+                Button("Copy as recognized") { copy(recognized) }
+            }
+        }
+    }
+
+    /// When it was said — and, for an entry that keeps its recognized
+    /// text, that what is shown was fixed by context: the one sign that
+    /// there is another text to go back to.
+    private static func caption(for entry: DictationEntry) -> String {
+        let when = relativeFormatter.localizedString(for: entry.date, relativeTo: Date())
+        return entry.recognized == nil ? when : String(localized: "\(when) · fixed by context")
     }
 
     // MARK: - Copy
@@ -196,8 +213,12 @@ struct DictationHistoryView: View {
     /// toast. Writes plain text only — the same string `DictationPaste`
     /// originally placed there.
     private func copy(_ entry: DictationEntry) {
+        copy(entry.text)
+    }
+
+    private func copy(_ text: String) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(entry.text, forType: .string)
+        NSPasteboard.general.setString(text, forType: .string)
         ToastCenter.shared.show(String(localized: "Copied"), style: .success)
     }
 }

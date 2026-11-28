@@ -1896,6 +1896,11 @@ struct SettingsView: View {
                 .settingsRow(.fixProductNames)
                 .help("Restores product names spoken in another script to their Latin spelling — «фигма» becomes Figma, «гитхаб» becomes GitHub. Applies to dictation and to recorded meetings, on every engine; your own Vocabulary rules always win.")
 
+                // Off by default (28.11.2026): with a cloud provider it
+                // sends every dictation's text there. The caption says
+                // where the text goes; turning it on asks first.
+                DictationCleanupRow(settings: settings, summarizer: summarizer)
+
                 // Off by default (Egor 2026-09-18): dictation must never
                 // replace what the person has copied. Typed key events do
                 // that; the clipboard route is kept for apps whose
@@ -4798,14 +4803,33 @@ enum TestResult: Equatable {
 /// there is none. Since S2 each list sits with what asked for it: the
 /// commands' in Shortcuts → Daisy key, the templates' in AI.
 private struct CloudPermissionRows: View {
-    enum Kind { case daisyKey, templateReading }
+    enum Kind { case daisyKey, templateReading, dictationCleanup }
     let kind: Kind
+    /// Told of a revoke: the row that asked for the yes shows its own
+    /// state from the same defaults.
+    var onRevoke: () -> Void = {}
     /// UserDefaults isn't observed: a revoke bumps this to redraw.
     @State private var tick = 0
 
+    /// The dictation cleanup's yeses, every one stored: also one for a
+    /// provider that isn't chosen now, or for an address the provider
+    /// doesn't have now — it comes back into force when the setting does,
+    /// so it has to be seen, and revocable, before that.
+    private var dictationGrants: [SummaryProviderKind: DictationCleanupConsent.Grant] {
+        Dictionary(uniqueKeysWithValues: DictationCleanupConsent().grants().map { ($0.kind, $0) })
+    }
+
+    private var providers: [SummaryProviderKind] {
+        switch kind {
+        case .daisyKey: DaisyKeyController.cloudAllowedProviders
+        case .dictationCleanup: DictationCleanupConsent().grants().map(\.kind)
+        case .templateReading: []
+        }
+    }
+
     var body: some View {
         let _ = tick
-        let providers = kind == .daisyKey ? DaisyKeyController.cloudAllowedProviders : []
+        let providers = self.providers
         let reading = kind == .templateReading
             && UserDefaults.standard.bool(forKey: MeetingTemplatePass.cloudReadingKey)
         if !providers.isEmpty || reading {
@@ -4823,15 +4847,24 @@ private struct CloudPermissionRows: View {
     private func list(providers: [SummaryProviderKind], reading: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Allowed to send to the cloud")
-            ForEach(providers, id: \.self) { kind in
+            ForEach(providers, id: \.self) { provider in
                 HStack {
-                    Text("Daisy key commands — \(kind.shortName)")
+                    // A yes for dictation is for an address too, where
+                    // the provider has one of its own: named with it.
+                    Text(kind == .dictationCleanup
+                         ? String(localized: "Dictation fixes — \(dictationGrants[provider]?.displayName ?? provider.shortName)")
+                         : String(localized: "Daisy key commands — \(provider.shortName)"))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button("Revoke") {
-                        DaisyKeyController.revokeCloud(kind)
+                        if kind == .dictationCleanup {
+                            DictationCleanupConsent().revoke(provider)
+                        } else {
+                            DaisyKeyController.revokeCloud(provider)
+                        }
                         tick += 1
+                        onRevoke()
                     }
                     .controlSize(.small)
                 }
@@ -4849,10 +4882,161 @@ private struct CloudPermissionRows: View {
                     .controlSize(.small)
                 }
             }
-            Text("Revoked, Daisy asks again the next time.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+            // For dictation nothing is asked the next time: the text goes
+            // in as recognized, and the row above offers the yes again.
+            if kind == .dictationCleanup {
+                Text("After a revoke, dictation is inserted as recognized until you allow sending again")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            } else {
+                Text("Revoked, Daisy asks again the next time.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
         }
+    }
+}
+
+/// «Fix dictation by context» (28.11.2026, `DictationCleanup`): the
+/// switch, a line under it, and the yes. The line is the gate's own answer
+/// put into words (`DictationCleanupCaption`): where each dictation's text
+/// and vocabulary words go, or why dictations aren't being corrected —
+/// never a promise the gate doesn't keep. With a provider that isn't on
+/// this Mac, turning the switch on asks first and names it, with its
+/// address where it has one; a provider chosen later has no yes of its
+/// own, so the row says nothing is sent and offers «Allow sending to …».
+/// The yeses given are listed under it, each with a way to take it back.
+private struct DictationCleanupRow: View {
+    @Bindable var settings: AppSettings
+    @Bindable var summarizer: Summarizer
+    @State private var asking = false
+    /// UserDefaults isn't observed: a yes given or taken back bumps this.
+    @State private var tick = 0
+
+    var body: some View {
+        let _ = tick
+        // The switch is read from defaults by `standing`; read here too,
+        // so the row is drawn again when it changes.
+        let _ = settings.fixesDictationByContext
+        let standing = DictationCleanup.standing(summarizer: summarizer)
+        let caption = DictationCleanupCaption.caption(
+            for: standing, interactive: summarizer.interactiveProviderKind,
+            dictationLanguage: dictationLanguage, appleWrites: { Self.appleWrites($0) })
+        let needsYes = standing.route != nil && !standing.isLocal && !standing.allowed
+        let consent = DictationCleanupConsent()
+
+        Toggle(isOn: Binding(
+            get: { settings.fixesDictationByContext },
+            set: { on in
+                if on, needsYes {
+                    asking = true
+                } else {
+                    settings.fixesDictationByContext = on
+                    tick += 1
+                }
+            })) {
+            Text("Fix dictation by context")
+            Text(Self.text(for: caption))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .settingsRow(.fixDictationByContext)
+        .confirmationDialog(Self.question(standing.route), isPresented: $asking, titleVisibility: .visible) {
+            Button("Allow") {
+                if let route = standing.route { consent.allow(route.kind, destination: route.destination) }
+                settings.fixesDictationByContext = true
+                tick += 1
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Up to \(SummaryPrompt.dictationCleanupTermLimit) entries from your vocabulary go with each dictation. Audio stays on this Mac, and nothing is sent while this is off")
+        }
+        if settings.fixesDictationByContext {
+            if caption.offersToAllow, let route = standing.route {
+                // On, and the provider (or its address) has no yes.
+                Button(route.kind == .daisySubscription
+                       ? String(localized: "Allow sending to Daisy's server")
+                       : String(localized: "Allow sending to \(Self.name(route))")) {
+                    consent.allow(route.kind, destination: route.destination)
+                    tick += 1
+                }
+                .controlSize(.small)
+            }
+            CloudPermissionRows(kind: .dictationCleanup, onRevoke: { tick += 1 })
+        }
+    }
+
+    /// The language dictation is pinned to in Settings, as a code; nil
+    /// for Auto, where it is told from each dictation.
+    private var dictationLanguage: String? {
+        let pinned = settings.dictationLocale.isEmpty ? settings.defaultTranscriptionLocale : settings.dictationLocale
+        let trimmed = pinned.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, trimmed.lowercased() != "auto" else { return nil }
+        return Locale(identifier: trimmed).language.languageCode?.identifier.lowercased()
+    }
+
+    private static func appleWrites(_ language: String) -> Bool {
+        if #available(macOS 26.0, *) { return AppleIntelligenceSummarizer.supportsLanguage(language) }
+        return false
+    }
+
+    /// The provider as the yes names it: with its address, where it has one.
+    private static func name(_ route: DictationCleanup.Route) -> String {
+        DictationCleanupConsent.Grant(kind: route.kind, destination: route.destination).displayName
+    }
+
+    private static func text(for caption: DictationCleanupCaption) -> String {
+        let entries = SummaryPrompt.dictationCleanupTermLimit
+        switch caption {
+        case .tooSlow(let kind):
+            return String(localized: "\(kind.shortName) answers too slowly for this, so dictation is inserted as recognized")
+        case .needsSubscription:
+            return String(localized: "Needs an active Daisy Subscription")
+        case .notSentUntilAllowed(let route):
+            return route.kind == .daisySubscription
+                ? String(localized: "Not sent to Daisy's server until you allow it")
+                : String(localized: "Not sent to \(name(route)) until you allow it")
+        case .sent(let route):
+            return route.kind == .daisySubscription
+                ? String(localized: "Each dictation's text and up to \(entries) entries from your vocabulary are sent to Daisy's server, then Anthropic, before it's inserted. Audio stays on this Mac")
+                : String(localized: "Each dictation's text and up to \(entries) entries from your vocabulary are sent to \(name(route)) before it's inserted. Audio stays on this Mac")
+        case .notSetUp(let kind):
+            return String(localized: "\(kind.shortName) isn’t set up, so dictation is inserted as recognized")
+        case .limitReached(.daily):
+            return String(localized: "Today's Daisy Subscription allowance is used up, so dictation is inserted as recognized")
+        case .limitReached(.monthly):
+            return String(localized: "This month's Daisy Subscription allowance is used up, so dictation is inserted as recognized")
+        case .paused(let kind):
+            return String(localized: "\(kind.shortName) didn’t answer several times in a row. Daisy tries again in a few minutes; until then dictation is inserted as recognized")
+        case .onThisMac:
+            return String(localized: "Runs on this Mac")
+        case .appleIntelligence:
+            return String(localized: "Runs on this Mac. Apple Intelligence corrects only dictations in a language it writes and can tell from the text; the rest are inserted as recognized")
+        case .appleCannotWrite(let language):
+            return AppleIntelligenceLanguageGate.cannotWritePhrase(provider: "Apple Intelligence", languageCode: language)
+                + " " + String(localized: "Dictations in that language are inserted as recognized")
+        }
+    }
+
+    private static func question(_ route: DictationCleanup.Route?) -> String {
+        guard let route else { return "" }
+        if route.kind == .daisySubscription {
+            return String(localized: "Send each dictation's text to Daisy's server, then Anthropic?")
+        }
+        return String(localized: "Send each dictation's text to \(name(route))?")
+    }
+}
+
+extension DictationCleanupConsent.Grant {
+    /// «Ollama (10.0.0.5:11434)», «Ollama (127.0.0.1:11434, cloud model)»,
+    /// «Anthropic»: the provider, and the address the yes is for when the
+    /// provider has one of its own.
+    @MainActor
+    var displayName: String {
+        guard let endpoint else { return kind.shortName }
+        let cloud = endpoint.cloudModel ? ", " + String(localized: "cloud model") : ""
+        return "\(kind.shortName) (\(endpoint.host)\(cloud))"
     }
 }
 
