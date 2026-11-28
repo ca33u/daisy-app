@@ -309,6 +309,8 @@ struct WhatsNewSheet: View {
     /// The tallest the window may be (`heightLimit`); shorter than its
     /// content, the feature rows scroll, then the photograph gives way.
     private let maxHeight: CGFloat
+    /// The subscription's switch for a test; nil reads the app's own.
+    private let switchOverride: Bool?
 
     static let width: CGFloat = 640
     nonisolated static let heroHeight: CGFloat = 236
@@ -323,10 +325,11 @@ struct WhatsNewSheet: View {
 
     /// `store`: a test's account; nil is the app's own. `openSettings`
     /// closes the window and opens Settings → AI at the subscription's block.
-    init(store: DaisyAccountStore? = nil, maxHeight: CGFloat = .infinity,
+    init(store: DaisyAccountStore? = nil, maxHeight: CGFloat = .infinity, switchOn: Bool? = nil,
          openSettings: (@MainActor () -> Void)? = nil) {
         self.store = store ?? .shared
         self.maxHeight = maxHeight
+        self.switchOverride = switchOn
         self.openSettings = openSettings ?? { AppNavigation.shared.openInSettings(.ai, row: .daisySubscription) }
     }
 
@@ -375,7 +378,9 @@ struct WhatsNewSheet: View {
     /// The photograph at its shortest, a strip of feature rows, and the
     /// plans with the button and its small print whole: never less
     /// (WhatsNewTests holds the three to it).
-    nonisolated static let minimumHeight: CGFloat = 540
+    /// 584: in Russian, with «Not now» a button of its own, the three come
+    /// to 543; the rest is room for a checkout's error line under the button.
+    nonisolated static let minimumHeight: CGFloat = 584
 
     /// What the subscription gives: whole when there is room, a scrolling
     /// list when there isn't. The cut is marked the way the app marks a
@@ -454,6 +459,10 @@ struct WhatsNewSheet: View {
                 // Above the fade: under it, in the dark theme, dark ink would sink.
                 .padding(.top, 24)
             }
+            // A way out that reads as one (Egor 28.11, on the beta: «более
+            // очевидную кнопку отмены»), on the photograph where a window's
+            // close button is looked for. Esc does the same.
+            .overlay(alignment: .topTrailing) { closeButton }
         }
         // Its own height wherever the display allows; shorter only once the
         // feature rows are down to their strip.
@@ -467,13 +476,19 @@ struct WhatsNewSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             feature("sparkles",
                     String(localized: "Not only summaries"),
-                    String(localized: "Follow-ups, briefs, Daisy key commands, rewrites of the selection and the transcript's second pass run on it too"))
+                    String(localized: "The subscription also runs follow-ups, pre-meeting briefs, Daisy key commands, rewrites of selected text and the transcript's second pass"))
             if !isActive {
-                feature("gift", freeTitle, freeDetail)
+                feature("gift", freeTitle, Self.freeDetail(freeSummaries, switchOn: switchOn))
             }
+            // The subscription is the account's, not the Mac's (the server
+            // counts a web or an App Store subscription for whichever app
+            // asks). The iPhone app isn't out yet, and the line says so.
+            feature("iphone",
+                    String(localized: "One subscription for Mac and iPhone"),
+                    String(localized: "It belongs to your Daisy account: sign in on another Mac and it works there too. When Daisy for iPhone comes out, it will work there as well"))
             feature("lock",
                     String(localized: "Only text is sent, never audio"),
-                    String(localized: "It goes through Daisy's server to Anthropic, and only while the subscription's switch is on. Your own provider and its key stay in Settings; you can switch back any time"))
+                    String(localized: "The text goes through Daisy's server to Anthropic, and only while the subscription's switch is on. Your own provider and its key stay in Settings; you can switch back any time"))
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -506,20 +521,25 @@ struct WhatsNewSheet: View {
     }
 
     /// Signing in alone writes nothing: the subscription's switch does, so
-    /// the line names it by its own label. Once the account is known, the
-    /// count as the row in Settings gives it.
-    private var freeDetail: String {
+    /// the line names it by its own label until it is on. Once the account
+    /// is known, the count as the row in Settings gives it.
+    nonisolated static func freeDetail(_ state: FreeSummaries, switchOn: Bool) -> String {
         let rest = String(localized: "Everything else needs the subscription")
-        switch freeSummaries {
+        let toggle = String(localized: "Write summaries on the Daisy Subscription")
+        switch state {
         case .offered:
-            let toggle = String(localized: "Write summaries on the Daisy Subscription")
             return "\(String(localized: "For a meeting or a voice note: sign in and turn on “\(toggle)”")). \(rest)"
-        case .left(let count):
+        case .left(let count) where switchOn:
             return "\(String(localized: "Free summaries left: \(count) of 3")). \(rest)"
+        case .left(let count):
+            return "\(String(localized: "Free summaries left: \(count) of 3, for a meeting or a voice note once “\(toggle)” is on")). \(rest)"
         case .used:
             return String(localized: "Summaries and everything else now need the subscription")
         }
     }
+
+    /// The subscription's switch in Settings → AI, or a test's word for it.
+    private var switchOn: Bool { switchOverride ?? Summarizer.shared.usesDaisySubscription }
 
     private func feature(_ symbol: String, _ title: String, _ detail: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
@@ -577,6 +597,17 @@ struct WhatsNewSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 8)
             }
+            // A button, right under the one it declines: as plain words under
+            // the small print it read as one more line of it (Egor 28.11).
+            // Never disabled: the window can be left while the page is being made.
+            Button { dismiss() } label: {
+                Text("Not now")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 3)
+            }
+            .buttonStyle(.daisySecondary)
+            .keyboardShortcut(.cancelAction)
+            .padding(.top, 8)
             // Two sentences, a line each: run together they broke mid-path.
             VStack(spacing: 2) {
                 Text("The payment page opens in your browser")
@@ -587,18 +618,29 @@ struct WhatsNewSheet: View {
             .foregroundStyle(Color.daisyTextSecondary)
             .multilineTextAlignment(.center)
             .padding(.top, 10)
-            .padding(.bottom, 4)
-            // Never disabled: the window can be left while the page is being made.
-            Button("Not now") { dismiss() }
-                .buttonStyle(.daisyQuiet)
-                .keyboardShortcut(.cancelAction)
         }
     }
 
     /// Where it is cancelled is where Settings manage it: the block's own
     /// «Manage subscription», named by its words.
     private var renewal: String {
-        String(localized: "The subscription renews until you cancel it in \(SettingsRow.daisySubscription.path), “\(String(localized: "Manage subscription"))”")
+        String(localized: "The subscription renews automatically. Cancel any time: \(SettingsRow.daisySubscription.path) → “\(String(localized: "Manage subscription"))”")
+    }
+
+    private var closeButton: some View {
+        Button { dismiss() } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(Self.photoInk)
+                .frame(width: 28, height: 28)
+                // Light on the photograph in both themes, as the pill is.
+                .background(Circle().fill(Color.white.opacity(0.78)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(String(localized: "Close"))
+        .accessibilityLabel(Text("Close"))
+        .padding(14)
     }
 
     private func planCard(_ card: DaisyAccountStore.Plan) -> some View {

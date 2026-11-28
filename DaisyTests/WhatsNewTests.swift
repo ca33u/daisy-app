@@ -468,14 +468,17 @@ struct WhatsNewTests {
             "Summaries without an API key",
             "Daisy writes them for you, with no key of your own",
             "Not only summaries",
-            "Follow-ups, briefs, Daisy key commands, rewrites of the selection and the transcript's second pass run on it too",
+            "The subscription also runs follow-ups, pre-meeting briefs, Daisy key commands, rewrites of selected text and the transcript's second pass",
+            "One subscription for Mac and iPhone",
+            "It belongs to your Daisy account: sign in on another Mac and it works there too. When Daisy for iPhone comes out, it will work there as well",
             "Three summaries are free",
             "Everything else needs the subscription",
             "The free summaries are used",
             "Summaries and everything else now need the subscription",
             "Write summaries on the Daisy Subscription",
             "Only text is sent, never audio",
-            "It goes through Daisy's server to Anthropic, and only while the subscription's switch is on. Your own provider and its key stay in Settings; you can switch back any time",
+            "The text goes through Daisy's server to Anthropic, and only while the subscription's switch is on. Your own provider and its key stay in Settings; you can switch back any time",
+            "Close",
             "The payment page opens in your browser",
             "Manage subscription",
             "Not now",
@@ -489,8 +492,9 @@ struct WhatsNewTests {
         for key in plain + keyed {
             #expect(source.contains("\"\(key)\""), "the window no longer shows «\(key)»")
         }
-        let formats = ["The subscription renews until you cancel it in %@, “%@”", "Save %lld%%", "%@ a month",
+        let formats = ["The subscription renews automatically. Cancel any time: %@ → “%@”", "Save %lld%%", "%@ a month",
                        "Free summaries left: %lld of 3", "For a meeting or a voice note: sign in and turn on “%@”",
+                       "Free summaries left: %lld of 3, for a meeting or a voice note once “%@” is on",
                        "Renews %@", "Until %@, won't renew", "Bought on iPhone, managed in the App Store"]
         for key in plain + keyed + formats {
             let russian = try #require(catalog[key], "no Russian for «\(key)»")
@@ -499,7 +503,7 @@ struct WhatsNewTests {
         }
         // The words the app already uses, not a second spelling of them.
         let followUps = try #require(catalog["Follow-ups"]).lowercased()
-        let covered = try #require(catalog["Follow-ups, briefs, Daisy key commands, rewrites of the selection and the transcript's second pass run on it too"])
+        let covered = try #require(catalog["The subscription also runs follow-ups, pre-meeting briefs, Daisy key commands, rewrites of selected text and the transcript's second pass"])
         #expect(covered.contains(followUps), "\(covered)")
         // Lines other screens still say stay: the tour's counter, a quote.
         #expect(catalog["%lld of %lld"] == "%1$lld из %2$lld")
@@ -522,6 +526,17 @@ struct WhatsNewTests {
         #expect(F.state(signedIn: true, remaining: 0) == .used)
     }
 
+    @Test("until the subscription's switch is on, the free line says it takes the switch")
+    func theFreeLineNamesTheSwitchUntilItIsOn() {
+        let toggle = String(localized: "Write summaries on the Daisy Subscription")
+        let off = WhatsNewSheet.freeDetail(.left(2), switchOn: false)
+        let on = WhatsNewSheet.freeDetail(.left(2), switchOn: true)
+        #expect(off.contains(toggle) && off.contains("2"), "\(off)")
+        #expect(!on.contains(toggle) && on.contains("2"), "\(on)")
+        #expect(WhatsNewSheet.freeDetail(.offered, switchOn: true).contains(toggle), "signed out, signing in comes first")
+        #expect(!WhatsNewSheet.freeDetail(.used, switchOn: false).contains(toggle))
+    }
+
     // MARK: How tall it is
 
     @Test("the window is never taller than the display leaves under the title bar")
@@ -540,7 +555,7 @@ struct WhatsNewTests {
         let account = await WhatsNewAccount(defaults: scratch.make(), signedIn: false, consented: false)
         let subscriber = await WhatsNewAccount(defaults: scratch.make(), signedIn: true, consented: true, status: WhatsNewAccount.active)
         func height(_ limit: CGFloat) -> CGFloat {
-            NSHostingView(rootView: WhatsNewSheet(store: account.store, maxHeight: limit, openSettings: {})).fittingSize.height
+            NSHostingView(rootView: WhatsNewSheet(store: account.store, maxHeight: limit, switchOn: false, openSettings: {})).fittingSize.height
         }
         let whole = height(.infinity)
         #expect(whole > 600 && whole < 800, "\(whole)")
@@ -555,7 +570,7 @@ struct WhatsNewTests {
         // photograph at its shortest and a strip of feature rows, at the
         // shortest limit there is.
         for store in [account.store, subscriber.store] {
-            let fixed = NSHostingView(rootView: WhatsNewSheet(store: store, openSettings: {}).fixedPartForInspection)
+            let fixed = NSHostingView(rootView: WhatsNewSheet(store: store, switchOn: false, openSettings: {}).fixedPartForInspection)
                 .fittingSize.height
             #expect(fixed > 100, "\(fixed)")
             #expect(WhatsNewSheet.heroMinimum + WhatsNewSheet.featuresMinimum + fixed <= WhatsNewSheet.minimumHeight, "\(fixed)")

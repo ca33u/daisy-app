@@ -28153,12 +28153,12 @@
         }
       }
     },
-    "Follow-ups, briefs, Daisy key commands, rewrites of the selection and the transcript's second pass run on it too" : {
+    "The subscription also runs follow-ups, pre-meeting briefs, Daisy key commands, rewrites of selected text and the transcript's second pass" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "На ней работают и фоллоапы, брифы, команды клавиши Daisy, переписывание выделенного, второй проход по транскрипту"
+            "value" : "По подписке работают и фоллоапы, брифы перед встречами, команды клавиши Daisy, переписывание выделенного текста и второй проход по транскрипту"
           }
         }
       }
@@ -28188,7 +28188,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Для остального нужна подписка"
+            "value" : "Для всего остального нужна подписка"
           }
         }
       }
@@ -28203,22 +28203,22 @@
         }
       }
     },
-    "It goes through Daisy's server to Anthropic, and only while the subscription's switch is on. Your own provider and its key stay in Settings; you can switch back any time" : {
+    "The text goes through Daisy's server to Anthropic, and only while the subscription's switch is on. Your own provider and its key stay in Settings; you can switch back any time" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Он идёт через сервер Daisy в Anthropic, и только пока включён переключатель подписки. Свой провайдер и его ключ остаются в настройках: вернуться можно в любой момент"
+            "value" : "Текст идёт через сервер Daisy в Anthropic, и только пока включён переключатель подписки. Свой провайдер и его ключ остаются в настройках: вернуться можно в любой момент"
           }
         }
       }
     },
-    "The subscription renews until you cancel it in %@, “%@”" : {
+    "The subscription renews automatically. Cancel any time: %@ → “%@”" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Подписка продлевается, пока не отменишь: «%1$@», «%2$@»"
+            "value" : "Подписка продлевается сама. Отменить можно в любой момент: «%1$@» → «%2$@»"
           }
         }
       }
@@ -28391,6 +28391,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Саммари и всё остальное теперь по подписке"
+          }
+        }
+      }
+    },
+    "One subscription for Mac and iPhone" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Одна подписка на Mac и iPhone"
+          }
+        }
+      }
+    },
+    "It belongs to your Daisy account: sign in on another Mac and it works there too. When Daisy for iPhone comes out, it will work there as well" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подписка принадлежит аккаунту Daisy: войди на другом Mac, и она заработает и там. Когда выйдет Daisy для iPhone, она будет работать и в нём"
+          }
+        }
+      }
+    },
+    "Free summaries left: %lld of 3, for a meeting or a voice note once “%@” is on" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Осталось бесплатных саммари: %1$lld из 3 — для встречи или голосовой заметки, когда включён переключатель «%2$@»"
           }
         }
       }

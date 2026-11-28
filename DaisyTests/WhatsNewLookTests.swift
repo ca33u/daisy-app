@@ -36,7 +36,7 @@ struct WhatsNewLookTests {
     private func write(_ store: DaisyAccountStore, name: String, scheme: ColorScheme, maxHeight: CGFloat = .infinity) throws {
         guard let directory = outputDirectory else { return }
         let language = Locale.current.language.languageCode?.identifier ?? "en"
-        let hosting = NSHostingView(rootView: WhatsNewSheet(store: store, maxHeight: maxHeight, openSettings: {})
+        let hosting = NSHostingView(rootView: WhatsNewSheet(store: store, maxHeight: maxHeight, switchOn: false, openSettings: {})
             .environment(\.colorScheme, scheme))
         let size = hosting.fittingSize
         #expect(size.width == WhatsNewSheet.width)
@@ -82,7 +82,7 @@ struct WhatsNewLookTests {
         }
         // In this run's language too: the block that never scrolls fits at the shortest limit.
         for store in [short.store, subscriber.store] {
-            let fixed = NSHostingView(rootView: WhatsNewSheet(store: store, openSettings: {}).fixedPartForInspection)
+            let fixed = NSHostingView(rootView: WhatsNewSheet(store: store, switchOn: false, openSettings: {}).fixedPartForInspection)
                 .fittingSize.height
             #expect(WhatsNewSheet.heroMinimum + WhatsNewSheet.featuresMinimum + fixed <= WhatsNewSheet.minimumHeight, "\(fixed)")
         }
