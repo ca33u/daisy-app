@@ -4,13 +4,19 @@
 //  WhatsNew.swift
 //  Daisy
 //
-//  «What's New in Daisy» (Egor 22.10): a window that opens once after an
-//  update and walks through the Daisy key in three animated scenes — a
-//  note filed into its project, a hold that says what to do, a silent
-//  hold that rewrites the selection. Drawn here rather than played from
-//  a video, so it speaks both languages, shows the person's own key and
-//  follows the theme; the flower is the widget's own shape and timings.
-//  The motion was agreed on a browser prototype first.
+//  «What's New in Daisy»: a window that opens once after an update. This
+//  edition (Egor 28.11) says that the Daisy Subscription exists and can be
+//  used instead of one's own API key, as a paywall in the form of the
+//  iPhone's (DaisyLite, PaywallView.swift): the brand's field photograph
+//  with the headline on it, what the subscription gives, two plans side by
+//  side with the year chosen, one button. The first edition (22.10) walked
+//  through the Daisy key in three animated scenes; they are gone with it,
+//  and the keycaps they drew stay for the tour (OnboardingTourView).
+//
+//  Buying is never a yes to sending text: someone who hasn't signed in or
+//  hasn't answered «Send text through Daisy's server?» is taken to the
+//  subscription's block of Settings, with the plan they chose, and decides
+//  that there first (`WhatsNewSubscribe`).
 //
 
 import AppKit
@@ -23,13 +29,16 @@ enum WhatsNew {
     /// Bump with each new edition: the window opens once per edition for
     /// anyone who had Daisy before it. A fresh install sees the onboarding
     /// instead and is marked as having seen this one.
+    // "daisy-key-2026-10", the first edition: the Daisy key in three scenes.
     // "-b": 1.0.8.37–38 marked the first edition seen as it opened, then
     // crashed drawing it (22.10) — everyone who updated gets it once more.
     // "-c": notes became a hold and the tap the layout fix (Egor 23.10).
     // "-d": the last scene says where the new tour is — someone who
     // updates never sees it otherwise (Onboarding 2.0, Egor 24.10).
     // "-e": and that Settings are eight tabs with search (S4, Egor 24.10).
-    nonisolated static let edition = "daisy-key-2026-10-e"
+    // "subscription-2026-11": the Daisy Subscription instead of one's own
+    // key, as a paywall with the field photograph (Egor 28.11).
+    nonisolated static let edition = "subscription-2026-11"
     nonisolated static let seenKey = "daisy.whatsNew.seenEdition"
 
     static func shouldOpen(hasShownFirstRun: Bool, defaults: UserDefaults = .standard) -> Bool {
@@ -38,6 +47,61 @@ enum WhatsNew {
 
     static func markSeen(defaults: UserDefaults = .standard) {
         defaults.set(edition, forKey: seenKey)
+    }
+
+    /// What an update does with an edition not seen yet.
+    nonisolated enum Arrival: Equatable {
+        /// The window opens.
+        case open
+        /// It doesn't, and the edition counts as seen: the person has what
+        /// it offers. It stays in Help, Settings and About.
+        case seen
+        /// Not now, and not seen either: asked again at the next launch.
+        case later
+    }
+
+    /// This edition sells the subscription, so it doesn't open by itself
+    /// for someone who has one. `subscriptionActive` is the server's answer
+    /// for the signed-in account, nil when there was none: then nothing is
+    /// known, and a subscriber must not get the window because the network
+    /// was down for a moment — the next launch asks again. Signed out,
+    /// this Mac has no subscription to use, whatever the person owns.
+    nonisolated static func arrival(signedIn: Bool, subscriptionActive: Bool?) -> Arrival {
+        guard signedIn else { return .open }
+        switch subscriptionActive {
+        case true?: return .seen
+        case false?: return .open
+        case nil: return .later
+        }
+    }
+
+    /// The decision for an update, start to finish. Nil: nothing to decide
+    /// — a fresh install (the tour marks the edition), or an edition seen
+    /// already, by itself or by hand. A subscriber's edition is marked seen
+    /// here. `.later` is asked again with the same call when the status
+    /// arrives (`WhatsNewPresenter`), in the same launch or the next.
+    static func arrive(hasShownFirstRun: Bool, signedIn: Bool, subscriptionActive: Bool?,
+                       defaults: UserDefaults = .standard) -> Arrival? {
+        guard shouldOpen(hasShownFirstRun: hasShownFirstRun, defaults: defaults) else { return nil }
+        let arrival = arrival(signedIn: signedIn, subscriptionActive: subscriptionActive)
+        if arrival == .seen { markSeen(defaults: defaults) }
+        return arrival
+    }
+
+    /// This launch is through with the edition: it asked for the window,
+    /// marked it seen, or put it off until the status is known.
+    static var settledThisLaunch = false
+
+    /// The window is on its way or on screen, so what else would come up
+    /// by itself waits its turn: the Daisy key's one-time bubble
+    /// (`DaisyKeyController.introduceIfNeeded`).
+    nonisolated static func isAhead(due: Bool, settled: Bool, showing: Bool) -> Bool {
+        showing || (due && !settled)
+    }
+
+    static func isAhead(hasShownFirstRun: Bool) -> Bool {
+        isAhead(due: shouldOpen(hasShownFirstRun: hasShownFirstRun), settled: settledThisLaunch,
+                showing: AppNavigation.shared.showsWhatsNew)
     }
 }
 
@@ -51,6 +115,10 @@ struct WhatsNewPresenter: ViewModifier {
     /// over Settings (whose sheet closes for it), it comes up after.
     @State private var presented = false
     @State private var waiting: Task<Void, Never>?
+    /// The account's status wasn't known when the update was looked at
+    /// (`WhatsNew.Arrival.later`): decided again when it arrives.
+    @State private var awaitsStatus = false
+    private var account: DaisyAccountStore { .shared }
 
     func body(content: Content) -> some View {
         content
@@ -61,7 +129,10 @@ struct WhatsNewPresenter: ViewModifier {
                     if !shown { nav.showsWhatsNew = false }
                 }
             )) {
-                WhatsNewSheet(settings: settings)
+                WhatsNewSheet(maxHeight: WhatsNewSheet.heightLimit(under: AppNavigation.mainWindow))
+                    // Here, not in the sheet: drawn in a test, the sheet
+                    // must not write the person's own preferences.
+                    .onAppear { WhatsNew.markSeen() }
             }
             .onChange(of: nav.showsWhatsNew, initial: true) { _, wanted in
                 waiting?.cancel()
@@ -84,530 +155,645 @@ struct WhatsNewPresenter: ViewModifier {
                 // Let the window settle first; a Settings link that brought
                 // Daisy up goes first.
                 try? await Task.sleep(for: .seconds(1.2))
-                guard !Task.isCancelled, await SheetQueue.waitForNoPanel(),
-                      // Opened from Help meanwhile: seen already.
-                      WhatsNew.shouldOpen(hasShownFirstRun: settings.hasShownFirstRun) else { return }
-                nav.showsWhatsNew = true
+                guard !Task.isCancelled else { return }
+                await openAfterUpdate()
             }
             .onChange(of: tapPermissionShowing) { _, showing in
                 if !showing, !TestHost.isActive, WhatsNew.shouldOpen(hasShownFirstRun: settings.hasShownFirstRun) {
-                    Task { @MainActor in
-                        guard await SheetQueue.waitForNoPanel(),
-                              WhatsNew.shouldOpen(hasShownFirstRun: settings.hasShownFirstRun) else { return }
-                        nav.showsWhatsNew = true
-                    }
+                    Task { @MainActor in await openAfterUpdate() }
                 }
             }
+            // The status that wasn't known at launch has arrived (Settings
+            // were opened, a summary asked for it), or the account is gone.
+            .onChange(of: account.subscription?.active) { _, _ in statusArrived() }
+            .onChange(of: account.isSignedIn) { _, _ in statusArrived() }
     }
+
+    /// The window by itself, unless the account signed in on this Mac has
+    /// the subscription already (`WhatsNew.arrival`).
+    private func openAfterUpdate() async {
+        let active = account.isSignedIn ? await account.currentSubscription()?.active : nil
+        await settle(subscriptionActive: active)
+    }
+
+    private func statusArrived() {
+        guard awaitsStatus, !TestHost.isActive else { return }
+        // Undecided again until `settle` ends: the Daisy-key bubble waits
+        // on this, so the two don't come up together behind an open panel.
+        WhatsNew.settledThisLaunch = false
+        Task { @MainActor in await settle(subscriptionActive: account.subscription?.active) }
+    }
+
+    /// Decides with what is known now. Still once per edition and never for
+    /// a subscriber (`WhatsNew.arrive`), still behind the other sheets.
+    private func settle(subscriptionActive: Bool?) async {
+        // Signed in read here, after the answer: a session the server
+        // refused is signed out by now.
+        let signedIn = account.isSignedIn
+        let arrival = WhatsNew.arrive(hasShownFirstRun: settings.hasShownFirstRun, signedIn: signedIn,
+                                      subscriptionActive: signedIn ? subscriptionActive : nil)
+        awaitsStatus = arrival == .later
+        if arrival == .open, !Task.isCancelled, await SheetQueue.waitForNoPanel(),
+           // Opened from Help meanwhile: seen already.
+           WhatsNew.shouldOpen(hasShownFirstRun: settings.hasShownFirstRun) {
+            nav.showsWhatsNew = true
+        }
+        WhatsNew.settledThisLaunch = true
+    }
+}
+
+// MARK: - What «Subscribe» does
+
+/// One decision for the window's button, apart from the window.
+nonisolated enum WhatsNewSubscribe: Equatable {
+    /// The payment page for the chosen plan, as «Subscribe» in Settings
+    /// opens it; then Settings at the subscription's block, where the wait
+    /// for the payment shows.
+    case checkout
+    /// Settings at the subscription's block with the chosen plan picked
+    /// there: the person signs in and answers the question about sending
+    /// text first. Buying is not that answer.
+    case settings
+    /// Nothing to buy: the subscription is active, or a payment page is
+    /// open and waited for. Settings at the block, which says which.
+    case status
+
+    /// `active`: the account's status as the server last gave it; nil when
+    /// it isn't known (signed out, not read yet, the server not reached).
+    /// Unknown buys nothing, as in Settings, whose «Plan» row comes only
+    /// with a status that says «not subscribed»: the block shows the
+    /// status being read, or why it couldn't be.
+    static func action(signedIn: Bool, consented: Bool, active: Bool?, awaitingPayment: Bool) -> WhatsNewSubscribe {
+        if active == true || awaitingPayment { return .status }
+        return signedIn && consented && active == false ? .checkout : .settings
+    }
+
+    /// Does it. `openSettings` closes the window and opens Settings → AI at
+    /// the subscription's block. Returns the words of a checkout that
+    /// failed: the window then stays and shows them, as the row in Settings
+    /// shows its own, and nothing else happens.
+    ///
+    /// Settings open only once the page is: `DaisyAccountStore.onPaid`
+    /// turns the subscription's switch on for a payment seen while the
+    /// wait still shows, and the row that shows it, with its Cancel, is the
+    /// one in Settings.
+    @MainActor
+    static func run(plan: DaisyAccountStore.Plan, store: DaisyAccountStore,
+                    openSettings: @MainActor () -> Void) async -> String? {
+        let decided = action(signedIn: store.isSignedIn, consented: store.hasAcknowledgedCloudDisclosure,
+                             active: store.isSignedIn ? store.subscription?.active : nil,
+                             awaitingPayment: store.awaitingPayment)
+        switch decided {
+        case .checkout:
+            // The row in Settings shows the same plan if the wait is called off.
+            store.chosenPlan = plan
+            do {
+                try await store.checkout(plan)
+            } catch is CancellationError {
+                // The window was closed while the page was being made.
+                return nil
+            } catch {
+                return error.localizedDescription
+            }
+        case .settings:
+            store.chosenPlan = plan
+        case .status:
+            break
+        }
+        openSettings()
+        return nil
+    }
+}
+
+/// The button's state, apart from the view: one purchase at a time.
+@MainActor
+@Observable
+final class WhatsNewPurchase {
+    /// A click is on its way to its payment page (or to Settings).
+    private(set) var isWorking = false
+    /// The words of a checkout that failed.
+    private(set) var error: String?
+    @ObservationIgnored private var work: Task<Void, Never>?
+
+    /// One click's worth of `WhatsNewSubscribe.run`. A second click, or
+    /// Return held down, while the first is on its way does nothing:
+    /// `.disabled` is redrawn too late to stop it, `checkout` takes every
+    /// call, and two calls are two payment pages. Nil: nothing was started.
+    @discardableResult
+    func subscribe(plan: DaisyAccountStore.Plan, store: DaisyAccountStore,
+                   openSettings: @escaping @MainActor () -> Void) -> Task<Void, Never>? {
+        guard !isWorking else { return nil }
+        isWorking = true
+        error = nil
+        let task = Task {
+            error = await WhatsNewSubscribe.run(plan: plan, store: store, openSettings: openSettings)
+            isWorking = false
+        }
+        work = task
+        return task
+    }
+
+    /// The window is gone: a page still being made is not opened.
+    func cancel() { work?.cancel() }
 }
 
 // MARK: - The window
 
 struct WhatsNewSheet: View {
-    let settings: AppSettings
+    @Bindable private var store: DaisyAccountStore
+    private let openSettings: @MainActor () -> Void
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var scene = 0
-    @State private var startedAt = Date()
+    /// The year unless the person picks the month, as on the iPhone.
+    @State private var plan: DaisyAccountStore.Plan = .year
+    @State private var purchase = WhatsNewPurchase()
+    /// The tallest the window may be (`heightLimit`); shorter than its
+    /// content, the feature rows scroll, then the photograph gives way.
+    private let maxHeight: CGFloat
 
-    private static let sceneCount = 3
+    static let width: CGFloat = 640
+    nonisolated static let heroHeight: CGFloat = 236
+    /// The photograph at its shortest: the pill, the headline and the line
+    /// under it, with a breath of field below them.
+    nonisolated static let heroMinimum: CGFloat = 188
+    /// The least of the feature rows left on screen to scroll: a row and
+    /// the start of the next, so it reads as a list that goes on.
+    nonisolated static let featuresMinimum: CGFloat = 76
+    /// Ink for words ON the photograph, which is bright in both themes.
+    private static let photoInk = Color(hex: 0x1F1D19)
+
+    /// `store`: a test's account; nil is the app's own. `openSettings`
+    /// closes the window and opens Settings → AI at the subscription's block.
+    init(store: DaisyAccountStore? = nil, maxHeight: CGFloat = .infinity,
+         openSettings: (@MainActor () -> Void)? = nil) {
+        self.store = store ?? .shared
+        self.maxHeight = maxHeight
+        self.openSettings = openSettings ?? { AppNavigation.shared.openInSettings(.ai, row: .daisySubscription) }
+    }
+
+    private var isActive: Bool { store.subscription?.active == true }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            illustration
-                .padding([.horizontal, .top], 20)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(String(localized: "\(scene + 1) of \(Self.sceneCount)"))
-                    .font(.caption.weight(.semibold))
-                    // The petals' lavender, a step deeper on white to be read.
-                    .foregroundStyle(Color(light: Color(hex: 0x6B4FD8), dark: Color.daisyMarkDaisyPetalTo))
+        // On a display too short for the whole window, what gives way, in
+        // this order: the feature rows scroll, down to a strip; then the
+        // photograph gets shorter, down to its words. The plans (or the
+        // subscription's state) never leave the button they belong to: a
+        // person must see what «Subscribe» buys.
+        VStack(spacing: 0) {
+            hero
+                .layoutPriority(1)
+            featureRows
+            fixedPart
+                .layoutPriority(2)
+        }
+        .frame(width: Self.width)
+        .frame(maxHeight: maxHeight.isFinite ? maxHeight : nil)
+        // Its own height, the limit at most: the sheet is as tall as this says.
+        .fixedSize(horizontal: false, vertical: true)
+        .background(Color.daisyBgPrimary)
+        // The status as it is now, for a window opened by hand.
+        .task { if store.isSignedIn { _ = await store.currentSubscription() } }
+        .onDisappear { purchase.cancel() }
+    }
+
+    /// A sheet hangs under its window's title bar and may be taller than
+    /// the window (this one is, at the main window's default 640 pt): macOS
+    /// slides the window up for it. What it can't outgrow is the display.
+    /// So the limit is the display's usable height less the title bar and a
+    /// margin, not the window's height, which limits Settings and About
+    /// (`PanelSize`): on a 13-inch display at its default scaling nothing
+    /// scrolls, at «Larger Text» or with a tall Dock the feature rows do.
+    static func heightLimit(under window: NSWindow?) -> CGFloat {
+        guard let window, let screen = window.screen ?? NSScreen.main else { return .infinity }
+        return heightLimit(displayHeight: screen.visibleFrame.height,
+                           titleBar: window.frame.height - window.contentLayoutRect.height)
+    }
+
+    nonisolated static func heightLimit(displayHeight: CGFloat, titleBar: CGFloat) -> CGFloat {
+        max(minimumHeight, displayHeight - max(0, titleBar) - PanelSize.margin)
+    }
+
+    /// The photograph at its shortest, a strip of feature rows, and the
+    /// plans with the button and its small print whole: never less
+    /// (WhatsNewTests holds the three to it).
+    nonisolated static let minimumHeight: CGFloat = 540
+
+    /// What the subscription gives: whole when there is room, a scrolling
+    /// list when there isn't. The cut is marked the way the app marks a
+    /// list over a fixed footer, a divider, with the window's own fade
+    /// above it (as under the photograph), and the scroller shows.
+    private var featureRows: some View {
+        ViewThatFits(in: .vertical) {
+            features
+                .padding(.horizontal, 24)
+                .padding(.bottom, 16)
+            ScrollView {
+                features
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 22)
+            }
+            .scrollIndicators(.visible)
+            .scrollIndicatorsFlash(onAppear: true)
+            .overlay(alignment: .bottom) {
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [Color.daisyBgPrimary.opacity(0), Color.daisyBgPrimary],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: 18)
+                    Divider()
+                }
+                .allowsHitTesting(false)
+            }
+            // Clear of the year's badge, which stands above its card.
+            .padding(.bottom, 12)
+        }
+        .frame(minHeight: Self.featuresMinimum)
+    }
+
+    /// The choice, the button that acts on it and what the button's small
+    /// print says: one block, always whole.
+    private var fixedPart: some View {
+        VStack(spacing: 0) {
+            Group {
+                if isActive { activeCard } else { plans }
+            }
+            .padding(.bottom, 12)
+            if isActive { doneButton } else { offer }
+            footerLinks
+                .padding(.top, 8)
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 16)
+    }
+
+    // MARK: The photograph, and the words on it
+
+    private var hero: some View {
+        GeometryReader { space in
+            ZStack(alignment: .topLeading) {
+                WhatsNewFieldPhoto(height: space.size.height)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Daisy Subscription")
+                        .font(.caption.weight(.semibold))
+                        .textCase(.uppercase)
+                        .tracking(0.8)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(Color.white.opacity(0.7)))
+                    Text("Summaries without an API key")
+                        .font(.system(size: 30, weight: .bold))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+                    Text("Daisy writes them for you, with no key of your own")
+                        .font(.system(size: 14))
+                        .opacity(0.82)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .foregroundStyle(Self.photoInk)
+                // The left of the photograph is the open field; the daisy has the right.
+                .frame(width: 330, alignment: .leading)
+                .padding(.leading, 26)
+                // Above the fade: under it, in the dark theme, dark ink would sink.
+                .padding(.top, 24)
+            }
+        }
+        // Its own height wherever the display allows; shorter only once the
+        // feature rows are down to their strip.
+        .frame(width: Self.width)
+        .frame(minHeight: Self.heroMinimum, idealHeight: Self.heroHeight, maxHeight: Self.heroHeight)
+    }
+
+    // MARK: What it gives
+
+    private var features: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            feature("sparkles",
+                    String(localized: "Not only summaries"),
+                    String(localized: "Follow-ups, briefs, Daisy key commands, rewrites of the selection and the transcript's second pass run on it too"))
+            if !isActive {
+                feature("gift", freeTitle, freeDetail)
+            }
+            feature("lock",
+                    String(localized: "Only text is sent, never audio"),
+                    String(localized: "It goes through Daisy's server to Anthropic, and only while the subscription's switch is on. Your own provider and its key stay in Settings; you can switch back any time"))
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.daisyBgElevated))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.daisyDivider, lineWidth: 0.5))
+    }
+
+    /// Where the free three stand for the account on this Mac.
+    nonisolated enum FreeSummaries: Equatable {
+        /// Signed out, or the status not read: what they are and how to get them.
+        case offered
+        case left(Int)
+        case used
+
+        static func state(signedIn: Bool, remaining: Int?) -> FreeSummaries {
+            guard signedIn, let remaining else { return .offered }
+            return remaining > 0 ? .left(remaining) : .used
+        }
+    }
+
+    private var freeSummaries: FreeSummaries {
+        .state(signedIn: store.isSignedIn, remaining: store.subscription?.trialRemaining)
+    }
+
+    /// Never «three are free» over «they are used».
+    private var freeTitle: String {
+        freeSummaries == .used
+            ? String(localized: "The free summaries are used")
+            : String(localized: "Three summaries are free")
+    }
+
+    /// Signing in alone writes nothing: the subscription's switch does, so
+    /// the line names it by its own label. Once the account is known, the
+    /// count as the row in Settings gives it.
+    private var freeDetail: String {
+        let rest = String(localized: "Everything else needs the subscription")
+        switch freeSummaries {
+        case .offered:
+            let toggle = String(localized: "Write summaries on the Daisy Subscription")
+            return "\(String(localized: "For a meeting or a voice note: sign in and turn on “\(toggle)”")). \(rest)"
+        case .left(let count):
+            return "\(String(localized: "Free summaries left: \(count) of 3")). \(rest)"
+        case .used:
+            return String(localized: "Summaries and everything else now need the subscription")
+        }
+    }
+
+    private func feature(_ symbol: String, _ title: String, _ detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.daisyAccent)
+                .frame(width: 30, height: 30)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.daisyAccentSoft))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.title2.bold())
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(text)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.daisyTextPrimary)
+                Text(detail)
+                    .font(.callout)
                     .foregroundStyle(Color.daisyTextSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            // One height for all three steps, so Next stays under the pointer.
-            .frame(minHeight: 112, alignment: .topLeading)
-            .padding(.horizontal, 24)
-            .padding(.top, 18)
-            if let setup {
-                HStack(spacing: 10) {
-                    Image(systemName: "exclamationmark.circle")
-                        .foregroundStyle(Color.daisyWarning)
-                    Text(setup)
-                        .font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 8)
-                    Button("Open Settings") {
-                        AppNavigation.shared.openInSettings(.shortcuts, row: .daisyKey)
-                        dismiss()
-                    }
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, 8)
-            }
-            if scene == Self.sceneCount - 1 {
-                // The tour came with this update, and only a fresh install
-                // walks into it by itself.
-                HStack(spacing: 10) {
-                    Image(systemName: "figure.walk")
-                        .foregroundStyle(.secondary)
-                    Text(ContextTips.Copy.whatsNewTour)
-                        .font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 8)
-                    Button("Open") {
-                        dismiss()
-                        OnboardingTourController.shared.restart(settings: settings)
-                    }
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, 8)
-                // The settings restructure came with it: someone who knew
-                // the old six tabs learns where the search is.
-                HStack(spacing: 10) {
-                    Image(systemName: "gearshape")
-                        .foregroundStyle(.secondary)
-                    Text(String(localized: "whatsNew.settings", defaultValue: "Settings are eight tabs now, with search (⌘F)"))
-                        .font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 8)
-                    Button("Open") {
-                        AppNavigation.shared.openInSettings(.general)
-                        dismiss()
-                    }
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, 4)
-            }
-            HStack {
-                HStack(spacing: 6) {
-                    ForEach(0..<Self.sceneCount, id: \.self) { i in
-                        Circle()
-                            .fill(i == scene ? Color.primary : Color.daisyDivider)
-                            .frame(width: 7, height: 7)
-                    }
-                }
-                .accessibilityHidden(true)
-                Spacer()
-                // On the last step Done says the same.
-                if scene < Self.sceneCount - 1 {
-                    Button("Close") { dismiss() }
-                        .keyboardShortcut(.cancelAction)
-                }
-                if scene > 0 {
-                    Button("Back") { go(scene - 1) }
-                }
-                Button(scene == Self.sceneCount - 1 ? String(localized: "Done") : String(localized: "Next")) {
-                    if scene == Self.sceneCount - 1 { dismiss() } else { go(scene + 1) }
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-            .padding(24)
         }
-        .frame(width: 640)
-        .background(Color.daisyBgPrimary)
-        .onAppear {
-            WhatsNew.markSeen()
-            // This window introduces the Daisy key; the one-time bubble
-            // saying the same is no longer needed.
-            UserDefaults.standard.set(true, forKey: DaisyKeyController.introducedKey)
-            startedAt = Date()
-        }
+        .accessibilityElement(children: .combine)
     }
 
-    private func go(_ next: Int) {
-        scene = next
-        startedAt = Date()
-    }
+    // MARK: The plans and the button
 
-    private var key: HotkeyChoice {
-        settings.voiceNoteHotkey.keyCode == nil ? .ctrlOpt : settings.voiceNoteHotkey
-    }
-
-    /// What stands between the person and the key shown: none assigned
-    /// (an update keeps an unassigned key unassigned — the scenes then
-    /// suggest ⌃⌥), or the hold without the permission it needs.
-    private var setup: String? {
-        if settings.voiceNoteHotkey.keyCode == nil {
-            return String(localized: "You don’t have a Daisy key yet — pick one in \(SettingsRow.daisyKey.path). ⌃⌥ is the simplest.")
+    private var plans: some View {
+        HStack(alignment: .top, spacing: 12) {
+            planCard(.year)
+            planCard(.month)
         }
-        if !DaisyKeyController.canHold {
-            // Without it the key isn't registered at all — as Settings says.
-            return String(localized: "The Daisy key needs Accessibility — until it’s granted, it does nothing")
-        }
-        return nil
-    }
-
-    private var title: String {
-        switch scene {
-        case 0: String(localized: "Hold and say “note” — it goes straight into its project")
-        case 1: String(localized: "Hold and say what to do")
-        default: String(localized: "Hold without a word to rewrite in your voice")
-        }
-    }
-
-    private var text: String {
-        let k = key.displayLabel
-        switch scene {
-        case 0: return String(localized: "Hold \(k) and say “note to project Landing: …” — let go, and the note is there. End with “and summarize” for a summary too. Without a project it lands in Notes.")
-        case 1: return String(localized: "Hold \(k) and say “write a reply…”, “translate”, “make a prompt for…”. Let go, and Daisy does it right where you are. A tap fixes the keyboard layout.")
-        default: return String(localized: "Select some text, hold \(k) and say nothing. Daisy rewrites the selection the way you write.")
-        }
-    }
-
-    private var illustration: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: reduceMotion)) { context in
-            let script = WhatsNewScript.all[scene]
-            // Under Reduce Motion the scene holds on its outcome.
-            let t = reduceMotion
-                ? script.still
-                : context.date.timeIntervalSince(startedAt).truncatingRemainder(dividingBy: script.duration)
-            WhatsNewStage(scene: scene, t: t, caps: WhatsNewKeycaps.caps(for: key))
-        }
-        .frame(width: 600, height: 330)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        // The heading and text below say it; an animation read aloud says nothing more.
-        .accessibilityHidden(true)
-    }
-}
-
-// MARK: - The scripts
-
-/// One scene's timeline, in seconds: when the key is down, when words
-/// are said, and how long before it starts over. The same numbers as the
-/// prototype Egor approved.
-struct WhatsNewScript {
-    let duration: TimeInterval
-    /// The still shown under Reduce Motion.
-    let still: TimeInterval
-    let keyDown: [ClosedRange<TimeInterval>]
-    let speech: ClosedRange<TimeInterval>?
-
-    static let all = [
-        WhatsNewScript(duration: 10, still: 9, keyDown: [0.6...7.5], speech: 1.2...6.8),
-        WhatsNewScript(duration: 12, still: 10, keyDown: [0.6...4.6], speech: 1.15...4.3),
-        WhatsNewScript(duration: 10, still: 8.5, keyDown: [1.8...3.4], speech: nil),
-    ]
-
-    func isDown(_ t: TimeInterval) -> Bool { keyDown.contains { $0.contains(t) } }
-    func speaking(_ t: TimeInterval) -> Bool { speech?.contains(t) ?? false }
-}
-
-private func progress(_ t: TimeInterval, _ from: TimeInterval, _ to: TimeInterval) -> Double {
-    min(1, max(0, (t - from) / (to - from)))
-}
-
-private func firstWords(_ text: String, _ p: Double) -> String {
-    let words = text.split(separator: " ")
-    return words.prefix(Int((Double(words.count) * p).rounded())).joined(separator: " ")
-}
-
-private func firstChars(_ text: String, _ p: Double) -> String {
-    String(text.prefix(Int((Double(text.count) * p).rounded())))
-}
-
-/// The widget's «done» flash: 0.08 s up, then back.
-private func flash(_ t: TimeInterval, at: TimeInterval) -> Double {
-    let d = t - at
-    guard d >= 0, d <= 0.7 else { return 0 }
-    return d < 0.08 ? d / 0.08 : exp(-(d - 0.08) / 0.22)
-}
-
-/// Understanding turns the flower once per 4.8 s, as the widget does.
-private func spin(_ t: TimeInterval, from: TimeInterval) -> Double { max(0, t - from) * 360 / 4.8 }
-
-// MARK: - A scene at one moment
-
-struct WhatsNewStage: View {
-    let scene: Int
-    let t: TimeInterval
-    let caps: [WhatsNewKeycaps.Cap]
-
-    var body: some View {
-        let script = WhatsNewScript.all[scene]
-        ZStack {
-            LinearGradient(colors: [Color.daisyBgSidebar, Color.daisyDivider], startPoint: .topLeading, endPoint: .bottomTrailing)
-            content
-                .frame(width: 410, height: 236)
-                .position(x: 36 + 205, y: 26 + 118)
-            if let words = said {
-                speechBubble(words)
-                    .position(x: 300, y: 330 - 112)
-            }
-            // The pill beside the flower, laid out rather than measured:
-            // measuring the timer with NSString crashed 1.0.8.37–38 (a nil
-            // value in CoreText's attribute copy, 22.10).
-            HStack(spacing: 8) {
-                if let pill {
-                    WhatsNewPill(text: pill.text, detail: pill.detail)
-                        .offset(y: 1)
-                }
-                WhatsNewFlower(look: look, size: 58)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-            .padding(.trailing, 30)
-            .padding(.bottom, 26)
-            WhatsNewKeycaps(caps: caps, down: script.isDown(t))
-                .position(x: 300, y: 330 - 44)
-        }
-        .frame(width: 600, height: 330)
-    }
-
-    // What the person is heard saying, word by word, then fading.
-    private var said: String? {
-        let script = WhatsNewScript.all[scene]
-        guard let speech = script.speech, t >= speech.lowerBound - 0.15, t <= speech.upperBound + 0.9 else { return nil }
-        let words = firstWords(spoken, progress(t, speech.lowerBound, speech.upperBound))
-        return words.isEmpty ? "…" : words
-    }
-
-    private var spoken: String {
-        switch scene {
-        case 0: String(localized: "Note to project Landing: show Daisy writing an email on the first screen. Check with Masha by Friday.")
-        default: String(localized: "Write a reply: let’s do Thursday at three, I’ll send the link.")
-        }
-    }
-
-    private func speechBubble(_ words: String) -> some View {
-        let script = WhatsNewScript.all[scene]
-        let end = script.speech?.upperBound ?? 0
-        return HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "mic")
-                .foregroundStyle(Color.daisyMarkDaisyPetalTo)
-            Text(String(localized: "“\(words)”"))
-                .italic()
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .font(.system(size: 12.5))
-        .foregroundStyle(Color(white: 0.96))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(maxWidth: 330, alignment: .leading)
-        .background(Color(red: 28 / 255, green: 26 / 255, blue: 23 / 255).opacity(0.88), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // One height for both: the year has a line more.
         .fixedSize(horizontal: false, vertical: true)
-        .opacity(t > end + 0.5 ? 1 - progress(t, end + 0.5, end + 0.9) : 1)
+        // The year's badge sits on its card's top edge.
+        .padding(.top, 6)
     }
 
-    // MARK: The flower's look for this moment
-
-    private var look: WhatsNewFlower.Look {
-        let script = WhatsNewScript.all[scene]
-        switch scene {
-        case 0:
-            if t >= 0.8 && t < 7.6 { return .init(petals: .voice(loud: script.speaking(t) ? 1 : 0, t: t), center: .daisyMarkVoiceNote, daisy: false) }
-            if t >= 7.6 && t < 8.4 { return .init(petals: .full, center: .daisyMarkVoiceNote, daisy: false, rotation: spin(t, from: 7.6)) }
-            if t >= 8.4 { return .init(petals: .full, center: .daisyMarkVoiceNote, daisy: true, flash: flash(t, at: 8.4)) }
-            return .idle
-        case 1:
-            if t >= 0.6 && t < 4.6 { return .init(petals: .voice(loud: script.speaking(t) ? 0.95 : 0.05, t: t)) }
-            if t >= 4.6 && t < 5.95 { return .init(petals: .full, rotation: spin(t, from: 4.75)) }
-            if t >= 5.95 && t < 8.8 { return .init(petals: .writing(since: t - 5.95), rotation: spin(5.95, from: 4.75)) }
-            if t >= 8.8 { return .init(petals: .full, flash: flash(t, at: 8.8)) }
-            return .idle
-        default:
-            if t >= 1.8 && t < 3.4 { return .init(petals: .voice(loud: 0, t: t)) }
-            if t >= 3.4 && t < 4.55 { return .init(petals: .full, rotation: spin(t, from: 3.55)) }
-            if t >= 4.55 && t < 7.1 { return .init(petals: .writing(since: t - 4.55), rotation: spin(4.55, from: 3.55)) }
-            if t >= 7.1 { return .init(petals: .full, flash: flash(t, at: 7.1)) }
-            return .idle
-        }
-    }
-
-    /// The widget's pill: what it says, and an optional timer.
-    private var pill: (text: String, detail: String?)? {
-        let text: String?
-        var detail: String?
-        switch scene {
-        case 0:
-            if t >= 0.8 && t < 7.6 {
-                text = String(localized: "Note")
-                detail = String(format: "0:%02d", Int(max(0, t - 0.8)))
-            } else if t >= 7.6 && t < 8.4 { text = String(localized: "Saving…") }
-            else if t >= 8.4 { text = String(localized: "In “Landing”") }
-            else { text = nil }
-        case 1:
-            if t >= 0.95 && t < 4.6 { text = String(localized: "Listening") }
-            else if t >= 4.6 && t < 5.95 { text = String(localized: "Understanding…") }
-            else if t >= 5.95 && t < 8.8 { text = String(localized: "Writing the reply…") }
-            else if t >= 8.8 && t < 11.2 { text = String(localized: "Done") }
-            else { text = nil }
-        default:
-            if t >= 2.15 && t < 3.4 { text = String(localized: "Listening · silent") }
-            else if t >= 3.4 && t < 4.55 { text = String(localized: "Understanding…") }
-            else if t >= 4.55 && t < 7.1 { text = String(localized: "Rewriting…") }
-            else if t >= 7.1 && t < 9.4 { text = String(localized: "Done") }
-            else { text = nil }
-        }
-        guard let text else { return nil }
-        return (text, detail)
-    }
-
-    // MARK: The app window in the scene
-
-    @ViewBuilder private var content: some View {
-        switch scene {
-        case 0: notesWindow
-        case 1: mailWindow
-        default: editorWindow
-        }
-    }
-
-    private var caret: Text {
-        Int(t * 2.2) % 2 == 0 ? Text(verbatim: "|").foregroundStyle(Color.daisyMarkDaisyPetalTo) : Text(verbatim: "")
-    }
-
-    private var notesWindow: some View {
-        let recording = t >= 0.8 && t < 7.6
-        let saved = t >= 8.4
-        let speech = WhatsNewScript.all[0].speech!
-        let live = firstWords(spoken, progress(t, speech.lowerBound + 0.25, speech.upperBound + 0.35))
-        return WhatsNewMockWindow(title: String(localized: "Notes")) {
-            HStack {
-                Text(saved ? String(localized: "Landing first screen") : String(localized: "New note"))
-                    .font(.system(size: 12, weight: .semibold))
-                Spacer()
-                if t >= 0.8 {
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(saved ? Color.daisyMarkDaisyCenter : Color.daisyMarkVoiceNote)
-                            .frame(width: 6, height: 6)
-                            .opacity(recording && Int(t * 1.6) % 2 == 1 ? 0.35 : 1)
-                        Text(saved ? String(localized: "Landing") : String(format: "0:%02d", Int(max(0, min(t, 7.6) - 0.8))))
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Color.daisyTextSecondary)
-                    }
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(Color.daisyBgSidebar, in: Capsule())
-                    .overlay(Capsule().strokeBorder(Color.daisyDivider))
-                }
-            }
-            (Text(t < 0.8 ? "" : live) + (recording ? caret : Text(verbatim: "")))
-                .font(.system(size: 13))
-                .foregroundStyle(saved ? Color.primary : Color.daisyTextSecondary)
-                .lineSpacing(3)
-        }
-    }
-
-    private var mailWindow: some View {
-        let typed = firstChars(String(localized: "Hi Anna! Thursday at 3 pm works — I’ll send the call link the day before."), progress(t, 6.1, 8.7))
-        return WhatsNewMockWindow(title: String(localized: "Mail")) {
-            HStack(spacing: 8) {
-                Text(String(localized: "AK"))
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Color(red: 0.29, green: 0.12, blue: 0.08))
-                    .frame(width: 22, height: 22)
-                    .background(Color.daisyMarkMeeting.opacity(0.55), in: Circle())
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(String(localized: "Anna Kovaleva")).font(.system(size: 12, weight: .semibold))
-                    Text(String(localized: "Mockups · 10:42")).font(.system(size: 10)).foregroundStyle(Color.daisyTextTertiary)
-                }
-            }
-            Text(String(localized: "Hi! Can we get on a call about the mockups this week?"))
-                .font(.system(size: 12))
-            Divider()
-            Group {
-                if t < 6.1 {
-                    Text(String(localized: "Reply…")).foregroundStyle(Color.daisyTextTertiary)
-                } else {
-                    Text(typed) + (t < 8.8 ? caret : Text(verbatim: ""))
-                }
-            }
-            .font(.system(size: 12))
-            .lineSpacing(2)
-        }
-    }
-
-    private var editorWindow: some View {
-        let rough = String(localized: "so we looked at the metrics and its all fine but conversion dropped on mobile gotta check whats up with the form")
-        let clean = String(localized: "We looked at the metrics: overall it’s fine, but mobile conversion dropped. We need to check the form.")
-        var body = AttributedString()
-        if t < 4.7 {
-            let n = Int((Double(rough.count) * progress(t, 0.3, 1.4)).rounded())
-            var selected = AttributedString(String(rough.prefix(n)))
-            selected.backgroundColor = Color.daisyMarkDaisyPetalTo.opacity(0.32)
-            body = selected + AttributedString(String(rough.dropFirst(n)))
-        } else {
-            var typed = AttributedString(firstChars(clean, progress(t, 4.75, 7.0)))
-            if t < 7.1 { typed.backgroundColor = Color.daisyMarkDaisyPetalTo.opacity(0.32) }
-            body = typed
-        }
-        return WhatsNewMockWindow(title: String(localized: "Notes")) {
-            Text(String(localized: "Week in review"))
-                .font(.system(size: 14, weight: .semibold))
-            (Text(body) + (t >= 4.7 && t < 7.1 ? caret : Text(verbatim: "")))
-                .font(.system(size: 13))
-                .lineSpacing(4)
-                .opacity(t > 4.55 && t < 4.7 ? 1 - progress(t, 4.55, 4.7) : 1)
-        }
-    }
-}
-
-// MARK: - Parts
-
-private struct WhatsNewMockWindow<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
-
-    var body: some View {
+    private var offer: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 5) {
-                ForEach(0..<3, id: \.self) { _ in Circle().fill(Color.daisyDivider).frame(width: 8, height: 8) }
-                Spacer()
-                Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.daisyTextSecondary)
-                Spacer()
-                Color.clear.frame(width: 34, height: 1)
+            Button(action: subscribe) {
+                HStack(spacing: 8) {
+                    if purchase.isWorking { ProgressView().controlSize(.small) }
+                    Text(String(localized: "daisySubscription.subscribe", defaultValue: "Subscribe"))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 3)
             }
-            .padding(.horizontal, 9)
-            .frame(height: 24)
-            .background(Color.daisyBgSidebar)
-            Divider()
-            VStack(alignment: .leading, spacing: 8) { content }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
+            .buttonStyle(.daisyPrimary)
+            .keyboardShortcut(.defaultAction)
+            .disabled(purchase.isWorking)
+            .accessibilityHint(Text("The payment page opens in your browser"))
+            if let error = purchase.error {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(Color.daisyWarning)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
+            }
+            // Two sentences, a line each: run together they broke mid-path.
+            VStack(spacing: 2) {
+                Text("The payment page opens in your browser")
+                Text(verbatim: renewal)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .font(.caption)
+            .foregroundStyle(Color.daisyTextSecondary)
+            .multilineTextAlignment(.center)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
+            // Never disabled: the window can be left while the page is being made.
+            Button("Not now") { dismiss() }
+                .buttonStyle(.daisyQuiet)
+                .keyboardShortcut(.cancelAction)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-        // The shadow on the window's shape only: on the whole stack it
-        // shadowed every line of text too.
-        .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Color.daisyBgPrimary)
-                .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
-        )
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.daisyDivider))
     }
+
+    /// Where it is cancelled is where Settings manage it: the block's own
+    /// «Manage subscription», named by its words.
+    private var renewal: String {
+        String(localized: "The subscription renews until you cancel it in \(SettingsRow.daisySubscription.path), “\(String(localized: "Manage subscription"))”")
+    }
+
+    private func planCard(_ card: DaisyAccountStore.Plan) -> some View {
+        let selected = plan == card
+        let isYear = card == .year
+        let name = isYear
+            ? String(localized: "whatsNew.plan.year", defaultValue: "Yearly")
+            : String(localized: "whatsNew.plan.month", defaultValue: "Monthly")
+        let price = DaisyAccountStore.Plan.priceText(card.price)
+        let period = isYear
+            ? String(localized: "whatsNew.plan.perYear", defaultValue: "per year")
+            : String(localized: "whatsNew.plan.perMonth", defaultValue: "per month")
+        // Both figures from the two prices, never written out.
+        let month = DaisyAccountStore.Plan.month.price
+        let perMonth = isYear
+            ? String(localized: "\(DaisyAccountStore.Plan.priceText(DaisyPlanMath.perMonth(yearly: card.price))) a month")
+            : nil
+        let savings = isYear ? DaisyPlanMath.savingsPercent(monthly: month, yearly: card.price) : nil
+        let saves = savings.map { String(localized: "Save \($0)%") }
+        return Button { plan = card } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack {
+                    Text(name)
+                        .font(.system(size: 13, weight: .semibold))
+                    Spacer(minLength: 4)
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 16))
+                        .foregroundStyle(selected ? Color.daisyTextPrimary : Color.daisyTextTertiary)
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(price)
+                        .font(.system(size: 22, weight: .semibold).monospacedDigit())
+                    Text(period)
+                        .font(.callout)
+                        .foregroundStyle(Color.daisyTextSecondary)
+                }
+                if let perMonth {
+                    Text(perMonth)
+                        .font(.caption)
+                        .foregroundStyle(Color.daisyTextSecondary)
+                }
+            }
+            .foregroundStyle(Color.daisyTextPrimary)
+            .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.daisyBgElevated))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(selected ? Color.daisyTextPrimary : Color.daisyDivider, lineWidth: selected ? 2 : 1))
+            .overlay(alignment: .top) {
+                if let savings {
+                    Text(verbatim: "−\(savings)%")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Color.daisyTextOnAccent)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Color.daisyAccent))
+                        .offset(y: -10)
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(purchase.isWorking)
+        // The price with its period, in one breath. One element of its own
+        // words, so the press is named too.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: [name, "\(price) \(period)", perMonth, saves].compactMap { $0 }.joined(separator: ", ")))
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { plan = card }
+    }
+
+    private func subscribe() {
+        purchase.subscribe(plan: plan, store: store, openSettings: openSettings)
+    }
+
+    // MARK: Subscribed already
+
+    /// Opened by hand by a subscriber: nothing to sell, only what is so.
+    private var activeCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 20))
+                .foregroundStyle(Color.daisySuccess)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Your subscription is active")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.daisyTextPrimary)
+                if let detail = store.subscription?.primary.flatMap(activeDetail) {
+                    Text(verbatim: detail)
+                        .font(.callout)
+                        .foregroundStyle(Color.daisyTextSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            Button("Open Settings") { openSettings() }
+                .buttonStyle(.daisySecondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.daisyBgElevated))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.daisyDivider, lineWidth: 0.5))
+    }
+
+    private var doneButton: some View {
+        Button { dismiss() } label: {
+            Text("Done")
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 3)
+        }
+        .buttonStyle(.daisyPrimary)
+        .keyboardShortcut(.defaultAction)
+        // Escape closes this state too; it has one button to show.
+        .background {
+            Button("Close") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// What the row of Settings says after «Active» (`activeLine`): until
+    /// when, and where it is managed when it was bought on the iPhone.
+    private func activeDetail(_ source: DaisySubscriptionStatus.Source) -> String? {
+        var parts: [String] = []
+        if let date = source.renewsAt?.formatted(date: .long, time: .omitted) {
+            parts.append(source.willRenew == false
+                ? String(localized: "Until \(date), won't renew")
+                : String(localized: "Renews \(date)"))
+        }
+        if source.kind == .appStore {
+            parts.append(String(localized: "Bought on iPhone, managed in the App Store"))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ". ")
+    }
+
+    // MARK: The links
+
+    private var footerLinks: some View {
+        HStack(spacing: 6) {
+            Link(String(localized: "whatsNew.link.terms", defaultValue: "Terms"), destination: Self.terms)
+            Text(verbatim: "·").accessibilityHidden(true)
+            Link(String(localized: "Privacy"), destination: Self.privacy)
+            Text(verbatim: "·").accessibilityHidden(true)
+            Link(String(localized: "whatsNew.link.refunds", defaultValue: "Refunds"), destination: Self.refunds)
+        }
+        .font(.caption)
+        .foregroundStyle(Color.daisyTextSecondary)
+        .tint(Color.daisyTextSecondary)
+    }
+
+    #if DEBUG
+    /// The block that never scrolls, for measuring it outside the window.
+    var fixedPartForInspection: some View { fixedPart.frame(width: Self.width) }
+    #endif
+
+    static let terms = URL(string: "https://mydaisy.io/terms")!
+    static let privacy = URL(string: "https://mydaisy.io/privacy")!
+    static let refunds = URL(string: "https://mydaisy.io/refunds")!
 }
 
-private struct WhatsNewPill: View {
-    let text: String
-    let detail: String?
+/// The brand's field photograph across the top of the window: the daisy
+/// kept in view at the right, the bottom edge fading into the window so
+/// what is below grows out of it. Decoration: nothing for VoiceOver.
+private struct WhatsNewFieldPhoto: View {
+    let height: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var drifted = false
 
     var body: some View {
-        HStack(spacing: 7) {
-            Text(text).font(.system(size: 12, weight: .medium))
-            if let detail {
-                // Tabular digits, not the monospaced design: its font is what
-                // crashed 1.0.8.37–38 (Sentry DAISY-MAC-1).
-                Text(detail).font(.system(size: 11).monospacedDigit()).foregroundStyle(Color(white: 0.75))
+        Image("WhatsNewField")
+            .resizable()
+            .scaledToFill()
+            // A very slow drift towards the daisy; still under Reduce
+            // Motion. One repeating animation of this picture's scale, begun
+            // once: no timeline, nothing else in the window is drawn again.
+            .scaleEffect(drifted ? 1.06 : 1, anchor: .bottomTrailing)
+            .frame(width: WhatsNewSheet.width, height: height, alignment: .bottomTrailing)
+            .clipped()
+            .overlay(alignment: .bottom) {
+                // Shorter with the photograph, so it never reaches the words.
+                LinearGradient(colors: [Color.daisyBgPrimary.opacity(0), Color.daisyBgPrimary],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: min(60, max(14, height - (WhatsNewSheet.heroMinimum - 14))))
             }
-        }
-        .foregroundStyle(Color(white: 0.96))
-        .padding(.horizontal, 12)
-        .frame(height: 30)
-        .background(
-            Capsule()
-                .fill(Color(red: 28 / 255, green: 26 / 255, blue: 23 / 255))
-                .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
-        )
-        // Seen against a dark backdrop too.
-        .overlay(Capsule().strokeBorder(Color.white.opacity(0.12)))
-        .fixedSize()
+            .accessibilityHidden(true)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 26).repeatForever(autoreverses: true)) { drifted = true }
+            }
     }
 }
+
+// MARK: - Parts the tour draws with
 
 /// The key as keycaps: ⌃ ⌥ for the default, the right ⌘, or the chord
 /// the person recorded.
@@ -660,83 +846,6 @@ struct WhatsNewKeycaps: View {
                 )
                 .offset(y: down ? 3 : 0)
             }
-        }
-    }
-}
-
-/// The widget's flower on its own: eight petals of the widget's shape,
-/// white → lavender while the Daisy key works, the voice note's blue
-/// centre for a note.
-struct WhatsNewFlower: View {
-    enum Petals: Equatable {
-        case full
-        case voice(loud: Double, t: TimeInterval)
-        case writing(since: TimeInterval)
-    }
-
-    struct Look: Equatable {
-        var petals: Petals = .full
-        var center: Color = .daisyMarkDaisyCenter
-        var daisy = true
-        var rotation: Double = 0
-        var flash: Double = 0
-
-        static let idle = Look(petals: .full, center: .white, daisy: false)
-    }
-
-    let look: Look
-    let size: CGFloat
-
-    private static let count = 8
-
-    var body: some View {
-        // The widget's proportions (DaisyWidget: a 42-unit canvas).
-        let unit = size / 42.075
-        let maxLength = size * 0.278
-        let width = size * DaisyPetalShape.boxWidth / 100
-        let center = size * 0.21
-        let gap = size * 0.037
-        ZStack {
-            Circle().fill(Color(red: 28 / 255, green: 26 / 255, blue: 23 / 255))
-            ZStack {
-                ForEach(0..<Self.count, id: \.self) { i in
-                    let scale = scale(i)
-                    DaisyPetalShape()
-                        .fill(look.daisy
-                              ? AnyShapeStyle(LinearGradient(colors: [.daisyMarkDaisyPetalFrom, .daisyMarkDaisyPetalTo], startPoint: .bottom, endPoint: .top))
-                              : AnyShapeStyle(Color.daisyMarkPetal))
-                        .frame(width: width * scale.width, height: maxLength * scale.length)
-                        .offset(y: -(center / 2 + maxLength * scale.length / 2 + gap))
-                        .rotationEffect(.degrees(Double(i) * 360 / Double(Self.count)))
-                }
-            }
-            .brightness(look.flash * 0.35)
-            .rotationEffect(.degrees(look.rotation))
-            .scaleEffect(0.85)
-            Circle()
-                .fill(look.center)
-                .frame(width: center, height: center)
-                .shadow(color: look.center.opacity(0.55), radius: 2.5 * unit)
-                .scaleEffect(0.85)
-        }
-        .frame(width: size, height: size)
-    }
-
-    /// Length and width against a full petal. A voice moves each petal
-    /// between half and full, symmetric as the widget's bands are.
-    private func scale(_ i: Int) -> (length: CGFloat, width: CGFloat) {
-        switch look.petals {
-        case .full:
-            return (1, 1)
-        case .writing(let since):
-            let g = DaisyWidget.writingGrowth(petal: i, count: Self.count, elapsed: since)
-            return (g, g)
-        case .voice(let loud, let t):
-            let band = Double(min(i, Self.count - i))
-            let s = 0.5 + 0.5 * sin(t * 8.3 + band * 1.7) * sin(t * 3.1 + band * 0.9 + 1.3)
-            let syllable = 0.55 + 0.45 * abs(sin(t * 5.2 + band * 0.4))
-            let amp = min(1, max(0, 0.12 + loud * (0.25 + 0.75 * s * syllable)))
-            return (0.5 + 0.5 * CGFloat(amp), 1)
         }
     }
 }

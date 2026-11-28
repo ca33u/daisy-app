@@ -310,7 +310,7 @@ struct ContextTipsTests {
         let en = try #require(Bundle.main.path(forResource: "en", ofType: "lproj").flatMap(Bundle.init(path:)))
         for key in ["tip.calendar.ask", "tip.calendar.action", "tip.summary.ask", "tip.summary.action",
                     "tip.project.ask", "tip.project.create", "tip.project.created", "tip.project.notMoved",
-                    "tip.home.summary.caption", "tip.whatsNew.tour"] {
+                    "tip.home.summary.caption"] {
             #expect(ru.localizedString(forKey: key, value: missing, table: nil) != missing, "ru \(key)")
             #expect(en.localizedString(forKey: key, value: missing, table: nil) != missing, "en \(key)")
         }

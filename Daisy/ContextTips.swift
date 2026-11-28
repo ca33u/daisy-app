@@ -418,7 +418,6 @@ final class ContextTips {
         static func projectCreated(_ name: String) -> String { String(format: text("tip.project.created"), name) }
         static func projectNotMoved(_ folder: String) -> String { String(format: text("tip.project.notMoved"), folder) }
         static var homeSummaryCaption: String { text("tip.home.summary.caption") }
-        static var whatsNewTour: String { text("tip.whatsNew.tour") }
 
         static func text(_ key: String) -> String {
             String(localized: String.LocalizationValue(stringLiteral: key))

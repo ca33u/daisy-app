@@ -205,6 +205,12 @@ final class DaisyAccountStore {
 
     enum Plan: String, Sendable { case month, year }
 
+    /// The plan chosen where the subscription is bought: the «Plan» row of
+    /// Settings, and «What's New», which hands its choice over to that row
+    /// when the person has to sign in first. Nothing is bought until
+    /// «Subscribe».
+    var chosenPlan: Plan = .month
+
     private(set) var account: DaisyAccountInfo? {
         didSet {
             defaults.set(account.flatMap { try? JSONEncoder().encode($0) }, forKey: Self.accountKey)
@@ -574,5 +580,58 @@ final class DaisyAccountStore {
         }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         return (status, try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+}
+
+// MARK: - Plans and prices
+
+nonisolated extension DaisyAccountStore.Plan {
+    /// What the plan costs, in US dollars: the one place the two amounts
+    /// are written. The checkout page charges what the website's plans say
+    /// (daisy-api, POST /v1/checkout); these are what the Mac shows before it.
+    var price: Decimal {
+        switch self {
+        case .month: Decimal(sign: .plus, exponent: -2, significand: 799)
+        case .year: Decimal(sign: .plus, exponent: -2, significand: 5999)
+        }
+    }
+
+    /// «$7.99», with the decimal mark of the interface's language («$7,99»
+    /// in Russian) rather than the region's: the way the «Plan» row has
+    /// shown its prices since they were written out by hand.
+    static func priceText(_ amount: Decimal,
+                          language: String = Bundle.main.preferredLocalizations.first ?? "en") -> String {
+        "$" + amount.formatted(.number.precision(.fractionLength(2)).locale(Locale(identifier: language)))
+    }
+
+    /// «$7.99 a month», «$59.99 a year».
+    var priceLine: String {
+        let price = Self.priceText(price)
+        switch self {
+        case .month: return String(localized: "\(price) a month")
+        case .year: return String(localized: "\(price) a year")
+        }
+    }
+}
+
+/// The plan figures a screen shows beside the prices. The iPhone's
+/// `PaywallMath` (DaisyLite, PaywallView.swift), figure for figure.
+nonisolated enum DaisyPlanMath {
+    /// How much the year saves against twelve months, rounded down; nil
+    /// when it saves nothing.
+    static func savingsPercent(monthly: Decimal, yearly: Decimal) -> Int? {
+        let full = monthly * 12
+        guard monthly > 0, yearly < full else { return nil }
+        let percent = NSDecimalNumber(decimal: (full - yearly) / full * 100).doubleValue
+        let whole = Int(percent.rounded(.down))
+        return whole > 0 ? whole : nil
+    }
+
+    /// The year's price spread over twelve months, to the cent.
+    static func perMonth(yearly: Decimal) -> Decimal {
+        var value = yearly / 12
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &value, 2, .plain)
+        return rounded
     }
 }

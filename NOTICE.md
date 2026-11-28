@@ -42,11 +42,13 @@ Copies of these files published under the Apache License 2.0, in the commits nam
 
 The mark is also drawn in code in a few places (the petal shape in `Daisy/DaisyWidget.swift`, the sign-in page in `Daisy/GoogleOAuthClient.swift`). That code is under AGPL-3.0-only like the rest of the source, but term 3 applies to the mark it draws: the license gives no right to use it as the mark of a modified version.
 
+The field photograph shown in What's New, `Daisy/Assets.xcassets/WhatsNewField.imageset/` (`daisy-field.jpg`), was made for Daisy by its author. It is not licensed under AGPL-3.0-only; all rights in it are reserved, and it may be distributed only in unmodified copies of Daisy. It too is a separate work shipped alongside the program, not part of the Program the license covers. A modified version that is distributed needs a picture of its own.
+
 ## History
 
 Every commit from [`310141b`](https://github.com/addicted-studio/daisy-app/commit/310141b287e9fca3cb5a00ef6473e5ecf869b049) (22 May 2026) up to and including [`94a45d1`](https://github.com/addicted-studio/daisy-app/commit/94a45d1bdbbcaadece1b2f14d30f11b8a0da1222) (28 November 2026), and every release built from them up to and including 1.0.8.59, was published under the Apache License 2.0 and remains available under it. Its text is the [`LICENSE` file at `94a45d1`](https://github.com/addicted-studio/daisy-app/blob/94a45d1bdbbcaadece1b2f14d30f11b8a0da1222/LICENSE). This notice does not change the terms that commits before `310141b` were published under. The license of any commit is the one in its own LICENSE file.
 
-Everything after `94a45d1` is under AGPL-3.0-only with the terms in this file, except the brand artwork named above.
+Everything after `94a45d1` is under AGPL-3.0-only with the terms in this file, except the brand artwork and the photograph named above.
 
 ## Commercial license
 

@@ -469,7 +469,7 @@ nonisolated enum LoneModifier: CaseIterable, Sendable {
         }
     }
 
-    /// Under the keycap in What's New.
+    /// Under the keycap in the tour (`WhatsNewKeycaps`).
     var capName: String {
         switch self {
         case .leftControl: String(localized: "left control")

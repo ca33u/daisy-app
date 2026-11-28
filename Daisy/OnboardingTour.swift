@@ -709,7 +709,7 @@ final class OnboardingTourController {
         return key
     }
 
-    /// The Daisy key; ⌃⌥ when none is set (as «What's New» does).
+    /// The Daisy key; ⌃⌥ when none is set.
     var daisyKey: HotkeyChoice {
         guard let key = settings?.voiceNoteHotkey, key.keyCode != nil else { return .ctrlOpt }
         return key

@@ -151,11 +151,4 @@ struct SettingsWordsTests {
         let error = SummaryProviderError.missingAPIKey(provider: "Anthropic")
         #expect(error.localizedDescription == "Anthropic: API key is missing. Open Settings → AI → Summary provider to add it.")
     }
-
-    @Test func whatsNewTellsAboutSettings() throws {
-        #expect(WhatsNew.edition.hasSuffix("-e"))
-        let entry = try #require(try Self.catalog()["whatsNew.settings"])
-        #expect(entry.en == "Settings are eight tabs now, with search (⌘F)")
-        #expect(entry.ru == "Настройки — восемь вкладок и поиск (⌘F)")
-    }
 }

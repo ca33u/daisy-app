@@ -24,8 +24,6 @@ struct DaisySubscriptionRows: View {
     @State private var confirmDelete = false
     @State private var error: String?
     @State private var busy = false
-    /// The plan picked in the row; nothing is bought until «Subscribe».
-    @State private var plan: DaisyAccountStore.Plan = .month
     /// Called when the account or the subscription changed, so readiness is asked again.
     let changed: @MainActor () async -> Void
 
@@ -201,9 +199,11 @@ struct DaisySubscriptionRows: View {
                     LabeledContent(String(localized: "daisySubscription.plan", defaultValue: "Plan")) {
                         VStack(alignment: .trailing, spacing: 8) {
                             // The label is hidden, and still what VoiceOver reads.
-                            Picker(String(localized: "daisySubscription.plan", defaultValue: "Plan"), selection: $plan) {
-                                Text("$7.99 a month").tag(DaisyAccountStore.Plan.month)
-                                Text("$59.99 a year").tag(DaisyAccountStore.Plan.year)
+                            // The plan picked is the store's (`chosenPlan`):
+                            // «What's New» hands its choice over to this row.
+                            Picker(String(localized: "daisySubscription.plan", defaultValue: "Plan"), selection: $store.chosenPlan) {
+                                Text(DaisyAccountStore.Plan.month.priceLine).tag(DaisyAccountStore.Plan.month)
+                                Text(DaisyAccountStore.Plan.year.priceLine).tag(DaisyAccountStore.Plan.year)
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()
@@ -219,7 +219,7 @@ struct DaisySubscriptionRows: View {
                                     .fixedSize()
                                 Button(String(localized: "daisySubscription.subscribe", defaultValue: "Subscribe")) {
                                     // The plan as it stands at the click.
-                                    let picked = plan
+                                    let picked = store.chosenPlan
                                     run { try await store.checkout(picked) }
                                 }
                                 .buttonStyle(.daisyPrimary)

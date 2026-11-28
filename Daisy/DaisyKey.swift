@@ -1050,6 +1050,8 @@ final class DaisyKeyController {
     }
 
     nonisolated static let introducedKey = "daisy.daisyKey.introduced"
+    /// The introduction is waiting for «What's New» to be out of the way.
+    private static var introductionWaits = false
     /// Posted when a hold saved a note — the first-run tour's Daisy-key
     /// step finishes on it.
     nonisolated static let noteSaved = Notification.Name("daisy.daisyKey.noteSaved")
@@ -1062,13 +1064,29 @@ final class DaisyKeyController {
         let defaults = UserDefaults.standard
         // Not from the test host: it shares the real app's defaults.
         guard settings.hasShownFirstRun, !TestHost.isActive, !defaults.bool(forKey: introducedKey) else { return }
-        // «What's New» is about to say it, with the key in front of them.
-        if WhatsNew.shouldOpen(hasShownFirstRun: settings.hasShownFirstRun) { return }
         guard settings.voiceNoteHotkey != .none else {
             defaults.set(true, forKey: introducedKey)
             return
         }
         guard canHold else { return }
+        // One thing at a time: «What's New» about to open by itself, or on
+        // screen, goes first, and this comes once it is closed and no
+        // sheet is up. It says nothing about the key since the edition of
+        // 28.11, so this is still the only introduction.
+        if WhatsNew.isAhead(hasShownFirstRun: settings.hasShownFirstRun) {
+            guard !introductionWaits else { return }
+            introductionWaits = true
+            Task { @MainActor in
+                while WhatsNew.isAhead(hasShownFirstRun: settings.hasShownFirstRun) {
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+                let clear = await SheetQueue.waitForNoPanel()
+                introductionWaits = false
+                // From the top: the key or its permission may have changed meanwhile.
+                if clear { introduceIfNeeded(settings: settings) }
+            }
+            return
+        }
         defaults.set(true, forKey: introducedKey)
         let key = settings.voiceNoteHotkey.displayLabel
         let text = String(localized: "Hold \(key) and say what to do")
