@@ -1,6 +1,6 @@
 # Contributing to Daisy
 
-Thanks for thinking about contributing. Daisy is open source under the Apache 2.0 licence, but direction is set by a single maintainer — please read this before spending your time on a pull request.
+Thanks for thinking about contributing. Daisy is open source under the GNU Affero General Public License, version 3 only (AGPL-3.0-only), but direction is set by a single maintainer, and a contribution comes with a licence grant to him ([Licence](#licence), below) — please read this before spending your time on a pull request.
 
 ## Direction is set by the maintainer
 
@@ -70,7 +70,13 @@ Run `DaisyTests` (the regression suite, not the UI tests target which was remove
 
 ### Licence
 
-Daisy is [Apache 2.0](LICENSE). Contributions are accepted under that same licence. By opening a PR, you confirm you have the right to contribute under Apache 2.0 — that's all the paperwork.
+Daisy is [AGPL-3.0-only](LICENSE), with the additional terms in [NOTICE.md](NOTICE.md). Contributions are accepted under that same licence, plus one grant:
+
+> By opening a pull request, you license your contribution under the same terms as Daisy (AGPL-3.0-only with the additional terms and permission in NOTICE.md), and you grant Egor Sazanov and his successors and assigns a perpetual, worldwide, non-exclusive, royalty-free, irrevocable licence, under your copyrights and under any patent claims you can license that your contribution, alone or combined with Daisy, infringes, to use, modify, distribute, sublicense and relicense your contribution under any terms, including commercial ones, and you won't assert moral rights against these uses. You confirm that you have the right to contribute it, AI-assisted parts included: it is your own work, or its owner has allowed you to contribute it on these terms. What applies to your contribution is these terms as they read when you open the pull request.
+
+Why the grant: it is what lets me offer a commercial licence to companies that cannot take AGPL-3.0-only, and ship the same code in my other apps, with your contribution in it. The copyright in your contribution stays yours.
+
+Tick the licence box in the pull request template to confirm. I can't merge a PR without it.
 
 ## Questions
 

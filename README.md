@@ -53,7 +53,11 @@ More: <https://mydaisy.io/docs/mcp>.
 
 ## License
 
-Apache License 2.0. You can use, modify and redistribute the code, including commercially, as long as you keep the license and copyright notices. Full text in [`LICENSE`](./LICENSE).
+GNU Affero General Public License, version 3 only (`AGPL-3.0-only`). You can use Daisy for any purpose, read its code, change it, and share it on the license's terms. If you distribute Daisy, changed or not, you pass on the license and offer the source; if you let other people use a modified version over a network, you offer them its source too. A modified version that you distribute also needs a name and an icon of its own, and keeps Daisy's author attribution among its legal notices, as "Based on Daisy (https://mydaisy.io) by Egor Sazanov, addicted" or words to that effect.
+
+Every commit from `310141b` (22 May 2026) up to and including `94a45d1` (28 November 2026), and every release built from them up to and including 1.0.8.59, was published under the Apache License 2.0 and remains available under it. Everything after `94a45d1` is under AGPL-3.0-only. The license of any commit is the one in its own LICENSE file. For a company that cannot take the terms of AGPL-3.0-only, a commercial license can be arranged with the author: **hello@mydaisy.io**.
+
+Full text in [`LICENSE`](./LICENSE). The additional terms, and the brand artwork the license does not cover, are in [`NOTICE.md`](./NOTICE.md). What you can do with the name, the logo and the icon is in [`TRADEMARKS.md`](./TRADEMARKS.md).
 
 ## What it does
 
@@ -154,7 +158,7 @@ Daisy is free, open source and built independently. If it saves you time, you ca
 - Questions, ideas, show-and-tell → [GitHub Discussions](https://github.com/ca33u/daisy-app/discussions)
 - Product issues, feature requests → file an issue on this repo or email **support@mydaisy.io**
 - Security disclosures → see [`SECURITY.md`](./SECURITY.md)
-- Procurement / security review / tailored deployment → email **hello@mydaisy.io**
+- Procurement / security review / commercial license / tailored deployment → email **hello@mydaisy.io**
 - End-user docs → <https://mydaisy.io/docs> · Privacy → <https://mydaisy.io/privacy>
 
 ## Credits

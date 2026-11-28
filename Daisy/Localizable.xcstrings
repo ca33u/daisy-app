@@ -16794,12 +16794,42 @@
         }
       }
     },
-    "Made by addicted. Open source under Apache 2.0." : {
+    "Legal notices" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Сделано addicted. Открытый исходный код под лицензией Apache 2.0."
+            "value" : "Правовая информация"
+          }
+        }
+      }
+    },
+    "Author" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автор"
+          }
+        }
+      }
+    },
+    "Additional terms" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дополнительные условия"
+          }
+        }
+      }
+    },
+    "Daisy is free software under AGPL-3.0-only. It comes with no warranty. You may redistribute it under that license" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daisy — свободная программа под лицензией AGPL-3.0-only. Она поставляется без гарантий. Её можно распространять на условиях этой лицензии"
           }
         }
       }

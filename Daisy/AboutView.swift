@@ -28,6 +28,9 @@
 //  2026-11-01 (Egor): two of them are back as copies, since this is where
 //  people look — «Get beta updates» and «Report a bug». Their home rows
 //  (General → Updates, Privacy → Logs) keep the search and deep links.
+//  2026-11-28: Daisy is under AGPL-3.0-only, and this page is where it shows
+//  its legal notices — the last section, «Legal notices» (LegalNotices,
+//  AboutLegalSection). «Source code» and «License» moved there from Links.
 //
 
 import AppKit
@@ -180,12 +183,6 @@ struct AboutView: View {
                     url: URL(string: "https://mydaisy.io/support")
                 )
                 aboutLinkRow(
-                    icon: "chevron.left.forwardslash.chevron.right",
-                    title: "Source code",
-                    detail: "github.com/ca33u/daisy-app",
-                    url: URL(string: "https://github.com/ca33u/daisy-app")
-                )
-                aboutLinkRow(
                     icon: "bubble.left.and.bubble.right",
                     title: "Community",
                     detail: "Q&A, ideas, show-and-tell",
@@ -208,12 +205,6 @@ struct AboutView: View {
                         url: URL(string: "https://t.me/daisyapp")
                     )
                 }
-                aboutLinkRow(
-                    icon: "doc.text",
-                    title: "License",
-                    detail: "Apache 2.0 — open source",
-                    url: URL(string: "https://github.com/ca33u/daisy-app/blob/main/LICENSE")
-                )
                 aboutLinkRow(
                     icon: "lock.shield",
                     title: "Privacy",
@@ -256,6 +247,9 @@ struct AboutView: View {
             } header: {
                 Text("Studio")
             }
+
+            // Last on the page, with the small print under it.
+            AboutLegalSection()
             // Bottom paragraph removed 2026-05-25 — merged into the
             // page-top brand header so the value-prop landed before the
             // user scrolled five rows of links instead of after.
@@ -267,17 +261,27 @@ struct AboutView: View {
 
     // MARK: - Pieces
 
-    /// One link row in the Settings row idiom: a leading title label and
-    /// a trailing button that opens the URL. Built on `LabeledContent`
-    /// so it inherits the same grid/insets as every other Form row in
-    /// Settings (which don't carry leading icons — so neither does this).
-    @ViewBuilder
     private func aboutLinkRow(
         icon: String,
         title: LocalizedStringKey,
         detail: String,
         url: URL?
     ) -> some View {
+        AboutLinkRow(icon: icon, title: title, detail: detail, url: url)
+    }
+}
+
+/// One link row in the Settings row idiom: a leading title label and
+/// a trailing button that opens the URL. Built on `LabeledContent`
+/// so it inherits the same grid/insets as every other Form row in
+/// Settings.
+struct AboutLinkRow: View {
+    let icon: String
+    let title: LocalizedStringKey
+    let detail: String
+    let url: URL?
+
+    var body: some View {
         LabeledContent {
             if let url {
                 Button {
@@ -304,6 +308,75 @@ struct AboutView: View {
                     .foregroundStyle(.secondary)
                 Text(title)
             }
+        }
+    }
+}
+
+// MARK: - Legal notices
+
+/// What Daisy states about its authorship and license. NOTICE.md at the
+/// repository root is the source of truth: its term 1 (attribution, AGPL
+/// section 7(b)) quotes `attribution` word for word and names the About
+/// window as the place it is shown, with the link to the source code.
+/// AboutLegalTests holds the two together. The proper names are not
+/// translated.
+nonisolated enum LegalNotices {
+    static let attribution = "Daisy (https://mydaisy.io) by Egor Sazanov, addicted"
+    /// Also Info.plist's NSHumanReadableCopyright.
+    static let copyright = "Copyright © 2026 Egor Sazanov, addicted"
+    /// The row's name for the license; the notice under the rows gives the
+    /// SPDX identifier in full, AGPL-3.0-only.
+    static let licenseName = "AGPL-3.0"
+
+    static let website = "https://mydaisy.io"
+    static let sourceCode = "https://github.com/ca33u/daisy-app"
+    static let licenseText = "https://github.com/ca33u/daisy-app/blob/main/LICENSE"
+    static let notice = "https://github.com/ca33u/daisy-app/blob/main/NOTICE.md"
+}
+
+/// The «Appropriate Legal Notices» of AGPL section 0, in the page's own
+/// rows: who wrote Daisy and where its source is, the license and the
+/// additional terms, and under them the copyright line, that there is no
+/// warranty, and that Daisy may be passed on under the license. The same
+/// LICENSE and NOTICE.md ship inside the app (Contents/Resources); the
+/// rows open the ones on GitHub.
+struct AboutLegalSection: View {
+    var body: some View {
+        Section {
+            AboutLinkRow(
+                icon: "person",
+                title: "Author",
+                detail: LegalNotices.attribution,
+                url: URL(string: LegalNotices.website)
+            )
+            AboutLinkRow(
+                icon: "chevron.left.forwardslash.chevron.right",
+                title: "Source code",
+                detail: "github.com/ca33u/daisy-app",
+                url: URL(string: LegalNotices.sourceCode)
+            )
+            AboutLinkRow(
+                icon: "doc.text",
+                title: "License",
+                detail: LegalNotices.licenseName,
+                url: URL(string: LegalNotices.licenseText)
+            )
+            AboutLinkRow(
+                icon: "doc.append",
+                title: "Additional terms",
+                detail: "NOTICE.md",
+                url: URL(string: LegalNotices.notice)
+            )
+        } header: {
+            Text("Legal notices")
+        } footer: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: LegalNotices.copyright)
+                Text("Daisy is free software under AGPL-3.0-only. It comes with no warranty. You may redistribute it under that license")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

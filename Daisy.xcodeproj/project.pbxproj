@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B9A6E3000000000000000003 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = B9A6E3000000000000000001 /* LICENSE */; };
+		B9A6E3000000000000000004 /* NOTICE.md in Resources */ = {isa = PBXBuildFile; fileRef = B9A6E3000000000000000002 /* NOTICE.md */; };
 		B9AA0000000000000000000B /* DaisyLLMEngine in Frameworks */ = {isa = PBXBuildFile; productRef = B9AA0000000000000000000C /* DaisyLLMEngine */; };
 		B9AA0000000000000000000F /* DaisyLLMKit in Frameworks */ = {isa = PBXBuildFile; productRef = B9AA0000000000000000000E /* DaisyLLMKit */; };
 		B9AA00000000000000000011 /* DaisyLLM.xpc in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = B9AA00000000000000000001 /* DaisyLLM.xpc */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -51,6 +53,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		B9A6E3000000000000000001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
+		B9A6E3000000000000000002 /* NOTICE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = NOTICE.md; sourceTree = "<group>"; };
 		B9AA00000000000000000001 /* DaisyLLM.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = DaisyLLM.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
 		B9F5F11C2FB74D9F00E26A7A /* Daisy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Daisy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B9F5F1292FB74DA000E26A7A /* DaisyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DaisyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -127,6 +131,8 @@
 				B9F5F11E2FB74D9F00E26A7A /* Daisy */,
 				B9F5F12C2FB74DA000E26A7A /* DaisyTests */,
 				B9AA00000000000000000002 /* DaisyLLM */,
+				B9A6E3000000000000000001 /* LICENSE */,
+				B9A6E3000000000000000002 /* NOTICE.md */,
 				B9F5F11D2FB74D9F00E26A7A /* Products */,
 			);
 			sourceTree = "<group>";
@@ -287,6 +293,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B9A6E3000000000000000003 /* LICENSE in Resources */,
+				B9A6E3000000000000000004 /* NOTICE.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

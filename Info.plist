@@ -133,7 +133,7 @@
 
     <!-- Copyright -->
     <key>NSHumanReadableCopyright</key>
-    <string></string>
+    <string>Copyright © 2026 Egor Sazanov, addicted</string>
 
     <!-- Permission prompts. Texts are user-facing and surface in the
          system's privacy-grant dialog the first time Daisy requests

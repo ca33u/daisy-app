@@ -30,3 +30,7 @@ notice — describe it here. Include before/after screenshots if visual.
 ## Breaking changes
 
 <!-- Default: none. Note any settings keys renamed, file formats changed, public APIs touched. -->
+
+## Licence
+
+- [ ] I have the right to contribute this, and I agree to the [contribution terms](https://github.com/ca33u/daisy-app/blob/main/CONTRIBUTING.md#licence): it is licensed under the same terms as Daisy (the GNU Affero General Public License, version 3 only, `AGPL-3.0-only`, with the additional terms and permission in NOTICE.md), and I grant Egor Sazanov and his successors and assigns a licence, under my copyrights and patent claims, to use and relicense it under any terms, including commercial ones
